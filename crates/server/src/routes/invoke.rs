@@ -269,10 +269,10 @@ pub(crate) async fn create_request_progress_stream(
                         CheckForFinishedResult::Finished(finished_event) => {
                             yield Event::default().json_data(finished_event);
                         }
-                        CheckForFinishedResult::NoOutcome | CheckForFinishedResult::NotFound => {
+                        CheckForFinishedResult::NoOutcome | CheckForFinishedResult::NotFound | CheckForFinishedResult::Error => {
+                            // Best effort: send the original event as fallback if we can't check state
+                            // This ensures clients always get a final message when RequestFinished is received
                             yield Event::default().json_data(event);
-                        }
-                        CheckForFinishedResult::Error => {
                         }
                     }
                     info!("finished event received, stopping stream");
@@ -295,6 +295,8 @@ pub(crate) async fn create_request_progress_stream(
                             info!("no outcome or request not found, continuing stream");
                         }
                         CheckForFinishedResult::Error => {
+                            // Best effort: if we can't check state during lag, we can't send a final message
+                            // but we should still break to avoid infinite loops
                             error!("failed to check for finished during lag, stopping stream");
                             break;
                         }

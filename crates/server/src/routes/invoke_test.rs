@@ -8,12 +8,7 @@ mod tests {
 
     use crate::{
         data_model::{
-            self,
-            DataPayload,
-            FunctionCallId,
-            RequestCtx,
-            RequestCtxBuilder,
-            RequestFailureReason,
+            self, DataPayload, FunctionCallId, RequestCtx, RequestCtxBuilder, RequestFailureReason,
             RequestOutcome,
             test_objects::tests::{TEST_NAMESPACE, mock_app_with_retries, mock_data_payload},
         },
@@ -335,7 +330,6 @@ mod tests {
         );
     }
 
-    // Test 1.1: Request finished with Success outcome
     #[tokio::test]
     async fn test_initial_check_finished_success() {
         let namespace = TEST_NAMESPACE;
@@ -364,7 +358,6 @@ mod tests {
         assert_contains_finished_event(&events);
     }
 
-    // Test 1.2: Request finished with Failure outcome
     #[tokio::test]
     async fn test_initial_check_finished_failure() {
         let namespace = TEST_NAMESPACE;
@@ -393,7 +386,6 @@ mod tests {
         assert_contains_finished_event(&events);
     }
 
-    // Test 1.3: Request finished with Unknown outcome
     #[tokio::test]
     async fn test_initial_check_finished_unknown() {
         let namespace = TEST_NAMESPACE;
@@ -422,7 +414,6 @@ mod tests {
         assert_contains_finished_event(&events);
     }
 
-    // Test 1.4: Request not found
     #[tokio::test]
     async fn test_initial_check_not_found() {
         let namespace = TEST_NAMESPACE;
@@ -446,7 +437,6 @@ mod tests {
         );
     }
 
-    // Test 1.6: Request exists but no outcome yet
     #[tokio::test]
     async fn test_initial_check_no_outcome() {
         let namespace = TEST_NAMESPACE;
@@ -457,7 +447,7 @@ mod tests {
             TEST_APP_NAME,
             TEST_APP_VERSION,
             request_id,
-            None, // No outcome
+            None,
         )
         .await;
 
@@ -470,7 +460,6 @@ mod tests {
         )
         .await;
 
-        // Send a finished event to trigger the loop
         let finished_event = create_request_finished_event(
             namespace,
             TEST_APP_NAME,
@@ -484,7 +473,6 @@ mod tests {
         assert!(events.len() >= 1, "Should receive the finished event");
     }
 
-    // Test 4.1: Receive RequestStarted event
     #[tokio::test]
     async fn test_receive_request_started_event() {
         let namespace = TEST_NAMESPACE;
@@ -508,19 +496,15 @@ mod tests {
         )
         .await;
 
-        // Send a RequestStarted event
         let started_event =
             create_request_started_event(namespace, TEST_APP_NAME, TEST_APP_VERSION, request_id);
         tx.send(started_event).unwrap();
-
-        // Close the channel to end the stream
         drop(tx);
 
         let events = collect_stream_events_pinned(stream).await;
         assert_eq!(events.len(), 1, "Should receive the RequestStarted event");
     }
 
-    // Test 4.2: Receive FunctionRunCreated event
     #[tokio::test]
     async fn test_receive_function_run_created_event() {
         let namespace = TEST_NAMESPACE;
@@ -544,7 +528,6 @@ mod tests {
         )
         .await;
 
-        // Send a FunctionRunCreated event
         let fn_created_event = create_function_run_created_event(
             namespace,
             TEST_APP_NAME,
@@ -554,8 +537,6 @@ mod tests {
             "fn_run_1",
         );
         tx.send(fn_created_event).unwrap();
-
-        // Close the channel to end the stream
         drop(tx);
 
         let events = collect_stream_events_pinned(stream).await;
@@ -566,7 +547,6 @@ mod tests {
         );
     }
 
-    // Test 4.3: Receive multiple non-finished events
     #[tokio::test]
     async fn test_receive_multiple_events() {
         let namespace = TEST_NAMESPACE;
@@ -590,7 +570,6 @@ mod tests {
         )
         .await;
 
-        // Send multiple events
         let started_event =
             create_request_started_event(namespace, TEST_APP_NAME, TEST_APP_VERSION, request_id);
         tx.send(started_event).unwrap();
@@ -604,15 +583,12 @@ mod tests {
             "fn_run_1",
         );
         tx.send(fn_created_event).unwrap();
-
-        // Close the channel to end the stream
         drop(tx);
 
         let events = collect_stream_events_pinned(stream).await;
         assert_eq!(events.len(), 2, "Should receive both events");
     }
 
-    // Test 6.1: Channel closed
     #[tokio::test]
     async fn test_channel_closed() {
         let namespace = TEST_NAMESPACE;
@@ -636,20 +612,17 @@ mod tests {
         )
         .await;
 
-        // Close the channel immediately
         drop(tx);
 
         let events = collect_stream_events_pinned(stream).await;
         assert_eq!(events.len(), 0, "Should handle closed channel gracefully");
     }
 
-    // Test 3.1: Receive RequestFinished, check_for_finished returns Finished
     #[tokio::test]
     async fn test_receive_finished_event_with_finished_result() {
         let namespace = TEST_NAMESPACE;
         let request_id = "req-finished-1";
 
-        // Create context with Success outcome
         let (state, _ctx) = setup_test_with_request_ctx(
             namespace,
             TEST_APP_NAME,
@@ -668,7 +641,6 @@ mod tests {
         )
         .await;
 
-        // Send a RequestFinished event
         let finished_event = create_request_finished_event(
             namespace,
             TEST_APP_NAME,
@@ -679,17 +651,14 @@ mod tests {
         tx.send(finished_event).unwrap();
 
         let events = collect_stream_events_pinned(stream).await;
-        // Should yield the finished event from check_for_finished (not the original)
         assert_eq!(events.len(), 1, "Should yield finished event");
     }
 
-    // Test 3.2: Receive RequestFinished, check_for_finished returns NoOutcome
     #[tokio::test]
     async fn test_receive_finished_event_with_no_outcome() {
         let namespace = TEST_NAMESPACE;
         let request_id = "req-finished-2";
 
-        // Create context without outcome
         let (state, _ctx) = setup_test_with_request_ctx(
             namespace,
             TEST_APP_NAME,
@@ -723,22 +692,11 @@ mod tests {
         assert_eq!(events.len(), 1, "Should yield original finished event");
     }
 
-    // Test 3.3: Receive RequestFinished, check_for_finished returns NotFound
-    // Note: This scenario is difficult to test because if the request doesn't exist
-    // initially, the stream ends immediately on the initial check. The NotFound
-    // case during event handling would only occur if the request is deleted
-    // between receiving the event and checking, which is a race condition
-    // that's hard to simulate. Instead, we test that when the request doesn't
-    // exist, the stream returns empty (tested in test_initial_check_not_found).
-    // The NotFound branch in event handling is a safety fallback that's unlikely in
-    // practice.
     #[tokio::test]
     async fn test_receive_finished_event_with_not_found() {
         let namespace = TEST_NAMESPACE;
         let request_id = "req-finished-3";
 
-        // Create request context without outcome so initial check returns NoOutcome
-        // This allows the stream to continue and receive events
         let (state, _ctx) = setup_test_with_request_ctx(
             namespace,
             TEST_APP_NAME,
@@ -757,9 +715,6 @@ mod tests {
         )
         .await;
 
-        // Send a RequestFinished event
-        // Since the request exists, check_for_finished will find it and return Finished
-        // (not NotFound), so we'll get the finished event from check_for_finished
         let finished_event = create_request_finished_event(
             namespace,
             TEST_APP_NAME,
@@ -770,8 +725,6 @@ mod tests {
         tx.send(finished_event).unwrap();
 
         let events = collect_stream_events_pinned(stream).await;
-        // Since request exists, check_for_finished will return Finished (not NotFound)
-        // So we get the finished event from check_for_finished, not the original event
         assert_eq!(
             events.len(),
             1,
@@ -779,13 +732,11 @@ mod tests {
         );
     }
 
-    // Test 2.4: Success with no function run output
     #[tokio::test]
     async fn test_success_outcome_no_output() {
         let namespace = TEST_NAMESPACE;
         let request_id = "req-success-no-output";
 
-        // Create context with Success but no function run output
         let (state, mut ctx) = setup_test_with_request_ctx(
             namespace,
             TEST_APP_NAME,
@@ -794,11 +745,9 @@ mod tests {
             Some(RequestOutcome::Success),
         )
         .await;
-        // Remove output from function run
         if let Some(fn_run) = ctx.function_runs.get_mut(&FunctionCallId::from(request_id)) {
             fn_run.output = None;
         }
-        // Update the existing request context using SchedulerUpdate
         let mut scheduler_update = crate::state_store::requests::SchedulerUpdateRequest::default();
         scheduler_update.add_request_state(&ctx);
         state
@@ -826,7 +775,6 @@ mod tests {
         assert_contains_finished_event(&events);
     }
 
-    // Test 7.1: Stream starts, receives progress events, then finished event
     #[tokio::test]
     async fn test_stream_progress_then_finished() {
         let namespace = TEST_NAMESPACE;
@@ -850,7 +798,6 @@ mod tests {
         )
         .await;
 
-        // Send progress events
         let started_event =
             create_request_started_event(namespace, TEST_APP_NAME, TEST_APP_VERSION, request_id);
         tx.send(started_event).unwrap();
@@ -865,7 +812,6 @@ mod tests {
         );
         tx.send(fn_created_event).unwrap();
 
-        // Then send finished event
         let finished_event = create_request_finished_event(
             namespace,
             TEST_APP_NAME,
@@ -876,14 +822,12 @@ mod tests {
         tx.send(finished_event).unwrap();
 
         let events = collect_stream_events_pinned(stream).await;
-        // Should receive all events: started, function_created, and finished
         assert!(
             events.len() >= 2,
             "Should receive progress events and finished event"
         );
     }
 
-    // Test 7.2: Stream starts with finished request
     #[tokio::test]
     async fn test_stream_starts_finished() {
         let namespace = TEST_NAMESPACE;
@@ -907,7 +851,6 @@ mod tests {
         )
         .await;
 
-        // Don't send any events - stream should return immediately with finished event
         drop(_tx);
 
         let events = collect_stream_events_pinned(stream).await;
@@ -915,14 +858,12 @@ mod tests {
         assert_contains_finished_event(&events);
     }
 
-    // Test 2.1: Success with JSON output payload
     #[tokio::test]
     async fn test_success_outcome_with_json_output() {
         let namespace = TEST_NAMESPACE;
         let request_id = "req-success-json";
         let state = create_test_route_state().await;
 
-        // Create JSON output payload
         let json_data = json!({"result": "success", "value": 42});
         let output_payload = create_json_output_payload(&state, namespace, json_data.clone()).await;
 
@@ -949,18 +890,14 @@ mod tests {
 
         assert_eq!(events.len(), 1, "Should yield finished event");
         assert_contains_finished_event(&events);
-        // Note: Detailed JSON parsing would require accessing Event internals
-        // For now, we verify the event was created and streamed
     }
 
-    // Test 2.2: Success with non-JSON output
     #[tokio::test]
     async fn test_success_outcome_with_non_json_output() {
         let namespace = TEST_NAMESPACE;
         let request_id = "req-success-non-json";
         let state = create_test_route_state().await;
 
-        // Create non-JSON output payload
         let payload_key = format!("{}/output", nanoid::nanoid!());
         let blob_store = state.blob_storage.get_blob_store(namespace);
         let data: Vec<u8> = b"binary data".to_vec();
@@ -1006,15 +943,13 @@ mod tests {
         assert_contains_finished_event(&events);
     }
 
-    // Test 2.3: Success with output too large (>1MB)
     #[tokio::test]
     async fn test_success_outcome_with_large_output() {
         let namespace = TEST_NAMESPACE;
         let request_id = "req-success-large";
         let state = create_test_route_state().await;
 
-        // Create large JSON output payload (>1MB)
-        let large_data: Vec<u8> = vec![0; 2 * 1024 * 1024]; // 2MB
+        let large_data: Vec<u8> = vec![0; 2 * 1024 * 1024];
         let payload_key = format!("{}/output", nanoid::nanoid!());
         let blob_store = state.blob_storage.get_blob_store(namespace);
         let stream = futures::stream::iter(vec![Ok(Bytes::from(large_data.clone()))]);
@@ -1058,7 +993,6 @@ mod tests {
         assert_contains_finished_event(&events);
     }
 
-    // Test 5.1: Lag occurs, request finished during lag
     #[tokio::test]
     async fn test_lag_recovery_finished() {
         let namespace = TEST_NAMESPACE;
@@ -1073,7 +1007,6 @@ mod tests {
         )
         .await;
 
-        // Create a small channel to force lag
         let (tx, stream) = create_test_stream(
             state.clone(),
             namespace,
@@ -1083,7 +1016,6 @@ mod tests {
         )
         .await;
 
-        // Fill the channel to cause lag
         for i in 0..5 {
             let event = create_request_started_event(
                 namespace,
@@ -1094,7 +1026,6 @@ mod tests {
             let _ = tx.send(event);
         }
 
-        // Now update the request to be finished
         update_request_outcome(
             &state,
             namespace,
@@ -1105,19 +1036,15 @@ mod tests {
         .await
         .unwrap();
 
-        // Try to receive (will lag)
         let events = collect_stream_events_pinned(stream).await;
-        // Should eventually get the finished event
         assert!(events.len() >= 1, "Should receive finished event after lag");
     }
 
-    // Test 7.3: Stream receives finished event but state check fails
     #[tokio::test]
     async fn test_finished_event_fallback_to_original() {
         let namespace = TEST_NAMESPACE;
         let request_id = "req-fallback";
 
-        // Create context without outcome (so check_for_finished returns NoOutcome)
         let (state, _ctx) = setup_test_with_request_ctx(
             namespace,
             TEST_APP_NAME,
@@ -1151,14 +1078,8 @@ mod tests {
         assert_eq!(events.len(), 1, "Should yield original finished event");
     }
 
-    // Test 7.4: Ensure final message is always sent when request finishes
-    // This test documents the current behavior and identifies a potential gap:
-    // When RequestFinished event is received but check_for_finished returns Error,
-    // no message is sent. This could leave clients without
-    // a final message. Consider fixing this to send the original event as fallback.
     #[tokio::test]
     async fn test_always_send_final_message_when_finished() {
-        // Test that when request is already finished at stream start, we send a message
         let namespace = TEST_NAMESPACE;
         let request_id = "req-always-final-1";
 
@@ -1181,18 +1102,20 @@ mod tests {
         .await;
 
         let events = collect_stream_events_pinned(stream).await;
-        // Should always send a final message when request is finished
-        assert_eq!(events.len(), 1, "Should send final message when request is finished");
+        assert_eq!(
+            events.len(),
+            1,
+            "Should send final message when request is finished"
+        );
         assert_contains_finished_event(&events);
 
-        // Test that when RequestFinished event is received, we send a message
         let request_id2 = "req-always-final-2";
         let (state2, _ctx2) = setup_test_with_request_ctx(
             namespace,
             TEST_APP_NAME,
             TEST_APP_VERSION,
             request_id2,
-            None, // No outcome initially
+            None,
         )
         .await;
 
@@ -1205,7 +1128,6 @@ mod tests {
         )
         .await;
 
-        // Send RequestFinished event
         let finished_event = create_request_finished_event(
             namespace,
             TEST_APP_NAME,
@@ -1216,8 +1138,11 @@ mod tests {
         tx2.send(finished_event).unwrap();
 
         let events2 = collect_stream_events_pinned(stream2).await;
-        // Should always send a final message when RequestFinished event is received
-        assert_eq!(events2.len(), 1, "Should send final message when RequestFinished event received");
+        assert_eq!(
+            events2.len(),
+            1,
+            "Should send final message when RequestFinished event received"
+        );
         assert_contains_finished_event(&events2);
     }
 }
