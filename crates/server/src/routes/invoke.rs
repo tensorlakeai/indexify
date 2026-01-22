@@ -13,27 +13,21 @@ use futures::{Stream, StreamExt, TryStreamExt};
 use pin_project::pin_project;
 use serde::Serialize;
 use tokio::sync::broadcast::{self, error::RecvError};
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 use super::routes_state::RouteState;
 use crate::{
     data_model::{
-        self,
-        ApplicationState,
-        DataPayload,
-        FunctionCallId,
-        InputArgs,
-        RequestCtx,
-        RequestCtxBuilder,
-        RequestOutcome,
+        self, ApplicationState, DataPayload, FunctionCallId, InputArgs, RequestCtx,
+        RequestCtxBuilder, RequestOutcome,
     },
     http_objects::IndexifyAPIError,
     metrics::Increment,
     state_store::{
-        IndexifyState,
-        driver,
+        IndexifyState, driver,
         request_events::{RequestStateChangeEvent, RequestStateFinishedOutput},
         requests::{InvokeApplicationRequest, RequestPayload, StateMachineUpdateRequest},
+        scanner::StateReader,
     },
     utils::get_epoch_time_in_ms,
 };
@@ -90,30 +84,86 @@ async fn read_json_output(
     serde_json::from_slice(&bytes).ok()
 }
 
-async fn build_finished_event_with_output(
+async fn build_finished_event_for_outcome(
     state: &RouteState,
     ctx: &RequestCtx,
     outcome: &RequestOutcome,
 ) -> RequestStateChangeEvent {
-    // Get the entrypoint function's output (uses request_id as function_call_id)
-    let output_payload = ctx
-        .function_runs
-        .get(&FunctionCallId::from(ctx.request_id.as_str()))
-        .and_then(|fn_run| fn_run.output.clone());
+    let output = match outcome {
+        RequestOutcome::Success => {
+            debug!("building finished event for success outcome");
+            // Get the entrypoint function's output (uses request_id as function_call_id)
+            let function_run = ctx
+                .function_runs
+                .get(&FunctionCallId::from(ctx.request_id.as_str()))
+                .and_then(|fn_run| fn_run.output.clone());
 
-    let Some(payload) = output_payload else {
-        return RequestStateChangeEvent::finished(ctx, outcome, None);
+            match function_run {
+                Some(payload) => {
+                    read_json_output(&payload, state, &ctx.namespace)
+                        .await
+                        .map(|body| {
+                            debug!("function run output found");
+                            RequestStateFinishedOutput {
+                                body: Some(body),
+                                content_encoding: payload.encoding,
+                                path: build_output_path(
+                                    &ctx.namespace,
+                                    &ctx.application_name,
+                                    &ctx.request_id,
+                                ),
+                            }
+                        })
+                }
+                None => {
+                    info!("no function run output found");
+                    None
+                }
+            }
+        }
+        RequestOutcome::Failure(_) | RequestOutcome::Unknown => {
+            debug!("building finished event for failure or unknown outcome");
+            None
+        }
     };
 
-    let body = read_json_output(&payload, state, &ctx.namespace).await;
+    RequestStateChangeEvent::finished(ctx, outcome, output)
+}
 
-    let output = RequestStateFinishedOutput {
-        body,
-        content_encoding: payload.encoding,
-        path: build_output_path(&ctx.namespace, &ctx.application_name, &ctx.request_id),
-    };
+enum CheckForFinishedResult {
+    NoOutcome,
+    Finished(RequestStateChangeEvent),
+    NotFound,
+    Error,
+}
 
-    RequestStateChangeEvent::finished(ctx, outcome, Some(output))
+async fn check_for_finished(
+    reader: &StateReader,
+    state: &RouteState,
+    namespace: &str,
+    application: &str,
+    request_id: &str,
+) -> CheckForFinishedResult {
+    match reader
+        .request_ctx(&namespace, &application, &request_id)
+        .await
+    {
+        Ok(Some(ref context)) => match &context.outcome {
+            Some(outcome) => {
+                let event = build_finished_event_for_outcome(&state, &context, &outcome).await;
+                CheckForFinishedResult::Finished(event)
+            }
+            None => CheckForFinishedResult::NoOutcome,
+        },
+        Ok(None) => {
+            info!("request not found, stopping stream");
+            CheckForFinishedResult::NotFound
+        }
+        Err(e) => {
+            error!(?e, "failed to get request");
+            CheckForFinishedResult::Error
+        }
+    }
 }
 
 struct SubscriptionGuard {
@@ -181,74 +231,79 @@ async fn create_request_progress_stream(
     application: String,
     request_id: String,
 ) -> impl Stream<Item = Result<Event, axum::Error>> {
-    async_stream::stream! {
+    let stream = async_stream::stream! {
         let reader = state.indexify_state.reader();
 
         // Check completion when starting stream
-        match reader.request_ctx(&namespace, &application, &request_id).await {
-            Ok(Some(context)) => {
-                if let Some(outcome) = &context.outcome {
-                    yield Event::default().json_data(
-                        build_finished_event_with_output(&state, &context, outcome).await
-                    );
-                    return;
-                }
+        match check_for_finished(&reader, &state, &namespace, &application, &request_id).await {
+            CheckForFinishedResult::Finished(event) => {
+                info!("request finished, sending event");
+                yield Event::default().json_data(event);
+                return;
             }
-            Ok(None) => {
+            CheckForFinishedResult::NoOutcome => {
+                info!("no outcome found, continuing stream");
+            }
+            CheckForFinishedResult::NotFound => {
                 info!("request not found, stopping stream");
                 return;
             }
-            Err(e) => {
-                error!(?e, "failed to get request");
+            CheckForFinishedResult::Error => {
+                error!("failed to check for finished, stopping stream");
                 return;
             }
         }
 
         loop {
             match rx.recv().await {
-                Ok(ev) => {
-                    let is_finished = matches!(ev, RequestStateChangeEvent::RequestFinished(_));
-
-                    if is_finished && let Ok(Some(context)) = reader.request_ctx(&namespace, &application, &request_id).await
-                        && let Some(outcome) = &context.outcome && outcome.is_success() {
-                        yield Event::default().json_data(
-                            build_finished_event_with_output(&state, &context, outcome).await
-                        );
-                    } else {
-                        yield Event::default().json_data(&ev);
+                Ok(event) if matches!(event, RequestStateChangeEvent::RequestFinished(_)) => {
+                    debug!("received finished event: {:?}", event);
+                    match check_for_finished(&reader, &state, &namespace, &application, &request_id).await {
+                        CheckForFinishedResult::Finished(finished_event) => {
+                            yield Event::default().json_data(finished_event);
+                        }
+                        CheckForFinishedResult::NoOutcome | CheckForFinishedResult::NotFound => {
+                            yield Event::default().json_data(event);
+                        }
+                        CheckForFinishedResult::Error => {
+                        }
                     }
-
-                    if is_finished {
-                        return;
-                    }
+                    info!("finished event received, stopping stream");
+                    break;
+                }
+                Ok(event) => {
+                    debug!("received event: {:?}", event);
+                    yield Event::default().json_data(event);
                 }
                 Err(RecvError::Lagged(num)) => {
                     warn!("lagging behind request event stream by {} events", num);
 
                     // Check if completion happened during lag
-                    match reader.request_ctx(&namespace, &application, &request_id).await {
-                        Ok(Some(context)) => {
-                            if let Some(outcome) = &context.outcome && outcome.is_success() {
-                                yield Event::default().json_data(
-                                    build_finished_event_with_output(&state, &context, outcome).await
-                                );
-                                return;
-                            }
+                    match check_for_finished(&reader, &state, &namespace, &application, &request_id).await {
+                        CheckForFinishedResult::Finished(event) => {
+                            info!("request finished during lag, sending event");
+                            yield Event::default().json_data(event);
                         }
-                        Ok(None) => {
-                            error!("request not found");
-                            return;
+                        CheckForFinishedResult::NoOutcome | CheckForFinishedResult::NotFound => {
+                            info!("no outcome or request not found, continuing stream");
                         }
-                        Err(e) => {
-                            error!(?e, "failed to get request context");
-                            return;
+                        CheckForFinishedResult::Error => {
+                            error!("failed to check for finished during lag, stopping stream");
+                            break;
                         }
                     }
+                    break;
                 }
-                Err(RecvError::Closed) => return,
+                Err(RecvError::Closed) => {
+                    info!("request event stream closed, stopping stream");
+                    break;
+                }
             }
         }
-    }
+    };
+
+    info!("stream finished");
+    stream
 }
 
 #[derive(Serialize)]
@@ -410,8 +465,8 @@ pub async fn invoke_application_with_object_v1(
         .write(StateMachineUpdateRequest { payload })
         .await
         .map_err(|e| {
-            if let Some(driver_error) = e.downcast_ref::<driver::Error>() &&
-                driver_error.is_request_already_exists()
+            if let Some(driver_error) = e.downcast_ref::<driver::Error>()
+                && driver_error.is_request_already_exists()
             {
                 IndexifyAPIError::conflict(&driver_error.to_string())
             } else {

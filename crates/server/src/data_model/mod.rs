@@ -869,12 +869,6 @@ impl Display for RequestOutcome {
     }
 }
 
-impl RequestOutcome {
-    pub fn is_success(&self) -> bool {
-        matches!(self, RequestOutcome::Success)
-    }
-}
-
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RequestFailureReason {
