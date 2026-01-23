@@ -1,3 +1,10 @@
+//! Host resource probing for containerized environments.
+//!
+//! This module is used by the service binary but not exported from the library,
+//! hence the allow(dead_code) annotation.
+
+#![allow(dead_code)]
+
 use std::{fs, path::Path};
 
 use proto_api::executor_api_pb::HostResources;
@@ -65,7 +72,7 @@ fn parse_meminfo_available(path: &str) -> Option<u64> {
 /// When running directly on the host, it uses the sysinfo crate.
 ///
 /// To enable host resource detection in a container, mount:
-/// ```
+/// ```text
 /// -v /proc:/host/proc:ro -v /sys:/host/sys:ro
 /// ```
 pub fn probe_host_resources() -> HostResources {

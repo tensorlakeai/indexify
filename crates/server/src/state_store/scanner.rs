@@ -553,6 +553,24 @@ impl StateReader {
             .await?;
         Ok(sandboxes)
     }
+
+    /// List all sandboxes across all namespaces and applications.
+    /// This is used by the sandbox proxy to build a routing table.
+    pub async fn list_all_sandboxes(&self) -> Result<Vec<Sandbox>> {
+        let kvs = &[KeyValue::new("op", "list_all_sandboxes")];
+        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
+
+        // Use empty prefix to scan all sandboxes
+        let (sandboxes, _) = self
+            .get_rows_from_cf_with_limits::<Sandbox>(
+                &[],
+                None,
+                IndexifyObjectsColumns::Sandboxes,
+                None,
+            )
+            .await?;
+        Ok(sandboxes)
+    }
 }
 #[cfg(test)]
 mod tests {

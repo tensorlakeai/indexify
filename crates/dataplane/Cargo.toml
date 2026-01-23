@@ -29,8 +29,13 @@ proto-api.workspace = true
 prost.workspace = true
 sha2.workspace = true
 tower = "0.5"
-hyper-util = { version = "0.1", features = ["tokio"] }
-sysinfo = "0.33"
+hyper = { workspace = true, features = ["client", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio", "client-legacy"] }
+http-body-util = "0.1"
+axum.workspace = true
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
+bytes.workspace = true
+sysinfo = "0.37.2"
 bollard = { workspace = true }
 futures-util = { workspace = true }
 lazy_static = { workspace = true }

@@ -11,6 +11,7 @@ mod function_container_manager;
 mod metrics;
 mod network_rules;
 mod otel_tracing;
+mod proxy;
 mod resources;
 mod service;
 mod state_file;

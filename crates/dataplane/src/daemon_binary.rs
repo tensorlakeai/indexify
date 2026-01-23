@@ -98,6 +98,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[allow(clippy::const_is_empty)] // The assertion is intentional for documentation
     fn test_daemon_binary_is_embedded() {
         // The binary should be non-empty
         assert!(!DAEMON_BINARY.is_empty());

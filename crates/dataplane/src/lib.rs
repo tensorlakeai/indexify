@@ -9,6 +9,8 @@ pub mod driver;
 pub mod function_container_manager;
 pub mod metrics;
 pub mod network_rules;
+pub mod proxy;
+mod resources;
 pub mod state_file;
 
 // Re-export key types for convenience
@@ -18,5 +20,7 @@ pub use function_container_manager::{
     DefaultImageResolver,
     FunctionContainerManager,
     ImageResolver,
+    SandboxInfo,
 };
 pub use metrics::{ContainerCounts, DataplaneMetrics, ResourceAvailability};
+pub use proxy::ProxyServer;

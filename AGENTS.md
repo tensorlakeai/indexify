@@ -14,24 +14,25 @@ Indexify is a compute engine for building data platforms in Python. It consists 
 ## Architecture
 
 ```
-┌─────────────────┐         gRPC          ┌─────────────────┐
-│                 │◄────────────────────► │                 │
-│  indexify-server│                       │    dataplane    │
-│   (port 8901)   │                       │                 │
-└─────────────────┘                       └────────┬────────┘
-                                                   │
-                                          ┌────────┴────────┐
-                                          │                 │
-                                    ┌─────▼─────┐    ┌──────▼─────┐
-                                    │  Docker   │    │  ForkExec  │
-                                    │  Driver   │    │   Driver   │
-                                    └─────┬─────┘    └──────┬─────┘
-                                          │                 │
-                                    ┌─────▼─────────────────▼─────┐
-                                    │   container-daemon (PID1)   │
-                                    │   - gRPC server (port 9500) │
-                                    │   - HTTP server (port 9501) │
-                                    └─────────────────────────────┘
+┌─────────────────┐         gRPC          ┌─────────────────────────────────┐
+│                 │◄────────────────────► │           dataplane             │
+│  indexify-server│                       │  ┌───────────────────────────┐  │
+│   (port 8901)   │                       │  │  Sandbox Proxy (port 9000)│  │
+└─────────────────┘                       │  └─────────────┬─────────────┘  │
+                                          └────────────────┼────────────────┘
+                                                           │
+                                                  ┌────────┴────────┐
+                                                  │                 │
+                                            ┌─────▼─────┐    ┌──────▼─────┐
+                                            │  Docker   │    │  ForkExec  │
+                                            │  Driver   │    │   Driver   │
+                                            └─────┬─────┘    └──────┬─────┘
+                                                  │                 │
+                                            ┌─────▼─────────────────▼─────┐
+                                            │   container-daemon (PID1)   │
+                                            │   - gRPC server (port 9500) │
+                                            │   - HTTP server (port 9501) │
+                                            └─────────────────────────────┘
 ```
 
 ---
@@ -146,6 +147,7 @@ If linting fails, fix the issues. Note: `just fmt` requires `poetry` for Python 
 |---------|------|
 | Server HTTP | 8900 |
 | Server gRPC | 8901 |
+| Dataplane Sandbox Proxy | 9000 |
 | Container Daemon gRPC | 9500 |
 | Container Daemon HTTP | 9501 |
 
@@ -271,3 +273,54 @@ INFO Probed host resources from mounted /host/proc cpu_count=16 memory_bytes=687
 ```
 
 If you see `source="sysinfo"` instead, the host mounts are not configured correctly.
+
+---
+
+## 8. Sandbox Proxy
+
+The dataplane includes a built-in HTTP proxy server that routes requests to sandbox containers. This allows external access to any port running inside sandbox containers.
+
+### URL Format
+
+```text
+http://<dataplane>:9000/{sandbox_id}/{port}/{path...}
+```
+
+For example, to access port 8080 on sandbox `sb-abc123`:
+```bash
+curl http://localhost:9000/sb-abc123/8080/api/users
+```
+
+### Proxy Endpoints
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /health` | Proxy health check |
+| `GET /_internal/sandboxes` | List all running sandboxes |
+| `/{sandbox_id}/{port}/*` | Proxy to container port |
+
+### Configuration
+
+The proxy can be configured in the dataplane config file:
+
+```yaml
+proxy:
+  enabled: true      # Enable/disable proxy (default: true)
+  port: 9000         # Listen port (default: 9000)
+  listen_addr: "0.0.0.0"  # Listen address (default: 0.0.0.0)
+```
+
+### How It Works
+
+1. Requests arrive at `/{sandbox_id}/{port}/{path...}`
+2. Proxy looks up the sandbox's container IP from `FunctionContainerManager`
+3. Forwards the request to `http://{container_ip}:{port}/{remaining_path}`
+4. Returns the response from the container
+
+### Key Files
+
+| File | Purpose |
+|------|---------|
+| `crates/dataplane/src/proxy.rs` | Proxy server implementation |
+| `crates/dataplane/src/config.rs` | `ProxyConfig` definition |
+| `crates/dataplane/src/function_container_manager.rs` | `get_sandbox_address()`, `list_sandboxes()` |

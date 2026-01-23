@@ -28,6 +28,7 @@ use crate::{
     driver::{DockerDriver, ForkExecDriver, ProcessDriver},
     function_container_manager::{DefaultImageResolver, FunctionContainerManager},
     metrics::DataplaneMetrics,
+    proxy::ProxyServer,
     resources::{probe_free_resources, probe_host_resources},
     state_file::StateFile,
 };
@@ -42,6 +43,7 @@ pub struct Service {
     host_resources: HostResources,
     container_manager: Arc<FunctionContainerManager>,
     metrics: Arc<DataplaneMetrics>,
+    proxy_server: ProxyServer,
 }
 
 impl Service {
@@ -71,12 +73,15 @@ impl Service {
             state_file,
         ));
 
+        let proxy_server = ProxyServer::new(config.proxy.clone(), container_manager.clone());
+
         Ok(Self {
             config,
             channel,
             host_resources,
             container_manager,
             metrics,
+            proxy_server,
         })
     }
 
@@ -157,6 +162,16 @@ impl Service {
             }
         });
 
+        // Proxy server for routing HTTP requests to sandbox containers
+        let proxy_handle = tokio::spawn({
+            let cancel_token = cancel_token.clone();
+            async move {
+                if let Err(e) = self.proxy_server.run(cancel_token).await {
+                    tracing::error!(error = %e, "Proxy server error");
+                }
+            }
+        });
+
         tokio::select! {
             _ = tokio::signal::ctrl_c() => {
                 tracing::info!("Shutdown signal received, cancelling tasks");
@@ -180,6 +195,11 @@ impl Service {
             result = metrics_update_handle => {
                 if let Err(e) = result {
                     tracing::error!(error = %e, "Metrics update task panicked");
+                }
+            }
+            result = proxy_handle => {
+                if let Err(e) = result {
+                    tracing::error!(error = %e, "Proxy server task panicked");
                 }
             }
         }

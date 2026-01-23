@@ -132,6 +132,31 @@ mod duration_serde {
     }
 }
 
+/// Configuration for the sandbox proxy server.
+#[serde_inline_default]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProxyConfig {
+    /// Enable the proxy server.
+    #[serde_inline_default(true)]
+    pub enabled: bool,
+    /// Port to listen on for proxy requests.
+    #[serde_inline_default(9000)]
+    pub port: u16,
+    /// Listen address for the proxy server.
+    #[serde_inline_default("0.0.0.0".to_string())]
+    pub listen_addr: String,
+}
+
+impl Default for ProxyConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            port: 9000,
+            listen_addr: "0.0.0.0".to_string(),
+        }
+    }
+}
+
 /// Configuration for the dataplane service.
 #[serde_inline_default]
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -157,6 +182,9 @@ pub struct DataplaneConfig {
     /// Path to the state file for persisting container state across restarts.
     #[serde_inline_default("./dataplane-state.json".to_string())]
     pub state_file: String,
+    /// Proxy server configuration.
+    #[serde(default)]
+    pub proxy: ProxyConfig,
 }
 
 fn default_executor_id() -> String {
@@ -173,6 +201,7 @@ impl Default for DataplaneConfig {
             telemetry: TelemetryConfig::default(),
             driver: DriverConfig::default(),
             state_file: "./dataplane-state.json".to_string(),
+            proxy: ProxyConfig::default(),
         }
     }
 }

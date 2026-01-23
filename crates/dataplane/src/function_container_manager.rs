@@ -888,6 +888,52 @@ impl FunctionContainerManager {
         let containers = self.containers.lock().await;
         containers.values().map(|c| c.to_proto_state()).collect()
     }
+
+    /// Get the address for a sandbox container at a specific port.
+    ///
+    /// Returns the host:port address to connect to for the given sandbox and
+    /// port. The host is extracted from the sandbox's HTTP address, and the
+    /// requested port is used directly.
+    pub async fn get_sandbox_address(&self, sandbox_id: &str, port: u16) -> Option<String> {
+        let containers = self.containers.lock().await;
+        let container = containers.get(sandbox_id)?;
+
+        // Only return address for running containers
+        if !matches!(container.state, ContainerState::Running { .. }) {
+            return None;
+        }
+
+        // Extract host from sandbox_http_address (format: "host:port")
+        let http_addr = container.sandbox_http_address.as_ref()?;
+        let host = http_addr.split(':').next()?;
+
+        Some(format!("{}:{}", host, port))
+    }
+
+    /// List all running sandboxes with their IDs and HTTP addresses.
+    pub async fn list_sandboxes(&self) -> Vec<SandboxInfo> {
+        let containers = self.containers.lock().await;
+        containers
+            .iter()
+            .filter_map(|(id, container)| {
+                if matches!(container.state, ContainerState::Running { .. }) {
+                    Some(SandboxInfo {
+                        id: id.clone(),
+                        http_address: container.sandbox_http_address.clone(),
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+}
+
+/// Information about a running sandbox.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SandboxInfo {
+    pub id: String,
+    pub http_address: Option<String>,
 }
 
 /// Start a container with the daemon and wait for it to be ready.
