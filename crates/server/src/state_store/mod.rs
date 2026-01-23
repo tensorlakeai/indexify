@@ -30,7 +30,9 @@ use crate::{
     processor::container_scheduler::{ContainerScheduler, ContainerSchedulerGauges},
     state_store::{
         driver::{
-            Reader, Transaction, Writer,
+            Reader,
+            Transaction,
+            Writer,
             rocksdb::{RocksDBConfig, RocksDBDriver},
         },
         in_memory_metrics::InMemoryStoreGauges,
@@ -209,6 +211,13 @@ impl IndexifyState {
         // Deactivate the initial receiver but keep it alive to prevent channel closure
         let _request_events_rx = request_events_rx.deactivate();
 
+        let in_memory_state = InMemoryState::new(
+            sm_meta.last_change_idx,
+            scanner::StateReader::new(db.clone(), state_store_metrics.clone()),
+            executor_catalog,
+        )
+        .await?;
+
         let container_scheduler = Arc::new(RwLock::new(ContainerScheduler::new(&in_memory_state)));
         let container_scheduler_gauges = ContainerSchedulerGauges::new(container_scheduler.clone());
         let indexes = Arc::new(RwLock::new(in_memory_state));
@@ -303,8 +312,8 @@ impl IndexifyState {
                 .await;
             changed_executors.extend(impacted_executors.into_iter().map(|e| e.into()));
         }
-        if let RequestPayload::UpsertExecutor(req) = &request.payload
-            && !req.watch_function_calls.is_empty()
+        if let RequestPayload::UpsertExecutor(req) = &request.payload &&
+            !req.watch_function_calls.is_empty()
         {
             // Check if any watched function runs have already completed.
             // This handles the race condition where children complete before watches
@@ -313,8 +322,8 @@ impl IndexifyState {
             let mut completed_watches = Vec::new();
             for watch in &req.watch_function_calls {
                 let key = in_memory_state::FunctionRunKey::from(watch);
-                if let Some(run) = in_memory.function_runs.get(&key)
-                    && matches!(run.status, FunctionRunStatus::Completed)
+                if let Some(run) = in_memory.function_runs.get(&key) &&
+                    matches!(run.status, FunctionRunStatus::Completed)
                 {
                     completed_watches.push(watch.function_call_id.clone());
                 }
@@ -356,14 +365,14 @@ impl IndexifyState {
 
         {
             let _timer = Timer::start_with_labels(&self.metrics.state_change_notify, timer_kv);
-            if !write_result.new_state_changes.is_empty()
-                && let Err(err) = self.change_events_tx.send(())
+            if !write_result.new_state_changes.is_empty() &&
+                let Err(err) = self.change_events_tx.send(())
             {
                 error!("failed to notify of state change event, ignoring: {err:?}",);
             }
 
-            if write_result.should_notify_usage_reporter
-                && let Err(err) = self.usage_events_tx.send(())
+            if write_result.should_notify_usage_reporter &&
+                let Err(err) = self.usage_events_tx.send(())
             {
                 error!("failed to notify of usage event, ignoring: {err:?}",);
             }
@@ -629,9 +638,16 @@ mod tests {
 
     use super::*;
     use crate::data_model::{
-        Application, InputArgs, Namespace, RequestCtxBuilder, StateChangeId,
+        Application,
+        InputArgs,
+        Namespace,
+        RequestCtxBuilder,
+        StateChangeId,
         test_objects::tests::{
-            TEST_EXECUTOR_ID, TEST_NAMESPACE, mock_application, mock_data_payload,
+            TEST_EXECUTOR_ID,
+            TEST_NAMESPACE,
+            mock_application,
+            mock_data_payload,
             mock_function_call,
         },
     };

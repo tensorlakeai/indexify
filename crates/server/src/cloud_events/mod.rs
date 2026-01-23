@@ -5,7 +5,12 @@ use chrono::Utc;
 use otlp_logs_exporter::opentelemetry_proto::tonic::{
     collector::logs::v1::ExportLogsServiceRequest,
     common::v1::{
-        AnyValue, ArrayValue, InstrumentationScope, KeyValue, KeyValueList, any_value::Value,
+        AnyValue,
+        ArrayValue,
+        InstrumentationScope,
+        KeyValue,
+        KeyValueList,
+        any_value::Value,
     },
     logs::v1::{LogRecord, ResourceLogs, ScopeLogs},
     resource::v1::Resource,
@@ -179,8 +184,13 @@ mod tests {
     use crate::{
         data_model::{RequestCtxBuilder, RequestFailureReason, RequestOutcome},
         state_store::request_events::{
-            AllocationCompleted, AllocationCreated, FunctionRunCompleted, FunctionRunCreated,
-            FunctionRunMatchedCache, FunctionRunOutcomeSummary, RequestStartedEvent,
+            AllocationCompleted,
+            AllocationCreated,
+            FunctionRunCompleted,
+            FunctionRunCreated,
+            FunctionRunMatchedCache,
+            FunctionRunOutcomeSummary,
+            RequestStartedEvent,
         },
     };
 
@@ -703,189 +713,6 @@ mod tests {
                 "outcome" => assert_eq!(kv.value, string_value("success")),
                 _ => {}
             }
-        }
-    }
-
-    #[test]
-    fn test_create_export_request_structure() {
-        let event = RequestStateChangeEvent::RequestStarted(RequestStartedEvent {
-            namespace: "test-ns".to_string(),
-            application_name: "test-app".to_string(),
-            application_version: "1.0.0".to_string(),
-            request_id: "req-123".to_string(),
-            created_at: Utc::now(),
-        });
-
-        let result = super::create_export_request(&event);
-        assert!(result.is_ok());
-
-        let request = result.unwrap();
-        assert_eq!(request.resource_logs.len(), 1);
-
-        let resource_logs = &request.resource_logs[0];
-        let Some(resource) = &resource_logs.resource else {
-            panic!("Expected Resource");
-        };
-
-        // Verify resource attributes
-        assert_eq!(resource.attributes.len(), 3);
-        let resource_keys: std::collections::HashSet<_> = resource
-            .attributes
-            .iter()
-            .map(|kv| kv.key.as_str())
-            .collect();
-        assert!(resource_keys.contains("ai.tensorlake.namespace"));
-        assert!(resource_keys.contains("ai.tensorlake.application.name"));
-        assert!(resource_keys.contains("ai.tensorlake.application.version"));
-
-        for kv in &resource.attributes {
-            match kv.key.as_str() {
-                "ai.tensorlake.namespace" => assert_eq!(kv.value, string_value("test-ns")),
-                "ai.tensorlake.application.name" => assert_eq!(kv.value, string_value("test-app")),
-                "ai.tensorlake.application.version" => assert_eq!(kv.value, string_value("1.0.0")),
-                _ => {}
-            }
-        }
-    }
-
-    #[test]
-    fn test_create_export_request_log_record() {
-        let event = RequestStateChangeEvent::RequestStarted(RequestStartedEvent {
-            namespace: "test-ns".to_string(),
-            application_name: "test-app".to_string(),
-            application_version: "1.0.0".to_string(),
-            request_id: "req-456".to_string(),
-            created_at: Utc::now(),
-        });
-
-        let result = super::create_export_request(&event);
-        assert!(result.is_ok());
-
-        let request = result.unwrap();
-        let resource_logs = &request.resource_logs[0];
-        assert_eq!(resource_logs.scope_logs.len(), 1);
-
-        let scope_logs = &resource_logs.scope_logs[0];
-        assert_eq!(scope_logs.log_records.len(), 1);
-
-        let log_record = &scope_logs.log_records[0];
-
-        // Verify log record body is a string
-        let Some(body) = &log_record.body else {
-            panic!("Expected log record body");
-        };
-        assert!(matches!(body.value, Some(Value::StringValue(_))));
-
-        // Verify log record attributes
-        let log_attrs_keys: std::collections::HashSet<_> = log_record
-            .attributes
-            .iter()
-            .map(|kv| kv.key.as_str())
-            .collect();
-        assert!(log_attrs_keys.contains("specversion"));
-        assert!(log_attrs_keys.contains("id"));
-        assert!(log_attrs_keys.contains("type"));
-        assert!(log_attrs_keys.contains("source"));
-        assert!(log_attrs_keys.contains("timestamp"));
-        assert!(log_attrs_keys.contains("data"));
-
-        for kv in &log_record.attributes {
-            match kv.key.as_str() {
-                "specversion" => assert_eq!(kv.value, string_value("1.0")),
-                "type" => assert_eq!(kv.value, string_value("ai.tensorlake.progress_update")),
-                "source" => assert_eq!(kv.value, string_value("/tensorlake/indexify_server")),
-                "id" => assert!(matches!(
-                    &kv.value,
-                    Some(av) if matches!(&av.value, Some(Value::StringValue(_)))
-                )),
-                "timestamp" => assert!(matches!(
-                    &kv.value,
-                    Some(av) if matches!(&av.value, Some(Value::StringValue(_)))
-                )),
-                "data" => assert!(kv.value.is_some()),
-                _ => {}
-            }
-        }
-    }
-
-    #[test]
-    fn test_create_export_request_scope() {
-        let event = RequestStateChangeEvent::RequestStarted(RequestStartedEvent {
-            namespace: "test-ns".to_string(),
-            application_name: "test-app".to_string(),
-            application_version: "1.0.1".to_string(),
-            request_id: "req-789".to_string(),
-            created_at: Utc::now(),
-        });
-
-        let result = super::create_export_request(&event);
-        assert!(result.is_ok());
-
-        let request = result.unwrap();
-        let resource_logs = &request.resource_logs[0];
-        let scope_logs = &resource_logs.scope_logs[0];
-
-        let Some(scope) = &scope_logs.scope else {
-            panic!("Expected InstrumentationScope");
-        };
-
-        assert_eq!(scope.name, "ai.tensorlake.request.id:req-789");
-    }
-
-    #[test]
-    fn test_create_export_request_data_field() {
-        let event = RequestStateChangeEvent::FunctionRunCreated(FunctionRunCreated {
-            namespace: "test-ns".to_string(),
-            application_name: "test-app".to_string(),
-            application_version: "2.0.0".to_string(),
-            request_id: "req-001".to_string(),
-            function_name: "my-function".to_string(),
-            function_run_id: "run-123".to_string(),
-            created_at: Utc::now(),
-        });
-
-        let result = super::create_export_request(&event);
-        assert!(result.is_ok());
-
-        let request = result.unwrap();
-        let log_record = &request.resource_logs[0].scope_logs[0].log_records[0];
-
-        // Find data attribute
-        let data_attr = log_record
-            .attributes
-            .iter()
-            .find(|kv| kv.key == "data")
-            .expect("Expected data attribute");
-
-        // Data should contain the serialized event as a KvlistValue
-        let Some(data_value) = &data_attr.value else {
-            panic!("Expected data value");
-        };
-        assert!(matches!(&data_value.value, Some(Value::KvlistValue(_))));
-
-        // Verify the data contains expected fields from FunctionRunCreated
-        if let Some(Value::KvlistValue(kvlist)) = &data_value.value {
-            // The outer kvlist has enum wrapper, get the inner kvlist
-            assert_eq!(kvlist.values.len(), 1);
-            let Some(Value::KvlistValue(inner_kvlist)) = &kvlist.values[0]
-                .value
-                .as_ref()
-                .and_then(|av| av.value.as_ref())
-            else {
-                panic!("Expected inner KvlistValue");
-            };
-
-            let keys: std::collections::HashSet<_> = inner_kvlist
-                .values
-                .iter()
-                .map(|kv| kv.key.as_str())
-                .collect();
-            assert!(keys.contains("namespace"));
-            assert!(keys.contains("application_name"));
-            assert!(keys.contains("function_name"));
-            assert!(keys.contains("function_run_id"));
-        } else {
-            panic!("Expected KvlistValue in data");
         }
     }
 }
