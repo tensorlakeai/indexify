@@ -2,7 +2,7 @@ use std::{sync::Arc, time::Duration};
 
 use anyhow::Result;
 use async_broadcast::Receiver;
-use opentelemetry::metrics::{Counter, Histogram};
+use opentelemetry::metrics::{Counter, Histogram, ObservableGauge};
 use otlp_logs_exporter::OtlpLogsExporter;
 use tokio::sync::watch;
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
@@ -31,6 +31,8 @@ pub struct RequestStateChangeProcessor {
     http_processing_latency: Histogram<f64>,
     sse_events_counter: Counter<u64>,
     http_events_counter: Counter<u64>,
+    // Keep gauge alive so the callback continues to fire
+    _channel_buffer_size: ObservableGauge<u64>,
 }
 
 impl RequestStateChangeProcessor {
@@ -61,12 +63,22 @@ impl RequestStateChangeProcessor {
             .with_description("Total number of events exported via HTTP")
             .build();
 
+        let state_for_gauge = indexify_state.clone();
+        let _channel_buffer_size = meter
+            .u64_observable_gauge("indexify.request_state_change.channel_buffer_size")
+            .with_description("Number of events currently buffered in the broadcast channel")
+            .with_callback(move |observer| {
+                observer.observe(state_for_gauge.request_events_tx.len() as u64, &[]);
+            })
+            .build();
+
         Self {
             indexify_state,
             sse_processing_latency,
             http_processing_latency,
             sse_events_counter,
             http_events_counter,
+            _channel_buffer_size,
         }
     }
 
