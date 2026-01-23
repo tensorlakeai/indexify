@@ -1,50 +1,88 @@
+use std::collections::HashMap;
+
 use anyhow::Context;
 use chrono::Utc;
-use otlp_logs_exporter::{
-    OtlpLogsExporter,
-    opentelemetry_proto::tonic::{
-        collector::logs::v1::ExportLogsServiceRequest,
-        common::v1::{
-            AnyValue,
-            ArrayValue,
-            InstrumentationScope,
-            KeyValue,
-            KeyValueList,
-            any_value::Value,
-        },
-        logs::v1::{LogRecord, ResourceLogs, ScopeLogs},
-        resource::v1::Resource,
+use otlp_logs_exporter::opentelemetry_proto::tonic::{
+    collector::logs::v1::ExportLogsServiceRequest,
+    common::v1::{
+        AnyValue, ArrayValue, InstrumentationScope, KeyValue, KeyValueList, any_value::Value,
     },
+    logs::v1::{LogRecord, ResourceLogs, ScopeLogs},
+    resource::v1::Resource,
 };
 use serde_json::Value as JsonValue;
 use uuid::Uuid;
 
 use crate::state_store::request_events::RequestStateChangeEvent;
 
-pub async fn export_progress_update(
-    exporter: &mut OtlpLogsExporter,
-    update: &RequestStateChangeEvent,
-) -> Result<(), anyhow::Error> {
-    let request = create_export_request(update)?;
-    exporter.send_request(request).await.map_err(Into::into)
+/// Create a batched export request from multiple events.
+/// Events are grouped by request_id (which is unique system-wide) to create
+/// efficient batches. Returns the ExportLogsServiceRequest that contains all
+/// events.
+pub fn create_batched_export_request(
+    events: &[RequestStateChangeEvent],
+) -> Result<ExportLogsServiceRequest, anyhow::Error> {
+    if events.is_empty() {
+        return Ok(ExportLogsServiceRequest {
+            resource_logs: vec![],
+        });
+    }
+
+    // Group events by request_id (unique system-wide)
+    let mut request_groups: HashMap<String, Vec<&RequestStateChangeEvent>> = HashMap::new();
+    for event in events {
+        request_groups
+            .entry(event.request_id().to_string())
+            .or_default()
+            .push(event);
+    }
+
+    // Create one ResourceLogs per request_id
+    let mut resource_logs = Vec::new();
+    for (request_id, events) in request_groups {
+        // Get metadata from the first event (all events in a request share the same
+        // metadata)
+        let first = events.first().unwrap();
+        let attributes = vec![
+            key_value_string("ai.tensorlake.namespace", first.namespace()),
+            key_value_string("ai.tensorlake.application.name", first.application_name()),
+            key_value_string(
+                "ai.tensorlake.application.version",
+                first.application_version(),
+            ),
+        ];
+
+        let resource = Resource {
+            attributes,
+            ..Default::default()
+        };
+
+        let scope = InstrumentationScope {
+            name: format!("ai.tensorlake.request.id:{}", request_id),
+            ..Default::default()
+        };
+
+        let mut log_records = Vec::new();
+        for event in events {
+            log_records.push(create_log_record(event)?);
+        }
+
+        resource_logs.push(ResourceLogs {
+            resource: Some(resource),
+            scope_logs: vec![ScopeLogs {
+                scope: Some(scope),
+                log_records,
+                ..Default::default()
+            }],
+            ..Default::default()
+        });
+    }
+
+    Ok(ExportLogsServiceRequest { resource_logs })
 }
 
-fn create_export_request(
-    update: &RequestStateChangeEvent,
-) -> Result<ExportLogsServiceRequest, anyhow::Error> {
-    let attributes = vec![
-        key_value_string("ai.tensorlake.namespace", update.namespace()),
-        key_value_string("ai.tensorlake.application.name", update.application_name()),
-        key_value_string(
-            "ai.tensorlake.application.version",
-            update.application_version(),
-        ),
-    ];
-    let resource = Resource {
-        attributes,
-        ..Default::default()
-    };
-
+/// Create a log record from a request state change event.
+fn create_log_record(update: &RequestStateChangeEvent) -> Result<LogRecord, anyhow::Error> {
     let message = update.message();
     let data = update_to_any_value(update)?;
 
@@ -63,7 +101,7 @@ fn create_export_request(
         },
     ];
 
-    let log_record = LogRecord {
+    Ok(LogRecord {
         time_unix_nano: timestamp,
         observed_time_unix_nano: timestamp,
         body: Some(AnyValue {
@@ -71,26 +109,7 @@ fn create_export_request(
         }),
         attributes,
         ..Default::default()
-    };
-
-    let scope = InstrumentationScope {
-        name: format!("ai.tensorlake.request.id:{}", update.request_id()),
-        ..Default::default()
-    };
-
-    let request = ExportLogsServiceRequest {
-        resource_logs: vec![ResourceLogs {
-            resource: Some(resource),
-            scope_logs: vec![ScopeLogs {
-                scope: Some(scope),
-                log_records: vec![log_record],
-                ..Default::default()
-            }],
-            ..Default::default()
-        }],
-    };
-
-    Ok(request)
+    })
 }
 
 fn update_to_any_value(update: &RequestStateChangeEvent) -> Result<AnyValue, anyhow::Error> {
@@ -160,13 +179,8 @@ mod tests {
     use crate::{
         data_model::{RequestCtxBuilder, RequestFailureReason, RequestOutcome},
         state_store::request_events::{
-            AllocationCompleted,
-            AllocationCreated,
-            FunctionRunCompleted,
-            FunctionRunCreated,
-            FunctionRunMatchedCache,
-            FunctionRunOutcomeSummary,
-            RequestStartedEvent,
+            AllocationCompleted, AllocationCreated, FunctionRunCompleted, FunctionRunCreated,
+            FunctionRunMatchedCache, FunctionRunOutcomeSummary, RequestStartedEvent,
         },
     };
 

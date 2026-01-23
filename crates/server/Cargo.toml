@@ -16,6 +16,7 @@ console-subscriber = ["dep:console-subscriber"]
 tokio.workspace = true
 tokio-stream.workspace = true
 tokio-util.workspace = true
+async-broadcast.workspace = true
 async-stream.workspace = true
 async-trait.workspace = true
 futures.workspace = true

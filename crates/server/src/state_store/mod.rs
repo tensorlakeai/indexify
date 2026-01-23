@@ -17,6 +17,10 @@ use rocksdb::{ColumnFamilyDescriptor, Options};
 use state_machine::IndexifyObjectsColumns;
 use strum::IntoEnumIterator;
 use tokio::sync::{RwLock, watch};
+
+/// Channel capacity for request state change event broadcast.
+/// This provides backpressure if workers are slow.
+const REQUEST_EVENT_CHANNEL_CAPACITY: usize = 10000;
 use tracing::{debug, error, info, span};
 
 use crate::{
@@ -26,9 +30,7 @@ use crate::{
     processor::container_scheduler::{ContainerScheduler, ContainerSchedulerGauges},
     state_store::{
         driver::{
-            Reader,
-            Transaction,
-            Writer,
+            Reader, Transaction, Writer,
             rocksdb::{RocksDBConfig, RocksDBDriver},
         },
         in_memory_metrics::InMemoryStoreGauges,
@@ -114,8 +116,13 @@ pub struct IndexifyState {
     pub change_events_rx: watch::Receiver<()>,
     pub usage_events_tx: watch::Sender<()>,
     pub usage_events_rx: watch::Receiver<()>,
-    pub request_events_tx: watch::Sender<()>,
-    pub request_events_rx: watch::Receiver<()>,
+    /// Broadcast channel for request state change events.
+    /// SSE worker and HTTP export worker both subscribe to this channel.
+    pub request_events_tx: async_broadcast::Sender<RequestStateChangeEvent>,
+    /// Keep the initial receiver alive to prevent channel from being closed.
+    /// New receivers are created via sender.new_receiver() which clone from
+    /// this.
+    _request_events_rx: async_broadcast::InactiveReceiver<RequestStateChangeEvent>,
 
     pub metrics: Arc<StateStoreMetrics>,
     pub in_memory_state: Arc<RwLock<in_memory_state::InMemoryState>>,
@@ -155,8 +162,9 @@ where
 struct PersistentWriteResult {
     current_state_id: u64,
     should_notify_usage_reporter: bool,
-    should_notify_request_events: bool,
     new_state_changes: Vec<StateChange>,
+    /// Request state change events to broadcast (not persisted to DB anymore)
+    request_state_changes: Vec<RequestStateChangeEvent>,
 }
 
 impl IndexifyState {
@@ -190,13 +198,16 @@ impl IndexifyState {
 
         let (change_events_tx, change_events_rx) = tokio::sync::watch::channel(());
         let (usage_events_tx, usage_events_rx) = tokio::sync::watch::channel(());
-        let (request_events_tx, request_events_rx) = tokio::sync::watch::channel(());
-        let in_memory_state = InMemoryState::new(
-            sm_meta.last_change_idx,
-            scanner::StateReader::new(db.clone(), state_store_metrics.clone()),
-            executor_catalog,
-        )
-        .await?;
+
+        let (mut request_events_tx, request_events_rx) =
+            async_broadcast::broadcast::<RequestStateChangeEvent>(REQUEST_EVENT_CHANNEL_CAPACITY);
+        // Set overflow mode to drop old messages when channel is full
+        request_events_tx.set_overflow(true);
+        // Don't wait for active receivers - return immediately even if no one is
+        // listening
+        request_events_tx.set_await_active(false);
+        // Deactivate the initial receiver but keep it alive to prevent channel closure
+        let _request_events_rx = request_events_rx.deactivate();
 
         let container_scheduler = Arc::new(RwLock::new(ContainerScheduler::new(&in_memory_state)));
         let container_scheduler_gauges = ContainerSchedulerGauges::new(container_scheduler.clone());
@@ -218,7 +229,7 @@ impl IndexifyState {
             usage_events_tx,
             usage_events_rx,
             request_events_tx,
-            request_events_rx,
+            _request_events_rx,
             executor_watches: ExecutorWatches::new(),
             request_event_buffers: RequestEventBuffers::new(),
             _in_memory_store_gauges: in_memory_store_gauges,
@@ -292,8 +303,8 @@ impl IndexifyState {
                 .await;
             changed_executors.extend(impacted_executors.into_iter().map(|e| e.into()));
         }
-        if let RequestPayload::UpsertExecutor(req) = &request.payload &&
-            !req.watch_function_calls.is_empty()
+        if let RequestPayload::UpsertExecutor(req) = &request.payload
+            && !req.watch_function_calls.is_empty()
         {
             // Check if any watched function runs have already completed.
             // This handles the race condition where children complete before watches
@@ -302,8 +313,8 @@ impl IndexifyState {
             let mut completed_watches = Vec::new();
             for watch in &req.watch_function_calls {
                 let key = in_memory_state::FunctionRunKey::from(watch);
-                if let Some(run) = in_memory.function_runs.get(&key) &&
-                    matches!(run.status, FunctionRunStatus::Completed)
+                if let Some(run) = in_memory.function_runs.get(&key)
+                    && matches!(run.status, FunctionRunStatus::Completed)
                 {
                     completed_watches.push(watch.function_call_id.clone());
                 }
@@ -345,22 +356,23 @@ impl IndexifyState {
 
         {
             let _timer = Timer::start_with_labels(&self.metrics.state_change_notify, timer_kv);
-            if !write_result.new_state_changes.is_empty() &&
-                let Err(err) = self.change_events_tx.send(())
+            if !write_result.new_state_changes.is_empty()
+                && let Err(err) = self.change_events_tx.send(())
             {
                 error!("failed to notify of state change event, ignoring: {err:?}",);
             }
 
-            if write_result.should_notify_usage_reporter &&
-                let Err(err) = self.usage_events_tx.send(())
+            if write_result.should_notify_usage_reporter
+                && let Err(err) = self.usage_events_tx.send(())
             {
                 error!("failed to notify of usage event, ignoring: {err:?}",);
             }
 
-            if write_result.should_notify_request_events &&
-                let Err(err) = self.request_events_tx.send(())
-            {
-                error!("failed to notify of request state change event, ignoring: {err:?}",);
+            // Broadcast request state change events to SSE and HTTP export workers
+            for event in write_result.request_state_changes {
+                if let Err(err) = self.request_events_tx.broadcast(event).await {
+                    error!("failed to broadcast request state change event, ignoring: {err:?}",);
+                }
             }
         }
 
@@ -379,7 +391,6 @@ impl IndexifyState {
         // This uses FunctionRun::is_new() which checks if created_at_clock is None
         // to identify newly created function runs that need FunctionRunCreated events.
         let request_state_changes = request_events::build_request_state_change_events(request);
-        let should_notify_request_events = !request_state_changes.is_empty();
 
         // Get the current clock value for setting created_at_clock and
         // updated_at_clock.
@@ -518,14 +529,11 @@ impl IndexifyState {
         if !new_state_changes.is_empty() {
             state_machine::save_state_changes(&txn, &new_state_changes, current_clock).await?;
         }
-        if should_notify_request_events {
-            state_machine::persist_request_state_change_events(
-                &txn,
-                request_state_changes,
-                &self.request_event_id_seq,
-            )
-            .await?;
-        }
+
+        // Note: request_state_changes are NOT persisted to DB here.
+        // They are broadcast to workers after commit:
+        // - SSE worker: delivers immediately to connected clients
+        // - HTTP export worker: persists to DB, batches, and exports via HTTP
 
         let current_state_id = self.state_change_id_seq.load(atomic::Ordering::Relaxed);
         let current_usage_sequence_id = self.usage_event_id_seq.load(atomic::Ordering::Relaxed);
@@ -546,7 +554,7 @@ impl IndexifyState {
             current_state_id,
             new_state_changes,
             should_notify_usage_reporter,
-            should_notify_request_events,
+            request_state_changes,
         })
     }
 
@@ -578,6 +586,14 @@ impl IndexifyState {
 
     pub async fn push_request_event(&self, event: RequestStateChangeEvent) {
         self.request_event_buffers.push_event(event).await;
+    }
+
+    /// Get a new receiver for request state change events.
+    /// Used by SSE worker and HTTP export worker to subscribe to events.
+    pub fn subscribe_request_state_changes(
+        &self,
+    ) -> async_broadcast::Receiver<RequestStateChangeEvent> {
+        self.request_events_tx.new_receiver()
     }
 }
 
@@ -618,16 +634,9 @@ mod tests {
 
     use super::*;
     use crate::data_model::{
-        Application,
-        InputArgs,
-        Namespace,
-        RequestCtxBuilder,
-        StateChangeId,
+        Application, InputArgs, Namespace, RequestCtxBuilder, StateChangeId,
         test_objects::tests::{
-            TEST_EXECUTOR_ID,
-            TEST_NAMESPACE,
-            mock_application,
-            mock_data_payload,
+            TEST_EXECUTOR_ID, TEST_NAMESPACE, mock_application, mock_data_payload,
             mock_function_call,
         },
     };

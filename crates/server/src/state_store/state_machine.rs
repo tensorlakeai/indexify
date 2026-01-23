@@ -12,11 +12,7 @@ use strum::AsRefStr;
 use tracing::{debug, info, trace, warn};
 
 use super::{
-    request_events::{
-        PersistedRequestStateChangeEvent,
-        RequestStateChangeEvent,
-        RequestStateChangeEventId,
-    },
+    request_events::PersistedRequestStateChangeEvent,
     serializer::{JsonEncode, JsonEncoder},
 };
 use crate::{
@@ -744,26 +740,21 @@ pub(crate) async fn remove_request_state_change_events(
     Ok(())
 }
 
-/// Persist request state change events to RocksDB
-pub(crate) async fn persist_request_state_change_events(
+/// Persist a single request state change event to RocksDB.
+/// Used by the HTTP export worker to persist events before batching.
+pub(crate) async fn persist_single_request_state_change_event(
     txn: &Transaction,
-    events: Vec<RequestStateChangeEvent>,
-    request_event_id_seq: &AtomicU64,
+    event: &PersistedRequestStateChangeEvent,
 ) -> Result<()> {
-    for event in events {
-        let event_id =
-            RequestStateChangeEventId::new(request_event_id_seq.fetch_add(1, Ordering::Relaxed));
-        let persisted_event = PersistedRequestStateChangeEvent::new(event_id, event);
-        let key = persisted_event.key();
+    let key = event.key();
+    let serialized = JsonEncoder::encode(event)?;
 
-        let serialized = JsonEncoder::encode(&persisted_event)?;
-        txn.put(
-            IndexifyObjectsColumns::RequestStateChangeEvents.as_ref(),
-            &key,
-            &serialized,
-        )
-        .await?;
-    }
+    txn.put(
+        IndexifyObjectsColumns::RequestStateChangeEvents.as_ref(),
+        &key,
+        &serialized,
+    )
+    .await?;
 
     Ok(())
 }
