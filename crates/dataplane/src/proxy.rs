@@ -189,7 +189,9 @@ async fn proxy_request(client: &Client, req: Request, target_url: &str) -> Respo
 
     // Copy headers (except Host which we'll set to the target)
     for (name, value) in headers.iter() {
-        if name != HOST && let Ok(value_str) = value.to_str() {
+        if name != HOST &&
+            let Ok(value_str) = value.to_str()
+        {
             builder = builder.header(name.as_str(), value_str);
         }
     }
@@ -197,11 +199,8 @@ async fn proxy_request(client: &Client, req: Request, target_url: &str) -> Respo
     // Stream the request body directly without buffering
     let body_stream = req.into_body();
     let reqwest_body = reqwest::Body::wrap_stream(
-        http_body_util::BodyStream::new(body_stream).map_ok(|frame| {
-            frame
-                .into_data()
-                .unwrap_or_else(|_| bytes::Bytes::new())
-        }),
+        http_body_util::BodyStream::new(body_stream)
+            .map_ok(|frame| frame.into_data().unwrap_or_else(|_| bytes::Bytes::new())),
     );
     builder = builder.body(reqwest_body);
 
@@ -216,8 +215,8 @@ async fn proxy_request(client: &Client, req: Request, target_url: &str) -> Respo
 
             // Copy response headers
             for (name, value) in response.headers().iter() {
-                if let Ok(name) = axum::http::header::HeaderName::try_from(name.as_str())
-                    && let Ok(value) = HeaderValue::from_bytes(value.as_bytes())
+                if let Ok(name) = axum::http::header::HeaderName::try_from(name.as_str()) &&
+                    let Ok(value) = HeaderValue::from_bytes(value.as_bytes())
                 {
                     builder = builder.header(name, value);
                 }

@@ -836,7 +836,6 @@ impl ExecutorManager {
                         continue;
                     };
 
-
                     // TODO: We won't have function uri for sandboxes. So we need to update
                     // the data model to support having function uri as optional.
                     let fn_uri = FunctionURI::from(function_container_server_meta);
