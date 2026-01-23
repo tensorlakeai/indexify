@@ -29,6 +29,7 @@ use crate::{
 };
 
 const MAX_FETCH_LIMIT: usize = 100;
+const MAX_STATE_CHANGE_EVENTS_FETCH_LIMIT: usize = 1000;
 
 #[derive(Clone, Debug, Default)]
 pub enum CursorDirection {
@@ -279,7 +280,7 @@ impl StateReader {
                 &[],
                 cursor,
                 IndexifyObjectsColumns::RequestStateChangeEvents,
-                Some(MAX_FETCH_LIMIT),
+                Some(MAX_STATE_CHANGE_EVENTS_FETCH_LIMIT),
             )
             .await?;
 
