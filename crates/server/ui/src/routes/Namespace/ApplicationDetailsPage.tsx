@@ -18,18 +18,22 @@ import CopyTextPopover from '../../components/CopyTextPopover'
 import ApplicationEntrypointTable from '../../components/tables/ApplicationEntrypointTable'
 import ApplicationFunctionsTable from '../../components/tables/ApplicationFunctionsTable'
 import ApplicationTagsTable from '../../components/tables/ApplicationTagsTable'
+import SandboxesTable from '../../components/tables/SandboxesTable'
 import { ShallowRequestsTable } from '../../components/tables/ShallowRequestsTable'
-import type { ShallowRequest } from '../../types/types'
+import type { SandboxInfo, ShallowRequest } from '../../types/types'
 import { getIndexifyServiceURL } from '../../utils/helpers'
 import { ApplicationDetailsLoaderData } from './types'
 
 const ApplicationDetailsPage = () => {
-  const { namespace, application, applicationRequests } =
+  const { namespace, application, applicationRequests, sandboxes: initialSandboxes } =
     useLoaderData() as ApplicationDetailsLoaderData
 
   const [shallowGraphRequests, setShallowGraphRequests] = useState<
     ShallowRequest[]
   >(applicationRequests.requests)
+  const [sandboxesList, setSandboxesList] = useState<SandboxInfo[]>(
+    initialSandboxes?.sandboxes || []
+  )
   const [isLoading, setIsLoading] = useState(false)
   const [prevCursor, setPrevCursor] = useState<string | null>(
     applicationRequests.prev_cursor ? applicationRequests.prev_cursor : null
@@ -91,6 +95,18 @@ const ApplicationDetailsPage = () => {
     }
   }, [prevCursor, retrieveApplicationRequests])
 
+  const refreshSandboxes = useCallback(async () => {
+    try {
+      const serviceURL = getIndexifyServiceURL()
+      const response = await axios.get(
+        `${serviceURL}/v1/namespaces/${namespace}/applications/${application.name}/sandboxes`
+      )
+      setSandboxesList(response.data.sandboxes || [])
+    } catch (error) {
+      console.error('Failed to refresh sandboxes:', error)
+    }
+  }, [namespace, application.name])
+
   return (
     <Stack direction="column" spacing={3}>
       <Breadcrumbs
@@ -145,6 +161,13 @@ const ApplicationDetailsPage = () => {
           />
 
           <ApplicationTagsTable namespace={namespace} tags={application.tags} />
+
+          <SandboxesTable
+            namespace={namespace}
+            applicationName={application.name}
+            sandboxes={sandboxesList}
+            onSandboxDeleted={refreshSandboxes}
+          />
         </Box>
 
         <ShallowRequestsTable

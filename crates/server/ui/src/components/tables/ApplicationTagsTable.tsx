@@ -13,7 +13,7 @@ import {
 import CopyText from '../CopyText'
 
 interface ApplicationTagsTableProps {
-  tags: Record<string, string>
+  tags?: Record<string, string>
   namespace: string
 }
 
@@ -26,9 +26,13 @@ const TABLE_CONTAINER_STYLES = {
 } as const
 
 function ApplicationTagsTable({ tags }: ApplicationTagsTableProps) {
+  // Don't render if no tags
+  if (!tags) {
+    return null
+  }
+
   const tagEntries = Object.entries(tags)
 
-  // Don't render if no tags
   if (tagEntries.length === 0) {
     return null
   }

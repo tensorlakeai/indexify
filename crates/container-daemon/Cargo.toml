@@ -1,0 +1,39 @@
+[package]
+name = "indexify-container-daemon"
+version = "0.1.0"
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "indexify-container-daemon"
+path = "src/main.rs"
+
+[dependencies]
+tokio = { workspace = true, features = ["full", "signal"] }
+tokio-stream.workspace = true
+tokio-util.workspace = true
+tonic = { workspace = true, features = ["transport"] }
+tracing.workspace = true
+tracing-subscriber.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+proto-api.workspace = true
+axum.workspace = true
+tower-http.workspace = true
+nanoid.workspace = true
+bytes.workspace = true
+async-stream.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+nix.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+tower = { version = "0.5", features = ["util"] }
+hyper.workspace = true
+futures.workspace = true
+http-body-util = "0.1"

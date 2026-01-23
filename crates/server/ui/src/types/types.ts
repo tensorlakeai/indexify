@@ -14,14 +14,14 @@ export type Allocation = {
 
 export type Application = {
   created_at?: number
-  description: string
-  entrypoint: EntryPointManifest
+  description?: string
+  entrypoint?: EntryPointManifest | null
   functions: {
     [key: string]: ApplicationFunction
   }
   name: string
   namespace: string
-  tags: {
+  tags?: {
     [key: string]: string
   }
   tombstoned?: boolean
@@ -141,6 +141,7 @@ export type FunctionExecutorMetadata = {
   id: string
   max_concurrency: number
   namespace: string
+  num_allocations: number
   state: string
   version: string
 }
@@ -618,4 +619,61 @@ export type V1DownloadFnOutputPayloadResponses = {
 
 export type ClientOptions = {
   baseUrl: `${string}://${string}` | (string & {})
+}
+
+// Sandbox types
+export type ContainerResourcesInfo = {
+  cpus: number
+  memory_mb: number
+  ephemeral_disk_mb: number
+}
+
+export type SandboxInfo = {
+  id: string
+  namespace: string
+  application: string
+  image: string
+  status: string
+  outcome?: string | null
+  created_at: number
+  container_id?: string | null
+  executor_id?: string | null
+  resources: ContainerResourcesInfo
+  timeout_secs: number
+  sandbox_http_address?: string | null
+}
+
+export type ListSandboxesResponse = {
+  sandboxes: Array<SandboxInfo>
+}
+
+// Daemon API types (for sandbox processes)
+export type ProcessStatusType = 'running' | 'exited' | 'signaled'
+
+export type ProcessInfo = {
+  pid: number
+  status: ProcessStatusType
+  exit_code?: number | null
+  signal?: number | null
+  stdin_writable: boolean
+  command: string
+  args: string[]
+  started_at: number
+  ended_at?: number | null
+}
+
+export type ListProcessesResponse = {
+  processes: ProcessInfo[]
+}
+
+export type OutputResponse = {
+  pid: number
+  lines: string[]
+  line_count: number
+}
+
+export type OutputEvent = {
+  line: string
+  timestamp: number
+  stream?: string
 }

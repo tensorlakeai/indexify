@@ -291,6 +291,92 @@ mod tests {
             .unwrap();
         assert_eq!(0, all_allocations.len());
 
+        // Check for stale data in in-memory state
+        {
+            let in_memory_state = indexify_state.in_memory_state.read().await;
+
+            // Check allocations_by_executor - should have no allocations for this request
+            let executor_id = crate::data_model::ExecutorId::new(TEST_EXECUTOR_ID.to_string());
+            if let Some(allocs_by_fe) = in_memory_state.allocations_by_executor.get(&executor_id) {
+                let total_allocs: usize = allocs_by_fe.values().map(|m| m.len()).sum();
+                tracing::info!(
+                    "allocations_by_executor for {}: {} allocations across {} function executors",
+                    TEST_EXECUTOR_ID,
+                    total_allocs,
+                    allocs_by_fe.len()
+                );
+                // After request tombstone, there should be no allocations
+                assert_eq!(
+                    total_allocs, 0,
+                    "Stale allocations found in allocations_by_executor: {:?}",
+                    allocs_by_fe
+                );
+            }
+
+            // Check function_runs count
+            tracing::info!(
+                "function_runs count after tombstone: {}",
+                in_memory_state.function_runs.len()
+            );
+
+            // Check unallocated_function_runs count
+            tracing::info!(
+                "unallocated_function_runs count after tombstone: {}",
+                in_memory_state.unallocated_function_runs.len()
+            );
+
+            // Check request_ctx count
+            tracing::info!(
+                "request_ctx count after tombstone: {}",
+                in_memory_state.request_ctx.len()
+            );
+        }
+
+        // Check for stale data in container scheduler
+        {
+            let container_scheduler = indexify_state.container_scheduler.read().await;
+
+            // Check if containers for this app still exist
+            let app_containers: Vec<_> = container_scheduler
+                .function_containers
+                .iter()
+                .filter(|(_, fc)| {
+                    fc.function_container.namespace == TEST_NAMESPACE &&
+                        fc.function_container.application_name == "graph_A"
+                })
+                .collect();
+            tracing::info!(
+                "function_containers for graph_A after request completion: {}",
+                app_containers.len()
+            );
+            for (id, fc) in &app_containers {
+                tracing::info!(
+                    "  Container {}: fn={}, state={:?}, desired_state={:?}, num_allocations={}",
+                    id.get(),
+                    fc.function_container.function_name,
+                    fc.function_container.state,
+                    fc.desired_state,
+                    fc.allocations.len(),
+                );
+            }
+
+            // Check containers_by_function_uri
+            tracing::info!(
+                "containers_by_function_uri count: {}",
+                container_scheduler.containers_by_function_uri.len()
+            );
+
+            // Check executor_states
+            let executor_id = crate::data_model::ExecutorId::new(TEST_EXECUTOR_ID.to_string());
+            if let Some(executor_state) = container_scheduler.executor_states.get(&executor_id) {
+                tracing::info!(
+                    "Executor state: function_container_ids={}, free_resources.cpu_ms_per_sec={}",
+                    executor_state.function_container_ids.len(),
+                    executor_state.free_resources.cpu_ms_per_sec
+                );
+            }
+        }
+
         Ok(())
     }
 
@@ -304,7 +390,7 @@ mod tests {
         test_srv.process_all_state_changes().await?;
 
         // register an executor
-        let executor = test_srv
+        let mut executor = test_srv
             .create_executor(mock_executor_metadata(TEST_EXECUTOR_ID.into()))
             .await?;
 
@@ -359,6 +445,136 @@ mod tests {
             ]),
         )
         .await?;
+
+        // Check for stale data in container scheduler after app deletion
+        {
+            let container_scheduler = indexify_state.container_scheduler.read().await;
+
+            // Check if containers for this app still exist
+            let app_containers: Vec<_> = container_scheduler
+                .function_containers
+                .iter()
+                .filter(|(_, fc)| {
+                    fc.function_container.namespace == TEST_NAMESPACE &&
+                        fc.function_container.application_name == "graph_A"
+                })
+                .collect();
+            tracing::info!(
+                "function_containers for graph_A after app deletion (BEFORE heartbeat): {}",
+                app_containers.len()
+            );
+            for (id, fc) in &app_containers {
+                tracing::info!(
+                    "  Container {}: fn={}, state={:?}, desired_state={:?}",
+                    id.get(),
+                    fc.function_container.function_name,
+                    fc.function_container.state,
+                    fc.desired_state
+                );
+            }
+        }
+
+        // Check what the server wants the executor to do (desired state)
+        {
+            let desired_state = executor.desired_state().await;
+            tracing::info!(
+                "Executor desired_state after app deletion: {} function_executors, {} allocations",
+                desired_state.function_executors.len(),
+                desired_state.allocations.len()
+            );
+            for fe in &desired_state.function_executors {
+                tracing::info!(
+                    "  Desired FE: id={}, fn={}",
+                    fe.id.as_ref().unwrap_or(&"?".to_string()),
+                    fe.function
+                        .as_ref()
+                        .map(|f| f.function_name.as_deref().unwrap_or("?"))
+                        .unwrap_or("?"),
+                );
+            }
+        }
+
+        // Simulate executor heartbeat with updated state (containers marked as
+        // terminated) This mimics what happens in production when executor
+        // responds to desired state
+        {
+            let mut executor_state = executor.get_executor_server_state().await?;
+            tracing::info!(
+                "Executor state before heartbeat: {} function_executors",
+                executor_state.containers.len()
+            );
+
+            // Mark all function executors as terminated (mimicking executor response)
+            for (_, fe) in executor_state.containers.iter_mut() {
+                fe.state = crate::data_model::ContainerState::Terminated {
+                    reason:
+                        crate::data_model::FunctionExecutorTerminationReason::DesiredStateRemoved,
+                    failed_alloc_ids: vec![],
+                };
+            }
+
+            // Update state_hash so heartbeat triggers state changes
+            executor_state.state_hash = nanoid::nanoid!();
+
+            // Send heartbeat with updated state
+            executor.heartbeat(executor_state).await?;
+            test_srv.process_all_state_changes().await?;
+        }
+
+        // Check container scheduler state AFTER heartbeat
+        {
+            let container_scheduler = indexify_state.container_scheduler.read().await;
+
+            let app_containers: Vec<_> = container_scheduler
+                .function_containers
+                .iter()
+                .filter(|(_, fc)| {
+                    fc.function_container.namespace == TEST_NAMESPACE &&
+                        fc.function_container.application_name == "graph_A"
+                })
+                .collect();
+            tracing::info!(
+                "function_containers for graph_A AFTER heartbeat: {}",
+                app_containers.len()
+            );
+            for (id, fc) in &app_containers {
+                tracing::info!(
+                    "  Container {}: fn={}, state={:?}, desired_state={:?}",
+                    id.get(),
+                    fc.function_container.function_name,
+                    fc.function_container.state,
+                    fc.desired_state
+                );
+            }
+
+            // Check containers_by_function_uri for this app
+            let app_uri_containers: Vec<_> = container_scheduler
+                .containers_by_function_uri
+                .iter()
+                .filter(|(uri, _)| uri.namespace == TEST_NAMESPACE && uri.application == "graph_A")
+                .collect();
+            tracing::info!(
+                "containers_by_function_uri for graph_A AFTER heartbeat: {}",
+                app_uri_containers.len()
+            );
+
+            // Check desired_containers for this app
+            let app_desired: Vec<_> = container_scheduler
+                .desired_containers
+                .iter()
+                .filter(|(uri, _)| uri.namespace == TEST_NAMESPACE && uri.application == "graph_A")
+                .collect();
+            tracing::info!("desired_containers for graph_A: {}", app_desired.len());
+
+            // Check executor_states
+            let executor_id = crate::data_model::ExecutorId::new(TEST_EXECUTOR_ID.to_string());
+            if let Some(executor_state) = container_scheduler.executor_states.get(&executor_id) {
+                tracing::info!(
+                    "Executor state AFTER heartbeat: function_container_ids={}",
+                    executor_state.function_container_ids.len()
+                );
+            }
+        }
 
         Ok(())
     }
@@ -608,6 +824,9 @@ mod tests {
             .create_executor(mock_executor_metadata(TEST_EXECUTOR_ID.into()))
             .await?;
         test_srv.process_all_state_changes().await?;
+
+        // make sure the task is allocated
+        assert_function_run_counts!(test_srv, total: 1, allocated: 1, pending: 0, completed_success: 0);
 
         // track the attempt number
         let mut attempt_number: u32 = 0;

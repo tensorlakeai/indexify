@@ -55,6 +55,9 @@ export function FunctionExecutorsContent({
               {functionExecutor.desired_state}
             </span>
           </p>
+          <p>
+            <strong>Allocations:</strong> {functionExecutor.num_allocations}
+          </p>
         </TableCell>
       </TableRow>
     </Table>

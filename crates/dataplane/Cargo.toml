@@ -1,0 +1,48 @@
+[package]
+name = "indexify-dataplane"
+version = "0.1.0"
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+tokio.workspace = true
+tokio-util.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde-inline-default.workspace = true
+serde-saphyr.workspace = true
+tonic = { workspace = true, features = ["transport", "tls-ring", "tls-native-roots"] }
+tracing.workspace = true
+tracing-subscriber.workspace = true
+tracing-opentelemetry.workspace = true
+opentelemetry.workspace = true
+opentelemetry_sdk.workspace = true
+opentelemetry-otlp.workspace = true
+opentelemetry-stdout.workspace = true
+json-subscriber.workspace = true
+anyhow.workspace = true
+async-trait.workspace = true
+clap.workspace = true
+uuid.workspace = true
+proto-api.workspace = true
+prost.workspace = true
+sha2.workspace = true
+tower = "0.5"
+hyper = { workspace = true, features = ["client", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio", "client-legacy"] }
+http-body-util = "0.1"
+axum.workspace = true
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
+bytes.workspace = true
+sysinfo = "0.37.2"
+bollard = { workspace = true }
+futures-util = { workspace = true }
+lazy_static = { workspace = true }
+
+[target.'cfg(unix)'.dependencies]
+nix.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+tokio = { workspace = true, features = ["test-util"] }

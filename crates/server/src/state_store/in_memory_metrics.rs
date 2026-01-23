@@ -12,11 +12,8 @@ pub struct InMemoryStoreMetrics {
     pub allocation_completion_latency: Histogram<f64>,
     pub scheduler_update_index_function_run_by_catalog: Histogram<f64>,
     pub scheduler_update_delete_requests: Histogram<f64>,
-    pub scheduler_update_insert_function_executors: Histogram<f64>,
     pub scheduler_update_insert_new_allocations: Histogram<f64>,
-    pub scheduler_update_remove_function_executors: Histogram<f64>,
     pub scheduler_update_remove_executors: Histogram<f64>,
-    pub scheduler_update_free_executor_resources: Histogram<f64>,
 }
 
 impl InMemoryStoreMetrics {
@@ -58,25 +55,11 @@ impl InMemoryStoreMetrics {
             .with_description("Time tasks spend deleting requests")
             .build();
 
-        let scheduler_update_insert_function_executors = meter
-            .f64_histogram("indexify.scheduler_update.insert_function_executors")
-            .with_unit("s")
-            .with_boundaries(low_latency_boundaries())
-            .with_description("Time tasks spend inserting function executors")
-            .build();
-
         let scheduler_update_insert_new_allocations = meter
             .f64_histogram("indexify.scheduler_update.insert_new_allocations")
             .with_unit("s")
             .with_boundaries(low_latency_boundaries())
             .with_description("Time tasks spend inserting new allocations")
-            .build();
-
-        let scheduler_update_remove_function_executors = meter
-            .f64_histogram("indexify.scheduler_update.remove_function_executors")
-            .with_unit("s")
-            .with_boundaries(low_latency_boundaries())
-            .with_description("Time tasks spend updating function executors")
             .build();
 
         let scheduler_update_remove_executors = meter
@@ -86,31 +69,20 @@ impl InMemoryStoreMetrics {
             .with_description("Time tasks spend removing function executors")
             .build();
 
-        let scheduler_update_free_executor_resources = meter
-            .f64_histogram("indexify.scheduler_update.free_executor_resources")
-            .with_unit("s")
-            .with_boundaries(low_latency_boundaries())
-            .with_description("Time tasks spend freeing executor resources")
-            .build();
-
         Self {
             function_run_pending_latency,
             allocation_running_latency,
             allocation_completion_latency,
             scheduler_update_index_function_run_by_catalog,
             scheduler_update_delete_requests,
-            scheduler_update_insert_function_executors,
             scheduler_update_insert_new_allocations,
-            scheduler_update_remove_function_executors,
             scheduler_update_remove_executors,
-            scheduler_update_free_executor_resources,
         }
     }
 }
 
 #[allow(dead_code)]
 pub struct InMemoryStoreGauges {
-    pub total_executors: ObservableGauge<u64>,
     pub active_requests: ObservableGauge<u64>,
     pub active_allocations: ObservableGauge<u64>,
     pub active_function_runs: ObservableGauge<u64>,
@@ -120,16 +92,6 @@ pub struct InMemoryStoreGauges {
 impl InMemoryStoreGauges {
     pub fn new(in_memory_state: Arc<RwLock<InMemoryState>>) -> Self {
         let meter = opentelemetry::global::meter("state_store");
-        let state_clone = in_memory_state.clone();
-        let total_executors = meter
-            .u64_observable_gauge("indexify.total_executors")
-            .with_description("Total number of executors")
-            .with_callback(move |observer| {
-                if let Ok(state) = state_clone.try_read() {
-                    observer.observe(state.executors.len() as u64, &[]);
-                }
-            })
-            .build();
         let state_clone = in_memory_state.clone();
         let active_requests = meter
             .u64_observable_gauge("indexify.active_requests")
@@ -175,7 +137,6 @@ impl InMemoryStoreGauges {
             })
             .build();
         Self {
-            total_executors,
             active_requests,
             active_allocations,
             active_function_runs,

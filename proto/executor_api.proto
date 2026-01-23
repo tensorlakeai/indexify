@@ -91,6 +91,12 @@ enum FunctionExecutorStatus {
     FUNCTION_EXECUTOR_STATUS_TERMINATED = 3;
 }
 
+enum FunctionExecutorType {
+    FUNCTION_EXECUTOR_TYPE_UNKNOWN = 0;
+    FUNCTION_EXECUTOR_TYPE_FUNCTION = 1;
+    FUNCTION_EXECUTOR_TYPE_SANDBOX = 2;
+}
+
 // The reasons why an Executor decided to terminate a Function Executor.
 enum FunctionExecutorTerminationReason {
     FUNCTION_EXECUTOR_TERMINATION_REASON_UNKNOWN = 0;
@@ -135,6 +141,39 @@ message FunctionRef {
     optional string application_version = 4;
 }
 
+// Network access control policy for sandboxes.
+// Rules are applied using host-level iptables on the DOCKER-USER chain.
+message NetworkPolicy {
+    // If false, all outbound internet access is blocked by default (DROP).
+    // If true (default), outbound is allowed unless explicitly denied.
+    optional bool allow_internet_access = 1;
+    // List of allowed destination IPs/CIDRs (e.g., "8.8.8.8", "10.0.0.0/8").
+    // Allow rules take precedence over deny rules.
+    repeated string allow_out = 2;
+    // List of denied destination IPs/CIDRs (e.g., "192.168.1.100").
+    repeated string deny_out = 3;
+}
+
+message SandboxMetadata {
+    // timeout after which the sandbox is killed
+    // by the dataplane
+    optional uint64 timeout_secs = 11;
+    // user specified entrypoint. if provided
+    // container daemon starts this as a child process
+    // during sandbox initialization and shows this as one
+    // of the pid
+    repeated string entrypoint = 12;
+    // container image of the sandbox
+    optional string image = 10;
+    // Network access control policy for sandbox containers.
+    optional NetworkPolicy network_policy = 13;
+}
+
+// This will be container description 
+// and we will extract Function related metadata 
+// in a FunctionMetadata object
+// secret, application name, ns, would be shared 
+// metadata across sandbox and function containers
 message FunctionExecutorDescription {
     optional string id = 1;
     optional FunctionRef function = 2;
@@ -146,6 +185,12 @@ message FunctionExecutorDescription {
     optional uint32 max_concurrency = 8;
     // Timeout for running allocations on FE.
     optional uint32 allocation_timeout_ms = 9;
+
+    // Sandbox related metadata, only set when container_type
+    // is set to sandbox
+    optional SandboxMetadata sandbox_metadata = 10;
+    // Type of this function executor (function or sandbox).
+    optional FunctionExecutorType container_type = 13;
 }
 
 message FunctionExecutorState {
@@ -153,6 +198,9 @@ message FunctionExecutorState {
     optional FunctionExecutorStatus status = 2;
     optional FunctionExecutorTerminationReason termination_reason = 3;
     repeated string allocation_ids_caused_termination = 4;
+    // HTTP address of the sandbox API.
+    // Format: "host:port" (e.g., "192.168.1.100:64759")
+    optional string sandbox_http_address = 5;
 }
 
 enum ExecutorStatus {
