@@ -9,20 +9,22 @@ use crate::state_store::state_machine::IndexifyObjectsColumns;
 ///
 /// This migration handles the following schema changes:
 ///
-/// 1. **Function.fn_name removal**: The `fn_name` field has been removed from the Function struct.
-///    Old data may contain this field which needs to be stripped to avoid deserialization issues
-///    if strict mode is ever enabled.
+/// 1. **Function.fn_name removal**: The `fn_name` field has been removed from
+///    the Function struct. Old data may contain this field which needs to be
+///    stripped to avoid deserialization issues if strict mode is ever enabled.
 ///
-/// 2. **Application/ApplicationVersion.code and entrypoint**: Changed from required to Optional.
-///    These are backward compatible with `#[serde(default)]` - existing data deserializes correctly.
+/// 2. **Application/ApplicationVersion.code and entrypoint**: Changed from
+///    required to Optional. These are backward compatible with
+///    `#[serde(default)]` - existing data deserializes correctly.
 ///
-/// 3. **Function.min_containers and max_containers**: New optional fields with defaults.
-///    Backward compatible - old data will have these as None.
+/// 3. **Function.min_containers and max_containers**: New optional fields with
+///    defaults. Backward compatible - old data will have these as None.
 ///
-/// 4. **Type renames** (FunctionExecutorId → ContainerId, etc.): These don't affect serialized
-///    JSON format as they're newtype wrappers around String.
+/// 4. **Type renames** (FunctionExecutorId → ContainerId, etc.): These don't
+///    affect serialized JSON format as they're newtype wrappers around String.
 ///
-/// 5. **New Sandboxes column family**: Automatically created by RocksDB, no migration needed.
+/// 5. **New Sandboxes column family**: Automatically created by RocksDB, no
+///    migration needed.
 #[derive(Clone)]
 pub struct V11SandboxDataModelChanges;
 
@@ -65,17 +67,20 @@ impl Migration for V11SandboxDataModelChanges {
         // Process ApplicationVersions column family
         let mut version_updates: Vec<(Vec<u8>, Vec<u8>)> = Vec::new();
 
-        ctx.iterate(&IndexifyObjectsColumns::ApplicationVersions, |key, value| {
-            versions_processed += 1;
+        ctx.iterate(
+            &IndexifyObjectsColumns::ApplicationVersions,
+            |key, value| {
+                versions_processed += 1;
 
-            if let Ok(mut json) = serde_json::from_slice::<Value>(value) {
-                if remove_fn_name_from_functions(&mut json) {
-                    let updated = serde_json::to_vec(&json)?;
-                    version_updates.push((key.to_vec(), updated));
+                if let Ok(mut json) = serde_json::from_slice::<Value>(value) {
+                    if remove_fn_name_from_functions(&mut json) {
+                        let updated = serde_json::to_vec(&json)?;
+                        version_updates.push((key.to_vec(), updated));
+                    }
                 }
-            }
-            Ok(())
-        })?;
+                Ok(())
+            },
+        )?;
 
         for (key, value) in &version_updates {
             ctx.txn.put(
@@ -99,8 +104,8 @@ impl Migration for V11SandboxDataModelChanges {
     }
 }
 
-/// Remove the deprecated `fn_name` field from all functions in an Application or ApplicationVersion JSON.
-/// Returns true if any modifications were made.
+/// Remove the deprecated `fn_name` field from all functions in an Application
+/// or ApplicationVersion JSON. Returns true if any modifications were made.
 fn remove_fn_name_from_functions(json: &mut Value) -> bool {
     let mut modified = false;
 
@@ -151,10 +156,7 @@ mod tests {
         // Verify fn_name was removed
         let functions = json.get("functions").unwrap().as_object().unwrap();
         for (_key, fn_val) in functions.iter() {
-            assert!(
-                fn_val.get("fn_name").is_none(),
-                "fn_name should be removed"
-            );
+            assert!(fn_val.get("fn_name").is_none(), "fn_name should be removed");
             // Other fields should be preserved
             assert!(fn_val.get("name").is_some());
             assert!(fn_val.get("description").is_some());
@@ -175,7 +177,10 @@ mod tests {
         });
 
         let modified = remove_fn_name_from_functions(&mut json);
-        assert!(!modified, "Should not report modification when no fn_name exists");
+        assert!(
+            !modified,
+            "Should not report modification when no fn_name exists"
+        );
     }
 
     #[test]
