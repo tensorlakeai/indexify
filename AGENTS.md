@@ -124,6 +124,8 @@ cargo test --workspace
 
 If linting fails, fix the issues. Note: `just fmt` requires `poetry` for Python formatting - if not installed, run `rustup run nightly cargo fmt` directly for Rust formatting.
 
+**IMPORTANT**: Do not leave code for future use. Only implement what is needed now. Remove unused constants, functions, and commented-out code.
+
 ---
 
 ## 4. Key Files
@@ -189,3 +191,83 @@ curl "http://<sandbox_addr>/api/v1/files/list?path=/app"
 curl "http://<sandbox_addr>/api/v1/health"
 # Returns: {"healthy": true}
 ```
+
+---
+
+## 7. Running Dataplane in a Container
+
+When the dataplane runs inside a container, it needs access to host resources to properly schedule function containers. By default, containers only see their cgroup limits, not actual host resources.
+
+### Host Resource Detection
+
+The dataplane automatically detects host resources when `/host/proc` is mounted. This follows the same pattern used by Kubernetes kubelet/cAdvisor.
+
+### Required Volume Mounts
+
+```bash
+docker run \
+  -v /proc:/host/proc:ro \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  indexify-dataplane
+```
+
+| Mount | Purpose |
+|-------|---------|
+| `/proc:/host/proc:ro` | Host CPU and memory info (`/proc/cpuinfo`, `/proc/meminfo`) |
+| `/var/run/docker.sock` | Required for Docker driver to spawn containers |
+
+### How It Works
+
+1. Dataplane checks if `/host/proc` exists at startup
+2. If present, reads `/host/proc/meminfo` and `/host/proc/cpuinfo` for host resources
+3. If not present, falls back to `sysinfo` crate (sees container limits)
+
+### Docker Compose Example
+
+```yaml
+services:
+  dataplane:
+    image: indexify-dataplane
+    volumes:
+      - /proc:/host/proc:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - INDEXIFY_SERVER_ADDR=http://server:8901
+```
+
+### Kubernetes Deployment
+
+```yaml
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: indexify-dataplane
+spec:
+  template:
+    spec:
+      containers:
+      - name: dataplane
+        image: indexify-dataplane
+        volumeMounts:
+        - name: host-proc
+          mountPath: /host/proc
+          readOnly: true
+        - name: docker-sock
+          mountPath: /var/run/docker.sock
+      volumes:
+      - name: host-proc
+        hostPath:
+          path: /proc
+      - name: docker-sock
+        hostPath:
+          path: /var/run/docker.sock
+```
+
+### Verifying Host Detection
+
+Check dataplane logs at startup for:
+```
+INFO Probed host resources from mounted /host/proc cpu_count=16 memory_bytes=68719476736 source="host_mount"
+```
+
+If you see `source="sysinfo"` instead, the host mounts are not configured correctly.
