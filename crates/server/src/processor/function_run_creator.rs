@@ -29,7 +29,7 @@ use crate::{
         RequestOutcome,
         RunningFunctionRunStatus,
     },
-    processor::retry_policy::FunctionRunRetryPolicy,
+    processor::{container_scheduler::ContainerScheduler, retry_policy::FunctionRunRetryPolicy},
     state_store::{
         IndexifyState,
         in_memory_state::InMemoryState,
@@ -119,10 +119,11 @@ impl FunctionRunCreator {
         Ok(scheduler_update)
     }
 
-    #[tracing::instrument(skip(self, in_memory_state, alloc_finished_event))]
+    #[tracing::instrument(skip(self, in_memory_state, container_scheduler, alloc_finished_event))]
     pub async fn handle_allocation_ingestion(
         &self,
         in_memory_state: &mut InMemoryState,
+        container_scheduler: &mut ContainerScheduler,
         alloc_finished_event: &AllocationOutputIngestedEvent,
     ) -> Result<SchedulerUpdateRequest> {
         info!(
@@ -134,6 +135,26 @@ impl FunctionRunCreator {
             allocation_id = alloc_finished_event.allocation.id.to_string(),
             "handling allocation ingestion",
         );
+        let mut scheduler_update = SchedulerUpdateRequest::default();
+        if let Some(fc) = container_scheduler
+            .function_containers
+            .get_mut(&alloc_finished_event.allocation.target.function_executor_id)
+        {
+            fc.allocations.remove(&alloc_finished_event.allocation.id);
+            scheduler_update.containers.insert(
+                alloc_finished_event
+                    .allocation
+                    .target
+                    .function_executor_id
+                    .clone(),
+                fc.clone(),
+            );
+        }
+        container_scheduler.update(&RequestPayload::SchedulerUpdate((
+            Box::new(scheduler_update.clone()),
+            vec![],
+        )))?;
+
         let Some(mut request_ctx) = in_memory_state
             .request_ctx
             .get(
@@ -147,12 +168,12 @@ impl FunctionRunCreator {
             .cloned()
         else {
             trace!("no request ctx, stopping scheduling of child function runs");
-            return Ok(SchedulerUpdateRequest::default());
+            return Ok(scheduler_update);
         };
 
         if request_ctx.outcome.is_some() {
             trace!("request already completed, stopping scheduling of child function runs");
-            return Ok(SchedulerUpdateRequest::default());
+            return Ok(scheduler_update);
         }
 
         let Some(mut function_run) = request_ctx
@@ -168,7 +189,7 @@ impl FunctionRunCreator {
                 fn = %alloc_finished_event.function,
                 "function run not found, stopping scheduling of child function runs",
             );
-            return Ok(SchedulerUpdateRequest::default());
+            return Ok(scheduler_update);
         };
 
         let allocation = alloc_finished_event.allocation.clone();
@@ -187,7 +208,7 @@ impl FunctionRunCreator {
                 app = %allocation.application,
                 "allocation already terminal, skipping duplicate finished event"
             );
-            return Ok(SchedulerUpdateRequest::default());
+            return Ok(scheduler_update);
         }
 
         // Idempotency: we only act on this alloc's task if the task is currently
@@ -198,10 +219,9 @@ impl FunctionRunCreator {
                 allocation_id: allocation.id.clone(),
             })
         {
-            return Ok(SchedulerUpdateRequest::default());
+            return Ok(scheduler_update);
         }
 
-        let mut scheduler_update = SchedulerUpdateRequest::default();
         scheduler_update
             .updated_allocations
             .push(allocation.clone());
@@ -227,7 +247,7 @@ impl FunctionRunCreator {
                 app_version = %function_run.version,
                 "application version not found, stopping scheduling of child function runs",
             );
-            return Ok(SchedulerUpdateRequest::default());
+            return Ok(scheduler_update);
         };
 
         FunctionRunRetryPolicy::handle_allocation_outcome(

@@ -42,6 +42,7 @@ mod tests {
             blob_storage: test_service.service.blob_storage_registry.clone(),
             executor_manager: test_service.service.executor_manager.clone(),
             metrics: Arc::new(metrics::api_io_stats::Metrics::new()),
+            config: test_service.service.config.clone(),
         }
     }
 

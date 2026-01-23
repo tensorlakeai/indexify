@@ -21,8 +21,9 @@ use tracing::{debug, error, info, span};
 
 use crate::{
     config::ExecutorCatalogEntry,
-    data_model::{ExecutorId, StateChange, StateMachineMetadata},
+    data_model::{ExecutorId, FunctionRunStatus, StateChange, StateMachineMetadata},
     metrics::{StateStoreMetrics, Timer},
+    processor::container_scheduler::{ContainerScheduler, ContainerSchedulerGauges},
     state_store::{
         driver::{
             Reader,
@@ -118,11 +119,13 @@ pub struct IndexifyState {
 
     pub metrics: Arc<StateStoreMetrics>,
     pub in_memory_state: Arc<RwLock<in_memory_state::InMemoryState>>,
+    pub container_scheduler: Arc<RwLock<ContainerScheduler>>,
     // Executor watches for function call results streaming
     pub executor_watches: ExecutorWatches,
     pub request_event_buffers: RequestEventBuffers,
-    // Observable gauge for tracking total executors - must be kept alive for callback to fire
+    // Observable gauges - must be kept alive for callbacks to fire
     _in_memory_store_gauges: InMemoryStoreGauges,
+    _container_scheduler_gauges: ContainerSchedulerGauges,
 }
 
 pub(crate) fn open_database<I>(
@@ -188,16 +191,16 @@ impl IndexifyState {
         let (change_events_tx, change_events_rx) = tokio::sync::watch::channel(());
         let (usage_events_tx, usage_events_rx) = tokio::sync::watch::channel(());
         let (request_events_tx, request_events_rx) = tokio::sync::watch::channel(());
+        let in_memory_state = InMemoryState::new(
+            sm_meta.last_change_idx,
+            scanner::StateReader::new(db.clone(), state_store_metrics.clone()),
+            executor_catalog,
+        )
+        .await?;
 
-        let indexes = Arc::new(RwLock::new(
-            InMemoryState::new(
-                sm_meta.last_change_idx,
-                scanner::StateReader::new(db.clone(), state_store_metrics.clone()),
-                executor_catalog,
-            )
-            .await?,
-        ));
-
+        let container_scheduler = Arc::new(RwLock::new(ContainerScheduler::new(&in_memory_state)));
+        let container_scheduler_gauges = ContainerSchedulerGauges::new(container_scheduler.clone());
+        let indexes = Arc::new(RwLock::new(in_memory_state));
         let in_memory_store_gauges = InMemoryStoreGauges::new(indexes.clone());
 
         let s = Arc::new(Self {
@@ -211,6 +214,7 @@ impl IndexifyState {
             change_events_tx,
             change_events_rx,
             in_memory_state: indexes,
+            container_scheduler,
             usage_events_tx,
             usage_events_rx,
             request_events_tx,
@@ -218,6 +222,7 @@ impl IndexifyState {
             executor_watches: ExecutorWatches::new(),
             request_event_buffers: RequestEventBuffers::new(),
             _in_memory_store_gauges: in_memory_store_gauges,
+            _container_scheduler_gauges: container_scheduler_gauges,
         });
 
         info!(
@@ -267,6 +272,15 @@ impl IndexifyState {
                 )
                 .map_err(|e| anyhow!("error updating in memory state: {e:?}"))?
         };
+        {
+            let _timer =
+                Timer::start_with_labels(&self.metrics.state_write_container_scheduler, timer_kv);
+            self.container_scheduler
+                .write()
+                .await
+                .update(&request.payload)
+                .map_err(|e| anyhow!("error updating container scheduler: {e:?}"))?
+        }
 
         if let RequestPayload::SchedulerUpdate((request, _)) = &request.payload {
             let impacted_executors = self
@@ -279,10 +293,38 @@ impl IndexifyState {
             changed_executors.extend(impacted_executors.into_iter().map(|e| e.into()));
         }
         if let RequestPayload::UpsertExecutor(req) = &request.payload &&
-            !req.watch_function_calls.is_empty() &&
-            req.update_executor_state
+            !req.watch_function_calls.is_empty()
         {
-            changed_executors.insert(req.executor.id.clone());
+            // Check if any watched function runs have already completed.
+            // This handles the race condition where children complete before watches
+            // are registered, while avoiding spurious notifications on server restart.
+            let in_memory = self.in_memory_state.read().await;
+            let mut completed_watches = Vec::new();
+            for watch in &req.watch_function_calls {
+                let key = in_memory_state::FunctionRunKey::from(watch);
+                if let Some(run) = in_memory.function_runs.get(&key) &&
+                    matches!(run.status, FunctionRunStatus::Completed)
+                {
+                    completed_watches.push(watch.function_call_id.clone());
+                }
+            }
+            drop(in_memory);
+
+            if !completed_watches.is_empty() {
+                info!(
+                    executor_id = req.executor.id.get(),
+                    num_completed_watches = completed_watches.len(),
+                    completed_watches = ?completed_watches,
+                    "notifying executor: watched function runs already completed"
+                );
+                changed_executors.insert(req.executor.id.clone());
+            } else {
+                info!(
+                    executor_id = req.executor.id.get(),
+                    num_watches = req.watch_function_calls.len(),
+                    "executor has watches but none completed yet, will notify via SchedulerUpdate path"
+                );
+            }
         }
 
         // Notify the executors with state changes
@@ -290,8 +332,12 @@ impl IndexifyState {
             let _timer =
                 Timer::start_with_labels(&self.metrics.state_write_executor_notify, timer_kv);
             let mut executor_states = self.executor_states.write().await;
-            for executor_id in changed_executors {
-                if let Some(executor_state) = executor_states.get_mut(&executor_id) {
+            for executor_id in &changed_executors {
+                info!(
+                    executor_id = executor_id.get(),
+                    "notifying executor of state change"
+                );
+                if let Some(executor_state) = executor_states.get_mut(executor_id) {
                     executor_state.notify();
                 }
             }
@@ -429,6 +475,14 @@ impl IndexifyState {
                         .or_default();
                 }
                 // Update executor watches for efficient sync
+                if !request.watch_function_calls.is_empty() {
+                    info!(
+                        executor_id = request.executor.id.get(),
+                        num_watches = request.watch_function_calls.len(),
+                        watches = ?request.watch_function_calls.iter().map(|w| format!("{}:{}", w.function_call_id, w.request_id)).collect::<Vec<_>>(),
+                        "syncing executor watches to state store"
+                    );
+                }
                 self.executor_watches
                     .sync_watches(
                         request.executor.id.get().to_string(),
@@ -452,6 +506,9 @@ impl IndexifyState {
             }
             RequestPayload::ProcessStateChanges(state_changes) => {
                 state_machine::mark_state_changes_processed(&txn, state_changes).await?;
+            }
+            RequestPayload::CreateSandbox(request) => {
+                state_machine::upsert_sandbox(&txn, &request.sandbox, current_clock).await?;
             }
             _ => {} // Handle other request types as needed
         };
@@ -541,6 +598,17 @@ async fn read_sm_meta(db: &RocksDBDriver) -> Result<StateMachineMetadata> {
             last_request_event_idx: 0,
         }),
     }
+}
+
+pub async fn write_sm_meta(txn: &Transaction, sm_meta: &StateMachineMetadata) -> Result<()> {
+    let serialized_meta = JsonEncoder::encode(sm_meta)?;
+    txn.put(
+        IndexifyObjectsColumns::StateMachineMetadata.as_ref(),
+        b"sm_meta",
+        &serialized_meta,
+    )
+    .await?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -752,6 +820,7 @@ mod tests {
             "ExecutorStateChanges",
             "ApplicationStateChanges",
             "RequestStateChangeEvents",
+            "Sandboxes",
         ];
 
         let columns_iter = columns
@@ -828,15 +897,4 @@ mod tests {
             })
             .await
     }
-}
-
-pub async fn write_sm_meta(txn: &Transaction, sm_meta: &StateMachineMetadata) -> Result<()> {
-    let serialized_meta = JsonEncoder::encode(sm_meta)?;
-    txn.put(
-        IndexifyObjectsColumns::StateMachineMetadata.as_ref(),
-        b"sm_meta",
-        &serialized_meta,
-    )
-    .await?;
-    Ok(())
 }

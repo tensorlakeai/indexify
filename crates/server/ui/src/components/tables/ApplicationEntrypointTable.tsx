@@ -13,7 +13,7 @@ import { EntryPointManifest } from '../../types/types'
 import CopyText from '../CopyText'
 
 interface ApplicationEntrypointTableProps {
-  entrypoint: EntryPointManifest
+  entrypoint?: EntryPointManifest | null
   namespace: string
 }
 
@@ -28,6 +28,11 @@ const TABLE_CONTAINER_STYLES = {
 function ApplicationEntrypointTable({
   entrypoint,
 }: ApplicationEntrypointTableProps) {
+  // Don't render if no entrypoint
+  if (!entrypoint) {
+    return null
+  }
+
   return (
     <Box sx={{ width: '100%', mt: 2 }}>
       <Typography variant="h6" gutterBottom>

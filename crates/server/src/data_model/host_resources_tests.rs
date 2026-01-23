@@ -2,7 +2,7 @@
 mod tests {
 
     use crate::data_model::{
-        FunctionExecutorResources,
+        ContainerResources,
         FunctionResources,
         GPU_MODEL_NVIDIA_A10,
         GPU_MODEL_NVIDIA_A100_40GB,
@@ -237,9 +237,9 @@ mod tests {
             description: &'static str,
             host_resources: HostResources,
             func_resources: FunctionResources,
-            expected_fe_resources: Option<FunctionExecutorResources>, // None means error expected
-            expected_host_resources_after: Option<HostResources>,     /* None means no change
-                                                                       * expected */
+            expected_fe_resources: Option<ContainerResources>, // None means error expected
+            expected_host_resources_after: Option<HostResources>, /* None means no change
+                                                                * expected */
         }
 
         let cases = vec![
@@ -257,7 +257,7 @@ mod tests {
                     ephemeral_disk_mb: 1024,
                     gpu_configs: vec![],
                 },
-                expected_fe_resources: Some(FunctionExecutorResources {
+                expected_fe_resources: Some(ContainerResources {
                     cpu_ms_per_sec: 1000,
                     memory_mb: 1024,
                     ephemeral_disk_mb: 1024,
@@ -284,7 +284,7 @@ mod tests {
                     ephemeral_disk_mb: 2 * 1024,
                     gpu_configs: vec![],
                 },
-                expected_fe_resources: Some(FunctionExecutorResources {
+                expected_fe_resources: Some(ContainerResources {
                     cpu_ms_per_sec: 2000,
                     memory_mb: 2 * 1024,
                     ephemeral_disk_mb: 2 * 1024,
@@ -374,7 +374,7 @@ mod tests {
                         },
                     ],
                 },
-                expected_fe_resources: Some(FunctionExecutorResources {
+                expected_fe_resources: Some(ContainerResources {
                     cpu_ms_per_sec: 1000,
                     memory_mb: 1024,
                     ephemeral_disk_mb: 1024,
@@ -419,7 +419,7 @@ mod tests {
                         },
                     ],
                 },
-                expected_fe_resources: Some(FunctionExecutorResources {
+                expected_fe_resources: Some(ContainerResources {
                     cpu_ms_per_sec: 2000,
                     memory_mb: 2 * 1024,
                     ephemeral_disk_mb: 2 * 1024,
@@ -455,7 +455,7 @@ mod tests {
                     ephemeral_disk_mb: 2 * 1024,
                     gpu_configs: vec![],
                 },
-                expected_fe_resources: Some(FunctionExecutorResources {
+                expected_fe_resources: Some(ContainerResources {
                     cpu_ms_per_sec: 2000,
                     memory_mb: 2 * 1024,
                     ephemeral_disk_mb: 2 * 1024,
@@ -568,7 +568,7 @@ mod tests {
         struct Case {
             description: &'static str,
             host_resources: HostResources,
-            fe_resources: FunctionExecutorResources,
+            fe_resources: ContainerResources,
             expect_success: bool,
             expected_host_resources_after: Option<HostResources>,
         }
@@ -582,7 +582,7 @@ mod tests {
                     disk_bytes: 1024 * 1024 * 1024,
                     gpu: None,
                 },
-                fe_resources: FunctionExecutorResources {
+                fe_resources: ContainerResources {
                     cpu_ms_per_sec: 1000,
                     memory_mb: 1024,
                     ephemeral_disk_mb: 1024,
@@ -607,7 +607,7 @@ mod tests {
                         model: GPU_MODEL_NVIDIA_A10.to_string(),
                     }),
                 },
-                fe_resources: FunctionExecutorResources {
+                fe_resources: ContainerResources {
                     cpu_ms_per_sec: 1000,
                     memory_mb: 1024,
                     ephemeral_disk_mb: 1024,
@@ -638,7 +638,7 @@ mod tests {
                         model: GPU_MODEL_NVIDIA_A100_40GB.to_string(),
                     }),
                 },
-                fe_resources: FunctionExecutorResources {
+                fe_resources: ContainerResources {
                     cpu_ms_per_sec: 1000,
                     memory_mb: 1024,
                     ephemeral_disk_mb: 1024,
@@ -658,7 +658,7 @@ mod tests {
                     disk_bytes: 1024 * 1024 * 1024,
                     gpu: None,
                 },
-                fe_resources: FunctionExecutorResources {
+                fe_resources: ContainerResources {
                     cpu_ms_per_sec: 1000,
                     memory_mb: 1024,
                     ephemeral_disk_mb: 1024,

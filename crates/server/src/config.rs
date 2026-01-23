@@ -81,6 +81,12 @@ pub struct ServerConfig {
     pub queue_size: u32,
     #[serde(default)]
     pub cloud_events: Option<CloudEventsConfig>,
+    /// Default timeout in seconds for sandbox containers. 0 means no timeout.
+    #[serde_inline_default(600)]
+    pub default_sandbox_timeout_secs: u64,
+    /// Default Docker image for sandbox containers.
+    #[serde_inline_default("python:3.11-slim".to_string())]
+    pub default_sandbox_image: String,
 }
 
 impl Default for ServerConfig {
@@ -98,6 +104,8 @@ impl Default for ServerConfig {
             queue_size: 1,
             usage_queue: None,
             cloud_events: None,
+            default_sandbox_timeout_secs: 600,
+            default_sandbox_image: "python:3.11-slim".to_string(),
         }
     }
 }

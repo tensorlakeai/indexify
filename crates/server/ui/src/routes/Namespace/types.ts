@@ -4,6 +4,7 @@ import {
   ApplicationRequests,
   ApplicationsList,
   ExecutorMetadata,
+  ListSandboxesResponse,
   Namespace,
 } from '../../types/types'
 
@@ -19,6 +20,7 @@ export interface ApplicationsListLoaderData extends NamespaceLoaderData {
 export interface ApplicationDetailsLoaderData extends NamespaceLoaderData {
   application: Application
   applicationRequests: ApplicationRequests
+  sandboxes: ListSandboxesResponse
 }
 
 export interface ExecutorsLoaderData {

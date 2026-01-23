@@ -7,6 +7,8 @@ use tracing::{error, info, warn};
 use crate::{
     data_model::{
         AllocationBuilder,
+        AllocationTarget,
+        ContainerState,
         FunctionRun,
         FunctionRunFailureReason,
         FunctionRunOutcome,
@@ -17,27 +19,27 @@ use crate::{
         RunningFunctionRunStatus,
     },
     metrics::Timer,
-    processor::function_executor_manager::FunctionExecutorManager,
+    processor::container_scheduler::{self, ContainerScheduler},
     state_store::{
-        self,
         in_memory_state::InMemoryState,
         requests::{RequestPayload, SchedulerUpdateRequest},
     },
 };
 
-pub struct FunctionRunProcessor<'a> {
+pub struct FunctionRunProcessor {
     clock: u64,
-    fe_manager: &'a FunctionExecutorManager,
+    queue_size: u32,
 }
 
-impl<'a> FunctionRunProcessor<'a> {
-    pub fn new(clock: u64, fe_manager: &'a FunctionExecutorManager) -> Self {
-        Self { clock, fe_manager }
+impl FunctionRunProcessor {
+    pub fn new(clock: u64, queue_size: u32) -> Self {
+        Self { clock, queue_size }
     }
 
     pub fn allocate_request(
         &self,
         in_memory_state: &mut InMemoryState,
+        container_scheduler: &mut ContainerScheduler,
         namespace: &str,
         application: &str,
         request_id: &str,
@@ -56,15 +58,17 @@ impl<'a> FunctionRunProcessor<'a> {
             .collect();
         self.allocate_function_runs(
             in_memory_state,
+            container_scheduler,
             function_runs,
             allocate_function_runs_latency,
         )
     }
 
-    #[tracing::instrument(skip(self, in_memory_state, function_runs))]
+    #[tracing::instrument(skip(self, in_memory_state, container_scheduler, function_runs))]
     pub fn allocate_function_runs(
         &self,
         in_memory_state: &mut InMemoryState,
+        container_scheduler: &mut ContainerScheduler,
         function_runs: Vec<FunctionRun>,
         allocate_function_runs_latency: &Histogram<f64>,
     ) -> Result<SchedulerUpdateRequest> {
@@ -72,7 +76,7 @@ impl<'a> FunctionRunProcessor<'a> {
         let mut update = SchedulerUpdateRequest::default();
 
         // Early exit if no executors are available - no point iterating function runs
-        if in_memory_state.executors.is_empty() {
+        if container_scheduler.executors.is_empty() {
             return Ok(update);
         }
 
@@ -96,7 +100,12 @@ impl<'a> FunctionRunProcessor<'a> {
                 continue;
             };
 
-            match self.create_allocation(in_memory_state, &function_run, &mut ctx) {
+            match self.create_allocation(
+                in_memory_state,
+                container_scheduler,
+                &function_run,
+                &mut ctx,
+            ) {
                 Ok(allocation_update) => {
                     // If no allocation was created, mark this function as having no resources
                     if allocation_update.new_allocations.is_empty() {
@@ -105,17 +114,16 @@ impl<'a> FunctionRunProcessor<'a> {
                     update.extend(allocation_update);
                 }
                 Err(err) => {
-                    // Check if this is a state store error we can handle gracefully
-                    if let Some(state_store_error) =
-                        err.downcast_ref::<state_store::in_memory_state::Error>()
+                    // Check if this is a container scheduler error we can handle gracefully
+                    if let Some(scheduler_error) = err.downcast_ref::<container_scheduler::Error>()
                     {
                         warn!(
                             fn_call_id = %function_run.id,
                             namespace = %function_run.namespace,
                             app = %function_run.application,
-                            app_version = state_store_error.version(),
-                            "fn" = state_store_error.function_name(),
-                            error = %state_store_error,
+                            app_version = scheduler_error.version(),
+                            "fn" = scheduler_error.function_name(),
+                            error = %scheduler_error,
                             "Unable to allocate task"
                         );
 
@@ -124,8 +132,8 @@ impl<'a> FunctionRunProcessor<'a> {
                         //
                         // TODO: Turn this into a check at server startup.
                         if matches!(
-                            state_store_error,
-                            state_store::in_memory_state::Error::ConstraintUnsatisfiable { .. }
+                            scheduler_error,
+                            container_scheduler::Error::ConstraintUnsatisfiable { .. }
                         ) {
                             // Fail the task
                             let mut failed_function_run = function_run.clone();
@@ -158,20 +166,93 @@ impl<'a> FunctionRunProcessor<'a> {
     fn create_allocation(
         &self,
         in_memory_state: &mut InMemoryState,
+        container_scheduler: &mut ContainerScheduler,
         function_run: &FunctionRun,
         ctx: &mut RequestCtx,
     ) -> Result<SchedulerUpdateRequest> {
         let mut update = SchedulerUpdateRequest::default();
 
-        // Use FunctionExecutorManager to handle function executor selection/creation
-        let (selected_target, fe_update) = self
-            .fe_manager
-            .select_or_create_function_executor(in_memory_state, function_run)?;
-        update.extend(fe_update);
+        // 1. Build FunctionURI from function_run
+        let fn_uri = FunctionURI::from(function_run);
+
+        // Helper: find best container below capacity
+        let find_available_container = |container_scheduler: &ContainerScheduler,
+                                        fn_uri: &FunctionURI,
+                                        queue_size: u32|
+         -> Option<AllocationTarget> {
+            container_scheduler
+                .containers_by_function_uri
+                .get(fn_uri)
+                .and_then(|ids| {
+                    ids.iter()
+                        .filter_map(|id| container_scheduler.function_containers.get(id))
+                        .filter(|c| {
+                            // Filter out terminated containers
+                            if matches!(c.desired_state, ContainerState::Terminated { .. }) {
+                                return false;
+                            }
+                            // Filter out containers at or above capacity
+                            // Capacity = queue_size * max_concurrency
+                            let capacity = queue_size * c.function_container.max_concurrency;
+                            c.allocations.len() < capacity as usize
+                        })
+                        .min_by_key(|c| c.allocations.len())
+                        .map(|c| {
+                            AllocationTarget::new(
+                                c.executor_id.clone(),
+                                c.function_container.id.clone(),
+                            )
+                        })
+                })
+        };
+
+        // Helper: try to create a new container
+        let try_create_container = |in_memory_state: &InMemoryState,
+                                    container_scheduler: &mut ContainerScheduler,
+                                    function_run: &FunctionRun|
+         -> Result<Option<SchedulerUpdateRequest>> {
+            let Some(app_version) = in_memory_state.get_existing_application_version(function_run)
+            else {
+                return Ok(None);
+            };
+            let Some(function) = app_version.functions.get(&function_run.name) else {
+                return Ok(None);
+            };
+            container_scheduler.create_container_for_function(
+                &function_run.namespace,
+                &function_run.application,
+                &function_run.version,
+                function,
+                &app_version.state,
+            )
+        };
+
+        // 2. Try to find an available container
+        let mut selected_target =
+            find_available_container(container_scheduler, &fn_uri, self.queue_size);
+
+        // 3. If no container available (none exist or all at capacity), try to create
+        //    one
+        if selected_target.is_none() &&
+            let Some(create_update) =
+                try_create_container(in_memory_state, container_scheduler, function_run)?
+        {
+            // Apply update to container_scheduler so the new container is visible
+            container_scheduler.update(&RequestPayload::SchedulerUpdate((
+                Box::new(create_update.clone()),
+                vec![],
+            )))?;
+            update.extend(create_update);
+
+            // Try again to find an available container
+            selected_target =
+                find_available_container(container_scheduler, &fn_uri, self.queue_size);
+        }
 
         let Some(target) = selected_target else {
             return Ok(update);
         };
+
         let allocation = AllocationBuilder::default()
             .namespace(function_run.namespace.clone())
             .application(function_run.application.clone())
@@ -181,10 +262,33 @@ impl<'a> FunctionRunProcessor<'a> {
             .function_call_id(function_run.id.clone())
             .call_metadata(function_run.call_metadata.clone())
             .input_args(function_run.input_args.clone())
-            .target(target)
+            .target(target.clone())
             .attempt_number(function_run.attempt_number)
             .outcome(FunctionRunOutcome::Unknown)
             .build()?;
+
+        let mut updated_function_run = function_run.clone();
+        updated_function_run.status = FunctionRunStatus::Running(RunningFunctionRunStatus {
+            allocation_id: allocation.id.clone(),
+        });
+
+        update.add_function_run(updated_function_run.clone(), ctx);
+        update.new_allocations.push(allocation.clone());
+
+        // Increment num_allocations via updated_function_containers so
+        // container_scheduler sees the updated count BEFORE any subsequent
+        // vacuum or allocation logic runs.
+        if let Some(fc) = container_scheduler
+            .function_containers
+            .get(&allocation.target.function_executor_id)
+        {
+            let mut updated_fc = *fc.clone();
+            updated_fc.allocations.insert(allocation.id.clone());
+            update.containers.insert(
+                updated_fc.function_container.id.clone(),
+                Box::new(updated_fc.clone()),
+            );
+        }
 
         info!(
             allocation_id = %allocation.id,
@@ -196,18 +300,15 @@ impl<'a> FunctionRunProcessor<'a> {
             "created allocation",
         );
 
-        let mut updated_function_run = function_run.clone();
-        updated_function_run.status = FunctionRunStatus::Running(RunningFunctionRunStatus {
-            allocation_id: allocation.id.clone(),
-        });
-
-        update.add_function_run(updated_function_run.clone(), ctx);
-        update.new_allocations.push(allocation);
         in_memory_state.update_state(
             self.clock,
             &RequestPayload::SchedulerUpdate((Box::new(update.clone()), vec![])),
             "task_allocator",
         )?;
+        container_scheduler.update(&RequestPayload::SchedulerUpdate((
+            Box::new(update.clone()),
+            vec![],
+        )))?;
         Ok(update)
     }
 }

@@ -18,6 +18,7 @@ use executor_api_pb::{
     ExecutorStatus,
     FunctionExecutorResources,
     FunctionExecutorStatus,
+    FunctionExecutorType as FunctionExecutorTypePb,
     GetDesiredExecutorStatesRequest,
     HostResources,
     ReportExecutorStateRequest,
@@ -34,6 +35,9 @@ use crate::{
     blob_store::registry::BlobStorageRegistry,
     data_model::{
         self,
+        ContainerBuilder,
+        ContainerId,
+        ContainerType,
         DataPayload,
         DataPayloadBuilder,
         ExecutorId,
@@ -41,8 +45,6 @@ use crate::{
         ExecutorMetadataBuilder,
         FunctionAllowlist,
         FunctionCallId,
-        FunctionExecutorBuilder,
-        FunctionExecutorId,
         FunctionRunFailureReason,
         FunctionRunOutcome,
         GPUResources,
@@ -73,7 +75,6 @@ impl TryFrom<AllowedFunction> for FunctionAllowlist {
             namespace: allowed_function.namespace,
             application: allowed_function.application_name,
             function: allowed_function.function_name,
-            version: allowed_function.application_version.map(|v| v.to_string()),
         })
     }
 }
@@ -176,7 +177,7 @@ impl TryFrom<executor_api_pb::GpuResources> for data_model::GPUResources {
     }
 }
 
-impl TryFrom<FunctionExecutorResources> for data_model::FunctionExecutorResources {
+impl TryFrom<FunctionExecutorResources> for data_model::ContainerResources {
     type Error = anyhow::Error;
 
     fn try_from(from: FunctionExecutorResources) -> Result<Self, Self::Error> {
@@ -189,7 +190,7 @@ impl TryFrom<FunctionExecutorResources> for data_model::FunctionExecutorResource
         let ephemeral_disk_bytes = from
             .disk_bytes
             .ok_or(anyhow::anyhow!("disk_bytes is required"))?;
-        Ok(data_model::FunctionExecutorResources {
+        Ok(data_model::ContainerResources {
             cpu_ms_per_sec,
             // int division is okay because all the values were initially in MB and GB.
             memory_mb: (memory_bytes / 1024 / 1024) as u64,
@@ -199,10 +200,10 @@ impl TryFrom<FunctionExecutorResources> for data_model::FunctionExecutorResource
     }
 }
 
-impl TryFrom<data_model::FunctionExecutorResources> for FunctionExecutorResources {
+impl TryFrom<data_model::ContainerResources> for FunctionExecutorResources {
     type Error = anyhow::Error;
 
-    fn try_from(from: data_model::FunctionExecutorResources) -> Result<Self, Self::Error> {
+    fn try_from(from: data_model::ContainerResources) -> Result<Self, Self::Error> {
         Ok(FunctionExecutorResources {
             cpu_ms_per_sec: Some(from.cpu_ms_per_sec),
             memory_bytes: Some(from.memory_mb * 1024 * 1024),
@@ -252,11 +253,10 @@ impl TryFrom<ExecutorState> for ExecutorMetadata {
         executor_metadata.labels(executor_state.labels);
         let mut function_executors = HashMap::new();
         for function_executor_state in executor_state.function_executor_states {
-            let function_executor =
-                data_model::FunctionExecutor::try_from(function_executor_state)?;
+            let function_executor = data_model::Container::try_from(function_executor_state)?;
             function_executors.insert(function_executor.id.clone(), function_executor);
         }
-        executor_metadata.function_executors(function_executors);
+        executor_metadata.containers(function_executors);
         if let Some(host_resources) = executor_state.total_function_executor_resources {
             let cpu = host_resources
                 .cpu_count
@@ -326,7 +326,7 @@ impl TryFrom<FunctionExecutorTerminationReason> for data_model::FunctionExecutor
     }
 }
 
-impl TryFrom<FunctionExecutorState> for data_model::FunctionExecutor {
+impl TryFrom<FunctionExecutorState> for data_model::Container {
     type Error = anyhow::Error;
 
     fn try_from(function_executor_state: FunctionExecutorState) -> Result<Self, Self::Error> {
@@ -364,7 +364,7 @@ impl TryFrom<FunctionExecutorState> for data_model::FunctionExecutor {
             .as_ref()
             .and_then(|description| description.resources)
             .ok_or(anyhow::anyhow!("resources is required"))?;
-        let resources = data_model::FunctionExecutorResources::try_from(resources)?;
+        let resources = data_model::ContainerResources::try_from(resources)?;
         let max_concurrency = function_executor_state
             .description
             .as_ref()
@@ -373,18 +373,42 @@ impl TryFrom<FunctionExecutorState> for data_model::FunctionExecutor {
         // TODO: uncomment this once Executor gets deployed and provides this.
         // .ok_or(anyhow::anyhow!("max_concurrency is required"))?;
 
+        let description = function_executor_state.description.as_ref();
+
+        // Get container_type from description (moved from FunctionExecutorState)
+        let container_type = description
+            .map(|d| match d.container_type() {
+                FunctionExecutorTypePb::Unknown => ContainerType::Function, // Default for backwards compat
+                FunctionExecutorTypePb::Function => ContainerType::Function,
+                FunctionExecutorTypePb::Sandbox => ContainerType::Sandbox,
+            })
+            .unwrap_or(ContainerType::Function);
+
+        let secret_names = description
+            .map(|d| d.secret_names.clone())
+            .unwrap_or_default();
+
+        // Read sandbox-specific fields from sandbox_metadata
+        let sandbox_metadata = description.and_then(|d| d.sandbox_metadata.as_ref());
+        let timeout_secs = sandbox_metadata.and_then(|m| m.timeout_secs).unwrap_or(0);
+        let entrypoint = sandbox_metadata
+            .map(|m| m.entrypoint.clone())
+            .unwrap_or_default();
+        let image = sandbox_metadata.and_then(|m| m.image.clone());
+        let sandbox_http_address = function_executor_state.sandbox_http_address.clone();
+
         let state = match function_executor_state.status() {
-            FunctionExecutorStatus::Unknown => data_model::FunctionExecutorState::Unknown,
-            FunctionExecutorStatus::Pending => data_model::FunctionExecutorState::Pending,
-            FunctionExecutorStatus::Running => data_model::FunctionExecutorState::Running,
-            FunctionExecutorStatus::Terminated => data_model::FunctionExecutorState::Terminated {
+            FunctionExecutorStatus::Unknown => data_model::ContainerState::Unknown,
+            FunctionExecutorStatus::Pending => data_model::ContainerState::Pending,
+            FunctionExecutorStatus::Running => data_model::ContainerState::Running,
+            FunctionExecutorStatus::Terminated => data_model::ContainerState::Terminated {
                 reason: termination_reason,
                 failed_alloc_ids: function_executor_state.allocation_ids_caused_termination,
             },
         };
 
-        FunctionExecutorBuilder::default()
-            .id(FunctionExecutorId::new(id.clone()))
+        ContainerBuilder::default()
+            .id(ContainerId::new(id.clone()))
             .namespace(namespace.clone())
             .application_name(application_name.clone())
             .function_name(function_name.clone())
@@ -392,6 +416,12 @@ impl TryFrom<FunctionExecutorState> for data_model::FunctionExecutor {
             .state(state)
             .resources(resources)
             .max_concurrency(max_concurrency)
+            .container_type(container_type)
+            .secret_names(secret_names)
+            .timeout_secs(timeout_secs)
+            .entrypoint(entrypoint)
+            .image(image)
+            .sandbox_http_address(sandbox_http_address)
             .build()
             .map_err(Into::into)
     }
@@ -567,6 +597,14 @@ impl ExecutorAPIService {
         executor_id: ExecutorId,
         alloc_results: Vec<AllocationResult>,
     ) -> Result<Vec<AllocationOutput>> {
+        if !alloc_results.is_empty() {
+            info!(
+                executor_id = executor_id.get(),
+                num_results = alloc_results.len(),
+                results = ?alloc_results.iter().map(|r| format!("{}:{}:{}", r.function.as_ref().map(|f| f.function_name()).unwrap_or_default(), r.allocation_id(), r.request_id())).collect::<Vec<_>>(),
+                "handling allocation results from executor"
+            );
+        }
         let mut allocation_output_updates = Vec::new();
         for alloc_result in alloc_results {
             let function_ref = alloc_result
@@ -588,9 +626,11 @@ impl ExecutorAPIService {
             else {
                 warn!(
                     allocation_key = %allocation_key,
-                    "allocation not found"
+                    request_id = %alloc_result.request_id(),
+                    fn_name = %function_ref.function_name(),
+                    "allocation not found, skipping this result (was likely already processed or cancelled)"
                 );
-                return Ok(Vec::new());
+                continue; // Don't drop ALL results, just skip this one
             };
             let outcome_code = executor_api_pb::AllocationOutcomeCode::try_from(
                 alloc_result.outcome_code.unwrap_or(0),
@@ -865,6 +905,15 @@ impl ExecutorApi for ExecutorAPIService {
             watch_function_calls.insert(executor_watch);
         }
 
+        if !watch_function_calls.is_empty() {
+            info!(
+                executor_id = executor_id.get(),
+                num_watches = watch_function_calls.len(),
+                watches = ?watch_function_calls.iter().map(|w| format!("{}:{}", w.function_call_id, w.request_id)).collect::<Vec<_>>(),
+                "executor reported function call watches"
+            );
+        }
+
         trace!(
             executor_id = executor_id.get(),
             "Got report_executor_state request"
@@ -884,7 +933,11 @@ impl ExecutorApi for ExecutorAPIService {
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
 
-        if !update_executor_state && allocation_outputs.is_empty() {
+        // Don't return early if there are watches - they need to be synced
+        if !update_executor_state &&
+            allocation_outputs.is_empty() &&
+            watch_function_calls.is_empty()
+        {
             return Ok(Response::new(ReportExecutorStateResponse {}));
         }
 
