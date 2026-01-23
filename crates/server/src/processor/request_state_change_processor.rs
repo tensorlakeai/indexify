@@ -140,42 +140,6 @@ impl RequestStateChangeProcessor {
 
         info!("Request state change processor stopped");
     }
-
-    /// Process and remove all pending request state change events.
-    /// This is useful for tests to drain accumulated events.
-    #[cfg(test)]
-    pub async fn drain_all_events(&self) -> Result<()> {
-        let mut cursor: Option<Vec<u8>> = None;
-
-        loop {
-            let (events, new_cursor) = self
-                .indexify_state
-                .reader()
-                .request_state_change_events(cursor.as_ref())
-                .await?;
-
-            if events.is_empty() {
-                break;
-            }
-
-            if let Some(c) = new_cursor {
-                cursor.replace(c);
-            }
-
-            // Process and delete all events
-            for event in &events {
-                self.indexify_state
-                    .push_request_event(event.event.clone())
-                    .await;
-            }
-
-            if !events.is_empty() {
-                remove_events_with_backoff(&self.indexify_state, &events).await?;
-            }
-        }
-
-        Ok(())
-    }
 }
 
 /// SSE delivery worker - receives events via broadcast channel and delivers

@@ -530,11 +530,6 @@ impl IndexifyState {
             state_machine::save_state_changes(&txn, &new_state_changes, current_clock).await?;
         }
 
-        // Note: request_state_changes are NOT persisted to DB here.
-        // They are broadcast to workers after commit:
-        // - SSE worker: delivers immediately to connected clients
-        // - HTTP export worker: persists to DB, batches, and exports via HTTP
-
         let current_state_id = self.state_change_id_seq.load(atomic::Ordering::Relaxed);
         let current_usage_sequence_id = self.usage_event_id_seq.load(atomic::Ordering::Relaxed);
         let current_request_event_id = self.request_event_id_seq.load(atomic::Ordering::Relaxed);

@@ -430,10 +430,9 @@ mod tests {
         // verify that everything was deleted
         assert_function_run_counts!(test_srv, total: 0, allocated: 0, pending: 0, completed_success: 0);
 
-        // Drain request state change events before checking column counts
-        test_srv.drain_request_state_change_events().await?;
-
         // This makes sure we never leak any data on deletion!
+        // Note: RequestStateChangeEvents is not checked because events are broadcast
+        // directly and only persisted by the HTTP export worker (if enabled).
         assert_cf_counts(
             indexify_state.db.clone(),
             HashMap::from([
@@ -712,10 +711,9 @@ mod tests {
             test_srv.process_all_state_changes().await?;
             assert_function_run_counts!(test_srv, total: 0, allocated: 0, pending: 0, completed_success: 0);
 
-            // Drain request state change events before checking column counts
-            test_srv.drain_request_state_change_events().await?;
-
             // This makes sure we never leak any data on deletion!
+            // Note: RequestStateChangeEvents is not checked because events are broadcast
+            // directly and only persisted by the HTTP export worker (if enabled).
             assert_cf_counts(
                 indexify_state.db.clone(),
                 HashMap::from([
