@@ -29,6 +29,7 @@ use crate::{
         ExecutorMetadata,
         ExecutorRemovedEvent,
         FunctionRunOutcome,
+        FunctionURI,
         SandboxStatus,
         StateChange,
         StateChangeBuilder,
@@ -835,9 +836,14 @@ impl ExecutorManager {
                         continue;
                     };
 
+
+                    // TODO: We won't have function uri for sandboxes. So we need to update
+                    // the data model to support having function uri as optional.
+                    let fn_uri = FunctionURI::from(function_container_server_meta);
                     function_executors.push(FnExecutor {
                         count: allocations.len(),
                         function_executor_id: container_id.to_string(),
+                        fn_uri: Some(fn_uri.to_string()),
                         state: function_container_server_meta
                             .function_container
                             .state

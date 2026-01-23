@@ -820,6 +820,7 @@ pub struct UnallocatedFunctionRuns {
 pub struct FnExecutor {
     pub count: usize,
     pub function_executor_id: String,
+    pub fn_uri: Option<String>,
     pub state: String,
     pub desired_state: String,
     pub allocations: Vec<Allocation>,
