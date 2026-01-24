@@ -260,6 +260,7 @@ pub(crate) async fn create_request_progress_stream(
                         }
                         Ok(event) => {
                             debug!("received event: {:?}", event);
+                            health_check_interval.reset();
                             yield Event::default().json_data(event);
                         }
                         Err(RecvError::Lagged(num)) => {
@@ -272,6 +273,7 @@ pub(crate) async fn create_request_progress_stream(
                                 }
                                 Ok(None) => {
                                     debug!("request still in progress after lag");
+                                    health_check_interval.reset();
                                 }
                                 Err(error) => {
                                     error!(?error, "check failed during lag, stopping stream");
