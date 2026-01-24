@@ -21,7 +21,7 @@ async-trait = "0.1.89"
 futures = "0.3.31"
 pin-project = "1.1.10"
 serde = { version = "1.0.228", features = ["derive"] }
-serde-inline-default = "1.0.0"
+serde-inline-default = "1.0.1"
 serde_json = "1.0.149"
 serde-saphyr = "0.0.16"
 ciborium = "0.2.2"
