@@ -160,8 +160,9 @@ pub struct TlsProxyConfig {
     pub key_path: Option<String>,
     /// Proxy domain suffix (e.g., "sandboxes.tensorlake.ai").
     /// Hostnames are parsed as: {port}-{sandbox_id}.{proxy_domain}
-    /// or {sandbox_id}.{proxy_domain} for daemon API (port 9501).
-    #[serde_inline_default("sandboxes.local".to_string())]
+    /// For local development, uses 127.0.0.1.nip.io for automatic DNS
+    /// resolution.
+    #[serde_inline_default("127.0.0.1.nip.io".to_string())]
     pub proxy_domain: String,
 }
 
@@ -173,7 +174,7 @@ impl Default for TlsProxyConfig {
             advertise_address: None,
             cert_path: None,
             key_path: None,
-            proxy_domain: "sandboxes.local".to_string(),
+            proxy_domain: "127.0.0.1.nip.io".to_string(),
         }
     }
 }

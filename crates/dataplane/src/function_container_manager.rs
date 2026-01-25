@@ -106,9 +106,6 @@ struct ManagedContainer {
     created_at: Instant,
     /// When the container started running (set when state becomes Running)
     started_at: Option<Instant>,
-    /// HTTP address of the sandbox API (host:port).
-    /// Set when the container becomes Running.
-    sandbox_http_address: Option<String>,
 }
 
 impl ManagedContainer {
@@ -127,7 +124,6 @@ impl ManagedContainer {
             status: Some(status.into()),
             termination_reason: termination_reason.map(|r| r.into()),
             allocation_ids_caused_termination: vec![],
-            sandbox_http_address: self.sandbox_http_address.clone(),
         }
     }
 
@@ -247,18 +243,25 @@ impl FunctionContainerManager {
                     .await
                     {
                         Ok(daemon_client) => {
+                            // Decode the full description from the state file
+                            let description = match entry.decode_description() {
+                                Some(desc) => desc,
+                                None => {
+                                    tracing::warn!(
+                                        container_id = %entry.container_id,
+                                        "No description stored in state file, skipping recovery"
+                                    );
+                                    let _ = self.state_file.remove(&entry.container_id).await;
+                                    continue;
+                                }
+                            };
+
                             tracing::info!(
                                 container_id = %entry.container_id,
                                 handle_id = %entry.handle_id,
                                 daemon_addr = %entry.daemon_addr,
                                 "Recovered container from state file"
                             );
-
-                            // Create a minimal description for the recovered container
-                            let description = FunctionExecutorDescription {
-                                id: Some(entry.container_id.clone()),
-                                ..Default::default()
-                            };
 
                             let container = ManagedContainer {
                                 description,
@@ -268,7 +271,6 @@ impl FunctionContainerManager {
                                 },
                                 created_at: Instant::now(),
                                 started_at: Some(Instant::now()),
-                                sandbox_http_address: Some(entry.http_addr.clone()),
                             };
 
                             let mut containers = self.containers.write().await;
@@ -477,7 +479,6 @@ impl FunctionContainerManager {
                     state: ContainerState::Pending,
                     created_at: Instant::now(),
                     started_at: None,
-                    sandbox_http_address: None,
                 };
                 containers.insert(id.clone(), container);
 
@@ -533,6 +534,9 @@ impl FunctionContainerManager {
                                             .duration_since(std::time::UNIX_EPOCH)
                                             .map(|d| d.as_millis() as u64)
                                             .unwrap_or(0),
+                                        description_proto: Some(
+                                            PersistedContainer::encode_description(&desc_clone),
+                                        ),
                                     };
                                     if let Err(e) = state_file.upsert(persisted).await {
                                         tracing::warn!(
@@ -543,7 +547,6 @@ impl FunctionContainerManager {
                                     }
                                 }
 
-                                container.sandbox_http_address = handle.http_addr.clone();
                                 container.state = ContainerState::Running {
                                     handle,
                                     daemon_client,
@@ -633,10 +636,10 @@ impl FunctionContainerManager {
             // Try to signal via daemon first (SIGTERM to the function executor)
             if let Some(mut client) = daemon_client.clone() {
                 if let Err(e) = client.send_signal(15).await {
-                    tracing::warn!(
+                    tracing::info!(
                         container_id = %info.container_id,
                         error = %e,
-                        "Failed to send signal via daemon, falling back to container signal"
+                        "No process to signal via daemon, falling back to container signal"
                     );
                     // Fall back to docker signal
                     if let Err(e) = self.driver.send_sig(&handle, 15).await {
@@ -1308,7 +1311,6 @@ mod tests {
             state: ContainerState::Pending,
             created_at: Instant::now(),
             started_at: None,
-            sandbox_http_address: None,
         };
 
         let proto_state = container.to_proto_state();
@@ -1317,7 +1319,6 @@ mod tests {
             Some(FunctionExecutorStatus::Pending.into())
         );
         assert!(proto_state.termination_reason.is_none());
-        assert!(proto_state.sandbox_http_address.is_none());
     }
 
     #[test]
@@ -1329,7 +1330,6 @@ mod tests {
             },
             created_at: Instant::now(),
             started_at: None,
-            sandbox_http_address: None,
         };
 
         let proto_state = container.to_proto_state();
@@ -1501,7 +1501,6 @@ mod tests {
             state: ContainerState::Pending,
             created_at: Instant::now(),
             started_at: Some(Instant::now() - Duration::from_secs(1000)),
-            sandbox_http_address: None,
         };
 
         assert!(!container.is_timed_out());
@@ -1515,7 +1514,6 @@ mod tests {
             state: ContainerState::Pending,
             created_at: Instant::now(),
             started_at: Some(Instant::now() - Duration::from_secs(100)),
-            sandbox_http_address: None,
         };
 
         assert!(!container.is_timed_out());
@@ -1531,7 +1529,6 @@ mod tests {
             },
             created_at: Instant::now(),
             started_at: None,
-            sandbox_http_address: None,
         };
 
         assert!(!container.is_timed_out());
@@ -1547,7 +1544,6 @@ mod tests {
             },
             created_at: Instant::now(),
             started_at: Some(Instant::now()), // Just started
-            sandbox_http_address: None,
         };
 
         assert!(!container.is_timed_out());
@@ -1564,7 +1560,6 @@ mod tests {
             created_at: Instant::now(),
             // Started 15 seconds ago, so 10 second timeout is exceeded
             started_at: Some(Instant::now() - Duration::from_secs(15)),
-            sandbox_http_address: None,
         };
 
         assert!(container.is_timed_out());
@@ -1581,7 +1576,6 @@ mod tests {
             created_at: Instant::now(),
             // Started exactly 10 seconds ago - should be timed out (>= comparison)
             started_at: Some(Instant::now() - Duration::from_secs(10)),
-            sandbox_http_address: None,
         };
 
         assert!(container.is_timed_out());
@@ -1610,7 +1604,6 @@ mod tests {
                 created_at: Instant::now(),
                 // Set started_at to 10 seconds ago - well past the 5 second timeout
                 started_at: Some(Instant::now() - Duration::from_secs(10)),
-                sandbox_http_address: None,
             };
             containers.insert("fe-timeout-test".to_string(), container);
         }
@@ -1662,7 +1655,6 @@ mod tests {
                 },
                 created_at: Instant::now(),
                 started_at: Some(Instant::now()), // Just started
-                sandbox_http_address: None,
             };
             containers.insert("fe-not-expired".to_string(), container);
         }
@@ -1701,7 +1693,6 @@ mod tests {
                 created_at: Instant::now(),
                 // Started 1 hour ago, but has no timeout so shouldn't be stopped
                 started_at: Some(Instant::now() - Duration::from_secs(3600)),
-                sandbox_http_address: None,
             };
             containers.insert("fe-no-timeout".to_string(), container);
         }

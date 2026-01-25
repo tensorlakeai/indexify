@@ -19,7 +19,6 @@ use crate::{
         FunctionRunStatus,
         RunningFunctionRunStatus,
         SandboxFailureReason,
-        SandboxKey,
         SandboxOutcome,
         SandboxStatus,
     },
@@ -150,35 +149,14 @@ impl ContainerReconciler {
                 if matches!(server_c.desired_state, ContainerState::Terminated { .. }) {
                     continue;
                 }
-                // Check if state changed or if sandbox_http_address is newly available
-                let state_changed = executor_c.state != server_c.function_container.state;
-                let http_addr_changed = executor_c.sandbox_http_address.is_some() &&
-                    server_c.function_container.sandbox_http_address.is_none();
-
-                if state_changed || http_addr_changed {
+                // Check if state changed
+                if executor_c.state != server_c.function_container.state {
                     let mut server_c_clone = server_c.clone();
                     server_c_clone.function_container.update(executor_c);
                     update.containers.insert(
                         server_c_clone.function_container.id.clone(),
                         server_c_clone.clone(),
                     );
-
-                    // Propagate sandbox_http_address to associated sandbox
-                    // For sandbox containers, function_name is the sandbox_id
-                    if let Some(ref new_http_addr) = executor_c.sandbox_http_address {
-                        let fc = &server_c.function_container;
-                        let sandbox_key =
-                            SandboxKey::new(&fc.namespace, &fc.application_name, &fc.function_name);
-                        if let Some(sandbox) = in_memory_state.sandboxes.get(&sandbox_key) &&
-                            sandbox.sandbox_http_address.is_none()
-                        {
-                            let mut updated_sandbox = (**sandbox).clone();
-                            updated_sandbox.sandbox_http_address = Some(new_http_addr.clone());
-                            update
-                                .updated_sandboxes
-                                .insert(sandbox_key, updated_sandbox);
-                        }
-                    }
                 }
             }
         }

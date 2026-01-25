@@ -198,9 +198,6 @@ message FunctionExecutorState {
     optional FunctionExecutorStatus status = 2;
     optional FunctionExecutorTerminationReason termination_reason = 3;
     repeated string allocation_ids_caused_termination = 4;
-    // HTTP address of the sandbox API.
-    // Format: "host:port" (e.g., "192.168.1.100:64759")
-    optional string sandbox_http_address = 5;
 }
 
 enum ExecutorStatus {

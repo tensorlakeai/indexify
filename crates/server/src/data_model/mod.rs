@@ -1788,10 +1788,6 @@ pub struct Container {
     #[builder(default)]
     #[serde(default)]
     pub entrypoint: Vec<String>,
-    /// HTTP address of the sandbox API (host:port).
-    #[builder(default)]
-    #[serde(default)]
-    pub sandbox_http_address: Option<String>,
     /// Network access control policy for sandbox containers.
     #[builder(default)]
     #[serde(default)]
@@ -1827,10 +1823,6 @@ impl Container {
         // Only update fields that change after self FE was created.
         // Other FE must represent the same FE.
         self.state = other.state.clone();
-        // Update sandbox_http_address if reported by executor
-        if other.sandbox_http_address.is_some() {
-            self.sandbox_http_address = other.sandbox_http_address.clone();
-        }
     }
 }
 
@@ -2314,9 +2306,15 @@ impl SandboxId {
     }
 }
 
+/// DNS-safe alphabet for sandbox IDs (no underscores, lowercase only).
+const SANDBOX_ID_ALPHABET: &[char] = &[
+    '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i',
+    'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z',
+];
+
 impl Default for SandboxId {
     fn default() -> Self {
-        Self(nanoid!())
+        Self(nanoid!(21, SANDBOX_ID_ALPHABET))
     }
 }
 
@@ -2513,10 +2511,6 @@ pub struct Sandbox {
     /// Optional entrypoint command to run when sandbox starts
     #[builder(default)]
     pub entrypoint: Option<Vec<String>>,
-    /// HTTP address of the sandbox API (host:port).
-    /// Only set when the container is running and daemon is ready.
-    #[builder(default)]
-    pub sandbox_http_address: Option<String>,
     /// Network access control policy for this sandbox.
     #[builder(default)]
     #[serde(default)]

@@ -640,7 +640,7 @@ export type SandboxInfo = {
   executor_id?: string | null
   resources: ContainerResourcesInfo
   timeout_secs: number
-  sandbox_http_address?: string | null
+  sandbox_url?: string | null
 }
 
 export type ListSandboxesResponse = {

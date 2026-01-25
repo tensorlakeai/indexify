@@ -398,7 +398,6 @@ impl TryFrom<FunctionExecutorState> for data_model::Container {
             .map(|m| m.entrypoint.clone())
             .unwrap_or_default();
         let image = sandbox_metadata.and_then(|m| m.image.clone());
-        let sandbox_http_address = function_executor_state.sandbox_http_address.clone();
 
         let state = match function_executor_state.status() {
             FunctionExecutorStatus::Unknown => data_model::ContainerState::Unknown,
@@ -424,7 +423,6 @@ impl TryFrom<FunctionExecutorState> for data_model::Container {
             .timeout_secs(timeout_secs)
             .entrypoint(entrypoint)
             .image(image)
-            .sandbox_http_address(sandbox_http_address)
             .build()
             .map_err(Into::into)
     }
