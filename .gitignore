@@ -4,6 +4,8 @@
 
 dataplane-state.json
 
+dataplane-state.json
+
 # Python-related files
 __pycache__
 *.pyc
