@@ -238,6 +238,10 @@ message ExecutorState {
     optional string catalog_entry_name = 14;
 
     repeated FunctionCallWatch function_call_watches = 15;
+
+    // Address of the TLS proxy (host:port) for routing sandbox traffic.
+    // Format: "ip:port" or "hostname:port"
+    optional string proxy_address = 16;
 }
 
 // Updates that Executor wants to report to Server. If report_executor_state RPC is successful

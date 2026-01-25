@@ -132,27 +132,107 @@ mod duration_serde {
     }
 }
 
-/// Configuration for the sandbox proxy server.
+/// Configuration for the TLS proxy server (SNI-based routing).
+/// In production, cert_path and key_path are required.
+/// In local mode (env: local), certificates are auto-generated if not provided.
 #[serde_inline_default]
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ProxyConfig {
-    /// Enable the proxy server.
-    #[serde_inline_default(true)]
-    pub enabled: bool,
-    /// Port to listen on for proxy requests.
-    #[serde_inline_default(9000)]
+pub struct TlsProxyConfig {
+    /// Port to listen on for TLS connections.
+    #[serde_inline_default(9443)]
     pub port: u16,
-    /// Listen address for the proxy server.
+    /// Listen address for the TLS proxy server.
     #[serde_inline_default("0.0.0.0".to_string())]
     pub listen_addr: String,
+    /// Address to advertise to the server (host:port).
+    /// This is the address that sandbox-proxy will connect to.
+    /// If not set, uses the system hostname with the configured port.
+    #[serde(default)]
+    pub advertise_address: Option<String>,
+    /// Path to TLS certificate file (PEM format).
+    /// Should be a wildcard cert for *.{proxy_domain}
+    /// Optional in local mode - auto-generated if not provided.
+    #[serde(default)]
+    pub cert_path: Option<String>,
+    /// Path to TLS private key file (PEM format).
+    /// Optional in local mode - auto-generated if not provided.
+    #[serde(default)]
+    pub key_path: Option<String>,
+    /// Proxy domain suffix (e.g., "sandboxes.tensorlake.ai").
+    /// Hostnames are parsed as: {port}-{sandbox_id}.{proxy_domain}
+    /// or {sandbox_id}.{proxy_domain} for daemon API (port 9501).
+    #[serde_inline_default("sandboxes.local".to_string())]
+    pub proxy_domain: String,
 }
 
-impl Default for ProxyConfig {
+impl Default for TlsProxyConfig {
     fn default() -> Self {
         Self {
-            enabled: true,
-            port: 9000,
+            port: 9443,
             listen_addr: "0.0.0.0".to_string(),
+            advertise_address: None,
+            cert_path: None,
+            key_path: None,
+            proxy_domain: "sandboxes.local".to_string(),
+        }
+    }
+}
+
+impl TlsProxyConfig {
+    /// Resolves certificate paths, auto-generating if needed for local development.
+    /// In production (non-local), cert_path and key_path are required.
+    /// Returns (cert_path, key_path).
+    pub fn resolve_certificates(&mut self, env: &str) -> Result<()> {
+        let is_local = env == LOCAL_ENV;
+
+        match (&self.cert_path, &self.key_path) {
+            (Some(_), Some(_)) => {
+                // Certificates are configured, nothing to do
+                Ok(())
+            }
+            (None, None) if is_local => {
+                // Auto-generate certificates for local development
+                let (cert_path, key_path) =
+                    crate::certs::generate_dev_certificates(&self.proxy_domain)?;
+                self.cert_path = Some(cert_path.to_string_lossy().to_string());
+                self.key_path = Some(key_path.to_string_lossy().to_string());
+                Ok(())
+            }
+            (None, _) => Err(anyhow::anyhow!(
+                "tls_proxy.cert_path is required in production (env: {})",
+                env
+            )),
+            (_, None) => Err(anyhow::anyhow!(
+                "tls_proxy.key_path is required in production (env: {})",
+                env
+            )),
+        }
+    }
+
+    /// Get the certificate path. Panics if not resolved.
+    pub fn cert_path(&self) -> &str {
+        self.cert_path
+            .as_deref()
+            .expect("cert_path not resolved - call resolve_certificates first")
+    }
+
+    /// Get the key path. Panics if not resolved.
+    pub fn key_path(&self) -> &str {
+        self.key_path
+            .as_deref()
+            .expect("key_path not resolved - call resolve_certificates first")
+    }
+
+    /// Get the address to advertise to the server.
+    /// Returns advertise_address if set, otherwise hostname:port.
+    pub fn get_advertise_address(&self) -> String {
+        if let Some(addr) = &self.advertise_address {
+            addr.clone()
+        } else {
+            let hostname = hostname::get()
+                .map(|h| h.to_string_lossy().to_string())
+                .unwrap_or_else(|_| "localhost".to_string());
+            format!("{}:{}", hostname, self.port)
         }
     }
 }
@@ -182,9 +262,10 @@ pub struct DataplaneConfig {
     /// Path to the state file for persisting container state across restarts.
     #[serde_inline_default("./dataplane-state.json".to_string())]
     pub state_file: String,
-    /// Proxy server configuration.
+    /// TLS proxy server configuration (SNI-based routing).
+    /// Required for production deployments. Auto-configured for local dev.
     #[serde(default)]
-    pub proxy: ProxyConfig,
+    pub tls_proxy: TlsProxyConfig,
 }
 
 fn default_executor_id() -> String {
@@ -201,7 +282,7 @@ impl Default for DataplaneConfig {
             telemetry: TelemetryConfig::default(),
             driver: DriverConfig::default(),
             state_file: "./dataplane-state.json".to_string(),
-            proxy: ProxyConfig::default(),
+            tls_proxy: TlsProxyConfig::default(),
         }
     }
 }
@@ -213,13 +294,14 @@ impl DataplaneConfig {
     }
 
     fn from_yaml_str(config_str: &str) -> Result<DataplaneConfig> {
-        let config: DataplaneConfig = serde_saphyr::from_str(config_str)?;
+        let mut config: DataplaneConfig = serde_saphyr::from_str(config_str)?;
         config.validate()?;
         Ok(config)
     }
 
-    pub fn validate(&self) -> Result<()> {
+    pub fn validate(&mut self) -> Result<()> {
         self.tls.validate()?;
+        self.tls_proxy.resolve_certificates(&self.env)?;
         Ok(())
     }
 
@@ -241,16 +323,79 @@ mod tests {
 
     #[test]
     fn test_default_config() {
-        let config = DataplaneConfig::default();
+        let mut config = DataplaneConfig::default();
         assert_eq!(config.env, "local");
         assert_eq!(config.server_addr, "http://localhost:8901");
         assert!(!config.tls.enabled);
+        // Local env allows missing certs (auto-generation)
+        assert!(config.validate().is_ok());
+        // After validation, certs should be auto-generated
+        assert!(config.tls_proxy.cert_path.is_some());
+        assert!(config.tls_proxy.key_path.is_some());
     }
 
     #[test]
-    fn test_parse_yaml_config() {
+    fn test_local_env_auto_generates_certs() {
         let yaml = r#"
-env: staging
+env: local
+server_addr: "http://localhost:8901"
+"#;
+        let config = DataplaneConfig::from_yaml_str(yaml).unwrap();
+        assert_eq!(config.env, "local");
+        // After parsing (which includes validation), certs should be auto-generated
+        assert!(config.tls_proxy.cert_path.is_some());
+        assert!(config.tls_proxy.key_path.is_some());
+    }
+
+    #[test]
+    fn test_production_requires_cert_path() {
+        let yaml = r#"
+env: production
+server_addr: "http://localhost:8901"
+tls_proxy:
+  key_path: "/etc/certs/key.pem"
+"#;
+        let result = DataplaneConfig::from_yaml_str(yaml);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("cert_path"));
+    }
+
+    #[test]
+    fn test_production_requires_key_path() {
+        let yaml = r#"
+env: production
+server_addr: "http://localhost:8901"
+tls_proxy:
+  cert_path: "/etc/certs/cert.pem"
+"#;
+        let result = DataplaneConfig::from_yaml_str(yaml);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("key_path"));
+    }
+
+    #[test]
+    fn test_production_valid_config() {
+        let yaml = r#"
+env: production
+server_addr: "http://indexify.example.com:8901"
+tls_proxy:
+  cert_path: "/etc/certs/cert.pem"
+  key_path: "/etc/certs/key.pem"
+  advertise_address: "worker.example.com:9443"
+  proxy_domain: "sandboxes.example.com"
+"#;
+        let config = DataplaneConfig::from_yaml_str(yaml).unwrap();
+        assert_eq!(config.env, "production");
+        assert_eq!(config.tls_proxy.cert_path, Some("/etc/certs/cert.pem".to_string()));
+        assert_eq!(config.tls_proxy.key_path, Some("/etc/certs/key.pem".to_string()));
+        assert_eq!(config.tls_proxy.get_advertise_address(), "worker.example.com:9443");
+        assert_eq!(config.tls_proxy.proxy_domain, "sandboxes.example.com");
+    }
+
+    #[test]
+    fn test_parse_yaml_with_mtls() {
+        let yaml = r#"
+env: production
 server_addr: "https://indexify.example.com:8901"
 tls:
   enabled: true
@@ -258,13 +403,12 @@ tls:
   client_cert_path: "/etc/certs/client.pem"
   client_key_path: "/etc/certs/client-key.pem"
   domain_name: "indexify.example.com"
-telemetry:
-  tracing_exporter: otlp
-  endpoint: "http://otel-collector:4317"
+tls_proxy:
+  cert_path: "/etc/certs/proxy.pem"
+  key_path: "/etc/certs/proxy-key.pem"
 "#;
         let config = DataplaneConfig::from_yaml_str(yaml).unwrap();
-        assert_eq!(config.env, "staging");
-        assert_eq!(config.server_addr, "https://indexify.example.com:8901");
+        assert_eq!(config.env, "production");
         assert!(config.tls.enabled);
         assert_eq!(
             config.tls.ca_cert_path,
@@ -274,8 +418,9 @@ telemetry:
 
     #[test]
     fn test_invalid_mtls_config() {
+        // mTLS requires both cert and key
         let yaml = r#"
-env: staging
+env: local
 server_addr: "https://indexify.example.com:8901"
 tls:
   enabled: true

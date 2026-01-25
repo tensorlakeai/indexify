@@ -28,9 +28,9 @@ use crate::{
     driver::{DockerDriver, ForkExecDriver, ProcessDriver},
     function_container_manager::{DefaultImageResolver, FunctionContainerManager},
     metrics::DataplaneMetrics,
-    proxy::ProxyServer,
     resources::{probe_free_resources, probe_host_resources},
     state_file::StateFile,
+    tls_proxy::TlsProxy,
 };
 
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
@@ -43,7 +43,7 @@ pub struct Service {
     host_resources: HostResources,
     container_manager: Arc<FunctionContainerManager>,
     metrics: Arc<DataplaneMetrics>,
-    proxy_server: ProxyServer,
+    tls_proxy: TlsProxy,
 }
 
 impl Service {
@@ -73,7 +73,7 @@ impl Service {
             state_file,
         ));
 
-        let proxy_server = ProxyServer::new(config.proxy.clone(), container_manager.clone());
+        let tls_proxy = TlsProxy::new(config.tls_proxy.clone(), container_manager.clone());
 
         Ok(Self {
             config,
@@ -81,7 +81,7 @@ impl Service {
             host_resources,
             container_manager,
             metrics,
-            proxy_server,
+            tls_proxy,
         })
     }
 
@@ -93,6 +93,12 @@ impl Service {
         let recovered = self.container_manager.recover().await;
         if recovered > 0 {
             tracing::info!(recovered, "Recovered containers from state file");
+        }
+
+        // Clean up orphaned containers (exist in Docker but not in state file)
+        let cleaned = self.container_manager.cleanup_orphans().await;
+        if cleaned > 0 {
+            tracing::info!(cleaned, "Cleaned up orphaned containers");
         }
 
         let cancel_token = CancellationToken::new();
@@ -108,6 +114,7 @@ impl Service {
             let container_manager = self.container_manager.clone();
             let cancel_token = cancel_token.clone();
             let metrics = self.metrics.clone();
+            let tls_proxy_address = self.config.tls_proxy.get_advertise_address();
             async move {
                 run_heartbeat_loop(
                     channel,
@@ -118,6 +125,7 @@ impl Service {
                     stream_notify,
                     cancel_token,
                     metrics,
+                    tls_proxy_address,
                 )
                 .await
             }
@@ -162,12 +170,12 @@ impl Service {
             }
         });
 
-        // Proxy server for routing HTTP requests to sandbox containers
-        let proxy_handle = tokio::spawn({
+        // TLS proxy server for SNI-based routing to sandbox containers
+        let tls_proxy_handle = tokio::spawn({
             let cancel_token = cancel_token.clone();
             async move {
-                if let Err(e) = self.proxy_server.run(cancel_token).await {
-                    tracing::error!(error = %e, "Proxy server error");
+                if let Err(e) = self.tls_proxy.run(cancel_token).await {
+                    tracing::error!(error = %e, "TLS proxy server error");
                 }
             }
         });
@@ -197,9 +205,9 @@ impl Service {
                     tracing::error!(error = %e, "Metrics update task panicked");
                 }
             }
-            result = proxy_handle => {
+            result = tls_proxy_handle => {
                 if let Err(e) = result {
-                    tracing::error!(error = %e, "Proxy server task panicked");
+                    tracing::error!(error = %e, "TLS proxy server task panicked");
                 }
             }
         }
@@ -238,6 +246,7 @@ async fn run_heartbeat_loop(
     stream_notify: Arc<Notify>,
     cancel_token: CancellationToken,
     metrics: Arc<DataplaneMetrics>,
+    proxy_address: String,
 ) {
     let mut client = ExecutorApiClient::new(channel);
 
@@ -250,14 +259,19 @@ async fn run_heartbeat_loop(
         let function_executor_states = container_manager.get_states().await;
 
         // Build executor state without state_hash first
+        let system_hostname = hostname::get()
+            .map(|h| h.to_string_lossy().to_string())
+            .unwrap_or_else(|_| "localhost".to_string());
+
         let mut executor_state = ExecutorState {
             executor_id: Some(executor_id.clone()),
-            hostname: Some("localhost".to_string()),
+            hostname: Some(system_hostname),
             version: Some(env!("CARGO_PKG_VERSION").to_string()),
             status: Some(ExecutorStatus::Running.into()),
             total_resources: Some(host_resources),
             total_function_executor_resources: Some(host_resources),
             function_executor_states,
+            proxy_address: Some(proxy_address.clone()),
             ..Default::default()
         };
 

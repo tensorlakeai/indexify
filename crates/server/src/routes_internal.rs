@@ -15,8 +15,10 @@ use tracing::{error, info};
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
+use serde::{Deserialize, Serialize};
+
 use crate::{
-    http_objects::{
+    data_model::ContainerId, http_objects::{
         Allocation,
         ApplicationVersion,
         CacheKey,
@@ -34,16 +36,12 @@ use crate::{
         StateChangesResponse,
         UnallocatedFunctionRuns,
         from_data_model_executor_metadata,
-    },
-    http_objects_v1::{self, Application, ApplicationMetadata, ApplicationState, CodeDigest},
-    indexify_ui::Assets as UiAssets,
-    routes::{common::validate_and_submit_application, routes_state::RouteState},
-    state_store::requests::{
+    }, http_objects_v1::{self, Application, ApplicationMetadata, ApplicationState, CodeDigest}, indexify_ui::Assets as UiAssets, routes::{common::validate_and_submit_application, routes_state::RouteState}, state_store::requests::{
         CreateOrUpdateApplicationRequest,
         NamespaceRequest,
         RequestPayload,
         StateMachineUpdateRequest,
-    },
+    }
 };
 
 #[derive(OpenApi)]
@@ -128,6 +126,10 @@ pub fn configure_internal_routes(route_state: RouteState) -> Router {
         .route(
             "/internal/namespaces/{namespace}/applications/{application}/versions/{version}",
             get(get_application_by_version).with_state(route_state.clone()),
+        )
+        .route(
+            "/internal/v1/sandboxes/{sandbox_id}",
+            get(get_sandbox_by_id).with_state(route_state.clone()),
         )
 }
 
@@ -557,4 +559,45 @@ pub async fn create_or_update_application_with_metadata(
     )))?;
 
     validate_and_submit_application(&state, namespace, application, payload.upgrade_requests).await
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SandboxLookupResponse {
+    pub id: String,
+    pub status: String,
+    pub proxy_address: Option<String>,
+}
+
+async fn get_sandbox_by_id(
+    State(state): State<RouteState>,
+    Path(sandbox_id): Path<String>,
+) -> Result<Json<SandboxLookupResponse>, IndexifyAPIError> {
+    let container_scheduler = state.indexify_state.container_scheduler.read().await;
+
+    let container_meta = container_scheduler
+        .function_containers
+        .get(&ContainerId::new(sandbox_id.clone()))
+        .ok_or_else(|| IndexifyAPIError::not_found("Sandbox not found"))?;
+
+    if container_meta.container_type != crate::data_model::ContainerType::Sandbox {
+        return Err(IndexifyAPIError::bad_request("Container is not sandbox"));
+    }
+
+    let status = match &container_meta.function_container.state {
+        crate::data_model::ContainerState::Pending => "Pending",
+        crate::data_model::ContainerState::Running => "Running",
+        crate::data_model::ContainerState::Terminated { .. } => "Terminated",
+        crate::data_model::ContainerState::Unknown => "Unknown",
+    };
+
+    let proxy_address = container_scheduler
+        .executors
+        .get(&container_meta.executor_id)
+        .and_then(|executor| executor.proxy_address.clone());
+
+    Ok(Json(SandboxLookupResponse {
+        id: sandbox_id,
+        status: status.to_string(),
+        proxy_address,
+    }))
 }

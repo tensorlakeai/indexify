@@ -100,6 +100,7 @@ async fn test_docker_daemon_binary_mounted() {
 
     // Start a container with the daemon
     let config = ProcessConfig {
+        id: format!("test-{}", uuid::Uuid::new_v4()),
         image: Some("alpine:latest".to_string()),
         command: "sleep".to_string(),
         args: vec!["30".to_string()],
@@ -179,6 +180,7 @@ async fn test_docker_daemon_accessible() {
     let driver = DockerDriver::new().expect("Failed to create DockerDriver");
 
     let config = ProcessConfig {
+        id: format!("test-{}", uuid::Uuid::new_v4()),
         image: Some("alpine:latest".to_string()),
         command: "sleep".to_string(),
         args: vec!["30".to_string()],
@@ -255,6 +257,7 @@ async fn test_docker_grpc_health_check() {
     let driver = DockerDriver::new().expect("Failed to create DockerDriver");
 
     let config = ProcessConfig {
+        id: format!("test-{}", uuid::Uuid::new_v4()),
         image: Some("alpine:latest".to_string()),
         command: "sleep".to_string(),
         args: vec!["60".to_string()],
@@ -342,6 +345,7 @@ async fn test_docker_multiple_containers() {
     let mut handles = Vec::new();
     for i in 0..3 {
         let config = ProcessConfig {
+            id: format!("test-multi-{}", i),
             image: Some("alpine:latest".to_string()),
             command: "sleep".to_string(),
             args: vec!["30".to_string()],
@@ -413,6 +417,7 @@ async fn test_docker_env_vars_passed() {
     let driver = DockerDriver::new().expect("Failed to create DockerDriver");
 
     let config = ProcessConfig {
+        id: format!("test-{}", uuid::Uuid::new_v4()),
         image: Some("alpine:latest".to_string()),
         command: "sleep".to_string(),
         args: vec!["30".to_string()],
@@ -475,6 +480,7 @@ async fn test_docker_resource_limits() {
     let driver = DockerDriver::new().expect("Failed to create DockerDriver");
 
     let config = ProcessConfig {
+        id: format!("test-{}", uuid::Uuid::new_v4()),
         image: Some("alpine:latest".to_string()),
         command: "sleep".to_string(),
         args: vec!["30".to_string()],

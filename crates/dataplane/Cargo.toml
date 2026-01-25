@@ -12,7 +12,7 @@ serde.workspace = true
 serde_json.workspace = true
 serde-inline-default.workspace = true
 serde-saphyr.workspace = true
-tonic = { workspace = true, features = ["transport", "tls-ring", "tls-native-roots"] }
+tonic.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 tracing-opentelemetry.workspace = true
@@ -28,17 +28,21 @@ uuid.workspace = true
 proto-api.workspace = true
 prost.workspace = true
 sha2.workspace = true
-tower = "0.5"
-hyper = { workspace = true, features = ["client", "http1"] }
-hyper-util = { version = "0.1", features = ["tokio", "client-legacy"] }
-http-body-util = "0.1"
+tower.workspace = true
+hyper.workspace = true
+hyper-util.workspace = true
+http-body-util.workspace = true
 axum.workspace = true
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
+tokio-rustls.workspace = true
+rustls.workspace = true
+rustls-pemfile.workspace = true
+hostname.workspace = true
 bytes.workspace = true
-sysinfo = "0.37.2"
+sysinfo.workspace = true
 bollard = { workspace = true }
 futures-util = { workspace = true }
 lazy_static = { workspace = true }
+rcgen.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 nix.workspace = true

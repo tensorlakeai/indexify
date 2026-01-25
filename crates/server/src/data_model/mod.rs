@@ -1963,6 +1963,9 @@ pub struct ExecutorMetadata {
     #[builder(default)]
     #[serde(default)]
     updated_at_clock: Option<u64>,
+    #[builder(default)]
+    #[serde(default)]
+    pub proxy_address: Option<String>,
 }
 
 // Note: ExecutorMetadata is stored in memory, not persisted to RocksDB,

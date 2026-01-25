@@ -284,6 +284,9 @@ impl TryFrom<ExecutorState> for ExecutorMetadata {
         if let Some(server_clock) = executor_state.server_clock {
             executor_metadata.clock(server_clock);
         }
+        if let Some(tls_proxy_address) = executor_state.proxy_address {
+            executor_metadata.proxy_address(Some(tls_proxy_address));
+        }
         executor_metadata.build().map_err(Into::into)
     }
 }

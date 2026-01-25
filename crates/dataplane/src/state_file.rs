@@ -17,8 +17,8 @@ use tracing::{info, warn};
 /// Persisted state for a single container.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PersistedContainer {
-    /// Function executor ID.
-    pub fe_id: String,
+    /// Container ID (same as sandbox ID for sandboxes).
+    pub container_id: String,
     /// Process/container handle ID (container name for Docker, PID for
     /// ForkExec).
     pub handle_id: String,
@@ -105,16 +105,16 @@ impl StateFile {
     pub async fn upsert(&self, container: PersistedContainer) -> Result<()> {
         {
             let mut state = self.state.lock().await;
-            state.containers.insert(container.fe_id.clone(), container);
+            state.containers.insert(container.container_id.clone(), container);
         }
         self.save_to_file().await
     }
 
     /// Remove a container from the state file.
-    pub async fn remove(&self, fe_id: &str) -> Result<()> {
+    pub async fn remove(&self, container_id: &str) -> Result<()> {
         {
             let mut state = self.state.lock().await;
-            state.containers.remove(fe_id);
+            state.containers.remove(container_id);
         }
         self.save_to_file().await
     }
@@ -141,7 +141,7 @@ mod tests {
         let state_file = StateFile::new(&path).await.unwrap();
         state_file
             .upsert(PersistedContainer {
-                fe_id: "fe-1".to_string(),
+                container_id: "fe-1".to_string(),
                 handle_id: "container-123".to_string(),
                 daemon_addr: "127.0.0.1:9500".to_string(),
                 http_addr: "127.0.0.1:9501".to_string(),
@@ -157,7 +157,7 @@ mod tests {
         let state_file2 = StateFile::new(&path).await.unwrap();
         let containers = state_file2.get_all().await;
         assert_eq!(containers.len(), 1);
-        assert_eq!(containers[0].fe_id, "fe-1");
+        assert_eq!(containers[0].container_id, "fe-1");
         assert_eq!(containers[0].handle_id, "container-123");
     }
 
@@ -169,7 +169,7 @@ mod tests {
         let state_file = StateFile::new(&path).await.unwrap();
         state_file
             .upsert(PersistedContainer {
-                fe_id: "fe-1".to_string(),
+                container_id: "fe-1".to_string(),
                 handle_id: "container-123".to_string(),
                 daemon_addr: "127.0.0.1:9500".to_string(),
                 http_addr: "127.0.0.1:9501".to_string(),

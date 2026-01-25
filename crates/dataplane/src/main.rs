@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use anyhow::Context;
 use clap::Parser;
 
+mod certs;
 mod config;
 mod daemon_binary;
 mod daemon_client;
@@ -11,7 +12,7 @@ mod function_container_manager;
 mod metrics;
 mod network_rules;
 mod otel_tracing;
-mod proxy;
+mod tls_proxy;
 mod resources;
 mod service;
 mod state_file;
@@ -35,7 +36,11 @@ async fn main() -> anyhow::Result<()> {
 
     let config = match cli.config {
         Some(path) => DataplaneConfig::from_path(path.to_str().unwrap())?,
-        None => DataplaneConfig::default(),
+        None => {
+            let mut config = DataplaneConfig::default();
+            config.validate().context("Failed to validate default config")?;
+            config
+        }
     };
 
     setup_tracing(&config)?;
@@ -53,7 +58,13 @@ async fn main() -> anyhow::Result<()> {
 async fn start_dataplane(config: DataplaneConfig) -> anyhow::Result<()> {
     info!(
         server_addr = %config.server_addr,
+        executor_id = %config.executor_id,
         tls_enabled = config.tls.enabled,
+        tls_proxy_listen = %format!("{}:{}", config.tls_proxy.listen_addr, config.tls_proxy.port),
+        tls_proxy_advertise = %config.tls_proxy.get_advertise_address(),
+        tls_proxy_domain = %config.tls_proxy.proxy_domain,
+        tls_proxy_cert = %config.tls_proxy.cert_path(),
+        tls_proxy_key = %config.tls_proxy.key_path(),
         "Starting Indexify Dataplane"
     );
 
