@@ -17,6 +17,8 @@ pub struct ResourceLimits {
 
 /// Configuration for starting a process.
 pub struct ProcessConfig {
+    /// Unique identifier for this container (used as Docker container name suffix).
+    pub id: String,
     /// Container image (for Docker driver).
     pub image: Option<String>,
     /// Command to execute.
@@ -75,4 +77,8 @@ pub trait ProcessDriver: Send + Sync {
     /// Returns None if the process is still running or status cannot be
     /// determined.
     async fn get_exit_status(&self, handle: &ProcessHandle) -> Result<Option<ExitStatus>>;
+
+    /// List all container IDs managed by this driver.
+    /// Used for cleanup of orphaned containers.
+    async fn list_containers(&self) -> Result<Vec<String>>;
 }

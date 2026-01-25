@@ -188,6 +188,11 @@ impl ProcessDriver for ForkExecDriver {
             Ok(None)
         }
     }
+
+    async fn list_containers(&self) -> Result<Vec<String>> {
+        // Fork-exec processes don't persist across restarts, so nothing to list
+        Ok(vec![])
+    }
 }
 
 #[cfg(test)]
@@ -199,6 +204,7 @@ mod tests {
         let driver = ForkExecDriver::new();
 
         let config = ProcessConfig {
+            id: "test".to_string(),
             image: None,
             command: "sleep".to_string(),
             args: vec!["10".to_string()],
@@ -224,6 +230,7 @@ mod tests {
         let driver = ForkExecDriver::new();
 
         let config = ProcessConfig {
+            id: "test".to_string(),
             image: None,
             command: "echo".to_string(),
             args: vec!["hello".to_string()],
@@ -247,6 +254,7 @@ mod tests {
         let driver = ForkExecDriver::new();
 
         let config = ProcessConfig {
+            id: "test".to_string(),
             image: None,
             command: "sleep".to_string(),
             args: vec!["60".to_string()],
@@ -273,6 +281,7 @@ mod tests {
         let driver = ForkExecDriver::new();
 
         let config = ProcessConfig {
+            id: "test".to_string(),
             image: None,
             command: "env".to_string(),
             args: vec![],
@@ -296,6 +305,7 @@ mod tests {
         let driver = ForkExecDriver::new();
 
         let config = ProcessConfig {
+            id: "test".to_string(),
             image: None,
             command: "nonexistent_command_12345".to_string(),
             args: vec![],
@@ -315,6 +325,7 @@ mod tests {
         let driver = ForkExecDriver::new();
 
         let config = ProcessConfig {
+            id: "test".to_string(),
             image: None,
             command: "sleep".to_string(),
             args: vec!["60".to_string()],

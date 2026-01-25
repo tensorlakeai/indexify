@@ -239,6 +239,11 @@ impl ProcessDriver for DaemonTestDriver {
 
         Ok(None) // Not found
     }
+
+    async fn list_containers(&self) -> Result<Vec<String>> {
+        let daemons = self.daemons.lock().await;
+        Ok(daemons.iter().map(|(id, _, _)| id.clone()).collect())
+    }
 }
 
 fn create_test_fe_description(id: &str) -> FunctionExecutorDescription {
