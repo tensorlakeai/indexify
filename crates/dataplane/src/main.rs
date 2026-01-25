@@ -12,10 +12,10 @@ mod function_container_manager;
 mod metrics;
 mod network_rules;
 mod otel_tracing;
-mod tls_proxy;
 mod resources;
 mod service;
 mod state_file;
+mod tls_proxy;
 
 use config::DataplaneConfig;
 use otel_tracing::setup_tracing;
@@ -38,7 +38,9 @@ async fn main() -> anyhow::Result<()> {
         Some(path) => DataplaneConfig::from_path(path.to_str().unwrap())?,
         None => {
             let mut config = DataplaneConfig::default();
-            config.validate().context("Failed to validate default config")?;
+            config
+                .validate()
+                .context("Failed to validate default config")?;
             config
         }
     };

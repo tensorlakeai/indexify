@@ -179,9 +179,9 @@ impl Default for TlsProxyConfig {
 }
 
 impl TlsProxyConfig {
-    /// Resolves certificate paths, auto-generating if needed for local development.
-    /// In production (non-local), cert_path and key_path are required.
-    /// Returns (cert_path, key_path).
+    /// Resolves certificate paths, auto-generating if needed for local
+    /// development. In production (non-local), cert_path and key_path are
+    /// required. Returns (cert_path, key_path).
     pub fn resolve_certificates(&mut self, env: &str) -> Result<()> {
         let is_local = env == LOCAL_ENV;
 
@@ -386,9 +386,18 @@ tls_proxy:
 "#;
         let config = DataplaneConfig::from_yaml_str(yaml).unwrap();
         assert_eq!(config.env, "production");
-        assert_eq!(config.tls_proxy.cert_path, Some("/etc/certs/cert.pem".to_string()));
-        assert_eq!(config.tls_proxy.key_path, Some("/etc/certs/key.pem".to_string()));
-        assert_eq!(config.tls_proxy.get_advertise_address(), "worker.example.com:9443");
+        assert_eq!(
+            config.tls_proxy.cert_path,
+            Some("/etc/certs/cert.pem".to_string())
+        );
+        assert_eq!(
+            config.tls_proxy.key_path,
+            Some("/etc/certs/key.pem".to_string())
+        );
+        assert_eq!(
+            config.tls_proxy.get_advertise_address(),
+            "worker.example.com:9443"
+        );
         assert_eq!(config.tls_proxy.proxy_domain, "sandboxes.example.com");
     }
 

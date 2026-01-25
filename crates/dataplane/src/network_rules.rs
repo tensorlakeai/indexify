@@ -184,41 +184,6 @@ fn iptables(args: &[&str]) -> Result<()> {
     Ok(())
 }
 
-/// Get the IP address of a Docker container.
-///
-/// Uses `docker inspect` to extract the container's IP address from
-/// its network settings.
-///
-/// # Arguments
-/// * `container_id` - The Docker container ID or name
-///
-/// # Returns
-/// The container's IP address as a string, or an error if it cannot be
-/// determined.
-pub fn get_container_ip(container_id: &str) -> Result<String> {
-    let output = Command::new("docker")
-        .args([
-            "inspect",
-            "-f",
-            "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}",
-            container_id,
-        ])
-        .output()
-        .context("Failed to execute docker inspect")?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        anyhow::bail!("docker inspect failed: {}", stderr.trim());
-    }
-
-    let ip = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if ip.is_empty() {
-        anyhow::bail!("Container {} has no IP address", container_id);
-    }
-
-    Ok(ip)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
