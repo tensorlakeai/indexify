@@ -116,9 +116,8 @@ const SandboxDetailsPage = () => {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const daemonUrl = sandbox?.sandbox_http_address
-    ? `http://${sandbox.sandbox_http_address}`
-    : null
+  // Use sandbox_url for TLS routing via dataplane
+  const daemonUrl = sandbox?.sandbox_url ?? null
 
   const fetchProcesses = useCallback(async () => {
     if (!daemonUrl) return
@@ -342,20 +341,20 @@ const SandboxDetailsPage = () => {
                 </Grid>
               )}
 
-              {sandbox.sandbox_http_address && (
+              {sandbox.sandbox_url && (
                 <Grid item xs={12} md={6}>
                   <Typography
                     variant="subtitle2"
                     color="text.secondary"
                     gutterBottom
                   >
-                    Sandbox Address
+                    Sandbox URL
                   </Typography>
                   <Box display="flex" alignItems="center" gap={1}>
                     <Typography variant="body1" sx={{ fontFamily: 'monospace' }}>
-                      {sandbox.sandbox_http_address}
+                      {sandbox.sandbox_url}
                     </Typography>
-                    <CopyText text={sandbox.sandbox_http_address} />
+                    <CopyText text={sandbox.sandbox_url} />
                   </Box>
                 </Grid>
               )}

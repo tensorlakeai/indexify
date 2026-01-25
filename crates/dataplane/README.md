@@ -134,7 +134,7 @@ tls_proxy:
   # TLS certificate (should be wildcard cert for *.sandboxes.example.com)
   cert_path: "/etc/certs/sandboxes.pem"
   key_path: "/etc/certs/sandboxes-key.pem"
-  # Domain suffix for sandbox routing
+  # Domain suffix for sandbox routing (default: 127.0.0.1.nip.io for local dev)
   proxy_domain: "sandboxes.example.com"
 ```
 
@@ -367,13 +367,21 @@ Note: The Docker container name is `indexify-{container_id}`, making it easy to 
 
 The Docker container name would be `indexify-sb-abc123` for this example.
 
-## Local Testing
+## Local Development
+
+### Overview
+
+For local development, the dataplane uses [nip.io](https://nip.io) for automatic DNS resolution. This eliminates the need for `/etc/hosts` entries or custom DNS setup.
+
+**How it works:**
+- Default `proxy_domain`: `127.0.0.1.nip.io`
+- Any hostname like `{sandbox_id}.127.0.0.1.nip.io` automatically resolves to `127.0.0.1`
+- The dataplane auto-generates self-signed TLS certificates for `*.127.0.0.1.nip.io`
 
 ### Prerequisites
 
 1. **Docker Desktop** or **OrbStack** (recommended for macOS - provides direct container IP access)
 2. **Indexify Server** running locally
-3. **TLS certificates** (optional, for TLS proxy testing)
 
 ### Quick Start
 
@@ -381,28 +389,52 @@ The Docker container name would be `indexify-sb-abc123` for this example.
 # Terminal 1: Start Indexify Server
 cargo run -p indexify-server
 
-# Terminal 2: Start Dataplane with Docker driver
-cargo run -p indexify-dataplane -- --config - <<EOF
-env: local
-server_addr: "http://localhost:8901"
-driver:
-  type: docker
-tls_proxy:
-  enabled: false
-EOF
+# Terminal 2: Start Dataplane (default config works out of the box)
+cargo run -p indexify-dataplane
 ```
 
-### Testing with TLS Proxy
+The dataplane will:
+- Connect to the server at `http://localhost:8901`
+- Start TLS proxy on port `9443`
+- Auto-generate self-signed certs for `*.127.0.0.1.nip.io`
+- Use `127.0.0.1.nip.io` as the proxy domain
 
-Generate self-signed certificates for local testing:
+### Accessing Sandboxes Locally
+
+When you create a sandbox, the API returns a `sandbox_url` like:
+```
+https://k9f8o1jh95d076uth02d.127.0.0.1.nip.io:9443
+```
+
+**Important: Accepting Self-Signed Certificates**
+
+Before making API calls from JavaScript/browser, you must accept the self-signed certificate:
+
+1. Navigate directly to the sandbox URL in your browser
+2. Accept the security warning ("Proceed to site" / "Accept the risk")
+3. After accepting, JavaScript `fetch()` requests will work
 
 ```bash
-# Generate wildcard cert for sandboxes.local
+# Test from command line (use -k to skip cert verification)
+curl -k https://k9f8o1jh95d076uth02d.127.0.0.1.nip.io:9443/api/v1/processes
+```
+
+### Sandbox ID Format
+
+Sandbox IDs use a DNS-safe alphabet (alphanumeric only, no underscores or special characters) since they're used in hostnames. Example: `k9f8o1jh95d076uth02d`
+
+### Custom TLS Certificates (Optional)
+
+For custom domains or to avoid self-signed cert warnings, generate your own certificates:
+
+```bash
+# Generate wildcard cert for your domain
 openssl req -x509 -newkey rsa:4096 -keyout sandbox-key.pem -out sandbox-cert.pem \
-  -days 365 -nodes -subj "/CN=*.sandboxes.local"
+  -days 365 -nodes -subj "/CN=*.sandboxes.local" \
+  -addext "subjectAltName=DNS:*.sandboxes.local"
 ```
 
-Run with TLS proxy:
+Run with custom certs:
 
 ```bash
 cargo run -p indexify-dataplane -- --config - <<EOF
@@ -411,7 +443,6 @@ server_addr: "http://localhost:8901"
 driver:
   type: docker
 tls_proxy:
-  enabled: true
   port: 9443
   cert_path: ./sandbox-cert.pem
   key_path: ./sandbox-key.pem
@@ -441,13 +472,15 @@ curl -X POST http://localhost:8900/v1/namespaces/default/applications/test-app/s
 # Get sandbox ID from response above, then test routing
 SANDBOX_ID=<sandbox_id>
 
-# Route to daemon API (port 9501)
+# With nip.io (automatic DNS resolution, no --resolve needed)
+curl -k "https://${SANDBOX_ID}.127.0.0.1.nip.io:9443/api/v1/processes"
+
+# Route to custom port (e.g., 8080) - port prefix is optional
+curl -k "https://8080-${SANDBOX_ID}.127.0.0.1.nip.io:9443/"
+
+# With custom domain (requires --resolve or /etc/hosts)
 curl -k --resolve "${SANDBOX_ID}.sandboxes.local:9443:127.0.0.1" \
   "https://${SANDBOX_ID}.sandboxes.local:9443/health"
-
-# Route to custom port (e.g., 8080)
-curl -k --resolve "8080-${SANDBOX_ID}.sandboxes.local:9443:127.0.0.1" \
-  "https://8080-${SANDBOX_ID}.sandboxes.local:9443/"
 ```
 
 ### Running Tests
@@ -494,6 +527,8 @@ RUST_LOG=debug cargo test -p indexify-dataplane -- --nocapture
 | TLS handshake failed | Certificate mismatch | Verify cert covers `*.{proxy_domain}` |
 | Network rules not applied | Missing privileges | Run with `--privileged` or `NET_ADMIN` capability |
 | Resource detection wrong | Running in container | Mount `/proc:/host/proc:ro` |
+| ERR_CERT_AUTHORITY_INVALID | Self-signed certificate | Navigate to sandbox URL directly and accept cert first |
+| Browser fetch fails | Cert not accepted | Accept self-signed cert in browser before making JS requests |
 
 ### Health Checks
 
