@@ -169,6 +169,22 @@ pub async fn create_sandbox(
     State(state): State<RouteState>,
     Json(request): Json<CreateSandboxRequest>,
 ) -> Result<Json<CreateSandboxResponse>, IndexifyAPIError> {
+    let app_key = data_model::Application::key_from(&namespace, &application);
+    let app_exists = state
+        .indexify_state
+        .in_memory_state
+        .read()
+        .await
+        .applications
+        .contains_key(&app_key);
+
+    if !app_exists {
+        return Err(IndexifyAPIError::not_found(&format!(
+            "Application '{}' not found in namespace '{}'",
+            application, namespace
+        )));
+    }
+
     // Apply config defaults for image and timeout
     let image = request
         .image
