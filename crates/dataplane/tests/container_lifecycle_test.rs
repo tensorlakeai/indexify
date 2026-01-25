@@ -158,6 +158,7 @@ impl ProcessDriver for DaemonTestDriver {
             id,
             daemon_addr: Some(daemon_addr),
             http_addr: None,
+            container_ip: "127.0.0.1".to_string(),
         })
     }
 
@@ -242,7 +243,7 @@ impl ProcessDriver for DaemonTestDriver {
 
     async fn list_containers(&self) -> Result<Vec<String>> {
         let daemons = self.daemons.lock().await;
-        Ok(daemons.iter().map(|(id, _, _)| id.clone()).collect())
+        Ok(daemons.iter().map(|(id, ..)| id.clone()).collect())
     }
 }
 

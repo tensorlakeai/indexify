@@ -6,6 +6,12 @@ use async_trait::async_trait;
 pub use docker::DockerDriver;
 pub use fork_exec::ForkExecDriver;
 
+/// Container port for the daemon gRPC server (internal API).
+pub const DAEMON_GRPC_PORT: u16 = 9500;
+
+/// Container port for the daemon HTTP server (user-facing Sandbox API).
+pub const DAEMON_HTTP_PORT: u16 = 9501;
+
 /// Resource limits for a process/container.
 #[derive(Debug, Clone, Default)]
 pub struct ResourceLimits {
@@ -17,7 +23,8 @@ pub struct ResourceLimits {
 
 /// Configuration for starting a process.
 pub struct ProcessConfig {
-    /// Unique identifier for this container (used as Docker container name suffix).
+    /// Unique identifier for this container (used as Docker container name
+    /// suffix).
     pub id: String,
     /// Container image (for Docker driver).
     pub image: Option<String>,
@@ -44,9 +51,12 @@ pub struct ProcessHandle {
     /// Docker).
     pub daemon_addr: Option<String>,
     /// Address for daemon HTTP API (Sandbox API) (e.g., "127.0.0.1:32769" for
-    /// Docker).
-    #[allow(dead_code)]
+    /// Docker). This is exposed externally as `sandbox_http_address`.
     pub http_addr: Option<String>,
+    /// Container's internal IP address.
+    /// For Docker: the container's network IP.
+    /// For ForkExec: "127.0.0.1" (localhost).
+    pub container_ip: String,
 }
 
 /// Exit status information for a terminated process.

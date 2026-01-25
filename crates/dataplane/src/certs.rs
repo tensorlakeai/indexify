@@ -10,8 +10,7 @@ use tracing::info;
 /// Returns (cert_path, key_path) pointing to the generated files.
 pub fn generate_dev_certificates(proxy_domain: &str) -> Result<(PathBuf, PathBuf)> {
     let cert_dir = std::env::temp_dir().join("indexify-dataplane-certs");
-    std::fs::create_dir_all(&cert_dir)
-        .context("Failed to create certificate directory")?;
+    std::fs::create_dir_all(&cert_dir).context("Failed to create certificate directory")?;
 
     let cert_path = cert_dir.join("cert.pem");
     let key_path = cert_dir.join("key.pem");
@@ -32,13 +31,16 @@ pub fn generate_dev_certificates(proxy_domain: &str) -> Result<(PathBuf, PathBuf
     );
 
     // Generate a new key pair
-    let key_pair = KeyPair::generate()
-        .context("Failed to generate key pair")?;
+    let key_pair = KeyPair::generate().context("Failed to generate key pair")?;
 
     // Configure certificate parameters
     let mut params = CertificateParams::default();
-    params.distinguished_name.push(DnType::CommonName, format!("*.{}", proxy_domain));
-    params.distinguished_name.push(DnType::OrganizationName, "Indexify Dev");
+    params
+        .distinguished_name
+        .push(DnType::CommonName, format!("*.{}", proxy_domain));
+    params
+        .distinguished_name
+        .push(DnType::OrganizationName, "Indexify Dev");
 
     // Add Subject Alternative Names for the wildcard domain
     params.subject_alt_names = vec![
@@ -48,14 +50,13 @@ pub fn generate_dev_certificates(proxy_domain: &str) -> Result<(PathBuf, PathBuf
     ];
 
     // Generate the certificate
-    let cert = params.self_signed(&key_pair)
+    let cert = params
+        .self_signed(&key_pair)
         .context("Failed to generate self-signed certificate")?;
 
     // Write certificate and key to files
-    std::fs::write(&cert_path, cert.pem())
-        .context("Failed to write certificate file")?;
-    std::fs::write(&key_path, key_pair.serialize_pem())
-        .context("Failed to write key file")?;
+    std::fs::write(&cert_path, cert.pem()).context("Failed to write certificate file")?;
+    std::fs::write(&key_path, key_pair.serialize_pem()).context("Failed to write key file")?;
 
     info!(
         cert_path = %cert_path.display(),

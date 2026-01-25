@@ -26,6 +26,8 @@ pub struct PersistedContainer {
     pub daemon_addr: String,
     /// HTTP daemon address (host:port).
     pub http_addr: String,
+    /// Container's internal IP address.
+    pub container_ip: String,
     /// Timestamp when the container was started (epoch ms).
     pub started_at: u64,
 }
@@ -105,7 +107,9 @@ impl StateFile {
     pub async fn upsert(&self, container: PersistedContainer) -> Result<()> {
         {
             let mut state = self.state.lock().await;
-            state.containers.insert(container.container_id.clone(), container);
+            state
+                .containers
+                .insert(container.container_id.clone(), container);
         }
         self.save_to_file().await
     }
@@ -145,6 +149,7 @@ mod tests {
                 handle_id: "container-123".to_string(),
                 daemon_addr: "127.0.0.1:9500".to_string(),
                 http_addr: "127.0.0.1:9501".to_string(),
+                container_ip: "172.17.0.2".to_string(),
                 started_at: 1234567890,
             })
             .await
@@ -173,6 +178,7 @@ mod tests {
                 handle_id: "container-123".to_string(),
                 daemon_addr: "127.0.0.1:9500".to_string(),
                 http_addr: "127.0.0.1:9501".to_string(),
+                container_ip: "172.17.0.2".to_string(),
                 started_at: 1234567890,
             })
             .await

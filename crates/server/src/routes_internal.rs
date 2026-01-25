@@ -11,14 +11,14 @@ use axum::{
     routing::{get, post, put},
 };
 use hyper::StatusCode;
+use serde::{Deserialize, Serialize};
 use tracing::{error, info};
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
-use serde::{Deserialize, Serialize};
-
 use crate::{
-    data_model::ContainerId, http_objects::{
+    data_model::ContainerId,
+    http_objects::{
         Allocation,
         ApplicationVersion,
         CacheKey,
@@ -36,12 +36,16 @@ use crate::{
         StateChangesResponse,
         UnallocatedFunctionRuns,
         from_data_model_executor_metadata,
-    }, http_objects_v1::{self, Application, ApplicationMetadata, ApplicationState, CodeDigest}, indexify_ui::Assets as UiAssets, routes::{common::validate_and_submit_application, routes_state::RouteState}, state_store::requests::{
+    },
+    http_objects_v1::{self, Application, ApplicationMetadata, ApplicationState, CodeDigest},
+    indexify_ui::Assets as UiAssets,
+    routes::{common::validate_and_submit_application, routes_state::RouteState},
+    state_store::requests::{
         CreateOrUpdateApplicationRequest,
         NamespaceRequest,
         RequestPayload,
         StateMachineUpdateRequest,
-    }
+    },
 };
 
 #[derive(OpenApi)]

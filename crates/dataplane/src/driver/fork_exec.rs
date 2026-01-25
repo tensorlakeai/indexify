@@ -111,6 +111,7 @@ impl ProcessDriver for ForkExecDriver {
             id: id.clone(),
             daemon_addr,
             http_addr,
+            container_ip: "127.0.0.1".to_string(),
         };
 
         self.processes.lock().await.insert(id, child);
@@ -355,6 +356,7 @@ mod tests {
             id: "99999999".to_string(),
             daemon_addr: None,
             http_addr: None,
+            container_ip: "127.0.0.1".to_string(),
         };
 
         // Unknown handle should return false (not alive)

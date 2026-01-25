@@ -6,24 +6,29 @@ use bollard::{
     Docker,
     models::{ContainerCreateBody, ContainerStateStatusEnum, HostConfig, ResourcesUlimits},
     query_parameters::{
-        CreateContainerOptions, CreateImageOptions, InspectContainerOptions, KillContainerOptions,
-        RemoveContainerOptions, StartContainerOptions,
+        CreateContainerOptions,
+        CreateImageOptions,
+        InspectContainerOptions,
+        KillContainerOptions,
+        RemoveContainerOptions,
+        StartContainerOptions,
     },
 };
 use futures_util::StreamExt;
 use tracing::info;
 
-use super::{ExitStatus, ProcessConfig, ProcessDriver, ProcessHandle};
-use crate::{daemon_binary, network_rules};
+use super::{
+    DAEMON_GRPC_PORT,
+    DAEMON_HTTP_PORT,
+    ExitStatus,
+    ProcessConfig,
+    ProcessDriver,
+    ProcessHandle,
+};
+use crate::daemon_binary;
 
 /// Container path for the daemon binary.
 const CONTAINER_DAEMON_PATH: &str = "/indexify-daemon";
-
-/// Container port for the daemon gRPC server (internal API).
-const DAEMON_GRPC_PORT: u16 = 9500;
-
-/// Container port for the daemon HTTP server (user-facing Sandbox API).
-const DAEMON_HTTP_PORT: u16 = 9501;
 
 pub struct DockerDriver {
     docker: Docker,
@@ -80,6 +85,32 @@ impl DockerDriver {
         }
     }
 
+    /// Get a container's IP address using bollard inspect.
+    async fn get_container_ip(&self, container_name: &str) -> Result<String> {
+        let inspect = self
+            .docker
+            .inspect_container(container_name, None::<InspectContainerOptions>)
+            .await
+            .context("Failed to inspect container")?;
+
+        // Extract IP from network settings
+        let networks = inspect
+            .network_settings
+            .and_then(|ns| ns.networks)
+            .context("Container has no network settings")?;
+
+        // Get the first network's IP address (usually "bridge" network)
+        for (_network_name, endpoint) in networks {
+            if let Some(ip) = endpoint.ip_address &&
+                !ip.is_empty()
+            {
+                return Ok(ip);
+            }
+        }
+
+        anyhow::bail!("Container {} has no IP address", container_name)
+    }
+
     /// Ensure an image is available locally, pulling it if necessary.
     async fn ensure_image(&self, image: &str) -> Result<()> {
         if self.image_exists(image).await? {
@@ -128,7 +159,6 @@ impl DockerDriver {
 
         Ok(())
     }
-
 }
 
 impl Default for DockerDriver {
@@ -252,8 +282,10 @@ impl ProcessDriver for DockerDriver {
             .await
             .context("Failed to start container")?;
 
-        // Get container's internal IP address
-        let container_ip = network_rules::get_container_ip(&container_name)
+        // Get container's internal IP address using bollard
+        let container_ip = self
+            .get_container_ip(&container_name)
+            .await
             .context("Failed to get container IP address")?;
 
         let daemon_addr = format!("{}:{}", container_ip, DAEMON_GRPC_PORT);
@@ -271,6 +303,7 @@ impl ProcessDriver for DockerDriver {
             id: container_name,
             daemon_addr: Some(daemon_addr),
             http_addr: Some(http_addr),
+            container_ip,
         })
     }
 
@@ -369,8 +402,9 @@ impl ProcessDriver for DockerDriver {
     }
 
     async fn list_containers(&self) -> Result<Vec<String>> {
-        use bollard::query_parameters::ListContainersOptions;
         use std::collections::HashMap;
+
+        use bollard::query_parameters::ListContainersOptions;
 
         // Filter by label instead of name prefix for more reliable reconciliation
         let mut filters: HashMap<String, Vec<String>> = HashMap::new();
