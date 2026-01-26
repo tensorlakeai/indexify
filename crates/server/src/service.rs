@@ -74,6 +74,7 @@ impl Service {
             config.state_store_path.parse()?,
             config.rocksdb_config.clone(),
             executor_catalog,
+            config.workload_placement_constraints.clone(),
         )
         .await?;
 

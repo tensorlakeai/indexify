@@ -349,6 +349,17 @@ impl TryFrom<ApplicationFunction> for data_model::Function {
     type Error = anyhow::Error;
 
     fn try_from(val: ApplicationFunction) -> Result<Self, Self::Error> {
+        // Forbid users from specifying their own workload constraint
+        for expr_str in &val.placement_constraints.filter_expressions {
+            let expression = data_model::filter::Expression::try_from_str(expr_str)
+                .map_err(|e| anyhow::anyhow!("Failed to parse placement constraints: {e}"))?;
+            if expression.key == "workload" {
+                anyhow::bail!(
+                    "Cannot modify workload constraint. Remove it from the placement constraints.",
+                );
+            }
+        }
+
         Ok(data_model::Function {
             name: val.name.clone(),
             description: val.description.clone(),

@@ -7,6 +7,7 @@ use tokio::sync::RwLock;
 use tracing::{error, info};
 
 use crate::{
+    config::WorkloadPlacementConstraints,
     data_model::{
         Application,
         ApplicationState,
@@ -25,6 +26,7 @@ use crate::{
         FunctionResources,
         FunctionURI,
         Sandbox,
+        filter,
     },
     state_store::{
         in_memory_state::InMemoryState,
@@ -107,10 +109,15 @@ pub struct ContainerScheduler {
     pub function_containers: imbl::HashMap<ContainerId, Box<ContainerServerMetadata>>,
     // ExecutorId -> (FE ID -> List of Function Executors)
     pub executor_states: imbl::HashMap<ExecutorId, Box<ExecutorServerMetadata>>,
+    // Placement constraint expressions for workload matching
+    pub workload_placement_constraints: WorkloadPlacementConstraints,
 }
 
 impl ContainerScheduler {
-    pub fn new(in_memory_state: &InMemoryState) -> Self {
+    pub fn new(
+        in_memory_state: &InMemoryState,
+        workload_placement_constraints: WorkloadPlacementConstraints,
+    ) -> Self {
         let mut desired_containers = imbl::HashMap::new();
         for application in in_memory_state.applications.values() {
             for function in application.functions.values() {
@@ -134,6 +141,7 @@ impl ContainerScheduler {
             function_containers: imbl::HashMap::new(),
             executor_states: imbl::HashMap::new(),
             clock: in_memory_state.clock,
+            workload_placement_constraints,
         }
     }
 
@@ -167,6 +175,7 @@ impl ContainerScheduler {
             containers_by_function_uri: self.containers_by_function_uri.clone(),
             function_containers: self.function_containers.clone(),
             executor_states: self.executor_states.clone(),
+            workload_placement_constraints: self.workload_placement_constraints.clone(),
         }))
     }
 
@@ -327,6 +336,7 @@ impl ContainerScheduler {
             &function.resources,
             function_container,
             ContainerType::Function,
+            Some(&function.placement_constraints),
         )
     }
 
@@ -372,6 +382,7 @@ impl ContainerScheduler {
             &resources,
             function_container,
             ContainerType::Sandbox,
+            Some(&sandbox.placement_constraints),
         )
     }
 
@@ -383,8 +394,15 @@ impl ContainerScheduler {
         resources: &FunctionResources,
         function_container: Container,
         container_type: ContainerType,
+        placement_constraints: Option<&filter::LabelsFilter>,
     ) -> Result<Option<SchedulerUpdateRequest>> {
-        let mut candidates = self.candidate_hosts(namespace, application, function, resources);
+        let mut candidates = self.candidate_hosts(
+            namespace,
+            application,
+            function,
+            resources,
+            placement_constraints,
+        );
         let mut update = SchedulerUpdateRequest::default();
 
         // If no candidates, try vacuuming to free up resources
@@ -419,7 +437,13 @@ impl ContainerScheduler {
         )))?;
 
         // Try again after vacuum
-        candidates = self.candidate_hosts(namespace, application, function, resources);
+        candidates = self.candidate_hosts(
+            namespace,
+            application,
+            function,
+            resources,
+            placement_constraints,
+        );
         let Some(mut candidate) = candidates.choose(&mut rand::rng()).cloned() else {
             // No host available, return vacuum update (container stays pending)
             return Ok(Some(update));
@@ -449,6 +473,7 @@ impl ContainerScheduler {
         application: &str,
         function: Option<&Function>,
         resources: &FunctionResources,
+        placement_constraints: Option<&filter::LabelsFilter>,
     ) -> Vec<ExecutorServerMetadata> {
         let mut candidates = Vec::new();
 
@@ -471,14 +496,27 @@ impl ContainerScheduler {
                 if !executor.is_function_allowed(namespace, application, func) {
                     continue;
                 }
-                // Check placement constraints for functions
-                if !func.placement_constraints.matches(&executor.labels) {
-                    continue;
+                if let Some(placement_constraints) = placement_constraints {
+                    if !placement_constraints.matches_with_additional_constraints(
+                        &executor.labels,
+                        &self.workload_placement_constraints.application,
+                    ) {
+                        continue;
+                    }
                 }
             } else {
                 // Sandbox: check allowlist for namespace/app only
                 if !executor.is_app_allowed(namespace, application) {
                     continue;
+                }
+                // Check placement constraints for sandboxes
+                if let Some(placement_constraints) = placement_constraints {
+                    if !placement_constraints.matches_with_additional_constraints(
+                        &executor.labels,
+                        &self.workload_placement_constraints.sandbox,
+                    ) {
+                        continue;
+                    }
                 }
             }
 

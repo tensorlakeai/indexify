@@ -3,6 +3,7 @@ use std::sync::Arc;
 use anyhow::Result;
 
 use crate::{
+    config::WorkloadPlacementConstraints,
     data_model::{
         Application,
         test_objects::tests::{self, TEST_NAMESPACE, mock_request_ctx},
@@ -30,6 +31,7 @@ impl TestStateStore {
             temp_dir.path().join("state"),
             RocksDBConfig::default(),
             crate::state_store::ExecutorCatalog::default(),
+            WorkloadPlacementConstraints::default(),
         )
         .await?;
         Ok(TestStateStore { indexify_state })

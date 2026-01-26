@@ -11,7 +11,11 @@ use serde::{Deserialize, Serialize};
 use serde_inline_default::serde_inline_default;
 use uuid::Uuid;
 
-use crate::{blob_store::BlobStorageConfig, state_store::driver::rocksdb::RocksDBConfig};
+use crate::{
+    blob_store::BlobStorageConfig,
+    data_model,
+    state_store::driver::rocksdb::RocksDBConfig,
+};
 
 const LOCAL_ENV: &str = "local";
 
@@ -54,6 +58,14 @@ impl Display for ExecutorCatalogEntry {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct WorkloadPlacementConstraints {
+    #[serde(default)]
+    pub application: data_model::filter::LabelsFilter,
+    #[serde(default)]
+    pub sandbox: data_model::filter::LabelsFilter,
+}
+
 #[serde_inline_default]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerConfig {
@@ -94,6 +106,10 @@ pub struct ServerConfig {
     /// local dev.
     #[serde_inline_default("http".to_string())]
     pub sandbox_proxy_scheme: String,
+    /// Placement constraints for workload matching.
+    /// This is used to match executors by labels for functions and sandboxes.
+    #[serde(default)]
+    pub workload_placement_constraints: WorkloadPlacementConstraints,
 }
 
 impl Default for ServerConfig {
@@ -115,6 +131,7 @@ impl Default for ServerConfig {
             default_sandbox_image: "python:3.11-slim".to_string(),
             sandbox_proxy_domain: Some("127.0.0.1.nip.io".to_string()),
             sandbox_proxy_scheme: "http".to_string(),
+            workload_placement_constraints: WorkloadPlacementConstraints::default(),
         }
     }
 }

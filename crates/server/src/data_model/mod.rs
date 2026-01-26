@@ -2515,6 +2515,10 @@ pub struct Sandbox {
     #[builder(default)]
     #[serde(default)]
     pub network_policy: Option<NetworkPolicy>,
+    /// Placement constraints for matching executors by labels.
+    #[builder(default)]
+    #[serde(default)]
+    pub placement_constraints: filter::LabelsFilter,
 }
 
 impl SandboxBuilder {

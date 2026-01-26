@@ -123,6 +123,80 @@ impl LabelsFilter {
             }
         })
     }
+
+    /// Match labels with additional constraint expressions applied dynamically.
+    /// This is used to inject placement constraints at matching time rather
+    /// than storing them in the object.
+    ///
+    /// The additional constraints are parsed from expression strings and must
+    /// all match. Any existing constraints in the filter that share keys
+    /// with additional constraints are ignored (the additional constraints
+    /// take precedence).
+    pub fn matches_with_additional_constraints(
+        &self,
+        values: &HashMap<String, String>,
+        extra_constraints: &LabelsFilter,
+    ) -> bool {
+        // First, collect keys from additional constraints
+        let additional_keys: std::collections::HashSet<String> = extra_constraints
+            .0
+            .iter()
+            .map(|expr| expr.key.clone())
+            .collect();
+
+        // Check all additional constraints match
+        for expr in &extra_constraints.0 {
+            let value = values.get(&expr.key);
+            let matches = match value {
+                Some(v) => match expr.operator {
+                    Operator::Eq => v == &expr.value,
+                    Operator::Neq => v != &expr.value,
+                },
+                None => match expr.operator {
+                    Operator::Eq => false,
+                    Operator::Neq => true,
+                },
+            };
+            if !matches {
+                return false;
+            }
+        }
+
+        // Check existing constraints, skipping those overridden by additional
+        // constraints
+        for expr in &self.0 {
+            if additional_keys.contains(&expr.key) {
+                continue; // Skip, additional constraint takes precedence
+            }
+            let value = values.get(&expr.key);
+            let matches = match value {
+                Some(v) => match expr.operator {
+                    Operator::Eq => v == &expr.value,
+                    Operator::Neq => v != &expr.value,
+                },
+                None => match expr.operator {
+                    Operator::Eq => false,
+                    Operator::Neq => true,
+                },
+            };
+            if !matches {
+                return false;
+            }
+        }
+
+        true
+    }
+}
+
+impl From<Vec<String>> for LabelsFilter {
+    fn from(value: Vec<String>) -> Self {
+        Self(
+            value
+                .iter()
+                .map(|v| Expression::try_from_str(v).unwrap())
+                .collect(),
+        )
+    }
 }
 
 #[cfg(test)]
@@ -186,5 +260,75 @@ mod tests {
         let mut labels = HashMap::new();
         labels.insert("any_key".to_string(), "any_value".to_string());
         assert!(empty_filter.matches(&labels));
+    }
+
+    #[test]
+    fn test_matches_with_additional_constraints_basic() {
+        let filter: LabelsFilter = vec!["region==us-west".to_string()].into();
+
+        let mut values = HashMap::new();
+        values.insert("region".to_string(), "us-west".to_string());
+
+        // No additional constraints - should match
+        assert!(filter.matches_with_additional_constraints(&values, &LabelsFilter::default()));
+
+        // Add matching additional constraint
+        assert!(
+            filter
+                .matches_with_additional_constraints(&values, &vec!["zone==1".to_string()].into())
+        );
+
+        // Add zone to values
+        values.insert("zone".to_string(), "1".to_string());
+        assert!(
+            filter
+                .matches_with_additional_constraints(&values, &vec!["zone==1".to_string()].into())
+        );
+
+        // Additional constraint doesn't match
+        assert!(
+            !filter
+                .matches_with_additional_constraints(&values, &vec!["zone==2".to_string()].into())
+        );
+    }
+
+    #[test]
+    fn test_matches_with_additional_constraints_override() {
+        let filter = LabelsFilter(vec![Expression {
+            key: "region".to_string(),
+            value: "us-west".to_string(),
+            operator: Operator::Eq,
+        }]);
+
+        let mut values = HashMap::new();
+        values.insert("region".to_string(), "us-east".to_string());
+
+        // Base filter shouldn't match (us-east != us-west)
+        assert!(!filter.matches(&values));
+
+        // With additional constraint overriding region to us-east, should match
+        assert!(filter.matches_with_additional_constraints(
+            &values,
+            &vec!["region==us-east".to_string()].into()
+        ));
+
+        // Override with non-matching value
+        assert!(!filter.matches_with_additional_constraints(
+            &values,
+            &vec!["region==us-west".to_string()].into()
+        ));
+    }
+
+    #[test]
+    fn test_matches_with_additional_constraints_missing_key_eq() {
+        let filter = LabelsFilter::default();
+
+        let values = HashMap::new();
+
+        // Eq constraint on missing key should return false
+        assert!(!filter.matches_with_additional_constraints(
+            &values,
+            &vec!["missing==value".to_string()].into()
+        ));
     }
 }

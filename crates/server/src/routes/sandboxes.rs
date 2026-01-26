@@ -7,7 +7,7 @@ use utoipa::ToSchema;
 
 use crate::{
     data_model::{self, Sandbox, SandboxBuilder, SandboxId, SandboxStatus},
-    http_objects::{ContainerResources, IndexifyAPIError},
+    http_objects::{ContainerResources, IndexifyAPIError, PlacementConstraints},
     routes::routes_state::RouteState,
     state_store::requests::{
         CreateSandboxRequest as StateCreateSandboxRequest,
@@ -62,6 +62,9 @@ pub struct CreateSandboxRequest {
     /// Network access control settings (optional).
     #[serde(default)]
     pub network: Option<NetworkAccessControl>,
+    /// Placement constraints for executor selection.
+    #[serde(default)]
+    pub placement_constraints: PlacementConstraints,
 }
 
 /// Response after creating a sandbox
@@ -232,6 +235,12 @@ pub async fn create_sandbox(
             allow_out: n.allow_out,
             deny_out: n.deny_out,
         }))
+        .placement_constraints(
+            request
+                .placement_constraints
+                .try_into()
+                .map_err(IndexifyAPIError::internal_error)?,
+        )
         .build()
         .map_err(|e| IndexifyAPIError::internal_error_str(&e.to_string()))?;
 

@@ -20,7 +20,7 @@ use tokio::sync::{RwLock, watch};
 use tracing::{debug, error, info, span};
 
 use crate::{
-    config::ExecutorCatalogEntry,
+    config::{ExecutorCatalogEntry, WorkloadPlacementConstraints},
     data_model::{ExecutorId, FunctionRunStatus, StateChange, StateMachineMetadata},
     metrics::{StateStoreMetrics, Timer},
     processor::container_scheduler::{ContainerScheduler, ContainerSchedulerGauges},
@@ -164,6 +164,7 @@ impl IndexifyState {
         path: PathBuf,
         config: RocksDBConfig,
         executor_catalog: ExecutorCatalog,
+        workload_placement_constraints: WorkloadPlacementConstraints,
     ) -> Result<Arc<Self>> {
         fs::create_dir_all(path.clone())
             .map_err(|e| anyhow!("failed to create state store dir: {e}"))?;
@@ -198,7 +199,10 @@ impl IndexifyState {
         )
         .await?;
 
-        let container_scheduler = Arc::new(RwLock::new(ContainerScheduler::new(&in_memory_state)));
+        let container_scheduler = Arc::new(RwLock::new(ContainerScheduler::new(
+            &in_memory_state,
+            workload_placement_constraints,
+        )));
         let container_scheduler_gauges = ContainerSchedulerGauges::new(container_scheduler.clone());
         let indexes = Arc::new(RwLock::new(in_memory_state));
         let in_memory_store_gauges = InMemoryStoreGauges::new(indexes.clone());
