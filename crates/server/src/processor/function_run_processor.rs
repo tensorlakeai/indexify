@@ -187,6 +187,15 @@ impl FunctionRunProcessor {
                     ids.iter()
                         .filter_map(|id| container_scheduler.function_containers.get(id))
                         .filter(|c| {
+                            if let Some(executor) =
+                                container_scheduler.executors.get(&c.executor_id)
+                            {
+                                if executor.tombstoned {
+                                    return false;
+                                }
+                            } else {
+                                return false;
+                            }
                             // Filter out terminated containers
                             if matches!(c.desired_state, ContainerState::Terminated { .. }) {
                                 return false;

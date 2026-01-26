@@ -521,11 +521,21 @@ impl ContainerReconciler {
 
             scheduler_update.extend(container_update);
 
-            // Terminate associated sandbox
+            // Mark the container itself as Terminated
             let terminated_state = ContainerState::Terminated {
                 reason: FunctionExecutorTerminationReason::ExecutorRemoved,
                 failed_alloc_ids: vec![],
             };
+            if let Some(fc) = container_scheduler.function_containers.get(container_id) {
+                let mut terminated_fc = *fc.clone();
+                terminated_fc.desired_state = terminated_state.clone();
+                terminated_fc.function_container.state = terminated_state.clone();
+                scheduler_update
+                    .containers
+                    .insert(container_id.clone(), Box::new(terminated_fc));
+            }
+
+            // Terminate associated sandbox
             let sandbox_update = self.terminate_sandbox_for_container(
                 in_memory_state,
                 container_id,
