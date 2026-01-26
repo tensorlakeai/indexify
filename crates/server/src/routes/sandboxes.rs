@@ -93,22 +93,28 @@ pub struct SandboxInfo {
     pub executor_id: Option<String>,
     pub resources: ContainerResourcesInfo,
     pub timeout_secs: u64,
-    /// Full URL to access the sandbox daemon API via TLS proxy.
+    /// Full URL to access the sandbox daemon API via sandbox-proxy.
     pub sandbox_url: Option<String>,
 }
 
-/// Default TLS proxy port on the dataplane (for local dev with nip.io).
-const TLS_PROXY_PORT: u16 = 9443;
+/// Default sandbox-proxy port (for local dev with nip.io).
+const SANDBOX_PROXY_PORT: u16 = 9443;
 
 impl SandboxInfo {
     /// Create SandboxInfo from a Sandbox, optionally constructing a tunnel URL.
-    pub fn from_sandbox(sandbox: &Sandbox, tunnel_domain: Option<&str>) -> Self {
+    pub fn from_sandbox(sandbox: &Sandbox, tunnel_domain: Option<&str>, scheme: &str) -> Self {
         let sandbox_url = tunnel_domain.map(|domain| {
-            // For nip.io domains (local dev), include the TLS proxy port
+            // For nip.io/sslip.io domains (local dev), include the sandbox-proxy port
             if domain.ends_with(".nip.io") || domain.ends_with(".sslip.io") {
-                format!("https://{}.{}:{}", sandbox.id.get(), domain, TLS_PROXY_PORT)
+                format!(
+                    "{}://{}.{}:{}",
+                    scheme,
+                    sandbox.id.get(),
+                    domain,
+                    SANDBOX_PROXY_PORT
+                )
             } else {
-                format!("https://{}.{}", sandbox.id.get(), domain)
+                format!("{}://{}.{}", scheme, sandbox.id.get(), domain)
             }
         });
 
@@ -255,9 +261,10 @@ pub async fn list_sandboxes(
         .map_err(IndexifyAPIError::internal_error)?;
 
     let tunnel_domain = state.config.sandbox_proxy_domain.as_deref();
+    let scheme = &state.config.sandbox_proxy_scheme;
     let sandbox_infos: Vec<SandboxInfo> = sandboxes
         .iter()
-        .map(|s| SandboxInfo::from_sandbox(s, tunnel_domain))
+        .map(|s| SandboxInfo::from_sandbox(s, tunnel_domain, scheme))
         .collect();
 
     Ok(Json(ListSandboxesResponse {
@@ -288,7 +295,12 @@ pub async fn get_sandbox(
         .ok_or_else(|| IndexifyAPIError::not_found("Sandbox not found"))?;
 
     let tunnel_domain = state.config.sandbox_proxy_domain.as_deref();
-    Ok(Json(SandboxInfo::from_sandbox(&sandbox, tunnel_domain)))
+    let scheme = &state.config.sandbox_proxy_scheme;
+    Ok(Json(SandboxInfo::from_sandbox(
+        &sandbox,
+        tunnel_domain,
+        scheme,
+    )))
 }
 
 /// Delete (terminate) a sandbox

@@ -90,6 +90,10 @@ pub struct ServerConfig {
     /// Domain suffix for sandbox proxy URLs (e.g., "sandboxes.tensorlake.ai").
     #[serde_inline_default(Some("127.0.0.1.nip.io".to_string()))]
     pub sandbox_proxy_domain: Option<String>,
+    /// URL scheme for sandbox proxy ("http" or "https"). Defaults to "http" for
+    /// local dev.
+    #[serde_inline_default("http".to_string())]
+    pub sandbox_proxy_scheme: String,
 }
 
 impl Default for ServerConfig {
@@ -110,6 +114,7 @@ impl Default for ServerConfig {
             default_sandbox_timeout_secs: 600,
             default_sandbox_image: "python:3.11-slim".to_string(),
             sandbox_proxy_domain: Some("127.0.0.1.nip.io".to_string()),
+            sandbox_proxy_scheme: "http".to_string(),
         }
     }
 }

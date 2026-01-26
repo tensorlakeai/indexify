@@ -15,13 +15,13 @@ The Indexify Dataplane is a service that runs on worker nodes to manage function
                     │  Indexify Dataplane │
                     │                     │
                     │  ┌───────────────┐  │
-                    │  │ TLS Proxy     │◄─┼──── External Traffic (9443)
-                    │  │ (SNI routing) │  │
+                    │  │  HTTP Proxy   │◄─┼──── From Sandbox-Proxy (8095)
+                    │  │ (X-Sandbox-Id)│  │     X-Sandbox-Id, X-Sandbox-Port
                     │  └───────┬───────┘  │
                     │          │          │
                     │  ┌───────▼───────┐  │
-                    │  │ Container     │  │
-                    │  │ Manager       │  │
+                    │  │   Container   │  │
+                    │  │    Manager    │  │
                     │  └───────┬───────┘  │
                     │          │          │
                     └──────────┼──────────┘
@@ -41,7 +41,7 @@ The Indexify Dataplane is a service that runs on worker nodes to manage function
 
 - **Service**: Main service loop handling heartbeats and desired state streaming
 - **Container Manager**: Creates, monitors, and terminates containers based on desired state
-- **TLS Proxy**: SNI-based routing for external access to sandbox containers
+- **HTTP Proxy**: Header-based routing for sandbox requests (receives `X-Sandbox-Id` from sandbox-proxy)
 - **Process Drivers**: Docker or ForkExec backends for container/process management
 - **Daemon Client**: gRPC client for communicating with the in-container daemon
 - **Network Rules**: iptables-based network policy enforcement for sandboxes
@@ -53,12 +53,12 @@ The Indexify Dataplane is a service that runs on worker nodes to manage function
 For local development, simply run the dataplane without any configuration:
 
 ```bash
-indexify-dataplane
+cargo run -p indexify-dataplane
 ```
 
 The dataplane will:
 - Connect to `http://localhost:8901` (default server address)
-- Auto-generate self-signed TLS certificates for the TLS proxy
+- Start HTTP proxy on port `8095`
 - Log the resolved configuration on startup via structured logging
 
 ### Custom Configuration
@@ -66,26 +66,21 @@ The dataplane will:
 For custom settings, pass a YAML config file:
 
 ```bash
-indexify-dataplane --config /etc/indexify/dataplane.yaml
+cargo run -p indexify-dataplane -- --config /etc/indexify/dataplane.yaml
 ```
 
 ### Production Configuration
-
-Production deployments require TLS proxy configuration with proper certificates:
 
 ```yaml
 env: production
 server_addr: "http://indexify.example.com:8901"
 driver:
   type: docker
-tls_proxy:
-  cert_path: "/etc/certs/sandboxes.pem"
-  key_path: "/etc/certs/sandboxes-key.pem"
-  advertise_address: "worker-1.example.com:9443"
-  proxy_domain: "sandboxes.example.com"
+http_proxy:
+  port: 8095
+  listen_addr: "0.0.0.0"
+  advertise_address: "worker-1.example.com:8095"
 ```
-
-**Note:** In production (`env` != `local`), `cert_path` and `key_path` are required.
 
 ### Full Configuration Reference
 
@@ -100,16 +95,20 @@ executor_id: worker-node-1
 # Indexify Server gRPC address
 server_addr: "http://indexify.example.com:8901"
 
+# TLS configuration for server gRPC connection (optional)
+tls:
+  enabled: false
+  ca_cert_path: "/etc/certs/ca.pem"
+  client_cert_path: "/etc/certs/client.pem"
+  client_key_path: "/etc/certs/client-key.pem"
+  domain_name: "indexify.example.com"
+
 # Telemetry configuration (optional)
 telemetry:
-  # Enable OTLP metrics export
-  enable_metrics: true
+  # OpenTelemetry tracing exporter: "otlp" or "stdout"
+  tracing_exporter: otlp
   # OpenTelemetry collector endpoint
   endpoint: "http://otel-collector:4317"
-  # Tracing exporter: "otlp" or "stdout"
-  tracing_exporter: otlp
-  # Metrics export interval in seconds
-  metrics_interval: 10
   # Instance ID for metrics attribution
   instance_id: "dataplane-prod-worker-1"
 
@@ -118,24 +117,54 @@ driver:
   # Options: "fork_exec" (default) or "docker"
   type: docker
   # Docker daemon address (optional, uses default socket if not specified)
-  address: "unix:///var/run/docker.sock"
+  # address: "unix:///var/run/docker.sock"
 
-# State file for persisting container state across restarts (optional)
-state_file: "/var/lib/indexify/dataplane-state.json"
-
-# TLS proxy for external access to sandboxes
-# Required in production (cert_path and key_path must be provided)
-# Auto-generated in local mode if not provided
-tls_proxy:
-  port: 9443
+# HTTP proxy for sandbox routing
+# Receives requests from sandbox-proxy with X-Sandbox-Id header
+http_proxy:
+  port: 8095
   listen_addr: "0.0.0.0"
-  # Address advertised to server (used by sandbox-proxy for routing)
-  advertise_address: "worker-1.example.com:9443"
-  # TLS certificate (should be wildcard cert for *.sandboxes.example.com)
-  cert_path: "/etc/certs/sandboxes.pem"
-  key_path: "/etc/certs/sandboxes-key.pem"
-  # Domain suffix for sandbox routing (default: 127.0.0.1.nip.io for local dev)
-  proxy_domain: "sandboxes.example.com"
+  # Address advertised to server (sandbox-proxy uses this to forward requests)
+  advertise_address: "worker-1.example.com:8095"
+```
+
+## HTTP Proxy
+
+The HTTP proxy receives requests from the sandbox-proxy service and routes them to the appropriate container based on headers.
+
+### Headers
+
+| Header | Required | Description |
+|--------|----------|-------------|
+| `X-Sandbox-Id` | Yes | The sandbox container ID to route to |
+| `X-Sandbox-Port` | No | Container port (defaults to 9501 - daemon API) |
+
+### Response Codes
+
+| Code | Meaning |
+|------|---------|
+| 2xx/3xx/4xx/5xx | Forwarded from container |
+| 400 | Missing `X-Sandbox-Id` header |
+| 404 | Sandbox not found |
+| 503 | Sandbox exists but not running (includes state in message) |
+| 502 | Failed to connect to container |
+
+### Example Request Flow
+
+```
+sandbox-proxy                          dataplane
+     │                                     │
+     │  POST /api/v1/processes             │
+     │  Host: abc123.sandbox.tensorlake.ai │
+     │  X-Sandbox-Id: abc123               │
+     │  X-Sandbox-Port: 9501               │
+     │ ──────────────────────────────────► │
+     │                                     │ Lookup container abc123
+     │                                     │ Forward to container:9501
+     │                                     │
+     │  HTTP/1.1 200 OK                    │
+     │  {"processes": [...]}               │
+     │ ◄────────────────────────────────── │
 ```
 
 ## Production Deployment
@@ -145,14 +174,12 @@ tls_proxy:
 1. **Docker**: Required for the Docker driver (recommended for production)
 2. **Network Access**:
    - Outbound: gRPC to Indexify Server (default: 8901)
-   - Inbound: TLS proxy port (default: 9443) if using sandbox external access
-3. **Certificates** (optional, only if using TLS proxy):
-   - Wildcard certificate for TLS proxy (e.g., `*.sandboxes.example.com`)
+   - Inbound: HTTP proxy port (default: 8095) from sandbox-proxy
 
 ### Docker Deployment
 
 ```dockerfile
-FROM rust:1.75-slim as builder
+FROM rust:1.83-slim as builder
 WORKDIR /app
 COPY . .
 RUN cargo build --release -p indexify-dataplane
@@ -171,7 +198,7 @@ docker run -d \
   -v /proc:/host/proc:ro \
   -v /etc/indexify:/etc/indexify:ro \
   -v /var/lib/indexify:/var/lib/indexify \
-  -p 9443:9443 \
+  -p 8095:8095 \
   indexify-dataplane:latest \
   --config /etc/indexify/dataplane.yaml
 ```
@@ -215,8 +242,8 @@ spec:
         - name: state
           mountPath: /var/lib/indexify
         ports:
-        - containerPort: 9443
-          hostPort: 9443
+        - containerPort: 8095
+          hostPort: 8095
       volumes:
       - name: docker-sock
         hostPath:
@@ -244,7 +271,7 @@ The dataplane itself is lightweight; resources are primarily consumed by managed
 
 ## Metrics
 
-Metrics are exported via OTLP when `telemetry.enable_metrics: true`. All metrics are prefixed with `indexify.dataplane.`.
+Metrics are exported via OTLP when telemetry is configured. All metrics are prefixed with `indexify.dataplane.`.
 
 ### Counters
 
@@ -271,38 +298,12 @@ Metrics are exported via OTLP when `telemetry.enable_metrics: true`. All metrics
 | `resources.free_memory_bytes` | bytes | Available memory |
 | `resources.free_disk_bytes` | bytes | Available disk space |
 
-### Resource Attributes
-
-All metrics include these attributes:
-- `service.namespace`: `indexify`
-- `service.name`: `indexify-dataplane`
-- `service.version`: Package version
-- `indexify.instance.id`: Instance identifier
-- `indexify.executor.id`: Executor identifier
-
-### Example Prometheus Queries
-
-```promql
-# Container startup rate
-rate(indexify_dataplane_containers_started_total[5m])
-
-# Running containers by type
-indexify_dataplane_containers_running_sandboxes
-indexify_dataplane_containers_running_functions
-
-# Heartbeat failure rate
-rate(indexify_dataplane_heartbeat_failures_total[5m]) / rate(indexify_dataplane_heartbeat_success_total[5m])
-
-# Memory utilization
-1 - (indexify_dataplane_resources_free_memory_bytes / total_memory_bytes)
-```
-
 ## Logs
 
 ### Log Format
 
 - **Local environment** (`env: local`): Human-readable compact format
-- **Production** (`env: production`): JSON structured logs
+- **Production** (`env: production`): JSON structured logs with tracing spans
 
 ### Log Levels
 
@@ -310,42 +311,38 @@ Control via `RUST_LOG` environment variable:
 
 ```bash
 # Default: INFO level
-RUST_LOG=info indexify-dataplane --config config.yaml
+RUST_LOG=info cargo run -p indexify-dataplane
 
 # Debug level for troubleshooting
-RUST_LOG=debug indexify-dataplane --config config.yaml
+RUST_LOG=debug cargo run -p indexify-dataplane
 
 # Specific module debug
-RUST_LOG=indexify_dataplane::function_container_manager=debug indexify-dataplane --config config.yaml
+RUST_LOG=indexify_dataplane::http_proxy=debug cargo run -p indexify-dataplane
 ```
 
 ### Key Log Events
 
 | Event | Level | Description |
 |-------|-------|-------------|
-| `image_pull_started` | INFO | Docker image pull started |
-| `image_pull_completed` | INFO | Docker image pull completed (includes `duration_ms`) |
-| `image_pull_failed` | ERROR | Docker image pull failed (includes `duration_ms`, `error`) |
-| `container_creating` | INFO | Container creation started |
-| `container_started` | INFO | Container successfully started |
-| `container_startup_failed` | ERROR | Container failed to start |
-| `container_stopping` | INFO | Container stop initiated |
-| `container_killing` | INFO | Container force kill after grace period |
-| `container_terminated` | INFO | Container terminated |
+| `Starting HTTP proxy server` | INFO | Proxy startup with listen address |
+| `proxy_request` | INFO | Request span with sandbox_id, method, path, status |
+| `Routing request to container` | DEBUG | Request forwarded to container |
+| `Request completed` | INFO | Successful request with duration_ms |
+| `Missing X-Sandbox-Id header` | WARN | Request without required header |
+| `Sandbox not found` | WARN | Container ID not found |
+| `Sandbox not running` | WARN | Container exists but not in running state |
+| `Failed to connect to container` | ERROR | Cannot reach container |
 
 ### Structured Log Fields
 
-Container lifecycle events include:
-- `container_id`: Unique container identifier (same as sandbox ID for sandboxes)
-- `namespace`: Namespace name
-- `app`: Application name
-- `fn_name`: Function name
-- `app_version`: Application version
-- `container_type`: `function` or `sandbox`
-- `startup_duration_ms`: Time to start container
-- `run_duration_ms`: Container runtime duration
-
-Note: The Docker container name is `indexify-{container_id}`, making it easy to correlate logs with Docker commands.
+HTTP proxy request events include:
+- `sandbox_id`: Target container ID
+- `port`: Target port
+- `method`: HTTP method
+- `path`: Request path
+- `status_code`: Response status
+- `duration_ms`: Request duration
+- `container_addr`: Resolved container address
 
 ### Example Log Output (JSON)
 
@@ -353,34 +350,26 @@ Note: The Docker container name is `indexify-{container_id}`, making it easy to 
 {
   "timestamp": "2024-01-15T10:30:45.123456Z",
   "level": "INFO",
-  "message": "Container started with daemon",
-  "container_id": "sb-abc123",
-  "namespace": "default",
-  "app": "my-app",
-  "fn_name": "process",
-  "app_version": "1.0",
-  "container_type": "sandbox",
-  "startup_duration_ms": 2345,
-  "event": "container_started"
+  "target": "indexify_dataplane::http_proxy",
+  "span": {
+    "sandbox_id": "sb-abc123",
+    "port": 9501,
+    "method": "POST",
+    "path": "/api/v1/processes"
+  },
+  "fields": {
+    "message": "Request completed",
+    "status_code": 200,
+    "duration_ms": 45
+  }
 }
 ```
 
-The Docker container name would be `indexify-sb-abc123` for this example.
-
 ## Local Development
-
-### Overview
-
-For local development, the dataplane uses [nip.io](https://nip.io) for automatic DNS resolution. This eliminates the need for `/etc/hosts` entries or custom DNS setup.
-
-**How it works:**
-- Default `proxy_domain`: `127.0.0.1.nip.io`
-- Any hostname like `{sandbox_id}.127.0.0.1.nip.io` automatically resolves to `127.0.0.1`
-- The dataplane auto-generates self-signed TLS certificates for `*.127.0.0.1.nip.io`
 
 ### Prerequisites
 
-1. **Docker Desktop** or **OrbStack** (recommended for macOS - provides direct container IP access)
+1. **Docker Desktop** or **OrbStack** (recommended for macOS)
 2. **Indexify Server** running locally
 
 ### Quick Start
@@ -389,98 +378,102 @@ For local development, the dataplane uses [nip.io](https://nip.io) for automatic
 # Terminal 1: Start Indexify Server
 cargo run -p indexify-server
 
-# Terminal 2: Start Dataplane (default config works out of the box)
+# Terminal 2: Start Dataplane
 cargo run -p indexify-dataplane
 ```
 
 The dataplane will:
 - Connect to the server at `http://localhost:8901`
-- Start TLS proxy on port `9443`
-- Auto-generate self-signed certs for `*.127.0.0.1.nip.io`
-- Use `127.0.0.1.nip.io` as the proxy domain
+- Start HTTP proxy on port `8095`
+- Report its proxy address to the server for routing
 
-### Accessing Sandboxes Locally
+### Testing with Docker on macOS
 
-When you create a sandbox, the API returns a `sandbox_url` like:
-```
-https://k9f8o1jh95d076uth02d.127.0.0.1.nip.io:9443
-```
-
-**Important: Accepting Self-Signed Certificates**
-
-Before making API calls from JavaScript/browser, you must accept the self-signed certificate:
-
-1. Navigate directly to the sandbox URL in your browser
-2. Accept the security warning ("Proceed to site" / "Accept the risk")
-3. After accepting, JavaScript `fetch()` requests will work
+When testing with Docker containers on macOS, you need to cross-compile the Linux daemon binary:
 
 ```bash
-# Test from command line (use -k to skip cert verification)
-curl -k https://k9f8o1jh95d076uth02d.127.0.0.1.nip.io:9443/api/v1/processes
+# Build with Linux daemon for Docker containers
+RUN_DOCKER_TESTS=1 cargo build -p indexify-dataplane
+
+# Run with Docker driver
+RUN_DOCKER_TESTS=1 cargo run -p indexify-dataplane -- --config /tmp/dataplane.yaml
 ```
 
-### Sandbox ID Format
+**Important**: Without `RUN_DOCKER_TESTS=1`, the daemon binary will be compiled for macOS and won't run inside Linux containers.
 
-Sandbox IDs use a DNS-safe alphabet (alphanumeric only, no underscores or special characters) since they're used in hostnames. Example: `k9f8o1jh95d076uth02d`
+### Local Testing with Sandbox Proxy
 
-### Custom TLS Certificates (Optional)
+When testing with sandbox-proxy locally, use `advertise_address` to avoid IPv6 resolution issues:
 
-For custom domains or to avoid self-signed cert warnings, generate your own certificates:
-
-```bash
-# Generate wildcard cert for your domain
-openssl req -x509 -newkey rsa:4096 -keyout sandbox-key.pem -out sandbox-cert.pem \
-  -days 365 -nodes -subj "/CN=*.sandboxes.local" \
-  -addext "subjectAltName=DNS:*.sandboxes.local"
-```
-
-Run with custom certs:
-
-```bash
-cargo run -p indexify-dataplane -- --config - <<EOF
+```yaml
+# /tmp/dataplane-docker.yaml
 env: local
 server_addr: "http://localhost:8901"
 driver:
   type: docker
-tls_proxy:
-  port: 9443
-  cert_path: ./sandbox-cert.pem
-  key_path: ./sandbox-key.pem
-  proxy_domain: sandboxes.local
-EOF
+http_proxy:
+  port: 8095
+  listen_addr: "0.0.0.0"
+  advertise_address: "127.0.0.1:8095"  # Required for local testing
+```
+
+Without `advertise_address`, the dataplane advertises its hostname (e.g., `my-macbook.local:8095`), which may resolve to IPv6 and cause connection failures from sandbox-proxy.
+
+### Testing the HTTP Proxy
+
+```bash
+# Create a sandbox first via Indexify API
+curl -X POST "http://localhost:8900/v1/namespaces/default/applications/test-app/sandboxes" \
+  -H "Content-Type: application/json" \
+  -d '{"image": "python:3.11-slim"}'
+# Returns: {"sandbox_id":"abc123...","status":"Pending"}
+
+# Wait for Running status
+curl "http://localhost:8900/v1/namespaces/default/applications/test-app/sandboxes/abc123"
+
+# Test routing directly to dataplane (bypassing sandbox-proxy)
+curl -H "X-Sandbox-Id: abc123" http://localhost:8095/api/v1/processes
+# Returns: {"processes":[]}
+
+# Test with explicit port (default daemon API port is 9501)
+curl -H "X-Sandbox-Id: abc123" -H "X-Sandbox-Port: 9501" \
+     http://localhost:8095/api/v1/processes
+
+# Test port-based routing to a custom service
+# First, start a server on port 8080 in the container:
+curl -X POST -H "X-Sandbox-Id: abc123" \
+  -H "Content-Type: application/json" \
+  http://localhost:8095/api/v1/processes \
+  -d '{"command": "python", "args": ["-m", "http.server", "8080"]}'
+
+# Then access port 8080:
+curl -H "X-Sandbox-Id: abc123" -H "X-Sandbox-Port: 8080" http://localhost:8095/
+# Returns: Directory listing HTML from Python HTTP server
+
+# Test error cases
+curl -H "X-Sandbox-Id: nonexistent" http://localhost:8095/health
+# Returns: 404 Sandbox not found
+
+curl http://localhost:8095/health
+# Returns: 400 Missing X-Sandbox-Id header
 ```
 
 ### Creating a Test Sandbox
 
 ```bash
 # Create namespace
-curl -X PUT http://localhost:8900/v1/namespaces/default
+curl -X POST http://localhost:8900/namespaces \
+  -H "Content-Type: application/json" \
+  -d '{"name": "default"}'
 
-# Create application (multipart form)
+# Create application
 curl -X POST http://localhost:8900/v1/namespaces/default/applications \
-  -F 'application={"name":"test-app","functions":[]}'
+  -F 'application={"name":"test-app","functions":{}}'
 
 # Create sandbox
 curl -X POST http://localhost:8900/v1/namespaces/default/applications/test-app/sandboxes \
   -H "Content-Type: application/json" \
   -d '{"image": "python:3.11-slim"}'
-```
-
-### Testing TLS Proxy Routing
-
-```bash
-# Get sandbox ID from response above, then test routing
-SANDBOX_ID=<sandbox_id>
-
-# With nip.io (automatic DNS resolution, no --resolve needed)
-curl -k "https://${SANDBOX_ID}.127.0.0.1.nip.io:9443/api/v1/processes"
-
-# Route to custom port (e.g., 8080) - port prefix is optional
-curl -k "https://8080-${SANDBOX_ID}.127.0.0.1.nip.io:9443/"
-
-# With custom domain (requires --resolve or /etc/hosts)
-curl -k --resolve "${SANDBOX_ID}.sandboxes.local:9443:127.0.0.1" \
-  "https://${SANDBOX_ID}.sandboxes.local:9443/health"
 ```
 
 ### Running Tests
@@ -500,14 +493,14 @@ RUST_LOG=debug cargo test -p indexify-dataplane -- --nocapture
    docker logs indexify-<container_id>
    ```
 
-2. **Check dataplane state file**:
-   ```bash
-   cat ./dataplane-state.json | jq
-   ```
-
-3. **List managed containers**:
+2. **List managed containers**:
    ```bash
    docker ps --filter "label=indexify.managed=true"
+   ```
+
+3. **Check proxy routing**:
+   ```bash
+   RUST_LOG=indexify_dataplane::http_proxy=debug cargo run -p indexify-dataplane
    ```
 
 4. **Inspect network rules** (Linux only):
@@ -524,11 +517,11 @@ RUST_LOG=debug cargo test -p indexify-dataplane -- --nocapture
 |-------|-------|----------|
 | Heartbeat failures | Server unreachable | Check `server_addr` and network connectivity |
 | Container startup timeout | Slow image pull | Pre-pull images or increase timeout |
-| TLS handshake failed | Certificate mismatch | Verify cert covers `*.{proxy_domain}` |
+| 400 Missing X-Sandbox-Id | No header in request | Ensure requests come through sandbox-proxy |
+| 404 Sandbox not found | Container doesn't exist | Verify sandbox was created |
+| 503 Sandbox not running | Container stopped/terminated | Check container state, may need recreation |
 | Network rules not applied | Missing privileges | Run with `--privileged` or `NET_ADMIN` capability |
 | Resource detection wrong | Running in container | Mount `/proc:/host/proc:ro` |
-| ERR_CERT_AUTHORITY_INVALID | Self-signed certificate | Navigate to sandbox URL directly and accept cert first |
-| Browser fetch fails | Cert not accepted | Accept self-signed cert in browser before making JS requests |
 
 ### Health Checks
 
@@ -536,9 +529,12 @@ RUST_LOG=debug cargo test -p indexify-dataplane -- --nocapture
 # Check if dataplane is sending heartbeats (server logs)
 grep "heartbeat" /var/log/indexify-server.log
 
-# Check container manager state
-curl http://localhost:9500/debug/containers  # (if debug endpoint enabled)
+# List running containers
+docker ps --filter "label=indexify.managed=true"
 
-# Verify Docker connectivity
-docker ps
+# Check HTTP proxy is listening
+nc -zv localhost 8095
+
+# Test proxy with debug logging
+RUST_LOG=debug curl -H "X-Sandbox-Id: test" http://localhost:8095/health
 ```

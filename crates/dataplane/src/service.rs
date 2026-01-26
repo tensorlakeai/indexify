@@ -27,10 +27,10 @@ use crate::{
     config::{DataplaneConfig, DriverConfig},
     driver::{DockerDriver, ForkExecDriver, ProcessDriver},
     function_container_manager::{DefaultImageResolver, FunctionContainerManager},
+    http_proxy::run_http_proxy,
     metrics::DataplaneMetrics,
     resources::{probe_free_resources, probe_host_resources},
     state_file::StateFile,
-    tls_proxy::TlsProxy,
 };
 
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
@@ -43,7 +43,6 @@ pub struct Service {
     host_resources: HostResources,
     container_manager: Arc<FunctionContainerManager>,
     metrics: Arc<DataplaneMetrics>,
-    tls_proxy: TlsProxy,
 }
 
 impl Service {
@@ -73,15 +72,12 @@ impl Service {
             state_file,
         ));
 
-        let tls_proxy = TlsProxy::new(config.tls_proxy.clone(), container_manager.clone());
-
         Ok(Self {
             config,
             channel,
             host_resources,
             container_manager,
             metrics,
-            tls_proxy,
         })
     }
 
@@ -114,7 +110,7 @@ impl Service {
             let container_manager = self.container_manager.clone();
             let cancel_token = cancel_token.clone();
             let metrics = self.metrics.clone();
-            let tls_proxy_address = self.config.tls_proxy.get_advertise_address();
+            let http_proxy_address = self.config.http_proxy.get_advertise_address();
             async move {
                 run_heartbeat_loop(
                     channel,
@@ -125,7 +121,7 @@ impl Service {
                     stream_notify,
                     cancel_token,
                     metrics,
-                    tls_proxy_address,
+                    http_proxy_address,
                 )
                 .await
             }
@@ -170,12 +166,16 @@ impl Service {
             }
         });
 
-        // TLS proxy server for SNI-based routing to sandbox containers
-        let tls_proxy_handle = tokio::spawn({
+        // HTTP proxy server for header-based routing to sandbox containers
+        let http_proxy_handle = tokio::spawn({
             let cancel_token = cancel_token.clone();
+            let http_proxy_config = self.config.http_proxy.clone();
+            let container_manager = self.container_manager.clone();
             async move {
-                if let Err(e) = self.tls_proxy.run(cancel_token).await {
-                    tracing::error!(error = %e, "TLS proxy server error");
+                if let Err(e) =
+                    run_http_proxy(http_proxy_config, container_manager, cancel_token).await
+                {
+                    tracing::error!(error = %e, "HTTP proxy server error");
                 }
             }
         });
@@ -205,9 +205,9 @@ impl Service {
                     tracing::error!(error = %e, "Metrics update task panicked");
                 }
             }
-            result = tls_proxy_handle => {
+            result = http_proxy_handle => {
                 if let Err(e) = result {
-                    tracing::error!(error = %e, "TLS proxy server task panicked");
+                    tracing::error!(error = %e, "HTTP proxy server task panicked");
                 }
             }
         }

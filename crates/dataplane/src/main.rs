@@ -3,19 +3,18 @@ use std::path::PathBuf;
 use anyhow::Context;
 use clap::Parser;
 
-mod certs;
 mod config;
 mod daemon_binary;
 mod daemon_client;
 mod driver;
 mod function_container_manager;
+mod http_proxy;
 mod metrics;
 mod network_rules;
 mod otel_tracing;
 mod resources;
 mod service;
 mod state_file;
-mod tls_proxy;
 
 use config::DataplaneConfig;
 use otel_tracing::setup_tracing;
@@ -62,11 +61,8 @@ async fn start_dataplane(config: DataplaneConfig) -> anyhow::Result<()> {
         server_addr = %config.server_addr,
         executor_id = %config.executor_id,
         tls_enabled = config.tls.enabled,
-        tls_proxy_listen = %format!("{}:{}", config.tls_proxy.listen_addr, config.tls_proxy.port),
-        tls_proxy_advertise = %config.tls_proxy.get_advertise_address(),
-        tls_proxy_domain = %config.tls_proxy.proxy_domain,
-        tls_proxy_cert = %config.tls_proxy.cert_path(),
-        tls_proxy_key = %config.tls_proxy.key_path(),
+        http_proxy_listen = %config.http_proxy.socket_addr(),
+        http_proxy_advertise = %config.http_proxy.get_advertise_address(),
         "Starting Indexify Dataplane"
     );
 
