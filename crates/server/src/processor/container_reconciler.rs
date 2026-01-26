@@ -351,7 +351,7 @@ impl ContainerReconciler {
     #[tracing::instrument(skip_all, target = "scheduler", fields(executor_id = %executor_server_metadata.executor_id.get(), num_function_executors = function_containers.len()))]
     fn remove_function_containers(
         &self,
-        in_memory_state: &InMemoryState,
+        in_memory_state: &mut InMemoryState,
         executor_server_metadata: &mut ExecutorServerMetadata,
         function_containers: Vec<Container>,
     ) -> Result<SchedulerUpdateRequest> {
@@ -361,7 +361,9 @@ impl ContainerReconciler {
             return Ok(update);
         }
 
-        // Handle allocations for FEs to be removed and update function runs
+        // Handle allocations and sandboxes for FEs to be removed, updating
+        // in_memory_state after each container to ensure subsequent containers
+        // see the updated RequestCtx state.
         for fe in &function_containers {
             info!(
                 namespace = fe.namespace,
@@ -378,23 +380,37 @@ impl ContainerReconciler {
             } = &fe.state
             {
                 // Container is terminated - use the allocation termination handler
-                update.extend(self.handle_allocations_for_container_termination(
+                let container_update = self.handle_allocations_for_container_termination(
                     in_memory_state,
                     &executor_server_metadata.executor_id,
                     &fe.id,
                     *reason,
                     failed_alloc_ids,
-                )?);
-            }
-        }
+                )?;
 
-        // Terminate sandboxes associated with removed containers
-        for fc in &function_containers {
-            update.extend(self.terminate_sandbox_for_container(
+                in_memory_state.update_state(
+                    self.clock,
+                    &RequestPayload::SchedulerUpdate((Box::new(container_update.clone()), vec![])),
+                    "container_reconciler_remove_fc",
+                )?;
+
+                update.extend(container_update);
+            }
+
+            // Terminate associated sandbox
+            let sandbox_update = self.terminate_sandbox_for_container(
                 in_memory_state,
-                &ContainerId::new(fc.id.get().to_string()),
-                &fc.state,
-            )?);
+                &ContainerId::new(fe.id.get().to_string()),
+                &fe.state,
+            )?;
+
+            in_memory_state.update_state(
+                self.clock,
+                &RequestPayload::SchedulerUpdate((Box::new(sandbox_update.clone()), vec![])),
+                "container_reconciler_remove_fc_sandbox",
+            )?;
+
+            update.extend(sandbox_update);
         }
 
         for fc in function_containers {
@@ -459,7 +475,7 @@ impl ContainerReconciler {
     #[tracing::instrument(skip_all, target = "scheduler", fields(executor_id = %executor_id.get()))]
     fn remove_all_function_executors_for_executor(
         &self,
-        in_memory_state: &InMemoryState,
+        in_memory_state: &mut InMemoryState,
         container_scheduler: &ContainerScheduler,
         executor_id: &ExecutorId,
     ) -> Result<SchedulerUpdateRequest> {
@@ -489,24 +505,40 @@ impl ContainerReconciler {
         // Handle allocations and sandboxes for each container
         for container_id in &container_ids {
             // Handle allocations for this container
-            scheduler_update.extend(self.handle_allocations_for_container_termination(
+            let container_update = self.handle_allocations_for_container_termination(
                 in_memory_state,
                 executor_id,
                 container_id,
                 FunctionExecutorTerminationReason::ExecutorRemoved,
                 &[],
-            )?);
+            )?;
+
+            in_memory_state.update_state(
+                self.clock,
+                &RequestPayload::SchedulerUpdate((Box::new(container_update.clone()), vec![])),
+                "container_reconciler_per_container",
+            )?;
+
+            scheduler_update.extend(container_update);
 
             // Terminate associated sandbox
             let terminated_state = ContainerState::Terminated {
                 reason: FunctionExecutorTerminationReason::ExecutorRemoved,
                 failed_alloc_ids: vec![],
             };
-            scheduler_update.extend(self.terminate_sandbox_for_container(
+            let sandbox_update = self.terminate_sandbox_for_container(
                 in_memory_state,
                 container_id,
                 &terminated_state,
-            )?);
+            )?;
+
+            in_memory_state.update_state(
+                self.clock,
+                &RequestPayload::SchedulerUpdate((Box::new(sandbox_update.clone()), vec![])),
+                "container_reconciler_per_container_sandbox",
+            )?;
+
+            scheduler_update.extend(sandbox_update);
         }
 
         Ok(scheduler_update)
