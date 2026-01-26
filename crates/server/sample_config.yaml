@@ -67,10 +67,10 @@ executor_catalog:
 # Placement constraints for workloads created by the server.
 #
 # With this example configuration, applications will only be scheduled on
-# executors with the label "workload=application" and sandboxes will only be
-# scheduled on executors with the label "workload=sandbox".
+# any executor and sandboxes will only be scheduled on executors with the
+# label "workload=sandbox".
 workload_placement_constraints:
-  application:
-    - 'workload==application'
+  # application:
+  #   - 'workload==application'
   sandbox:
     - 'workload==sandbox'
