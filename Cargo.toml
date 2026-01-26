@@ -22,7 +22,7 @@ async-trait = "0.1.89"
 futures = "0.3.31"
 pin-project = "1.1.10"
 serde = { version = "1.0.228", features = ["derive"] }
-serde-inline-default = "1.0.0"
+serde-inline-default = "1.0.1"
 serde_json = "1.0.149"
 serde-saphyr = "0.0.16"
 ciborium = "0.2.2"
@@ -46,7 +46,7 @@ opentelemetry_sdk = { version = "0.31.0", features = ["rt-tokio", "metrics", "tr
 opentelemetry-otlp = { version = "0.31.0", features = ["tokio", "metrics", "trace", "grpc-tonic", "zstd-tonic", "gzip-tonic"] }
 opentelemetry-stdout = { version = "0.31.0", default-features = false, features = ["trace"] }
 axum-tracing-opentelemetry = { version = "0.33.0", features = ["tracing_level_info"] }
-json-subscriber = "0.2.6"
+json-subscriber = "0.2.7"
 console-subscriber = "0.5.0"
 otlp-logs-exporter = { git = "https://github.com/tensorlakeai/otlp-logs-exporter" }
 utoipa = { version = "5.4.0", features = ["axum_extras", "yaml"] }
@@ -59,7 +59,7 @@ clap = { version = "4.5.54", features = ["derive"] }
 sha2 = "0.10.9"
 base64 = "0.22.1"
 nanoid = "0.4.0"
-uuid = { version = "1.19.0", features = ["v4"] }
+uuid = { version = "1.20.0", features = ["v4"] }
 bytes = { version = "1.10.1", features = ["serde"] }
 priority-queue = "2.6.0"
 imbl = "6.1.0"

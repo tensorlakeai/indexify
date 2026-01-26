@@ -1820,7 +1820,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.5.10",
+ "socket2 0.6.1",
  "tokio",
  "tower-service",
  "tracing",
@@ -2222,9 +2222,9 @@ dependencies = [
 
 [[package]]
 name = "json-subscriber"
-version = "0.2.6"
+version = "0.2.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "39891c6f2a8e066540984e1050747baa3ad274fd416d2e79dec79f91c6221c33"
+checksum = "6456771bcb3511e2afa6a6a8c9ce2730be80803116a2839931476740ab3b86bc"
 dependencies = [
  "serde",
  "serde_json",
@@ -2949,7 +2949,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ac6c3320f9abac597dcbc668774ef006702672474aad53c6d596b62e487b40b1"
 dependencies = [
  "heck",
- "itertools 0.13.0",
+ "itertools 0.14.0",
  "log",
  "multimap",
  "once_cell",
@@ -2971,7 +2971,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "27c6023962132f4b30eb4c172c91ce92d933da334c59c23cddee82358ddafb0b"
 dependencies = [
  "anyhow",
- "itertools 0.13.0",
+ "itertools 0.14.0",
  "proc-macro2",
  "quote",
  "syn",
@@ -3041,7 +3041,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash",
  "rustls 0.23.35",
- "socket2 0.5.10",
+ "socket2 0.6.1",
  "thiserror",
  "tokio",
  "tracing",
@@ -3078,7 +3078,7 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.5.10",
+ "socket2 0.6.1",
  "tracing",
  "windows-sys 0.60.2",
 ]
@@ -3622,9 +3622,9 @@ dependencies = [
 
 [[package]]
 name = "serde-inline-default"
-version = "1.0.0"
+version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "92d48532bc0781ac622a5fea0f16502d3b4f1af0fcebe56d618120969f35d315"
+checksum = "2bf03b7a5281cfd4013bc788d057b0f09fc634397d83bc8973c955bd4f32727a"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3639,7 +3639,7 @@ checksum = "4db5a4a562bcc0017c34cd0efbabf447be783f00576a2a516947f884e6a7ed57"
 dependencies = [
  "ahash",
  "annotate-snippets",
- "base64 0.21.7",
+ "base64 0.22.1",
  "encoding_rs_io",
  "nohash-hasher",
  "num-traits",
@@ -4478,9 +4478,9 @@ dependencies = [
 
 [[package]]
 name = "uuid"
-version = "1.19.0"
+version = "1.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e2e054861b4bd027cd373e18e8d8d8e6548085000e41290d95ce0c373a654b4a"
+checksum = "ee48d38b119b0cd71fe4141b30f5ba9c7c5d9f4e7a3a8b4a674e4b6ef789976f"
 dependencies = [
  "getrandom 0.3.4",
  "js-sys",
