@@ -403,7 +403,7 @@ impl ApplicationProcessor {
                     &mut container_scheduler_guard,
                     &ev.executor_id,
                 )?;
-                let unallocated_function_runs = scheduler_update.unallocated_function_runs();
+                let unallocated_function_runs = indexes_guard.unallocated_function_runs();
                 scheduler_update.extend(task_allocator.allocate_function_runs(
                     &mut indexes_guard,
                     &mut container_scheduler_guard,
