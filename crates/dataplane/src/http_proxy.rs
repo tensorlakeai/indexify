@@ -16,21 +16,50 @@
 //! 3. Proxy looks up container address from container manager
 //! 4. Proxy forwards request to container, stripping routing headers
 
-use std::{sync::Arc, time::Instant};
+use std::{sync::Arc, time::Duration, time::Instant};
 
 use async_trait::async_trait;
 use pingora::prelude::*;
+use pingora::protocols::TcpKeepalive;
+use pingora::upstreams::peer::PeerOptions;
 use pingora_http::{RequestHeader, ResponseHeader};
 use pingora_proxy::{ProxyHttp, Session, http_proxy_service};
 use tokio_util::sync::CancellationToken;
 use tracing::{Span, debug, error, info, warn};
 
 use crate::{
-    config::HttpProxyConfig,
+    config::{HttpProxyConfig, UpstreamConfig},
     function_container_manager::{FunctionContainerManager, SandboxLookupResult},
 };
 
 const DEFAULT_SANDBOX_PORT: u16 = 9501;
+
+fn create_peer_options(config: &UpstreamConfig) -> PeerOptions {
+    let mut options = PeerOptions::new();
+
+    // Close idle connections before the upstream does
+    options.idle_timeout = Some(Duration::from_secs(config.idle_timeout_secs));
+
+    // TCP keepalive to detect dead connections early
+    options.tcp_keepalive = Some(TcpKeepalive {
+        idle: Duration::from_secs(config.keepalive_idle_secs),
+        interval: Duration::from_secs(config.keepalive_interval_secs),
+        count: config.keepalive_count,
+        #[cfg(target_os = "linux")]
+        user_timeout: Duration::from_secs(0),
+    });
+
+    // Timeout for establishing TCP connection
+    options.connection_timeout = Some(Duration::from_secs(config.connection_timeout_secs));
+
+    // Timeout for each read operation from upstream
+    options.read_timeout = Some(Duration::from_secs(config.read_timeout_secs));
+
+    // Timeout for each write operation to upstream
+    options.write_timeout = Some(Duration::from_secs(config.write_timeout_secs));
+
+    options
+}
 
 /// Context passed through the request lifecycle.
 pub struct ProxyContext {
@@ -47,11 +76,12 @@ pub struct ProxyContext {
 /// HTTP proxy with header-based routing to sandbox containers.
 pub struct HttpProxy {
     container_manager: Arc<FunctionContainerManager>,
+    upstream_config: UpstreamConfig,
 }
 
 impl HttpProxy {
-    pub fn new(container_manager: Arc<FunctionContainerManager>) -> Self {
-        Self { container_manager }
+    pub fn new(container_manager: Arc<FunctionContainerManager>, upstream_config: UpstreamConfig) -> Self {
+        Self { container_manager, upstream_config }
     }
 }
 
@@ -148,8 +178,10 @@ impl ProxyHttp for HttpProxy {
             .as_ref()
             .ok_or_else(|| Error::explain(ErrorType::HTTPStatus(500), "No container address"))?;
 
-        // Connect to container over plaintext HTTP
-        Ok(Box::new(HttpPeer::new(addr, false, String::new())))
+        // Connect to container over plaintext HTTP with configured connection options
+        let mut peer = HttpPeer::new(addr, false, String::new());
+        peer.options = create_peer_options(&self.upstream_config);
+        Ok(Box::new(peer))
     }
 
     /// Remove routing headers before forwarding to container.
@@ -243,7 +275,7 @@ pub async fn run_http_proxy(
         "Starting HTTP proxy server"
     );
 
-    let proxy = HttpProxy::new(container_manager);
+    let proxy = HttpProxy::new(container_manager, config.upstream.clone());
 
     let mut server = Server::new(None)?;
     server.bootstrap();
