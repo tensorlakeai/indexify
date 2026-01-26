@@ -236,8 +236,7 @@ message ExecutorState {
 
     repeated FunctionCallWatch function_call_watches = 15;
 
-    // Address of the TLS proxy (host:port) for routing sandbox traffic.
-    // Format: "ip:port" or "hostname:port"
+    // Address of the HTTP proxy (host:port) for routing sandbox traffic.
     optional string proxy_address = 16;
 }
 
