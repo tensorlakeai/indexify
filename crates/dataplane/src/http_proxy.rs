@@ -16,12 +16,13 @@
 //! 3. Proxy looks up container address from container manager
 //! 4. Proxy forwards request to container, stripping routing headers
 
-use std::{sync::Arc, time::Duration, time::Instant};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use async_trait::async_trait;
-use pingora::prelude::*;
-use pingora::protocols::TcpKeepalive;
-use pingora::upstreams::peer::PeerOptions;
+use pingora::{prelude::*, protocols::TcpKeepalive, upstreams::peer::PeerOptions};
 use pingora_http::{RequestHeader, ResponseHeader};
 use pingora_proxy::{ProxyHttp, Session, http_proxy_service};
 use tokio_util::sync::CancellationToken;
@@ -80,8 +81,14 @@ pub struct HttpProxy {
 }
 
 impl HttpProxy {
-    pub fn new(container_manager: Arc<FunctionContainerManager>, upstream_config: UpstreamConfig) -> Self {
-        Self { container_manager, upstream_config }
+    pub fn new(
+        container_manager: Arc<FunctionContainerManager>,
+        upstream_config: UpstreamConfig,
+    ) -> Self {
+        Self {
+            container_manager,
+            upstream_config,
+        }
     }
 }
 
