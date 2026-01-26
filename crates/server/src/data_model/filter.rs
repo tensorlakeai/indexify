@@ -138,7 +138,7 @@ impl LabelsFilter {
         values: &HashMap<String, String>,
         additional_constraints: &LabelsFilter,
     ) -> bool {
-        // First, collect keys from extra constraints
+        // First, collect keys from additional constraints
         let additional_constraints_keys: std::collections::HashSet<String> = additional_constraints
             .0
             .iter()
