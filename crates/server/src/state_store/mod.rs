@@ -208,13 +208,6 @@ impl IndexifyState {
         // Deactivate the initial receiver but keep it alive to prevent channel closure
         let _request_events_rx = request_events_rx.deactivate();
 
-        let in_memory_state = InMemoryState::new(
-            sm_meta.last_change_idx,
-            scanner::StateReader::new(db.clone(), state_store_metrics.clone()),
-            executor_catalog,
-        )
-        .await?;
-
         let indexes = Arc::new(RwLock::new(
             InMemoryState::new(
                 sm_meta.last_change_idx,
