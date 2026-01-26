@@ -430,10 +430,9 @@ mod tests {
         // verify that everything was deleted
         assert_function_run_counts!(test_srv, total: 0, allocated: 0, pending: 0, completed_success: 0);
 
-        // Drain request state change events before checking column counts
-        test_srv.drain_request_state_change_events().await?;
-
         // This makes sure we never leak any data on deletion!
+        // Note: RequestStateChangeEvents is not checked because events are broadcast
+        // directly and only persisted by the HTTP export worker (if enabled).
         assert_cf_counts(
             indexify_state.db.clone(),
             HashMap::from([
@@ -712,10 +711,9 @@ mod tests {
             test_srv.process_all_state_changes().await?;
             assert_function_run_counts!(test_srv, total: 0, allocated: 0, pending: 0, completed_success: 0);
 
-            // Drain request state change events before checking column counts
-            test_srv.drain_request_state_change_events().await?;
-
             // This makes sure we never leak any data on deletion!
+            // Note: RequestStateChangeEvents is not checked because events are broadcast
+            // directly and only persisted by the HTTP export worker (if enabled).
             assert_cf_counts(
                 indexify_state.db.clone(),
                 HashMap::from([
@@ -1406,45 +1404,63 @@ mod tests {
         Ok(())
     }
 
-    /// Test that request state change events are persisted to RocksDB
-    /// and contain the expected event types as the request progresses
+    /// Test that request state change events are broadcast via async_broadcast
+    /// channel and contain the expected event types as the request
+    /// progresses.
+    ///
+    /// Note: In the new architecture, events are broadcast to:
+    /// - SSE worker: delivers immediately to connected clients
+    /// - HTTP export worker: persists to DB, batches, and exports via HTTP
+    ///
+    /// This test verifies that events are correctly broadcast.
     #[tokio::test]
     async fn test_request_state_change_events_persistence() -> Result<()> {
+        use std::time::Duration;
+
         use crate::state_store::request_events::RequestStateChangeEvent;
 
         let test_srv = testing::TestService::new().await?;
         let indexify_state = test_srv.service.indexify_state.clone();
 
-        // Initially, no request state change events should exist
-        let (events, _) = indexify_state
-            .reader()
-            .request_state_change_events(None)
-            .await?;
-        assert!(events.is_empty(), "Expected no events initially");
+        // Subscribe to the broadcast channel to collect events BEFORE any operations
+        let mut rx = indexify_state.subscribe_request_state_changes();
+
+        // Helper to drain all pending events from the channel with timeout
+        // Uses async recv() with timeout instead of try_recv() for reliability
+        async fn drain_events_async(
+            rx: &mut async_broadcast::Receiver<RequestStateChangeEvent>,
+        ) -> Vec<RequestStateChangeEvent> {
+            let mut events = Vec::new();
+            // Keep receiving until timeout or channel closed
+            loop {
+                match tokio::time::timeout(Duration::from_millis(100), rx.recv()).await {
+                    Ok(Ok(event)) => events.push(event),
+                    Ok(Err(_)) => break, // Channel closed or overflowed
+                    Err(_) => break,     // Timeout - no more events pending
+                }
+            }
+            events
+        }
 
         // Invoke the application - this should generate RequestStarted event
         let request_id = test_state_store::with_simple_application(&indexify_state).await;
         test_srv.process_all_state_changes().await?;
 
-        // Check that RequestStarted event was persisted
-        let (events, _) = indexify_state
-            .reader()
-            .request_state_change_events(None)
-            .await?;
-        assert!(
-            !events.is_empty(),
-            "Expected RequestStarted event to be persisted"
-        );
-
+        // Drain events - should have RequestStarted
+        let events = drain_events_async(&mut rx).await;
         let has_request_started = events.iter().any(|e| {
-            matches!(e.event, RequestStateChangeEvent::RequestStarted(_)) &&
-                e.event.request_id() == request_id
+            matches!(e, RequestStateChangeEvent::RequestStarted(_)) && e.request_id() == request_id
         });
         assert!(
             has_request_started,
-            "Expected RequestStarted event for request_id {}",
-            request_id
+            "Expected RequestStarted event for request_id {}. Got {} events: {:?}",
+            request_id,
+            events.len(),
+            events.iter().map(|e| e.message()).collect::<Vec<_>>()
         );
+
+        // Collect all events so far
+        let mut all_events = events;
 
         // Register executor and process - this should generate AllocationCreated
         let executor = test_srv
@@ -1452,28 +1468,15 @@ mod tests {
             .await?;
         test_srv.process_all_state_changes().await?;
 
-        let (events, _) = indexify_state
-            .reader()
-            .request_state_change_events(None)
-            .await?;
+        all_events.extend(drain_events_async(&mut rx).await);
 
-        let has_allocation_created = events.iter().any(|e| {
-            matches!(e.event, RequestStateChangeEvent::AllocationCreated(_)) &&
-                e.event.request_id() == request_id
+        let has_allocation_created = all_events.iter().any(|e| {
+            matches!(e, RequestStateChangeEvent::AllocationCreated(_)) &&
+                e.request_id() == request_id
         });
         assert!(
             has_allocation_created,
             "Expected AllocationCreated event for request_id {}",
-            request_id
-        );
-
-        let has_function_run_created = events.iter().any(|e| {
-            matches!(e.event, RequestStateChangeEvent::FunctionRunCreated(_)) &&
-                e.event.request_id() == request_id
-        });
-        assert!(
-            has_function_run_created,
-            "Expected FunctionRunCreated event for request_id {}",
             request_id
         );
 
@@ -1496,15 +1499,11 @@ mod tests {
             test_srv.process_all_state_changes().await?;
         }
 
-        // Check that AllocationCompleted event was persisted
-        let (events, _) = indexify_state
-            .reader()
-            .request_state_change_events(None)
-            .await?;
+        all_events.extend(drain_events_async(&mut rx).await);
 
-        let has_allocation_completed = events.iter().any(|e| {
-            matches!(e.event, RequestStateChangeEvent::AllocationCompleted(_)) &&
-                e.event.request_id() == request_id
+        let has_allocation_completed = all_events.iter().any(|e| {
+            matches!(e, RequestStateChangeEvent::AllocationCompleted(_)) &&
+                e.request_id() == request_id
         });
         assert!(
             has_allocation_completed,
@@ -1551,15 +1550,10 @@ mod tests {
             test_srv.process_all_state_changes().await?;
         }
 
-        // Check that RequestFinished event was persisted
-        let (events, _) = indexify_state
-            .reader()
-            .request_state_change_events(None)
-            .await?;
+        all_events.extend(drain_events_async(&mut rx).await);
 
-        let has_request_finished = events.iter().any(|e| {
-            matches!(e.event, RequestStateChangeEvent::RequestFinished(_)) &&
-                e.event.request_id() == request_id
+        let has_request_finished = all_events.iter().any(|e| {
+            matches!(e, RequestStateChangeEvent::RequestFinished(_)) && e.request_id() == request_id
         });
         assert!(
             has_request_finished,
@@ -1568,10 +1562,10 @@ mod tests {
         );
 
         // Verify all expected event types are present
-        let event_types: HashSet<String> = events
+        let event_types: HashSet<String> = all_events
             .iter()
-            .filter(|e| e.event.request_id() == request_id)
-            .map(|e| e.event.message().to_string())
+            .filter(|e| e.request_id() == request_id)
+            .map(|e| e.message().to_string())
             .collect();
 
         assert!(
@@ -1594,19 +1588,6 @@ mod tests {
             event_types.contains("Request Finished"),
             "Missing 'Request Finished' event type"
         );
-
-        // Verify events are ordered by ID (monotonically increasing)
-        let request_events: Vec<_> = events
-            .iter()
-            .filter(|e| e.event.request_id() == request_id)
-            .collect();
-
-        for i in 1..request_events.len() {
-            assert!(
-                request_events[i].id.value() > request_events[i - 1].id.value(),
-                "Events should be monotonically ordered by ID"
-            );
-        }
 
         Ok(())
     }

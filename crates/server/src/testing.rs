@@ -27,7 +27,6 @@ use crate::{
     },
     executor_api::executor_api_pb::Allocation as AllocationPb,
     executors,
-    processor::request_state_change_processor::RequestStateChangeProcessor,
     service::Service,
     state_store::{
         driver::rocksdb::RocksDBConfig,
@@ -108,13 +107,6 @@ impl TestService {
             self.process_graph_processor().await?;
         }
         Ok(())
-    }
-
-    /// Drain all pending request state change events from RocksDB.
-    /// This simulates what the RequestStateChangeProcessor would do.
-    pub async fn drain_request_state_change_events(&self) -> Result<()> {
-        let processor = RequestStateChangeProcessor::new(self.service.indexify_state.clone());
-        processor.drain_all_events().await
     }
 
     async fn process_graph_processor(&self) -> Result<()> {

@@ -26,6 +26,12 @@ impl std::fmt::Display for RequestStateChangeEventId {
     }
 }
 
+impl From<u64> for RequestStateChangeEventId {
+    fn from(seq: u64) -> Self {
+        Self::new(seq)
+    }
+}
+
 pub trait RequestEventMetadata {
     fn namespace(&self) -> &str;
     fn application_name(&self) -> &str;

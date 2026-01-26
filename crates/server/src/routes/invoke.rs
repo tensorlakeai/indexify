@@ -12,7 +12,10 @@ use bytes::Bytes;
 use futures::{Stream, StreamExt, TryStreamExt};
 use pin_project::pin_project;
 use serde::Serialize;
-use tokio::sync::broadcast::{self, error::RecvError};
+use tokio::{
+    sync::broadcast::{self, error::RecvError},
+    time::interval,
+};
 use tracing::{debug, error, warn};
 
 use super::routes_state::RouteState;
@@ -42,6 +45,9 @@ use crate::{
 /// We allow at max the length of a UUID4 with hyphens.
 const MAX_REQUEST_ID_LENGTH: usize = 36;
 const MAX_INLINE_JSON_SIZE: u64 = 1024 * 1024;
+/// Interval for checking if the request has finished when SSE events may have
+/// been missed.
+const REQUEST_HEALTH_CHECK_INTERVAL_SECS: u64 = 10;
 
 fn build_output_path(namespace: &str, application: &str, request_id: &str) -> String {
     format!(
@@ -123,33 +129,29 @@ async fn build_finished_event_for_outcome(
     RequestStateChangeEvent::finished(ctx, outcome, output)
 }
 
-enum CheckForFinishedResult {
-    NoOutcome,
-    Finished(Box<RequestStateChangeEvent>),
-    NotFound,
-    Err(anyhow::Error),
-}
-
+/// Check if a request has finished by reading its context from the database.
+/// Returns Ok(Some(event)) if finished, Ok(None) if still running, Err if
+/// request not found or error.
 async fn check_for_finished(
     reader: &StateReader,
     state: &RouteState,
     namespace: &str,
     application: &str,
     request_id: &str,
-) -> CheckForFinishedResult {
-    match reader.request_ctx(namespace, application, request_id).await {
-        Ok(Some(ref context)) => match &context.outcome {
-            Some(outcome) => {
-                let event = build_finished_event_for_outcome(state, context, outcome).await;
-                CheckForFinishedResult::Finished(Box::new(event))
-            }
-            None => CheckForFinishedResult::NoOutcome,
-        },
-        Ok(None) => {
-            debug!("request not found, stopping stream");
-            CheckForFinishedResult::NotFound
+) -> anyhow::Result<Option<RequestStateChangeEvent>> {
+    let Some(context) = reader
+        .request_ctx(namespace, application, request_id)
+        .await?
+    else {
+        return Err(anyhow!("request not found"));
+    };
+
+    match &context.outcome {
+        Some(outcome) => {
+            let event = build_finished_event_for_outcome(state, &context, outcome).await;
+            Ok(Some(event))
         }
-        Err(e) => CheckForFinishedResult::Err(e),
+        None => Ok(None),
     }
 }
 
@@ -220,78 +222,90 @@ pub(crate) async fn create_request_progress_stream(
 ) -> impl Stream<Item = Result<Event, axum::Error>> {
     async_stream::stream! {
         let reader = state.indexify_state.reader();
+        let mut health_check_interval = interval(Duration::from_secs(REQUEST_HEALTH_CHECK_INTERVAL_SECS));
 
+        // Check if the request is already finished before starting the stream
         match check_for_finished(&reader, &state, &namespace, &application, &request_id).await {
-            CheckForFinishedResult::Finished(event) => {
-                debug!("request finished as soon as stream started, sending event");
+            Ok(Some(event)) => {
+                debug!("request already finished, sending event");
                 yield Event::default().json_data(event);
                 return;
             }
-            CheckForFinishedResult::NoOutcome => {
-                debug!("no outcome found, continuing stream");
+            Ok(None) => {
+                debug!("request in progress, starting stream");
             }
-            CheckForFinishedResult::NotFound => {
-                debug!("request not found, stopping stream");
-                return;
-            }
-            CheckForFinishedResult::Err(error) => {
-                error!(?error, "failed to check for finished, stopping stream");
+            Err(error) => {
+                error!(?error, "failed initial check, stopping stream");
                 return;
             }
         }
 
         loop {
-            match rx.recv().await {
-                Ok(event) if matches!(event, RequestStateChangeEvent::RequestFinished(_)) => {
-                    debug!("received finished event: {:?}", event);
-                    match check_for_finished(&reader, &state, &namespace, &application, &request_id).await {
-                        CheckForFinishedResult::Finished(finished_event) => {
-                            debug!("request finished, sending event");
-                            yield Event::default().json_data(finished_event);
+            tokio::select! {
+                recv_result = rx.recv() => {
+                    match recv_result {
+                        Ok(event) if matches!(event, RequestStateChangeEvent::RequestFinished(_)) => {
+                            debug!("received finished event");
+                            // Enrich the event with output data if available
+                            match check_for_finished(&reader, &state, &namespace, &application, &request_id).await {
+                                Ok(Some(finished_event)) => {
+                                    yield Event::default().json_data(finished_event);
+                                }
+                                Ok(None) | Err(_) => {
+                                    // Fall back to the original event
+                                    yield Event::default().json_data(event);
+                                }
+                            }
+                            break;
                         }
-                        CheckForFinishedResult::NoOutcome | CheckForFinishedResult::NotFound => {
+                        Ok(event) => {
+                            debug!("received event: {:?}", event);
+                            health_check_interval.reset();
                             yield Event::default().json_data(event);
                         }
-                        CheckForFinishedResult::Err(error) => {
-                            error!(?error, "failed to check for finished after receiving event, stopping stream");
-                            return;
+                        Err(RecvError::Lagged(num)) => {
+                            warn!("lagged behind by {} events, checking request state", num);
+                            match check_for_finished(&reader, &state, &namespace, &application, &request_id).await {
+                                Ok(Some(event)) => {
+                                    debug!("request finished during lag");
+                                    yield Event::default().json_data(event);
+                                    break;
+                                }
+                                Ok(None) => {
+                                    debug!("request still in progress after lag");
+                                    health_check_interval.reset();
+                                }
+                                Err(error) => {
+                                    error!(?error, "check failed during lag, stopping stream");
+                                    break;
+                                }
+                            }
+                        }
+                        Err(RecvError::Closed) => {
+                            debug!("channel closed, checking final state");
+                            if let Ok(Some(event)) = check_for_finished(&reader, &state, &namespace, &application, &request_id).await {
+                                yield Event::default().json_data(event);
+                            }
+                            break;
                         }
                     }
-                    debug!("finished event received, stopping stream");
-                    break;
                 }
-                Ok(event) => {
-                    debug!("received event: {:?}", event);
-                    yield Event::default().json_data(event);
-                }
-                Err(RecvError::Lagged(num)) => {
-                    warn!("lagging behind request event stream by {} events", num);
+                _ = health_check_interval.tick() => {
+                    debug!("health check interval tick");
                     match check_for_finished(&reader, &state, &namespace, &application, &request_id).await {
-                        CheckForFinishedResult::Finished(event) => {
-                            debug!("request finished during lag, sending event and stopping stream");
+                        Ok(Some(event)) => {
+                            debug!("request finished during health check");
                             yield Event::default().json_data(event);
                             break;
                         }
-                        CheckForFinishedResult::NoOutcome => {
-                            debug!("no outcome found during lag, continuing to listen");
+                        Ok(None) => {
+                            // Request still in progress, continue waiting
                         }
-                        CheckForFinishedResult::NotFound => {
-                            debug!("request not found during lag, stopping stream");
-                            break;
-                        }
-                        CheckForFinishedResult::Err(error) => {
-                            error!(?error, "failed to check for finished during lag, stopping stream");
+                        Err(error) => {
+                            error!(?error, "health check failed, stopping stream");
                             break;
                         }
                     }
-                }
-                Err(RecvError::Closed) => {
-                    debug!("request event stream closed, checking for finished state");
-                    if let CheckForFinishedResult::Finished(event) = check_for_finished(&reader, &state, &namespace, &application, &request_id).await {
-                        debug!("request finished, sending event");
-                        yield Event::default().json_data(event);
-                    }
-                    break;
                 }
             }
         }
