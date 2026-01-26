@@ -115,7 +115,7 @@ class TestRegionalRouting(unittest.TestCase):
         executor_cms = [
             ExecutorProcessContextManager(
                 config["args"],
-                keep_std_outputs=False,
+                keep_std_outputs=True,
                 labels=config["labels"],
             )
             for config in executor_configs

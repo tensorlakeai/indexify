@@ -476,7 +476,7 @@ impl ContainerReconciler {
     fn remove_all_function_executors_for_executor(
         &self,
         in_memory_state: &mut InMemoryState,
-        container_scheduler: &ContainerScheduler,
+        container_scheduler: &mut ContainerScheduler,
         executor_id: &ExecutorId,
     ) -> Result<SchedulerUpdateRequest> {
         let mut scheduler_update = SchedulerUpdateRequest::default();
@@ -521,11 +521,28 @@ impl ContainerReconciler {
 
             scheduler_update.extend(container_update);
 
-            // Terminate associated sandbox
+            // Mark the container itself as Terminated
             let terminated_state = ContainerState::Terminated {
                 reason: FunctionExecutorTerminationReason::ExecutorRemoved,
                 failed_alloc_ids: vec![],
             };
+            if let Some(fc) = container_scheduler.function_containers.get(container_id) {
+                let mut terminated_fc = *fc.clone();
+                terminated_fc.desired_state = terminated_state.clone();
+                terminated_fc.function_container.state = terminated_state.clone();
+
+                let container_term_update = SchedulerUpdateRequest {
+                    containers: [(container_id.clone(), Box::new(terminated_fc))].into(),
+                    ..Default::default()
+                };
+                scheduler_update.extend(container_term_update.clone());
+                container_scheduler.update(&RequestPayload::SchedulerUpdate((
+                    Box::new(container_term_update),
+                    vec![],
+                )))?;
+            }
+
+            // Terminate associated sandbox
             let sandbox_update = self.terminate_sandbox_for_container(
                 in_memory_state,
                 container_id,
