@@ -1,10 +1,12 @@
 import { Box, Paper, Tab, Tabs, Typography } from '@mui/material'
+import { fetchEventSource } from '@microsoft/fetch-event-source'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { OutputEvent } from '../types/types'
 
 interface ProcessLogsPanelProps {
   daemonUrl: string
   pid: number
+  sandboxId?: string  // Required for local dataplane access
 }
 
 type OutputTab = 'combined' | 'stdout' | 'stderr'
@@ -15,14 +17,17 @@ interface LogLine {
   timestamp: number
 }
 
-function ProcessLogsPanel({ daemonUrl, pid }: ProcessLogsPanelProps) {
+function ProcessLogsPanel({ daemonUrl, pid, sandboxId }: ProcessLogsPanelProps) {
+  // Check if we're accessing dataplane directly (local dev)
+  const isLocalDataplane = daemonUrl.includes('127.0.0.1') || daemonUrl.includes('localhost')
+
   const [activeTab, setActiveTab] = useState<OutputTab>('combined')
   const [combinedLogs, setCombinedLogs] = useState<LogLine[]>([])
   const [stdoutLogs, setStdoutLogs] = useState<LogLine[]>([])
   const [stderrLogs, setStderrLogs] = useState<LogLine[]>([])
   const [isConnected, setIsConnected] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const eventSourceRef = useRef<EventSource | null>(null)
+  const abortControllerRef = useRef<AbortController | null>(null)
   const logsContainerRef = useRef<HTMLDivElement>(null)
 
   const scrollToBottom = useCallback(() => {
@@ -39,8 +44,8 @@ function ProcessLogsPanel({ daemonUrl, pid }: ProcessLogsPanelProps) {
   // Connect to SSE stream
   useEffect(() => {
     // Clean up previous connection
-    if (eventSourceRef.current) {
-      eventSourceRef.current.close()
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort()
     }
 
     // Reset state
@@ -48,6 +53,9 @@ function ProcessLogsPanel({ daemonUrl, pid }: ProcessLogsPanelProps) {
     setStdoutLogs([])
     setStderrLogs([])
     setError(null)
+
+    const abortController = new AbortController()
+    abortControllerRef.current = abortController
 
     // Determine which endpoint to use based on active tab
     const endpoint =
@@ -57,50 +65,64 @@ function ProcessLogsPanel({ daemonUrl, pid }: ProcessLogsPanelProps) {
           ? `${daemonUrl}/api/v1/processes/${pid}/stdout/follow`
           : `${daemonUrl}/api/v1/processes/${pid}/stderr/follow`
 
-    const eventSource = new EventSource(endpoint)
-    eventSourceRef.current = eventSource
-
-    eventSource.onopen = () => {
-      setIsConnected(true)
-      setError(null)
+    // Build headers for local dataplane access
+    const headers: Record<string, string> = {}
+    if (isLocalDataplane && sandboxId) {
+      headers['X-Sandbox-Id'] = sandboxId
     }
 
-    eventSource.addEventListener('output', (event) => {
-      try {
-        const data: OutputEvent = JSON.parse(event.data)
-        const logLine: LogLine = {
-          line: data.line,
-          stream: data.stream,
-          timestamp: data.timestamp,
-        }
-
-        if (activeTab === 'combined') {
-          setCombinedLogs((prev) => [...prev, logLine])
-        } else if (activeTab === 'stdout') {
-          setStdoutLogs((prev) => [...prev, logLine])
+    fetchEventSource(endpoint, {
+      signal: abortController.signal,
+      headers,
+      onopen: async (response) => {
+        if (response.ok) {
+          setIsConnected(true)
+          setError(null)
         } else {
-          setStderrLogs((prev) => [...prev, logLine])
+          throw new Error(`Failed to connect: ${response.status}`)
         }
-      } catch (e) {
-        console.error('Failed to parse SSE event:', e)
+      },
+      onmessage: (event) => {
+        if (event.event === 'output') {
+          try {
+            const data: OutputEvent = JSON.parse(event.data)
+            const logLine: LogLine = {
+              line: data.line,
+              stream: data.stream,
+              timestamp: data.timestamp,
+            }
+
+            if (activeTab === 'combined') {
+              setCombinedLogs((prev) => [...prev, logLine])
+            } else if (activeTab === 'stdout') {
+              setStdoutLogs((prev) => [...prev, logLine])
+            } else {
+              setStderrLogs((prev) => [...prev, logLine])
+            }
+          } catch (e) {
+            console.error('Failed to parse SSE event:', e)
+          }
+        } else if (event.event === 'eof') {
+          setIsConnected(false)
+          abortController.abort()
+        }
+      },
+      onerror: (err) => {
+        setError('Failed to connect to log stream')
+        setIsConnected(false)
+        throw err // This will close the connection
+      },
+    }).catch((err) => {
+      // Ignore abort errors (expected on cleanup)
+      if (err.name !== 'AbortError') {
+        console.error('SSE connection error:', err)
       }
     })
 
-    eventSource.addEventListener('eof', () => {
-      eventSource.close()
-      setIsConnected(false)
-    })
-
-    eventSource.onerror = () => {
-      setError('Failed to connect to log stream')
-      setIsConnected(false)
-      eventSource.close()
-    }
-
     return () => {
-      eventSource.close()
+      abortController.abort()
     }
-  }, [daemonUrl, pid, activeTab])
+  }, [daemonUrl, pid, activeTab, isLocalDataplane, sandboxId])
 
   const handleTabChange = (_: React.SyntheticEvent, newValue: OutputTab) => {
     setActiveTab(newValue)

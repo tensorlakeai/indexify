@@ -116,18 +116,25 @@ const SandboxDetailsPage = () => {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Use sandbox_url for routing via sandbox-proxy
+  // Use sandbox_url for routing via sandbox-proxy or direct dataplane access
   const daemonUrl = sandbox?.sandbox_url ?? null
+  const isRunning = sandbox?.status?.toLowerCase() === 'running'
+
+  // Check if we're accessing dataplane directly (local dev)
+  const isLocalDataplane = daemonUrl?.includes('127.0.0.1') || daemonUrl?.includes('localhost')
 
   const fetchProcesses = useCallback(async () => {
-    if (!daemonUrl) return
+    if (!daemonUrl || !isRunning) return
 
     setLoading(true)
     setError(null)
 
     try {
+      // For local dataplane access, add sandbox_id as query param (or header for axios)
+      const headers = isLocalDataplane ? { 'X-Sandbox-Id': sandboxId } : {}
       const response = await axios.get<ListProcessesResponse>(
-        `${daemonUrl}/api/v1/processes`
+        `${daemonUrl}/api/v1/processes`,
+        { headers }
       )
       setProcesses(response.data.processes)
       // Auto-select first process if none selected
@@ -140,15 +147,17 @@ const SandboxDetailsPage = () => {
     } finally {
       setLoading(false)
     }
-  }, [daemonUrl, selectedPid])
+  }, [daemonUrl, isRunning, selectedPid, isLocalDataplane, sandboxId])
 
-  // Poll for processes periodically
+  // Poll for processes periodically (only when sandbox is running)
   useEffect(() => {
+    if (!isRunning) return
+
     fetchProcesses()
 
     const interval = setInterval(fetchProcesses, 5000)
     return () => clearInterval(interval)
-  }, [fetchProcesses])
+  }, [fetchProcesses, isRunning])
 
   if (!sandbox) {
     return (
@@ -443,10 +452,15 @@ const SandboxDetailsPage = () => {
         )}
 
         {/* Processes Section */}
-        {!daemonUrl ? (
+        {!isRunning ? (
           <Alert severity="info" sx={{ mb: 3 }}>
-            Sandbox is not yet running. Process information will be available once the
-            sandbox starts.
+            {sandbox.status === 'Terminated'
+              ? 'Sandbox has been terminated. Process information is no longer available.'
+              : 'Sandbox is not yet running. Process information will be available once the sandbox starts.'}
+          </Alert>
+        ) : !daemonUrl ? (
+          <Alert severity="warning" sx={{ mb: 3 }}>
+            Sandbox is running but URL is not available.
           </Alert>
         ) : (
           <>
@@ -473,7 +487,7 @@ const SandboxDetailsPage = () => {
 
             {/* Process Logs */}
             {selectedPid !== null && daemonUrl && (
-              <ProcessLogsPanel daemonUrl={daemonUrl} pid={selectedPid} />
+              <ProcessLogsPanel daemonUrl={daemonUrl} pid={selectedPid} sandboxId={isLocalDataplane ? sandboxId : undefined} />
             )}
           </>
         )}
