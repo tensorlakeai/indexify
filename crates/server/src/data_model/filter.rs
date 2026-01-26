@@ -126,7 +126,8 @@ impl LabelsFilter {
 
     /// Match labels with additional constraint expressions applied dynamically.
     /// This is used to inject placement constraints at matching time rather
-    /// than storing them in the object.
+    /// than storing them in the object. For example, with constraints coming
+    /// from the ServerConfig.
     ///
     /// The additional constraints are parsed from expression strings and must
     /// all match. Any existing constraints in the filter that share keys
@@ -135,27 +136,24 @@ impl LabelsFilter {
     pub fn matches_with_additional_constraints(
         &self,
         values: &HashMap<String, String>,
-        extra_constraints: &LabelsFilter,
+        additional_constraints: &LabelsFilter,
     ) -> bool {
-        // First, collect keys from additional constraints
-        let additional_keys: std::collections::HashSet<String> = extra_constraints
+        // First, collect keys from extra constraints
+        let additional_constraints_keys: std::collections::HashSet<String> = additional_constraints
             .0
             .iter()
             .map(|expr| expr.key.clone())
             .collect();
 
         // Check all additional constraints match
-        for expr in &extra_constraints.0 {
+        for expr in &additional_constraints.0 {
             let value = values.get(&expr.key);
             let matches = match value {
                 Some(v) => match expr.operator {
                     Operator::Eq => v == &expr.value,
                     Operator::Neq => v != &expr.value,
                 },
-                None => match expr.operator {
-                    Operator::Eq => false,
-                    Operator::Neq => true,
-                },
+                None => false,
             };
             if !matches {
                 return false;
@@ -165,7 +163,7 @@ impl LabelsFilter {
         // Check existing constraints, skipping those overridden by additional
         // constraints
         for expr in &self.0 {
-            if additional_keys.contains(&expr.key) {
+            if additional_constraints_keys.contains(&expr.key) {
                 continue; // Skip, additional constraint takes precedence
             }
             let value = values.get(&expr.key);
@@ -174,10 +172,7 @@ impl LabelsFilter {
                     Operator::Eq => v == &expr.value,
                     Operator::Neq => v != &expr.value,
                 },
-                None => match expr.operator {
-                    Operator::Eq => false,
-                    Operator::Neq => true,
-                },
+                None => false,
             };
             if !matches {
                 return false;
