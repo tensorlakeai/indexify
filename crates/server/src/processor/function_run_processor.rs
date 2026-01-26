@@ -297,7 +297,9 @@ impl FunctionRunProcessor {
             namespace = %function_run.namespace,
             app = %function_run.application,
             fn = %function_run.name,
-            "created allocation",
+            executor_id = %target.executor_id,
+            container_id = %target.function_executor_id,
+            "created allocation"
         );
 
         in_memory_state.update_state(
