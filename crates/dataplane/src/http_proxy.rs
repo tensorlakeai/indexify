@@ -360,19 +360,46 @@ impl ProxyHttp for HttpProxy {
     {
         let error_type = e.etype();
 
-        let status = match error_type {
-            ErrorType::ConnectionClosed => 502,
-            ErrorType::ConnectTimedout => 504,
-            ErrorType::ReadTimedout => 504,
-            ErrorType::WriteTimedout => 504,
-            ErrorType::ConnectRefused => 502,
-            _ => 502,
+        // Determine status and message based on error type
+        let (status, message) = match error_type {
+            ErrorType::ConnectionClosed => (
+                502,
+                "Connection to sandbox closed unexpectedly. The sandbox may have terminated.",
+            ),
+            ErrorType::ConnectTimedout => (
+                504,
+                "Connection to sandbox timed out. The sandbox may be overloaded or unresponsive.",
+            ),
+            ErrorType::ReadTimedout => (
+                504,
+                "Reading from sandbox timed out. The operation is taking longer than expected.",
+            ),
+            ErrorType::WriteTimedout => (
+                504,
+                "Writing to sandbox timed out. The sandbox may be overloaded.",
+            ),
+            ErrorType::ConnectRefused => (
+                502,
+                "Connection to sandbox refused. The sandbox may not be running.",
+            ),
+            _ => (502, "Failed to proxy request to sandbox."),
         };
 
         // Disable keepalive to ensure clean connection close
         session.set_keepalive(None);
 
         ctx.status_code = Some(status);
+
+        // Try to send error response with body (may fail if headers already sent)
+        let origin = session
+            .req_header()
+            .headers
+            .get("origin")
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string());
+
+        // Best effort - if this fails, Pingora will still return the status code
+        let _ = send_error_response(session, status, message, origin.as_deref()).await;
 
         FailToProxy {
             error_code: status,
