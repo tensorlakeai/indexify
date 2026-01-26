@@ -78,6 +78,17 @@ impl Error {
 }
 
 #[derive(Clone, Debug)]
+struct CreateContainerArgs<'a> {
+    namespace: &'a str,
+    application: &'a str,
+    function: Option<&'a Function>,
+    resources: &'a FunctionResources,
+    function_container: Container,
+    container_type: ContainerType,
+    placement_constraints: &'a filter::LabelsFilter,
+}
+
+#[derive(Clone, Debug)]
 pub struct DesiredContainers {
     pub min_count: Option<u32>,
     pub max_count: Option<u32>,
@@ -315,15 +326,15 @@ impl ContainerScheduler {
             .timeout_secs(function.timeout.0 as u64 / 1000) // Convert ms to secs
             .build()?;
 
-        self.create_container(
+        self.create_container(CreateContainerArgs {
             namespace,
             application,
-            Some(function),
-            &function.resources,
+            function: Some(function),
+            resources: &function.resources,
             function_container,
-            ContainerType::Function,
-            &function.placement_constraints,
-        )
+            container_type: ContainerType::Function,
+            placement_constraints: &function.placement_constraints,
+        })
     }
 
     pub fn create_container_for_sandbox(
@@ -361,39 +372,34 @@ impl ContainerScheduler {
             .network_policy(sandbox.network_policy.clone())
             .build()?;
 
-        self.create_container(
-            &sandbox.namespace,
-            &sandbox.application,
-            None, // No function for sandboxes
-            &resources,
+        self.create_container(CreateContainerArgs {
+            namespace: &sandbox.namespace,
+            application: &sandbox.application,
+            function: None, // No function for sandboxes
+            resources: &resources,
             function_container,
-            ContainerType::Sandbox,
-            &sandbox.placement_constraints,
-        )
+            container_type: ContainerType::Sandbox,
+            placement_constraints: &sandbox.placement_constraints,
+        })
     }
 
     fn create_container(
         &mut self,
-        namespace: &str,
-        application: &str,
-        function: Option<&Function>,
-        resources: &FunctionResources,
-        function_container: Container,
-        container_type: ContainerType,
-        placement_constraints: &filter::LabelsFilter,
+        args: CreateContainerArgs,
     ) -> Result<Option<SchedulerUpdateRequest>> {
         let mut candidates = self.candidate_hosts(
-            namespace,
-            application,
-            function,
-            resources,
-            placement_constraints,
+            args.namespace,
+            args.application,
+            args.function,
+            args.resources,
+            args.placement_constraints,
         );
         let mut update = SchedulerUpdateRequest::default();
 
         // If no candidates, try vacuuming to free up resources
         if candidates.is_empty() {
-            let function_executors_to_remove = self.vacuum_function_container_candidates(resources);
+            let function_executors_to_remove =
+                self.vacuum_function_container_candidates(args.resources);
             for fe in function_executors_to_remove {
                 let mut update_fe = fe.clone();
                 update_fe.desired_state = ContainerState::Terminated {
@@ -424,11 +430,11 @@ impl ContainerScheduler {
 
         // Try again after vacuum
         candidates = self.candidate_hosts(
-            namespace,
-            application,
-            function,
-            resources,
-            placement_constraints,
+            args.namespace,
+            args.application,
+            args.function,
+            args.resources,
+            args.placement_constraints,
         );
         let Some(mut candidate) = candidates.choose(&mut rand::rng()).cloned() else {
             // No host available, return vacuum update (container stays pending)
@@ -443,11 +449,11 @@ impl ContainerScheduler {
         // Consume resources
         let _ = candidate
             .free_resources
-            .consume_function_resources(resources)?;
+            .consume_function_resources(args.resources)?;
 
         // Register the container
         let container_update =
-            self.register_container(executor_id, function_container, container_type)?;
+            self.register_container(executor_id, args.function_container, args.container_type)?;
         update.extend(container_update);
 
         Ok(Some(update))

@@ -156,12 +156,10 @@ impl LabelsFilter {
                     .filter(|expr| !additional_constraints_keys.contains(&expr.key)),
             )
             .all(|expr| {
-                values
-                    .get(&expr.key)
-                    .map_or(false, |v| match expr.operator {
-                        Operator::Eq => v == &expr.value,
-                        Operator::Neq => v != &expr.value,
-                    })
+                values.get(&expr.key).is_some_and(|v| match expr.operator {
+                    Operator::Eq => v == &expr.value,
+                    Operator::Neq => v != &expr.value,
+                })
             })
     }
 }
