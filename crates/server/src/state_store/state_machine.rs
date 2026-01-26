@@ -57,6 +57,7 @@ pub enum IndexifyObjectsColumns {
     UnprocessedStateChanges, //  StateChangeId -> StateChange
     Allocations,             // Allocation ID -> Allocation
     AllocationUsage,         // Allocation Usage ID -> Allocation Usage
+    Sandboxes,               // Sandbox information
 
     GcUrls, // List of URLs pending deletion
 

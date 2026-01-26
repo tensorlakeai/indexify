@@ -29,7 +29,9 @@ use crate::{
     metrics::{StateStoreMetrics, Timer},
     state_store::{
         driver::{
-            Reader, Transaction, Writer,
+            Reader,
+            Transaction,
+            Writer,
             rocksdb::{RocksDBConfig, RocksDBDriver},
         },
         in_memory_metrics::InMemoryStoreGauges,
@@ -302,9 +304,9 @@ impl IndexifyState {
                 .await;
             changed_executors.extend(impacted_executors.into_iter().map(|e| e.into()));
         }
-        if let RequestPayload::UpsertExecutor(req) = &request.payload
-            && !req.watch_function_calls.is_empty()
-            && req.update_executor_state
+        if let RequestPayload::UpsertExecutor(req) = &request.payload &&
+            !req.watch_function_calls.is_empty() &&
+            req.update_executor_state
         {
             changed_executors.insert(req.executor.id.clone());
         }
@@ -323,14 +325,14 @@ impl IndexifyState {
 
         {
             let _timer = Timer::start_with_labels(&self.metrics.state_change_notify, timer_kv);
-            if !write_result.new_state_changes.is_empty()
-                && let Err(err) = self.change_events_tx.send(())
+            if !write_result.new_state_changes.is_empty() &&
+                let Err(err) = self.change_events_tx.send(())
             {
                 error!("failed to notify of state change event, ignoring: {err:?}",);
             }
 
-            if write_result.should_notify_usage_reporter
-                && let Err(err) = self.usage_events_tx.send(())
+            if write_result.should_notify_usage_reporter &&
+                let Err(err) = self.usage_events_tx.send(())
             {
                 error!("failed to notify of usage event, ignoring: {err:?}",);
             }
@@ -574,9 +576,16 @@ mod tests {
 
     use super::*;
     use crate::data_model::{
-        Application, InputArgs, Namespace, RequestCtxBuilder, StateChangeId,
+        Application,
+        InputArgs,
+        Namespace,
+        RequestCtxBuilder,
+        StateChangeId,
         test_objects::tests::{
-            TEST_EXECUTOR_ID, TEST_NAMESPACE, mock_application, mock_data_payload,
+            TEST_EXECUTOR_ID,
+            TEST_NAMESPACE,
+            mock_application,
+            mock_data_payload,
             mock_function_call,
         },
     };
@@ -764,6 +773,7 @@ mod tests {
             "UnprocessedStateChanges",
             "Allocations",
             "AllocationUsage",
+            "Sandboxes",
             "GcUrls",
             "Stats",
             "ExecutorStateChanges",

@@ -5,7 +5,12 @@ use chrono::Utc;
 use otlp_logs_exporter::opentelemetry_proto::tonic::{
     collector::logs::v1::ExportLogsServiceRequest,
     common::v1::{
-        AnyValue, ArrayValue, InstrumentationScope, KeyValue, KeyValueList, any_value::Value,
+        AnyValue,
+        ArrayValue,
+        InstrumentationScope,
+        KeyValue,
+        KeyValueList,
+        any_value::Value,
     },
     logs::v1::{LogRecord, ResourceLogs, ScopeLogs},
     resource::v1::Resource,
@@ -179,8 +184,13 @@ mod tests {
     use crate::{
         data_model::{RequestCtxBuilder, RequestFailureReason, RequestOutcome},
         state_store::request_events::{
-            AllocationCompleted, AllocationCreated, FunctionRunCompleted, FunctionRunCreated,
-            FunctionRunMatchedCache, FunctionRunOutcomeSummary, RequestStartedEvent,
+            AllocationCompleted,
+            AllocationCreated,
+            FunctionRunCompleted,
+            FunctionRunCreated,
+            FunctionRunMatchedCache,
+            FunctionRunOutcomeSummary,
+            RequestStartedEvent,
         },
     };
 
