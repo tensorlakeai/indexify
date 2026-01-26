@@ -252,7 +252,7 @@ mod tests {
 
         // Add matching additional constraint
         assert!(
-            filter
+            !filter
                 .matches_with_additional_constraints(&values, &vec!["zone==1".to_string()].into())
         );
 
