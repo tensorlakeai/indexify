@@ -5,12 +5,11 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use serde::{Deserialize, Serialize};
-use serde_inline_default::serde_inline_default;
 use tracing::error;
 use utoipa::{IntoParams, ToSchema};
 
 use crate::{
-    data_model::{self, ContainerId, ContainerServerMetadata, ContainerState},
+    data_model::{self, FunctionExecutorId, FunctionExecutorServerMetadata, FunctionExecutorState},
     http_objects_v1::{ApplicationState, EntryPointManifest, FunctionRun},
 };
 
@@ -148,21 +147,17 @@ pub struct GPUResources {
     pub model: String,
 }
 
-#[serde_inline_default]
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
-pub struct ContainerResources {
-    #[serde_inline_default(0.1)]
+pub struct FunctionResources {
     pub cpus: f64,
-    #[serde_inline_default(256)]
     pub memory_mb: u64,
-    #[serde_inline_default(1024)]
     pub ephemeral_disk_mb: u64,
     #[serde(default, rename = "gpus")]
     pub gpu_configs: Vec<GPUResources>,
 }
 
-impl From<ContainerResources> for data_model::FunctionResources {
-    fn from(value: ContainerResources) -> Self {
+impl From<FunctionResources> for data_model::FunctionResources {
+    fn from(value: FunctionResources) -> Self {
         data_model::FunctionResources {
             cpu_ms_per_sec: (value.cpus * 1000.0).ceil() as u32,
             memory_mb: value.memory_mb,
@@ -179,9 +174,9 @@ impl From<ContainerResources> for data_model::FunctionResources {
     }
 }
 
-impl From<data_model::FunctionResources> for ContainerResources {
-    fn from(value: data_model::FunctionResources) -> ContainerResources {
-        ContainerResources {
+impl From<data_model::FunctionResources> for FunctionResources {
+    fn from(value: data_model::FunctionResources) -> FunctionResources {
+        FunctionResources {
             cpus: value.cpu_ms_per_sec as f64 / 1000.0,
             memory_mb: value.memory_mb,
             ephemeral_disk_mb: value.ephemeral_disk_mb,
@@ -197,7 +192,7 @@ impl From<data_model::FunctionResources> for ContainerResources {
     }
 }
 
-impl Default for ContainerResources {
+impl Default for FunctionResources {
     fn default() -> Self {
         data_model::FunctionResources::default().into()
     }
@@ -267,6 +262,10 @@ impl Default for NodeRetryPolicy {
     }
 }
 
+fn default_encoder() -> String {
+    "cloudpickle".to_string()
+}
+
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone, Default)]
 pub struct PlacementConstraints {
     /// List of label filter expressions in the format "key=value",
@@ -295,6 +294,10 @@ impl From<data_model::filter::LabelsFilter> for PlacementConstraints {
             filter_expressions: value.0.into_iter().map(|expr| expr.to_string()).collect(),
         }
     }
+}
+
+fn default_max_concurrency() -> u32 {
+    1
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
@@ -332,7 +335,7 @@ pub struct ApplicationFunction {
     #[serde(default)]
     pub initialization_timeout_sec: TimeoutSeconds,
     pub timeout_sec: TimeoutSeconds,
-    pub resources: ContainerResources,
+    pub resources: FunctionResources,
     pub retry_policy: NodeRetryPolicy,
     pub cache_key: Option<CacheKey>,
     #[serde(default)]
@@ -341,8 +344,6 @@ pub struct ApplicationFunction {
     pub return_type: Option<serde_json::Value>,
     pub placement_constraints: PlacementConstraints,
     pub max_concurrency: u32,
-    pub min_containers: Option<u32>,
-    pub max_containers: Option<u32>,
 }
 
 impl TryFrom<ApplicationFunction> for data_model::Function {
@@ -351,6 +352,7 @@ impl TryFrom<ApplicationFunction> for data_model::Function {
     fn try_from(val: ApplicationFunction) -> Result<Self, Self::Error> {
         Ok(data_model::Function {
             name: val.name.clone(),
+            fn_name: val.name.clone(),
             description: val.description.clone(),
             placement_constraints: val.placement_constraints.try_into()?,
             input_encoder: "not-needed".to_string(),
@@ -364,8 +366,6 @@ impl TryFrom<ApplicationFunction> for data_model::Function {
             parameters: val.parameters.into_iter().map(|p| p.into()).collect(),
             return_type: val.return_type,
             max_concurrency: val.max_concurrency,
-            min_containers: val.min_containers,
-            max_containers: val.max_containers,
         })
     }
 }
@@ -385,8 +385,6 @@ impl From<data_model::Function> for ApplicationFunction {
             return_type: c.return_type,
             placement_constraints: c.placement_constraints.into(),
             max_concurrency: c.max_concurrency,
-            max_containers: c.max_containers,
-            min_containers: c.min_containers,
         }
     }
 }
@@ -401,6 +399,83 @@ impl ApplicationFunction {
         self.timeout_sec.validate()?;
         self.retry_policy.validate()?;
         Ok(())
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
+pub struct Function {
+    pub name: String,
+    pub fn_name: String,
+    pub description: String,
+    #[serde(default = "default_encoder")]
+    pub input_encoder: String,
+    #[serde(default = "default_encoder")]
+    pub output_encoder: String,
+    #[serde(default)]
+    pub secret_names: Vec<String>,
+    #[serde(default, rename = "initialization_timeout_sec")]
+    pub initialization_timeout: TimeoutSeconds,
+    #[serde(default, rename = "timeout_sec")]
+    pub timeout: TimeoutSeconds,
+    #[serde(default)]
+    pub resources: FunctionResources,
+    #[serde(default)]
+    pub retry_policy: NodeRetryPolicy,
+    #[serde(rename = "cache_key")]
+    pub cache_key: Option<CacheKey>,
+    #[serde(default)]
+    pub parameters: Vec<ParameterMetadata>,
+    #[serde(default)]
+    pub return_type: Option<serde_json::Value>,
+    #[serde(default)]
+    pub placement_constraints: PlacementConstraints,
+    #[serde(default = "default_max_concurrency")]
+    pub max_concurrency: u32,
+}
+
+impl TryFrom<Function> for data_model::Function {
+    type Error = anyhow::Error;
+
+    fn try_from(val: Function) -> Result<Self, Self::Error> {
+        Ok(data_model::Function {
+            name: val.name.clone(),
+            fn_name: val.fn_name.clone(),
+            description: val.description.clone(),
+            placement_constraints: val.placement_constraints.try_into()?,
+            input_encoder: val.input_encoder.clone(),
+            output_encoder: val.output_encoder.clone(),
+            secret_names: Some(val.secret_names),
+            initialization_timeout: val.initialization_timeout.into(),
+            timeout: val.timeout.into(),
+            resources: val.resources.into(),
+            retry_policy: val.retry_policy.into(),
+            cache_key: val.cache_key.map(|v| v.into()),
+            parameters: val.parameters.into_iter().map(|p| p.into()).collect(),
+            return_type: val.return_type,
+            max_concurrency: val.max_concurrency,
+        })
+    }
+}
+
+impl From<data_model::Function> for Function {
+    fn from(c: data_model::Function) -> Self {
+        Self {
+            name: c.name,
+            fn_name: c.fn_name,
+            description: c.description,
+            input_encoder: c.input_encoder,
+            output_encoder: c.output_encoder,
+            secret_names: c.secret_names.unwrap_or_default(),
+            initialization_timeout: c.initialization_timeout.into(),
+            timeout: c.timeout.into(),
+            resources: c.resources.into(),
+            retry_policy: c.retry_policy.into(),
+            cache_key: c.cache_key.map(|v| v.into()),
+            parameters: c.parameters.into_iter().map(|p| p.into()).collect(),
+            return_type: c.return_type,
+            placement_constraints: c.placement_constraints.into(),
+            max_concurrency: c.max_concurrency,
+        }
     }
 }
 
@@ -549,6 +624,7 @@ pub struct FunctionAllowlist {
     pub namespace: Option<String>,
     pub application: Option<String>,
     pub function: Option<String>,
+    pub version: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ToSchema)]
@@ -586,13 +662,11 @@ pub struct FunctionExecutorMetadata {
     pub max_concurrency: u32,
     pub state: String,
     pub desired_state: String,
-    pub num_allocations: u32,
 }
 
 pub fn from_data_model_function_executor(
-    fe: data_model::Container,
-    desired_state: ContainerState,
-    num_allocations: u32,
+    fe: data_model::FunctionExecutor,
+    desired_state: FunctionExecutorState,
 ) -> FunctionExecutorMetadata {
     FunctionExecutorMetadata {
         id: fe.id.get().to_string(),
@@ -603,7 +677,6 @@ pub fn from_data_model_function_executor(
         max_concurrency: fe.max_concurrency,
         state: fe.state.to_string(),
         desired_state: desired_state.to_string(),
-        num_allocations,
     }
 }
 
@@ -628,7 +701,10 @@ pub struct ExecutorMetadata {
 pub fn from_data_model_executor_metadata(
     executor: data_model::ExecutorMetadata,
     free_resources: data_model::HostResources,
-    function_container_server_metadata: HashMap<ContainerId, Box<ContainerServerMetadata>>,
+    function_executor_server_metadata: HashMap<
+        FunctionExecutorId,
+        Box<FunctionExecutorServerMetadata>,
+    >,
 ) -> ExecutorMetadata {
     let function_allowlist = executor.function_allowlist.map(|allowlist| {
         allowlist
@@ -637,34 +713,29 @@ pub fn from_data_model_executor_metadata(
                 namespace: fn_uri.namespace.clone(),
                 application: fn_uri.application.clone(),
                 function: fn_uri.function.clone(),
+                version: fn_uri.version.clone(),
             })
             .collect()
     });
     let mut function_executors = Vec::new();
-    for (fe_id, fe) in executor.containers.iter() {
-        if let Some(fe_server_metadata) = function_container_server_metadata.get(fe_id) {
+    for (fe_id, fe) in executor.function_executors.iter() {
+        if let Some(fe_server_metadata) = function_executor_server_metadata.get(fe_id) {
             let desired_state = fe_server_metadata.desired_state.clone();
-            function_executors.push(from_data_model_function_executor(
-                fe.clone(),
-                desired_state,
-                fe_server_metadata.allocations.len() as u32,
-            ));
+            function_executors.push(from_data_model_function_executor(fe.clone(), desired_state));
         } else {
             function_executors.push(from_data_model_function_executor(
                 fe.clone(),
-                ContainerState::Unknown,
-                0,
+                FunctionExecutorState::Unknown,
             ));
         }
     }
-    let server_only_function_executors = function_container_server_metadata
+    let server_only_function_executors = function_executor_server_metadata
         .iter()
-        .filter(|(fe_id, _fe)| !executor.containers.contains_key(fe_id))
+        .filter(|(fe_id, _fe)| !executor.function_executors.contains_key(fe_id))
         .map(|(_fe_id, fe)| {
             from_data_model_function_executor(
-                fe.function_container.clone(),
+                fe.function_executor.clone(),
                 fe.desired_state.clone(),
-                fe.allocations.len() as u32,
             )
         })
         .collect();
@@ -820,7 +891,7 @@ pub struct UnallocatedFunctionRuns {
 pub struct FnExecutor {
     pub count: usize,
     pub function_executor_id: String,
-    pub fn_uri: Option<String>,
+    pub fn_uri: String,
     pub state: String,
     pub desired_state: String,
     pub allocations: Vec<Allocation>,
@@ -867,7 +938,7 @@ pub struct ApplicationVersion {
     pub namespace: String,
     pub version: String,
     pub functions: HashMap<String, ApplicationFunction>,
-    pub entrypoint: Option<EntryPointManifest>,
+    pub entrypoint: EntryPointManifest,
     pub created_at: u64,
     pub state: ApplicationState,
 }
@@ -882,7 +953,7 @@ impl From<data_model::ApplicationVersion> for ApplicationVersion {
         Self {
             name: application_version.name,
             namespace: application_version.namespace,
-            entrypoint: application_version.entrypoint.map(|e| e.into()),
+            entrypoint: application_version.entrypoint.into(),
             version: application_version.version,
             functions,
             created_at: application_version.created_at,
@@ -893,7 +964,7 @@ impl From<data_model::ApplicationVersion> for ApplicationVersion {
 
 #[cfg(test)]
 mod tests {
-    use crate::http_objects::PlacementConstraints;
+    use crate::http_objects::{Function, PlacementConstraints};
 
     #[test]
     fn test_labels_filter_conversion() {
@@ -931,5 +1002,28 @@ mod tests {
                 converted_back.filter_expressions
             );
         }
+    }
+
+    #[test]
+    fn test_function_with_placement_constraints() {
+        let json = r#"{"name": "test_fn", "fn_name": "test_fn", "description": "Test function", "is_api": false, "image_information": {"image_name": "test", "tag": "latest", "base_image": "python", "run_strs": [], "sdk_version":"1.0.0"}, "input_encoder": "cloudpickle", "output_encoder":"cloudpickle", "placement_constraints": {"filter_expressions": ["environment==production", "gpu_type==nvidia"]}}"#;
+
+        let function: Function = serde_json::from_str(json).unwrap();
+        assert_eq!(function.placement_constraints.filter_expressions.len(), 2);
+
+        // Test conversion to data model
+        let data_model_fn: crate::data_model::Function = function.try_into().unwrap();
+        assert_eq!(data_model_fn.placement_constraints.0.len(), 2);
+    }
+
+    #[test]
+    fn test_function_with_unparseable_placement_constraints() {
+        let json = r#"{"name": "test_fn", "fn_name": "test_fn", "description": "Test function", "is_api": false, "image_information": {"image_name": "test", "tag": "latest", "base_image": "python", "run_strs": [], "sdk_version":"1.0.0"}, "input_encoder": "cloudpickle", "output_encoder":"cloudpickle", "placement_constraints": {"filter_expressions": ["environment=production", "gpu_type=nvidia"]}}"#;
+
+        let function: Function = serde_json::from_str(json).unwrap();
+        assert_eq!(function.placement_constraints.filter_expressions.len(), 2);
+
+        // Test failed conversion to data model
+        assert!(<Function as TryInto<crate::data_model::Function>>::try_into(function).is_err());
     }
 }

@@ -9,27 +9,25 @@ use crate::{
     data_model::{
         AllocationOutputIngestedEvent,
         ChangeType,
-        CreateSandboxEvent,
         ExecutorId,
         ExecutorUpsertedEvent,
         FunctionCallEvent,
+        FunctionRunFailureReason,
+        FunctionRunOutcome,
         GraphUpdates,
         InvokeApplicationEvent,
         StateChange,
         StateChangeBuilder,
         StateChangeId,
-        TerminateSandboxEvent,
         TombstoneApplicationEvent,
         TombstoneRequestEvent,
     },
     state_store::requests::{
         AllocationOutput,
-        CreateSandboxRequest,
         DeleteApplicationRequest,
         DeleteRequestRequest,
         FunctionCallRequest,
         InvokeApplicationRequest,
-        TerminateSandboxRequest,
     },
     utils::get_epoch_time_in_ms,
 };
@@ -128,6 +126,13 @@ pub fn task_outputs_ingested(
     last_change_id: &AtomicU64,
     request: &AllocationOutput,
 ) -> Result<Vec<StateChange>> {
+    // If the allocation is cancelled, we don't need to trigger the scheduler for
+    // it.
+    if let FunctionRunOutcome::Failure(FunctionRunFailureReason::FunctionRunCancelled) =
+        request.allocation.outcome
+    {
+        return Ok(vec![]);
+    }
     let last_change_id = last_change_id.fetch_add(1, atomic::Ordering::Relaxed);
     let state_change = StateChangeBuilder::default()
         .namespace(Some(request.allocation.namespace.clone()))
@@ -177,47 +182,5 @@ pub fn upsert_executor(
         .application(None)
         .build()?;
 
-    Ok(vec![state_change])
-}
-
-pub fn create_sandbox(
-    last_change_id: &AtomicU64,
-    request: &CreateSandboxRequest,
-) -> Result<Vec<StateChange>> {
-    let last_change_id = last_change_id.fetch_add(1, atomic::Ordering::Relaxed);
-    let state_change = StateChangeBuilder::default()
-        .namespace(Some(request.sandbox.namespace.clone()))
-        .application(Some(request.sandbox.application.clone()))
-        .change_type(ChangeType::CreateSandbox(CreateSandboxEvent {
-            namespace: request.sandbox.namespace.clone(),
-            application: request.sandbox.application.clone(),
-            sandbox_id: request.sandbox.id.clone(),
-        }))
-        .created_at(get_epoch_time_in_ms())
-        .object_id(request.sandbox.id.to_string())
-        .id(StateChangeId::new(last_change_id))
-        .processed_at(None)
-        .build()?;
-    Ok(vec![state_change])
-}
-
-pub fn terminate_sandbox(
-    last_change_id: &AtomicU64,
-    request: &TerminateSandboxRequest,
-) -> Result<Vec<StateChange>> {
-    let last_change_id = last_change_id.fetch_add(1, atomic::Ordering::Relaxed);
-    let state_change = StateChangeBuilder::default()
-        .namespace(Some(request.namespace.clone()))
-        .application(Some(request.application.clone()))
-        .change_type(ChangeType::TerminateSandbox(TerminateSandboxEvent {
-            namespace: request.namespace.clone(),
-            application: request.application.clone(),
-            sandbox_id: request.sandbox_id.clone(),
-        }))
-        .created_at(get_epoch_time_in_ms())
-        .object_id(request.sandbox_id.to_string())
-        .id(StateChangeId::new(last_change_id))
-        .processed_at(None)
-        .build()?;
     Ok(vec![state_change])
 }

@@ -16,7 +16,6 @@ use derive_builder::Builder;
 use filter::LabelsFilter;
 use nanoid::nanoid;
 use serde::{Deserialize, Serialize};
-use serde_inline_default::serde_inline_default;
 use strum::Display;
 use tracing::info;
 
@@ -69,11 +68,11 @@ impl From<String> for ExecutorId {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct AllocationTarget {
     pub executor_id: ExecutorId,
-    pub function_executor_id: ContainerId,
+    pub function_executor_id: FunctionExecutorId,
 }
 
 impl AllocationTarget {
-    pub fn new(executor_id: ExecutorId, function_executor_id: ContainerId) -> Self {
+    pub fn new(executor_id: ExecutorId, function_executor_id: FunctionExecutorId) -> Self {
         Self {
             executor_id,
             function_executor_id,
@@ -291,6 +290,13 @@ impl FunctionRun {
         format!("{namespace}|{application}|{request_id}|")
     }
 
+    pub fn is_terminal(&self) -> bool {
+        matches!(
+            self.outcome,
+            Some(FunctionRunOutcome::Success) | Some(FunctionRunOutcome::Failure(_))
+        )
+    }
+
     /// Returns true if this function run has never been persisted to the
     /// database.
     pub fn is_new(&self) -> bool {
@@ -386,6 +392,10 @@ impl Default for FunctionRetryPolicy {
     }
 }
 
+fn default_data_encoder() -> String {
+    "cloudpickle".to_string()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Hash, Eq)]
 pub struct CacheKey(String);
 
@@ -407,15 +417,19 @@ impl fmt::Display for CacheKey {
     }
 }
 
-#[serde_inline_default]
+fn default_max_concurrency() -> u32 {
+    1
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct Function {
     pub name: String,
     pub description: String,
     pub placement_constraints: LabelsFilter,
-    #[serde_inline_default("cloudpickle".to_string())]
+    pub fn_name: String,
+    #[serde(default = "default_data_encoder")]
     pub input_encoder: String,
-    #[serde_inline_default("cloudpickle".to_string())]
+    #[serde(default = "default_data_encoder")]
     pub output_encoder: String,
     pub secret_names: Option<Vec<String>>,
     #[serde(default)]
@@ -431,12 +445,8 @@ pub struct Function {
     pub parameters: Vec<ParameterMetadata>,
     #[serde(default)]
     pub return_type: Option<serde_json::Value>,
-    #[serde_inline_default(1)]
+    #[serde(default = "default_max_concurrency")]
     pub max_concurrency: u32,
-    #[serde(default)]
-    pub min_containers: Option<u32>,
-    #[serde(default)]
-    pub max_containers: Option<u32>,
 }
 
 impl Function {
@@ -504,11 +514,7 @@ pub struct Application {
     pub created_at: u64,
     // Fields below are versioned. The version field is currently managed manually by users
     pub version: String,
-    #[serde(default)]
-    #[builder(default)]
-    pub code: Option<DataPayload>,
-    #[serde(default)]
-    #[builder(default)]
+    pub code: DataPayload,
     pub functions: HashMap<String, Function>,
     #[serde(default)]
     #[builder(default)]
@@ -519,9 +525,7 @@ pub struct Application {
     #[builder(default)]
     #[serde(default)]
     updated_at_clock: Option<u64>,
-    #[serde(default)]
-    #[builder(default)]
-    pub entrypoint: Option<ApplicationEntryPoint>,
+    pub entrypoint: ApplicationEntryPoint,
 }
 
 impl ApplicationBuilder {
@@ -704,15 +708,8 @@ pub struct ApplicationVersion {
     pub name: String,
     pub created_at: u64,
     pub version: String,
-    /// Code payload - required if functions exist
-    #[serde(default)]
-    #[builder(default)]
-    pub code: Option<DataPayload>,
-    /// Entrypoint - required if functions exist
-    #[serde(default)]
-    #[builder(default)]
-    pub entrypoint: Option<ApplicationEntryPoint>,
-    #[serde(default)]
+    pub code: DataPayload,
+    pub entrypoint: ApplicationEntryPoint,
     #[builder(default)]
     pub functions: HashMap<String, Function>,
     #[builder(default)]
@@ -1277,6 +1274,11 @@ impl Display for FunctionRunStatus {
     }
 }
 
+// FIXME Remove in next release
+fn default_executor_ver() -> String {
+    "0.2.17".to_string()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct FunctionURI {
     pub namespace: String,
@@ -1285,41 +1287,30 @@ pub struct FunctionURI {
     pub version: String,
 }
 
-impl From<&Allocation> for FunctionURI {
-    fn from(allocation: &Allocation) -> Self {
+impl From<&FunctionExecutorServerMetadata> for FunctionURI {
+    fn from(fe_meta: &FunctionExecutorServerMetadata) -> Self {
         FunctionURI {
-            namespace: allocation.namespace.clone(),
-            application: allocation.application.clone(),
-            function: allocation.function.clone(),
-            version: allocation.application_version.clone(),
+            namespace: fe_meta.function_executor.namespace.clone(),
+            application: fe_meta.function_executor.application_name.clone(),
+            function: fe_meta.function_executor.function_name.clone(),
+            version: fe_meta.function_executor.version.clone(),
         }
     }
 }
 
-impl From<&ContainerServerMetadata> for FunctionURI {
-    fn from(fe_meta: &ContainerServerMetadata) -> Self {
+impl From<&Box<FunctionExecutorServerMetadata>> for FunctionURI {
+    fn from(fe_meta: &Box<FunctionExecutorServerMetadata>) -> Self {
         FunctionURI {
-            namespace: fe_meta.function_container.namespace.clone(),
-            application: fe_meta.function_container.application_name.clone(),
-            function: fe_meta.function_container.function_name.clone(),
-            version: fe_meta.function_container.version.clone(),
+            namespace: fe_meta.function_executor.namespace.clone(),
+            application: fe_meta.function_executor.application_name.clone(),
+            function: fe_meta.function_executor.function_name.clone(),
+            version: fe_meta.function_executor.version.clone(),
         }
     }
 }
 
-impl From<&Box<ContainerServerMetadata>> for FunctionURI {
-    fn from(fe_meta: &Box<ContainerServerMetadata>) -> Self {
-        FunctionURI {
-            namespace: fe_meta.function_container.namespace.clone(),
-            application: fe_meta.function_container.application_name.clone(),
-            function: fe_meta.function_container.function_name.clone(),
-            version: fe_meta.function_container.version.clone(),
-        }
-    }
-}
-
-impl From<&Container> for FunctionURI {
-    fn from(fe: &Container) -> Self {
+impl From<&FunctionExecutor> for FunctionURI {
+    fn from(fe: &FunctionExecutor) -> Self {
         FunctionURI {
             namespace: fe.namespace.clone(),
             application: fe.application_name.clone(),
@@ -1412,7 +1403,7 @@ impl HostResources {
     }
 
     // If can't handle, returns error that describes the reason why.
-    pub fn can_handle_fe_resources(&self, request: &ContainerResources) -> Result<()> {
+    pub fn can_handle_fe_resources(&self, request: &FunctionExecutorResources) -> Result<()> {
         let requested_memory_bytes = request.memory_mb * 1024 * 1024;
         let requested_disk_bytes = request.ephemeral_disk_mb * 1024 * 1024;
 
@@ -1445,7 +1436,7 @@ impl HostResources {
 
     // If can't handle, returns error that describes the reason why.
     pub fn can_handle_function_resources(&self, request: &FunctionResources) -> Result<()> {
-        let fe_resources_no_gpu = ContainerResources {
+        let fe_resources_no_gpu = FunctionExecutorResources {
             cpu_ms_per_sec: request.cpu_ms_per_sec,
             memory_mb: request.memory_mb,
             ephemeral_disk_mb: request.ephemeral_disk_mb,
@@ -1466,7 +1457,7 @@ impl HostResources {
         result
     }
 
-    pub fn consume_fe_resources(&mut self, request: &ContainerResources) -> Result<()> {
+    pub fn consume_fe_resources(&mut self, request: &FunctionExecutorResources) -> Result<()> {
         self.can_handle_fe_resources(request)?;
 
         // Allocate the resources only after all the checks passed to not leak anything
@@ -1486,8 +1477,8 @@ impl HostResources {
     pub fn consume_function_resources(
         &mut self,
         request: &FunctionResources,
-    ) -> Result<ContainerResources> {
-        let fe_resources_no_gpu = ContainerResources {
+    ) -> Result<FunctionExecutorResources> {
+        let fe_resources_no_gpu = FunctionExecutorResources {
             cpu_ms_per_sec: request.cpu_ms_per_sec,
             memory_mb: request.memory_mb,
             ephemeral_disk_mb: request.ephemeral_disk_mb,
@@ -1514,7 +1505,7 @@ impl HostResources {
         ))
     }
 
-    pub fn free(&mut self, allocated_resources: &ContainerResources) -> Result<()> {
+    pub fn free(&mut self, allocated_resources: &FunctionExecutorResources) -> Result<()> {
         self.cpu_ms_per_sec += allocated_resources.cpu_ms_per_sec;
         self.memory_bytes += allocated_resources.memory_mb * 1024 * 1024;
         self.disk_bytes += allocated_resources.ephemeral_disk_mb * 1024 * 1024;
@@ -1552,8 +1543,8 @@ pub enum ExecutorState {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ContainerId(String);
-impl ContainerId {
+pub struct FunctionExecutorId(String);
+impl FunctionExecutorId {
     pub fn new(id: String) -> Self {
         Self(id)
     }
@@ -1562,31 +1553,19 @@ impl ContainerId {
         &self.0
     }
 }
-impl Default for ContainerId {
+impl Default for FunctionExecutorId {
     fn default() -> Self {
         Self::new(nanoid::nanoid!())
     }
 }
 
-impl From<&str> for ContainerId {
+impl From<&str> for FunctionExecutorId {
     fn from(s: &str) -> Self {
         Self::new(s.to_string())
     }
 }
 
-impl From<SandboxId> for ContainerId {
-    fn from(id: SandboxId) -> Self {
-        Self::new(id.0)
-    }
-}
-
-impl From<&SandboxId> for ContainerId {
-    fn from(id: &SandboxId) -> Self {
-        Self::new(id.0.clone())
-    }
-}
-
-impl fmt::Display for ContainerId {
+impl fmt::Display for FunctionExecutorId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", &self.0)
     }
@@ -1595,7 +1574,7 @@ impl fmt::Display for ContainerId {
 #[derive(
     Debug, Clone, Serialize, Deserialize, PartialEq, Default, strum::AsRefStr, Display, Eq, Hash,
 )]
-pub enum ContainerState {
+pub enum FunctionExecutorState {
     #[default]
     Unknown,
     // Function Executor is being created.
@@ -1684,10 +1663,11 @@ pub struct FunctionAllowlist {
     pub namespace: Option<String>,
     pub application: Option<String>,
     pub function: Option<String>,
+    pub version: Option<String>,
 }
 
 impl FunctionAllowlist {
-    pub fn matches_function_executor(&self, function_executor: &Container) -> bool {
+    pub fn matches_function_executor(&self, function_executor: &FunctionExecutor) -> bool {
         self.namespace
             .as_ref()
             .is_none_or(|ns| ns == &function_executor.namespace) &&
@@ -1696,35 +1676,30 @@ impl FunctionAllowlist {
                 .is_none_or(|cg_name| cg_name == &function_executor.application_name) &&
             self.function
                 .as_ref()
-                .is_none_or(|fn_name| fn_name == &function_executor.function_name)
+                .is_none_or(|fn_name| fn_name == &function_executor.function_name) &&
+            self.version
+                .as_ref()
+                .is_none_or(|version| version == &function_executor.version)
     }
 
-    pub fn matches_function(&self, ns: &str, app: &str, function: &Function) -> bool {
+    pub fn matches_function(&self, function_run: &FunctionRun) -> bool {
         self.namespace
             .as_ref()
-            .is_none_or(|namespace| namespace == ns) &&
+            .is_none_or(|ns| ns == &function_run.namespace) &&
             self.application
                 .as_ref()
-                .is_none_or(|application| application == app) &&
+                .is_none_or(|cg_name| cg_name == &function_run.application) &&
             self.function
                 .as_ref()
-                .is_none_or(|function_name| function_name == &function.name)
-    }
-
-    /// Check if allowlist permits a namespace/application (ignoring function).
-    /// Used for sandboxes which don't have a specific function.
-    pub fn matches_app(&self, ns: &str, app: &str) -> bool {
-        self.namespace
-            .as_ref()
-            .is_none_or(|namespace| namespace == ns) &&
-            self.application
+                .is_none_or(|fn_name| fn_name == &function_run.name) &&
+            self.version
                 .as_ref()
-                .is_none_or(|application| application == app)
+                .is_none_or(|version| version == &function_run.version)
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Builder, Eq, PartialEq)]
-pub struct ContainerResources {
+pub struct FunctionExecutorResources {
     pub cpu_ms_per_sec: u32,
     pub memory_mb: u64,
     pub ephemeral_disk_mb: u64,
@@ -1757,45 +1732,17 @@ impl GcUrl {
     }
 }
 
-#[serde_inline_default]
 #[derive(Debug, Clone, Serialize, Deserialize, Builder)]
-pub struct Container {
+pub struct FunctionExecutor {
     #[builder(default)]
-    pub id: ContainerId,
+    pub id: FunctionExecutorId,
     pub namespace: String,
     pub application_name: String,
     pub function_name: String,
     pub version: String,
-    pub state: ContainerState,
-    pub resources: ContainerResources,
+    pub state: FunctionExecutorState,
+    pub resources: FunctionExecutorResources,
     pub max_concurrency: u32,
-    #[builder(default)]
-    #[serde(default)]
-    pub container_type: ContainerType,
-    /// docker image to use for the sandbox
-    #[builder(default)]
-    #[serde_inline_default(Some("python:3.13-slim".into()))]
-    pub image: Option<String>,
-    #[builder(default)]
-    #[serde(default)]
-    pub secret_names: Vec<String>,
-    /// Timeout in seconds for sandbox containers. 0 means no timeout.
-    /// Only applicable to sandbox-type containers.
-    #[builder(default)]
-    #[serde_inline_default(300)]
-    pub timeout_secs: u64,
-    /// Optional entrypoint command for sandbox containers.
-    #[builder(default)]
-    #[serde(default)]
-    pub entrypoint: Vec<String>,
-    /// HTTP address of the sandbox API (host:port).
-    #[builder(default)]
-    #[serde(default)]
-    pub sandbox_http_address: Option<String>,
-    /// Network access control policy for sandbox containers.
-    #[builder(default)]
-    #[serde(default)]
-    pub network_policy: Option<NetworkPolicy>,
     #[builder(default)]
     #[serde(default)]
     created_at_clock: Option<u64>,
@@ -1808,60 +1755,41 @@ pub struct Container {
 // so created_at_clock and updated_at_clock are currently unused but kept
 // for future use if ExecutorMetadata becomes persisted.
 
-impl PartialEq for Container {
+impl PartialEq for FunctionExecutor {
     fn eq(&self, other: &Self) -> bool {
         self.id == other.id
     }
 }
 
-impl Eq for Container {}
+impl Eq for FunctionExecutor {}
 
-impl Hash for Container {
+impl Hash for FunctionExecutor {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.id.hash(state);
     }
 }
 
-impl Container {
-    pub fn update(&mut self, other: &Container) {
+impl FunctionExecutor {
+    pub fn fn_uri_str(&self) -> String {
+        format!(
+            "{}|{}|{}|{}",
+            self.namespace, self.application_name, self.function_name, self.version,
+        )
+    }
+
+    pub fn update(&mut self, other: &FunctionExecutor) {
         // Only update fields that change after self FE was created.
-        // Other FE must represent the same FE.
+        // Other FE mush represent the same FE.
         self.state = other.state.clone();
-        // Update sandbox_http_address if reported by executor
-        if other.sandbox_http_address.is_some() {
-            self.sandbox_http_address = other.sandbox_http_address.clone();
-        }
     }
 }
 
 #[derive(Debug, Clone, Builder)]
 pub struct ExecutorServerMetadata {
     pub executor_id: ExecutorId,
-    pub function_container_ids: HashSet<ContainerId>,
+    pub function_executors: HashMap<FunctionExecutorId, Box<FunctionExecutorServerMetadata>>,
     pub free_resources: HostResources,
-    pub resource_claims: HashMap<ContainerId, ContainerResources>,
-}
-
-impl ExecutorServerMetadata {
-    pub fn remove_container(&mut self, container: &Container) -> Result<()> {
-        self.function_container_ids.remove(&container.id);
-        if let Some(existing_claim) = self.resource_claims.get(&container.id) {
-            self.free_resources.free(existing_claim)?;
-        }
-        self.resource_claims.remove(&container.id);
-        Ok(())
-    }
-
-    pub fn add_container(&mut self, container: &Container) -> Result<()> {
-        self.function_container_ids.insert(container.id.clone());
-        if let Some(_existing_claim) = self.resource_claims.get(&container.id) {
-            return Ok(());
-        }
-        self.resource_claims
-            .insert(container.id.clone(), container.resources.clone());
-        self.free_resources
-            .consume_fe_resources(&container.resources)
-    }
+    pub resource_claims: HashMap<FunctionExecutorId, FunctionExecutorResources>,
 }
 
 impl Eq for ExecutorServerMetadata {}
@@ -1878,76 +1806,56 @@ impl Hash for ExecutorServerMetadata {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Default)]
-pub enum ContainerType {
-    Sandbox,
-    #[default]
-    Function,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, Builder)]
-pub struct ContainerServerMetadata {
+pub struct FunctionExecutorServerMetadata {
     pub executor_id: ExecutorId,
-    pub function_container: Container,
-    pub desired_state: ContainerState,
-    #[builder(default)]
-    pub container_type: ContainerType,
-    #[builder(default)]
-    #[serde(default)]
-    pub allocations: HashSet<AllocationId>,
+    pub function_executor: FunctionExecutor,
+    pub desired_state: FunctionExecutorState,
 }
 
-impl Eq for ContainerServerMetadata {}
+impl Eq for FunctionExecutorServerMetadata {}
 
-impl PartialEq for ContainerServerMetadata {
+impl PartialEq for FunctionExecutorServerMetadata {
     fn eq(&self, other: &Self) -> bool {
         self.executor_id == other.executor_id &&
-            self.function_container.id == other.function_container.id
+            self.function_executor.id == other.function_executor.id
     }
 }
 
-impl Hash for ContainerServerMetadata {
+impl Hash for FunctionExecutorServerMetadata {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.executor_id.hash(state);
-        self.function_container.id.hash(state);
+        self.function_executor.id.hash(state);
     }
 }
 
-impl ContainerServerMetadata {
+impl FunctionExecutorServerMetadata {
     pub fn new(
         executor_id: ExecutorId,
-        function_executor: Container,
-        desired_state: ContainerState,
+        function_executor: FunctionExecutor,
+        desired_state: FunctionExecutorState,
     ) -> Self {
-        let container_type = function_executor.container_type.clone();
         Self {
             executor_id,
-            function_container: function_executor,
+            function_executor,
             desired_state,
-            container_type,
-            allocations: HashSet::new(),
         }
     }
 
-    pub fn can_be_removed(&self) -> bool {
-        // A container can only be vacuumed if:
-        // 1. It's a Function container (not a Sandbox)
-        // 2. AND it has no running allocations
-        self.container_type == ContainerType::Function && self.allocations.is_empty()
+    pub fn fn_uri_str(&self) -> String {
+        self.function_executor.fn_uri_str()
     }
 }
 
-#[serde_inline_default]
 #[derive(Debug, Clone, Serialize, Deserialize, Builder)]
 pub struct ExecutorMetadata {
     pub id: ExecutorId,
-    // FIXME Remove in next release
-    #[serde_inline_default("0.2.17".to_string())]
+    #[serde(default = "default_executor_ver")]
     pub executor_version: String,
     pub function_allowlist: Option<Vec<FunctionAllowlist>>,
     pub addr: String,
     pub labels: HashMap<String, String>,
-    pub containers: HashMap<ContainerId, Container>,
+    pub function_executors: HashMap<FunctionExecutorId, FunctionExecutor>,
     pub host_resources: HostResources,
     pub state: ExecutorState,
     #[builder(default)]
@@ -1970,28 +1878,11 @@ pub struct ExecutorMetadata {
 // for future use if ExecutorMetadata becomes persisted.
 
 impl ExecutorMetadata {
-    pub fn is_function_allowed(
-        &self,
-        namespace: &str,
-        application: &str,
-        function: &Function,
-    ) -> bool {
+    pub fn is_function_allowed(&self, function_run: &FunctionRun) -> bool {
         if let Some(function_allowlist) = &self.function_allowlist {
             function_allowlist
                 .iter()
-                .any(|allowlist| allowlist.matches_function(namespace, application, function))
-        } else {
-            true
-        }
-    }
-
-    /// Check if executor's allowlist permits a namespace/application.
-    /// Used for sandboxes which don't have a specific function.
-    pub fn is_app_allowed(&self, namespace: &str, application: &str) -> bool {
-        if let Some(function_allowlist) = &self.function_allowlist {
-            function_allowlist
-                .iter()
-                .any(|allowlist| allowlist.matches_app(namespace, application))
+                .any(|allowlist| allowlist.matches_function(function_run))
         } else {
             true
         }
@@ -1999,7 +1890,7 @@ impl ExecutorMetadata {
 
     pub fn update(&mut self, update: ExecutorMetadata) {
         self.function_allowlist = update.function_allowlist;
-        self.containers = update.containers;
+        self.function_executors = update.function_executors;
         self.state = update.state;
         self.state_hash = update.state_hash;
         self.clock = update.clock;
@@ -2075,8 +1966,6 @@ pub enum ChangeType {
     TombstoneRequest(TombstoneRequestEvent),
     ExecutorUpserted(ExecutorUpsertedEvent),
     TombStoneExecutor(ExecutorRemovedEvent),
-    CreateSandbox(CreateSandboxEvent),
-    TerminateSandbox(TerminateSandboxEvent),
 }
 
 impl fmt::Display for ChangeType {
@@ -2116,16 +2005,6 @@ impl fmt::Display for ChangeType {
                 f,
                 "TombstoneRequest, namespace: {}, app: {}, request_id: {}",
                 ev.namespace, ev.application, ev.request_id
-            ),
-            ChangeType::CreateSandbox(ev) => write!(
-                f,
-                "CreateSandbox, namespace: {}, app: {}, sandbox_id: {}",
-                ev.namespace, ev.application, ev.sandbox_id
-            ),
-            ChangeType::TerminateSandbox(ev) => write!(
-                f,
-                "TerminateSandbox, namespace: {}, app: {}, sandbox_id: {}",
-                ev.namespace, ev.application, ev.sandbox_id
             ),
         }
     }
@@ -2293,270 +2172,6 @@ impl AllocationUsageEvent {
     }
 }
 
-// ================================
-// Sandbox Types
-// ================================
-
-/// Unique identifier for a sandbox instance
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct SandboxId(pub String);
-
-impl SandboxId {
-    pub fn new(id: String) -> Self {
-        Self(id)
-    }
-
-    pub fn get(&self) -> &str {
-        &self.0
-    }
-}
-
-impl Default for SandboxId {
-    fn default() -> Self {
-        Self(nanoid!())
-    }
-}
-
-impl Display for SandboxId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl From<&str> for SandboxId {
-    fn from(s: &str) -> Self {
-        Self(s.to_string())
-    }
-}
-
-impl From<String> for SandboxId {
-    fn from(s: String) -> Self {
-        Self(s)
-    }
-}
-
-/// Status of a sandbox instance
-#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum SandboxStatus {
-    /// Sandbox is waiting for executor allocation
-    #[default]
-    Pending,
-    /// Sandbox container is running
-    Running,
-    /// Sandbox container has terminated
-    Terminated,
-}
-
-impl Display for SandboxStatus {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            SandboxStatus::Pending => write!(f, "Pending"),
-            SandboxStatus::Running => write!(f, "Running"),
-            SandboxStatus::Terminated => write!(f, "Terminated"),
-        }
-    }
-}
-
-/// Outcome of a terminated sandbox
-#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum SandboxOutcome {
-    #[default]
-    Unknown,
-    /// Sandbox completed successfully (user terminated)
-    Success,
-    /// Sandbox failed due to an error
-    Failure(SandboxFailureReason),
-}
-
-impl Display for SandboxOutcome {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            SandboxOutcome::Unknown => write!(f, "Unknown"),
-            SandboxOutcome::Success => write!(f, "Success"),
-            SandboxOutcome::Failure(reason) => write!(f, "Failure({reason})"),
-        }
-    }
-}
-
-/// Reason for sandbox failure
-#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum SandboxFailureReason {
-    #[default]
-    Unknown,
-    /// Internal platform error
-    InternalError,
-    /// Sandbox timed out
-    Timeout,
-    /// No executor could satisfy placement constraints
-    ConstraintUnsatisfiable,
-    /// Executor was removed
-    ExecutorRemoved,
-    /// Out of memory
-    OutOfMemory,
-    /// Container startup failed
-    ContainerStartupFailed,
-    /// Container terminated (with reason from executor)
-    ContainerTerminated(FunctionExecutorTerminationReason),
-}
-
-impl Display for SandboxFailureReason {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            SandboxFailureReason::Unknown => write!(f, "Unknown"),
-            SandboxFailureReason::InternalError => write!(f, "InternalError"),
-            SandboxFailureReason::Timeout => write!(f, "Timeout"),
-            SandboxFailureReason::ConstraintUnsatisfiable => write!(f, "ConstraintUnsatisfiable"),
-            SandboxFailureReason::ExecutorRemoved => write!(f, "ExecutorRemoved"),
-            SandboxFailureReason::OutOfMemory => write!(f, "OutOfMemory"),
-            SandboxFailureReason::ContainerStartupFailed => write!(f, "ContainerStartupFailed"),
-            SandboxFailureReason::ContainerTerminated(reason) => {
-                write!(f, "ContainerTerminated({reason})")
-            }
-        }
-    }
-}
-
-/// Key for sandbox storage: namespace|application|sandbox_id
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct SandboxKey(pub String);
-
-impl SandboxKey {
-    pub fn new(namespace: &str, application: &str, sandbox_id: &str) -> Self {
-        Self(format!("{namespace}|{application}|{sandbox_id}"))
-    }
-
-    pub fn from_sandbox(sandbox: &Sandbox) -> Self {
-        Self::new(&sandbox.namespace, &sandbox.application, sandbox.id.get())
-    }
-}
-
-impl Display for SandboxKey {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl From<&Sandbox> for SandboxKey {
-    fn from(sandbox: &Sandbox) -> Self {
-        SandboxKey::from_sandbox(sandbox)
-    }
-}
-
-impl From<String> for SandboxKey {
-    fn from(s: String) -> Self {
-        SandboxKey(s)
-    }
-}
-
-impl From<&String> for SandboxKey {
-    fn from(s: &String) -> Self {
-        SandboxKey(s.clone())
-    }
-}
-
-/// Network access control policy for sandbox containers.
-/// Rules are applied using host-level iptables on the DOCKER-USER chain.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
-pub struct NetworkPolicy {
-    /// If false, all outbound internet access is blocked by default (DROP).
-    /// If true (default), outbound is allowed unless explicitly denied.
-    #[serde(default = "default_true")]
-    pub allow_internet_access: bool,
-    /// List of allowed destination IPs/CIDRs (e.g., "8.8.8.8", "10.0.0.0/8").
-    /// Allow rules take precedence over deny rules.
-    #[serde(default)]
-    pub allow_out: Vec<String>,
-    /// List of denied destination IPs/CIDRs (e.g., "192.168.1.100").
-    #[serde(default)]
-    pub deny_out: Vec<String>,
-}
-
-fn default_true() -> bool {
-    true
-}
-
-/// A sandbox instance that provides an interactive container environment
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Builder)]
-pub struct Sandbox {
-    pub id: SandboxId,
-    pub namespace: String,
-    pub application: String,
-    pub application_version: String,
-    /// Docker image to use
-    pub image: String,
-    #[builder(default)]
-    pub status: SandboxStatus,
-    #[builder(default)]
-    pub outcome: Option<SandboxOutcome>,
-    #[builder(default = "self.default_creation_time_ns()")]
-    pub creation_time_ns: u128,
-    #[builder(default)]
-    #[serde(default)]
-    created_at_clock: Option<u64>,
-    #[builder(default)]
-    #[serde(default)]
-    updated_at_clock: Option<u64>,
-    pub resources: ContainerResources,
-    #[builder(default)]
-    pub secret_names: Vec<String>,
-    #[builder(default)]
-    pub timeout_secs: u64,
-    /// The Executor ID where the sandbox is running
-    #[builder(default)]
-    pub executor_id: Option<ExecutorId>,
-    /// Optional entrypoint command to run when sandbox starts
-    #[builder(default)]
-    pub entrypoint: Option<Vec<String>>,
-    /// HTTP address of the sandbox API (host:port).
-    /// Only set when the container is running and daemon is ready.
-    #[builder(default)]
-    pub sandbox_http_address: Option<String>,
-    /// Network access control policy for this sandbox.
-    #[builder(default)]
-    #[serde(default)]
-    pub network_policy: Option<NetworkPolicy>,
-}
-
-impl SandboxBuilder {
-    fn default_creation_time_ns(&self) -> u128 {
-        get_epoch_time_in_ns()
-    }
-}
-
-impl Sandbox {
-    /// Returns the storage key for this sandbox
-    pub fn key(&self) -> String {
-        format!("{}|{}|{}", self.namespace, self.application, self.id.0)
-    }
-
-    /// Prepares the sandbox for persistence by setting the server clock
-    pub fn prepare_for_persistence(&mut self, clock: u64) {
-        if self.created_at_clock.is_none() {
-            self.created_at_clock = Some(clock);
-        }
-        self.updated_at_clock = Some(clock);
-    }
-}
-
-/// Event for creating a sandbox
-#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
-pub struct CreateSandboxEvent {
-    pub namespace: String,
-    pub application: String,
-    pub sandbox_id: SandboxId,
-}
-
-/// Event for terminating a sandbox
-#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
-pub struct TerminateSandboxEvent {
-    pub namespace: String,
-    pub application: String,
-    pub sandbox_id: SandboxId,
-}
-
 #[cfg(test)]
 mod tests {
     use std::{collections::HashMap, time::Duration};
@@ -2587,7 +2202,7 @@ mod tests {
                 ("fn_c".to_string(), fn_c.clone()),
             ]))
             .version("1".to_string())
-            .code(Some(DataPayload {
+            .code(DataPayload {
                 id: "code_id".to_string(),
                 path: "cgc_path".to_string(),
                 size: 23,
@@ -2595,14 +2210,14 @@ mod tests {
                 encoding: "application/octet-stream".to_string(),
                 metadata_size: 0,
                 offset: 0,
-            }))
+            })
             .created_at(5)
-            .entrypoint(Some(ApplicationEntryPoint {
+            .entrypoint(ApplicationEntryPoint {
                 function_name: "fn_a".to_string(),
                 input_serializer: "json".to_string(),
                 output_serializer: "json".to_string(),
                 output_type_hints_base64: "".to_string(),
-            }))
+            })
             .build()
             .unwrap();
 
@@ -2659,26 +2274,26 @@ mod tests {
                 description: "changing code with version change should change code",
                 update: Application {
                     version: "2".to_string(), // different
-                    code: Some(DataPayload {
+                    code: DataPayload {
                         sha256_hash: "hash_code2".to_string(), // different
-                        ..original_application.code.clone().unwrap()
-                    }),
+                        ..original_application.code.clone()
+                    },
                     ..original_application.clone()
                 },
                 expected_graph: Application {
                     version: "2".to_string(), // different
-                    code: Some(DataPayload {
+                    code: DataPayload {
                         sha256_hash: "hash_code2".to_string(), // different
-                        ..original_application.code.clone().unwrap()
-                    }),
+                        ..original_application.code.clone()
+                    },
                     ..original_application.clone()
                 },
                 expected_version: ApplicationVersion {
                     version: "2".to_string(),
-                    code: Some(DataPayload {
+                    code: DataPayload {
                         sha256_hash: "hash_code2".to_string(), // different
-                        ..original_application.code.clone().unwrap()
-                    }),
+                        ..original_application.code.clone()
+                    },
                     ..original_version.clone()
                 },
             },
@@ -2703,32 +2318,32 @@ mod tests {
                 description: "changing start function with entrypoint change should change start function",
                 update: Application {
                     version: "2".to_string(), // different
-                    entrypoint: Some(ApplicationEntryPoint {
+                    entrypoint: ApplicationEntryPoint {
                         function_name: "fn_b".to_string(), // different
                         input_serializer: "json".to_string(),
                         output_serializer: "json".to_string(),
                         output_type_hints_base64: "".to_string(),
-                    }),
+                    },
                     ..original_application.clone()
                 },
                 expected_graph: Application {
                     version: "2".to_string(),
-                    entrypoint: Some(ApplicationEntryPoint {
+                    entrypoint: ApplicationEntryPoint {
                         function_name: "fn_b".to_string(), // different
                         input_serializer: "json".to_string(),
                         output_serializer: "json".to_string(),
                         output_type_hints_base64: "".to_string(),
-                    }),
+                    },
                     ..original_application.clone()
                 },
                 expected_version: ApplicationVersion {
                     version: "2".to_string(),
-                    entrypoint: Some(ApplicationEntryPoint {
+                    entrypoint: ApplicationEntryPoint {
                         function_name: "fn_b".to_string(), // different
                         input_serializer: "json".to_string(),
                         output_serializer: "json".to_string(),
                         output_type_hints_base64: "".to_string(),
-                    }),
+                    },
                     ..original_version.clone()
                 },
             },
@@ -2939,7 +2554,7 @@ mod tests {
             .state(ApplicationState::Active)
             .functions(HashMap::from([("fn_a".to_string(), fn_a.clone())]))
             .version(application_version.clone())
-            .code(Some(DataPayload {
+            .code(DataPayload {
                 id: "code_id".to_string(),
                 encoding: "application/octet-stream".to_string(),
                 metadata_size: 0,
@@ -2947,14 +2562,14 @@ mod tests {
                 path: "path".to_string(),
                 size: 1,
                 sha256_hash: "hash".to_string(),
-            }))
+            })
             .created_at(123)
-            .entrypoint(Some(ApplicationEntryPoint {
+            .entrypoint(ApplicationEntryPoint {
                 function_name: "fn_a".to_string(),
                 input_serializer: "json".to_string(),
                 output_serializer: "json".to_string(),
                 output_type_hints_base64: "".to_string(),
-            }))
+            })
             .build()
             .unwrap();
 
@@ -3009,13 +2624,13 @@ mod tests {
 
     #[test]
     fn test_function_executor_builder_build_success() {
-        let id: ContainerId = "fe-123".into();
+        let id: FunctionExecutorId = "fe-123".into();
         let namespace = "test-ns".to_string();
         let application_name = "graph".to_string();
         let function_name = "fn".to_string();
         let version = "1".to_string();
-        let state = ContainerState::Running;
-        let resources = ContainerResources {
+        let state = FunctionExecutorState::Running;
+        let resources = FunctionExecutorResources {
             cpu_ms_per_sec: 2000,
             memory_mb: 4096,
             ephemeral_disk_mb: 2048,
@@ -3026,7 +2641,7 @@ mod tests {
         };
         let max_concurrency = 4;
 
-        let mut builder = ContainerBuilder::default();
+        let mut builder = FunctionExecutorBuilder::default();
         builder
             .id(id.clone())
             .namespace(namespace.clone())
@@ -3086,20 +2701,21 @@ mod tests {
             namespace: Some("ns".to_string()),
             application: Some("graph".to_string()),
             function: Some("fn".to_string()),
+            version: Some("1".to_string()),
         }]);
         let addr = "127.0.0.1:8080".to_string();
         let labels = HashMap::from([("role".to_string(), "worker".to_string())]);
-        let fe_id = ContainerId::from("fe-1");
+        let fe_id = FunctionExecutorId::from("fe-1");
         let function_executors = HashMap::from([(
             fe_id.clone(),
-            ContainerBuilder::default()
+            FunctionExecutorBuilder::default()
                 .id(fe_id.clone())
                 .namespace("ns".to_string())
                 .application_name("graph".to_string())
                 .function_name("fn".to_string())
                 .version("1".to_string())
-                .state(ContainerState::Running)
-                .resources(ContainerResources {
+                .state(FunctionExecutorState::Running)
+                .resources(FunctionExecutorResources {
                     cpu_ms_per_sec: 1000,
                     memory_mb: 1024,
                     ephemeral_disk_mb: 1024,
@@ -3127,7 +2743,7 @@ mod tests {
             .function_allowlist(function_allowlist.clone())
             .addr(addr.clone())
             .labels(labels.clone())
-            .containers(function_executors.clone())
+            .function_executors(function_executors.clone())
             .host_resources(host_resources.clone())
             .state(state.clone())
             .tombstoned(tombstoned)
@@ -3141,7 +2757,7 @@ mod tests {
         assert_eq!(metadata.function_allowlist, function_allowlist);
         assert_eq!(metadata.addr, addr);
         assert_eq!(metadata.labels, labels);
-        assert_eq!(metadata.containers, function_executors);
+        assert_eq!(metadata.function_executors, function_executors);
         assert_eq!(metadata.host_resources, host_resources);
         assert_eq!(metadata.state, state);
         assert_eq!(metadata.tombstoned, tombstoned);

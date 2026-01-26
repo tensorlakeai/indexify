@@ -21,7 +21,7 @@ use crate::{
 struct ApplicationCreateType {
     application: http_objects_v1::Application,
     #[schema(format = "binary")]
-    code: Option<String>,
+    code: String,
 }
 
 /// Create or update an application
@@ -94,12 +94,13 @@ pub async fn create_or_update_application(
         "application manifest is required",
     ))?;
 
-    // Code is optional - only required if the application has functions
-    let code_info = put_result
-        .as_ref()
-        .map(|r| (r.url.as_str(), r.sha256_hash.as_str(), r.size_bytes));
+    let put_result = put_result.ok_or(IndexifyAPIError::bad_request("Code is required"))?;
 
-    let application = application_manifest.into_data_model(code_info)?;
+    let application = application_manifest.into_data_model(
+        &put_result.url,
+        &put_result.sha256_hash,
+        put_result.size_bytes,
+    )?;
 
     validate_and_submit_application(
         &state,

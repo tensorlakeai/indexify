@@ -72,20 +72,16 @@ impl From<ApplicationState> for data_model::ApplicationState {
 pub struct Application {
     pub name: String,
     pub namespace: String,
-    #[serde(default)]
     pub description: String,
     // This is not supplied by the client, do we need this here?
     #[serde(default)]
     pub tombstoned: bool,
     pub version: String,
-    #[serde(default)]
     pub tags: HashMap<String, String>,
-    #[serde(default)]
     pub functions: HashMap<String, ApplicationFunction>,
     #[serde(default = "get_epoch_time_in_ms")]
     pub created_at: u64,
-    #[serde(default)]
-    pub entrypoint: Option<EntryPointManifest>,
+    pub entrypoint: EntryPointManifest,
     // state is not something that a client should be able to set.
     // It's managed by the "change-state" internal endpoint.
     #[serde(default, skip_deserializing)]
@@ -95,7 +91,9 @@ pub struct Application {
 impl Application {
     pub fn into_data_model(
         self,
-        code_info: Option<(&str, &str, u64)>, // (code_path, sha256_hash, size) - optional
+        code_path: &str,
+        sha256_hash: &str,
+        size: u64,
     ) -> Result<data_model::Application, IndexifyAPIError> {
         let mut functions = HashMap::new();
         for (name, node) in self.functions {
@@ -107,47 +105,11 @@ impl Application {
             })?;
             functions.insert(name, converted_node);
         }
-
-        // Validate: if functions exist, entrypoint is required
-        let entrypoint = if !functions.is_empty() {
-            let Some(ep) = self.entrypoint else {
-                return Err(IndexifyAPIError::bad_request(
-                    "a function marked as @application is required when functions are defined",
-                ));
-            };
-            let Some(_start_fn) = functions.get(&ep.function_name) else {
-                return Err(IndexifyAPIError::bad_request(&format!(
-                    "Entry point function '{}' not found",
-                    ep.function_name
-                )));
-            };
-            Some(data_model::ApplicationEntryPoint {
-                function_name: ep.function_name,
-                input_serializer: ep.input_serializer,
-                output_serializer: ep.output_serializer,
-                output_type_hints_base64: ep.output_type_hints_base64,
-            })
-        } else {
-            None
-        };
-
-        let code = if !functions.is_empty() {
-            let Some((code_path, sha256_hash, size)) = code_info else {
-                return Err(IndexifyAPIError::bad_request(
-                    "Code is required when functions are defined",
-                ));
-            };
-            Some(data_model::DataPayload {
-                id: nanoid::nanoid!(),
-                metadata_size: 0,
-                offset: 0,
-                encoding: DataPayloadEncoding::BinaryZip.as_str_name().into(),
-                sha256_hash: sha256_hash.into(),
-                size,
-                path: code_path.into(),
-            })
-        } else {
-            None
+        let Some(_start_fn) = functions.get(&self.entrypoint.function_name) else {
+            return Err(IndexifyAPIError::bad_request(&format!(
+                "Entry point function '{}' not found",
+                self.entrypoint.function_name
+            )));
         };
 
         let application = ApplicationBuilder::default()
@@ -156,12 +118,25 @@ impl Application {
             .description(self.description)
             .tags(self.tags)
             .version(self.version)
-            .code(code)
+            .code(data_model::DataPayload {
+                id: nanoid::nanoid!(),
+                metadata_size: 0,
+                offset: 0,
+                encoding: DataPayloadEncoding::BinaryZip.as_str_name().into(),
+                sha256_hash: sha256_hash.into(),
+                size,
+                path: code_path.into(),
+            })
             .functions(functions)
             .created_at(self.created_at)
             .tombstoned(self.tombstoned)
             .state(self.state.into())
-            .entrypoint(entrypoint)
+            .entrypoint(data_model::ApplicationEntryPoint {
+                function_name: self.entrypoint.function_name,
+                input_serializer: self.entrypoint.input_serializer,
+                output_serializer: self.entrypoint.output_serializer,
+                output_type_hints_base64: self.entrypoint.output_type_hints_base64,
+            })
             .build()
             .map_err(|e| {
                 IndexifyAPIError::bad_request(&format!("Failed to create application: {e}"))
@@ -181,7 +156,7 @@ impl From<data_model::Application> for Application {
             namespace: application.namespace,
             description: application.description,
             tags: application.tags,
-            entrypoint: application.entrypoint.map(|e| e.into()),
+            entrypoint: application.entrypoint.into(),
             version: application.version,
             functions: nodes,
             created_at: application.created_at,

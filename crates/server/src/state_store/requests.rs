@@ -11,22 +11,19 @@ use crate::{
         Allocation,
         Application,
         ComputeOp,
-        ContainerId,
-        ContainerServerMetadata,
         DataPayload,
         ExecutorId,
         ExecutorMetadata,
-        ExecutorServerMetadata,
         FunctionCall,
         FunctionCallId,
+        FunctionExecutorId,
+        FunctionExecutorServerMetadata,
         FunctionRun,
         FunctionRunFailureReason,
         FunctionRunOutcome,
         FunctionRunStatus,
+        HostResources,
         RequestCtx,
-        Sandbox,
-        SandboxId,
-        SandboxKey,
         StateChange,
     },
     state_store::{IndexifyState, executor_watches::ExecutorWatch, state_changes},
@@ -78,12 +75,6 @@ impl StateMachineUpdateRequest {
             RequestPayload::SchedulerUpdate((request, _)) => Ok(request.state_changes.clone()),
             RequestPayload::DeregisterExecutor(request) => Ok(request.state_changes.clone()),
             RequestPayload::UpsertExecutor(request) => Ok(request.state_changes.clone()),
-            RequestPayload::CreateSandbox(request) => {
-                state_changes::create_sandbox(state_change_id_seq, request)
-            }
-            RequestPayload::TerminateSandbox(request) => {
-                state_changes::terminate_sandbox(state_change_id_seq, request)
-            }
             _ => Ok(Vec::new()), // Handle other request types as needed
         }
     }
@@ -103,8 +94,6 @@ pub enum RequestPayload {
     DeleteApplicationRequest((DeleteApplicationRequest, Vec<StateChange>)),
     DeleteRequestRequest((DeleteRequestRequest, Vec<StateChange>)),
     ProcessStateChanges(Vec<StateChange>),
-    CreateSandbox(CreateSandboxRequest),
-    TerminateSandbox(TerminateSandboxRequest),
 }
 
 #[derive(Debug, Clone, Default)]
@@ -114,10 +103,10 @@ pub struct SchedulerUpdateRequest {
     pub updated_function_runs: HashMap<String, HashSet<FunctionCallId>>,
     pub updated_request_states: HashMap<String, RequestCtx>,
     pub remove_executors: Vec<ExecutorId>,
-    pub updated_executor_states: HashMap<ExecutorId, Box<ExecutorServerMetadata>>,
-    pub containers: HashMap<ContainerId, Box<ContainerServerMetadata>>,
+    pub new_function_executors: Vec<FunctionExecutorServerMetadata>,
+    pub remove_function_executors: HashMap<ExecutorId, HashSet<FunctionExecutorId>>,
+    pub updated_executor_resources: HashMap<ExecutorId, HostResources>,
     pub state_changes: Vec<StateChange>,
-    pub updated_sandboxes: HashMap<SandboxKey, Sandbox>,
 }
 
 impl SchedulerUpdateRequest {
@@ -136,12 +125,12 @@ impl SchedulerUpdateRequest {
         self.state_changes.extend(other.state_changes);
 
         self.remove_executors.extend(other.remove_executors);
-        for (executor_id, executor_server_metadata) in other.updated_executor_states {
-            self.updated_executor_states
-                .insert(executor_id, executor_server_metadata);
-        }
-        self.containers.extend(other.containers);
-        self.updated_sandboxes.extend(other.updated_sandboxes);
+        self.new_function_executors
+            .extend(other.new_function_executors);
+        self.remove_function_executors
+            .extend(other.remove_function_executors);
+        self.updated_executor_resources
+            .extend(other.updated_executor_resources);
     }
 
     pub fn cancel_allocation(&mut self, allocation: &mut Allocation) {
@@ -312,16 +301,4 @@ impl UpsertExecutorRequest {
 pub struct DeregisterExecutorRequest {
     pub executor_id: ExecutorId,
     pub state_changes: Vec<StateChange>,
-}
-
-#[derive(Debug, Clone)]
-pub struct CreateSandboxRequest {
-    pub sandbox: Sandbox,
-}
-
-#[derive(Debug, Clone)]
-pub struct TerminateSandboxRequest {
-    pub namespace: String,
-    pub application: String,
-    pub sandbox_id: SandboxId,
 }

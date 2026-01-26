@@ -7,8 +7,8 @@ mod tests {
         assert_executor_state,
         assert_function_run_counts,
         data_model::{
-            ContainerState,
             FunctionAllowlist,
+            FunctionExecutorState,
             FunctionExecutorTerminationReason,
             FunctionRunFailureReason,
             FunctionRunOutcome,
@@ -84,6 +84,7 @@ mod tests {
             namespace: Some(TEST_NAMESPACE.to_string()),
             application: Some("graph_A".to_string()),
             function: Some("fn_a".to_string()),
+            version: Some("1".to_string()),
         }]);
 
         let executor = test_srv.create_executor(executor_meta).await?;
@@ -212,15 +213,15 @@ mod tests {
 
         // Remove fn_a from function executors
         {
-            let mut fes: Vec<crate::data_model::Container> = executor
+            let mut fes: Vec<crate::data_model::FunctionExecutor> = executor
                 .get_executor_server_state()
                 .await?
-                .containers
+                .function_executors
                 .into_values()
                 .collect();
             for fe in fes.iter_mut() {
                 if fe.function_name == "fn_a" {
-                    fe.state = ContainerState::Terminated {
+                    fe.state = FunctionExecutorState::Terminated {
                         reason: FunctionExecutorTerminationReason::FunctionCancelled,
                         failed_alloc_ids: Vec::new(),
                     };
@@ -237,7 +238,7 @@ mod tests {
         let executor_server_state = executor.get_executor_server_state().await?;
         assert!(
             executor_server_state
-                .containers
+                .function_executors
                 .iter()
                 .all(|(_id, fe)| { fe.function_name != "fn_a" })
         );
@@ -266,9 +267,6 @@ mod tests {
             .await?;
         test_srv.process_all_state_changes().await?;
 
-        // make sure the task is allocated
-        assert_function_run_counts!(test_srv, total: 1, allocated: 1, pending: 0, completed_success: 0);
-
         // track the attempt number
         let mut attempt_number: u32 = 0;
 
@@ -294,7 +292,7 @@ mod tests {
                 .cloned()
                 .collect();
             executor
-                .set_function_executor_states(ContainerState::Terminated {
+                .set_function_executor_states(FunctionExecutorState::Terminated {
                     reason,
                     failed_alloc_ids: allocs,
                 })
@@ -499,7 +497,7 @@ mod tests {
         // update the function executors with our retryable termination reason (not
         // using an attempt)
         executor
-            .set_function_executor_states(ContainerState::Terminated {
+            .set_function_executor_states(FunctionExecutorState::Terminated {
                 reason,
                 failed_alloc_ids: vec![],
             })

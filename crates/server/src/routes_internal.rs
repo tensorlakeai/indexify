@@ -1,6 +1,4 @@
-use std::collections::HashMap;
-
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use axum::{
     Json,
     Router,
@@ -24,6 +22,7 @@ use crate::{
         ExecutorCatalog,
         ExecutorMetadata,
         ExecutorsAllocationsResponse,
+        Function,
         FunctionRunOutcome,
         HealthzChecks,
         HealthzResponse,
@@ -67,6 +66,7 @@ use crate::{
                 IndexifyAPIError,
                 Namespace,
 		        CacheKey,
+                Function,
                 ExecutorMetadata,
                 FunctionRunOutcome,
                 Allocation,
@@ -96,6 +96,14 @@ pub fn configure_internal_routes(route_state: RouteState) -> Router {
         .route(
             "/namespaces",
             post(create_namespace).with_state(route_state.clone()),
+        )
+        .route(
+            "/internal/namespaces/{namespace}/compute_graphs/{compute_graph}/code",
+            get(get_unversioned_code).with_state(route_state.clone()),
+        )
+        .route(
+            "/internal/namespaces/{namespace}/compute_graphs/{compute_graph}/versions/{version}/code",
+            get(get_versioned_code).with_state(route_state.clone()),
         )
         .route(
             "/internal/executors",
@@ -152,44 +160,23 @@ async fn index() -> impl IntoResponse {
 
 #[axum::debug_handler]
 async fn ui_index_handler() -> impl IntoResponse {
-    match UiAssets::get("index.html") {
-        Some(content) => (
-            StatusCode::OK,
-            [(hyper::header::CONTENT_TYPE, content.metadata.mimetype())],
-            content.data,
-        )
-            .into_response(),
-        None => {
-            error!("UI assets not found: index.html - UI may not be built");
-            (
-                StatusCode::NOT_FOUND,
-                "UI assets not found. Please build the UI first.",
-            )
-                .into_response()
-        }
-    }
+    let content = UiAssets::get("index.html").unwrap();
+    (
+        [(hyper::header::CONTENT_TYPE, content.metadata.mimetype())],
+        content.data,
+    )
+        .into_response()
 }
 
 #[axum::debug_handler]
 async fn ui_handler(Path(url): Path<String>) -> impl IntoResponse {
-    let path = url.trim_start_matches('/');
-    let content = UiAssets::get(path).or_else(|| UiAssets::get("index.html"));
-    match content {
-        Some(content) => (
-            StatusCode::OK,
-            [(hyper::header::CONTENT_TYPE, content.metadata.mimetype())],
-            content.data,
-        )
-            .into_response(),
-        None => {
-            error!(path = %path, "UI asset not found");
-            (
-                StatusCode::NOT_FOUND,
-                "UI assets not found. Please build the UI first.",
-            )
-                .into_response()
-        }
-    }
+    let content = UiAssets::get(url.trim_start_matches('/'))
+        .unwrap_or_else(|| UiAssets::get("index.html").unwrap());
+    (
+        [(hyper::header::CONTENT_TYPE, content.metadata.mimetype())],
+        content.data,
+    )
+        .into_response()
 }
 
 /// Create a new namespace
@@ -281,29 +268,24 @@ async fn list_executors(
         .map_err(IndexifyAPIError::internal_error)?;
     let executor_server_metadata = state
         .indexify_state
-        .container_scheduler
+        .in_memory_state
         .read()
         .await
         .executor_states
         .clone();
 
-    let container_sched = state.indexify_state.container_scheduler.read().await;
-
     let mut http_executors = vec![];
     for executor in executors {
         if let Some(fe_server_metadata) = executor_server_metadata.get(&executor.id) {
-            let mut function_container_server_meta = HashMap::new();
-            for container_id in &fe_server_metadata.function_container_ids {
-                let Some(fe_metadata) = container_sched.function_containers.get(container_id)
-                else {
-                    continue;
-                };
-                function_container_server_meta.insert(container_id.clone(), fe_metadata.clone());
-            }
             http_executors.push(from_data_model_executor_metadata(
                 executor,
                 fe_server_metadata.free_resources.clone(),
-                function_container_server_meta,
+                fe_server_metadata
+                    .function_executors
+                    .clone()
+                    .into_iter()
+                    .map(|(k, v)| (k, v.clone()))
+                    .collect(),
             ));
         }
     }
@@ -382,6 +364,78 @@ async fn list_unallocated_function_runs(
         count: unallocated_function_runs.len(),
         function_runs: unallocated_function_runs,
     }))
+}
+
+async fn get_unversioned_code(
+    Path((namespace, application)): Path<(String, String)>,
+    State(state): State<RouteState>,
+) -> Result<impl IntoResponse, IndexifyAPIError> {
+    get_versioned_code(Path((namespace, application, None)), State(state)).await
+}
+
+async fn get_versioned_code(
+    Path((namespace, application, version)): Path<(String, String, Option<String>)>,
+    State(state): State<RouteState>,
+) -> Result<impl IntoResponse, IndexifyAPIError> {
+    if let Some(version) = version {
+        info!(
+            "getting code for application {} version {}",
+            application, version
+        );
+        let application_version = state
+            .indexify_state
+            .reader()
+            .get_application_version(&namespace, &application, &version)
+            .await
+            .map_err(IndexifyAPIError::internal_error)?;
+
+        let application_version = application_version
+            .ok_or(IndexifyAPIError::not_found("application version not found"))?;
+
+        let storage_reader = state
+            .blob_storage
+            .get_blob_store(&namespace)
+            .get(&application_version.code.path, None)
+            .await
+            .map_err(|e| {
+                IndexifyAPIError::internal_error(anyhow!("unable to read from blob storage {e:?}",))
+            })?;
+
+        return Ok(Response::builder()
+            .header("Content-Type", "application/octet-stream")
+            .header("Content-Length", application_version.code.size.to_string())
+            .body(Body::from_stream(storage_reader))
+            .map_err(|e| {
+                IndexifyAPIError::internal_error(anyhow!(
+                    "unable to stream from blob storage {e:?}",
+                ))
+            }));
+    }
+
+    // Getting code without the application version is deprecated.
+    // TODO: Remove this block after all clients are updated.
+
+    let application = state
+        .indexify_state
+        .reader()
+        .get_application(&namespace, &application)
+        .await
+        .map_err(IndexifyAPIError::internal_error)?;
+    let application = application.ok_or(IndexifyAPIError::not_found("Application not found"))?;
+    let storage_reader = state
+        .blob_storage
+        .get_blob_store(&namespace)
+        .get(&application.code.path, None)
+        .await
+        .map_err(|e| {
+            IndexifyAPIError::internal_error(anyhow!("unable to read from blob storage {e}"))
+        })?;
+
+    Ok(Response::builder()
+        .header("Content-Type", "application/octet-stream")
+        .header("Content-Length", application.code.clone().size.to_string())
+        .body(Body::from_stream(storage_reader))
+        .map_err(|e| IndexifyAPIError::internal_error_str(&e.to_string())))
 }
 
 /// Get structured executor catalog
@@ -550,11 +604,11 @@ pub async fn create_or_update_application_with_metadata(
     State(state): State<RouteState>,
     Json(payload): Json<ApplicationMetadata>,
 ) -> Result<(), IndexifyAPIError> {
-    let application = payload.manifest.into_data_model(Some((
+    let application = payload.manifest.into_data_model(
         &payload.code_digest.url,
         &payload.code_digest.sha256_hash,
         payload.code_digest.size_bytes,
-    )))?;
+    )?;
 
     validate_and_submit_application(&state, namespace, application, payload.upgrade_requests).await
 }

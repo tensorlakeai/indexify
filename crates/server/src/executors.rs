@@ -1,6 +1,6 @@
 use std::{
     cmp,
-    collections::{HashMap, HashSet, hash_map::DefaultHasher},
+    collections::{HashMap, hash_map::DefaultHasher},
     hash::{Hash, Hasher},
     sync::{
         Arc,
@@ -16,7 +16,7 @@ use tokio::{
     sync::{Mutex, RwLock, watch},
     time::Instant,
 };
-use tracing::{debug, error, info, trace};
+use tracing::{debug, error, trace};
 
 use crate::{
     blob_store::registry::BlobStorageRegistry,
@@ -24,13 +24,9 @@ use crate::{
         self,
         ApplicationVersion,
         ChangeType,
-        ContainerState,
         ExecutorId,
         ExecutorMetadata,
         ExecutorRemovedEvent,
-        FunctionRunOutcome,
-        FunctionURI,
-        SandboxStatus,
         StateChange,
         StateChangeBuilder,
         StateChangeId,
@@ -38,20 +34,17 @@ use crate::{
     executor_api::executor_api_pb::{
         self,
         Allocation,
+        DataPayload,
         DataPayloadEncoding,
         DesiredExecutorState,
         FunctionExecutorDescription,
-        FunctionExecutorType as FunctionExecutorTypePb,
         FunctionRef,
-        NetworkPolicy as NetworkPolicyPb,
-        SandboxMetadata,
     },
     http_objects::{self, ExecutorAllocations, ExecutorsAllocationsResponse, FnExecutor},
     pb_helpers::*,
     state_store::{
         IndexifyState,
-        executor_watches::ExecutorWatch,
-        in_memory_state::{self, DesiredStateFunctionExecutor, FunctionCallOutcome},
+        in_memory_state::DesiredStateFunctionExecutor,
         requests::{DeregisterExecutorRequest, RequestPayload, StateMachineUpdateRequest},
     },
     utils::{dynamic_sleep::DynamicSleepFuture, get_epoch_time_in_ms},
@@ -174,55 +167,25 @@ impl ExecutorManager {
         tokio::spawn(async move {
             tokio::time::sleep(STARTUP_EXECUTOR_TIMEOUT).await;
 
-            // Get all executor IDs that haven't registered but have allocations or
-            // running sandboxes assigned to them. We combine both sources into a
-            // single set and call deregister_lapsed_executor on each, which will
-            // handle sandbox termination through the DeregisterExecutor event.
-            let missing_executor_ids: HashSet<ExecutorId> = {
-                let container_scheduler = indexify_state.container_scheduler.read().await;
+            // Get all executor IDs of executors that haven't registered.
+            let missing_executor_ids: Vec<_> = {
                 let indexes = indexify_state.in_memory_state.read().await;
 
-                // Find executors with allocations that haven't registered
-                let executors_with_allocations: HashSet<_> = indexes
+                indexes
                     .allocations_by_executor
                     .keys()
-                    .filter(|id| !container_scheduler.executors.contains_key(&**id))
-                    .cloned()
-                    .collect();
-
-                // Find executors with running sandboxes that haven't registered
-                let executors_with_sandboxes: HashSet<_> = indexes
-                    .sandboxes
-                    .iter()
-                    .filter_map(|(_, sandbox)| {
-                        if sandbox.status != SandboxStatus::Running {
-                            return None;
-                        }
-                        let executor_id = sandbox.executor_id.as_ref()?;
-                        if container_scheduler.executors.contains_key(executor_id) {
-                            return None;
-                        }
-                        Some(executor_id.clone())
-                    })
-                    .collect();
-
-                // Combine both sets
-                executors_with_allocations
-                    .union(&executors_with_sandboxes)
+                    .filter(|id| !indexes.executors.contains_key(&**id))
                     .cloned()
                     .collect()
             };
 
+            // Deregister all executors that haven't registered.
             for executor_id in missing_executor_ids {
-                info!(
-                    executor_id = executor_id.get(),
-                    "deregistering lapsed executor"
-                );
                 let executor_id_clone = executor_id.clone();
                 if let Err(err) = self.deregister_lapsed_executor(executor_id).await {
                     error!(
                         executor_id = executor_id_clone.get(),
-                        "failed to deregister lapsed executor: {:?}", err
+                        "Failed to deregister lapsed executor: {:?}", err
                     );
                 }
             }
@@ -279,7 +242,7 @@ impl ExecutorManager {
             );
             let existing_executor = self
                 .indexify_state
-                .container_scheduler
+                .in_memory_state
                 .read()
                 .await
                 .executors
@@ -409,171 +372,6 @@ impl ExecutorManager {
             .map(|s| s.subscribe())
     }
 
-    pub async fn desired_state(
-        &self,
-        executor_id: &ExecutorId,
-        executor_watches: HashSet<ExecutorWatch>,
-    ) -> Option<in_memory_state::DesiredExecutorState> {
-        let indexes = self.indexify_state.in_memory_state.read().await;
-        let container_scheduler = self.indexify_state.container_scheduler.read().await;
-        if let Some(executor) = container_scheduler.executors.get(executor_id) {
-            if executor.tombstoned {
-                return None;
-            }
-        } else {
-            return None;
-        }
-        let mut function_call_outcomes = Vec::new();
-        for executor_watch in executor_watches.iter() {
-            let Some(function_run) = indexes.function_runs.get(&executor_watch.into()) else {
-                error!(
-                    namespace = %executor_watch.namespace,
-                    app = %executor_watch.application,
-                    request_id = %executor_watch.request_id,
-                    function_call_id = %executor_watch.function_call_id,
-                    "function run not found for executor watch",
-                );
-                continue;
-            };
-            info!(
-                function_call_id = %executor_watch.function_call_id,
-                request_id = %executor_watch.request_id,
-                fn_run_status = %function_run.status,
-                fn_run_outcome = ?function_run.outcome,
-                has_output = function_run.output.is_some(),
-                "found function run for executor watch"
-            );
-            let failure_reason = match &function_run.outcome {
-                Some(FunctionRunOutcome::Failure(failure_reason)) => Some(failure_reason.clone()),
-                _ => None,
-            };
-            function_call_outcomes.push(FunctionCallOutcome {
-                namespace: function_run.namespace.clone(),
-                request_id: function_run.request_id.clone(),
-                function_call_id: function_run.id.clone(),
-                outcome: function_run
-                    .outcome
-                    .clone()
-                    .unwrap_or(FunctionRunOutcome::Unknown),
-                failure_reason,
-                return_value: function_run.output.clone(),
-                request_error: function_run.request_error.clone(),
-            });
-        }
-        let fc_ids = container_scheduler
-            .executor_states
-            .get(executor_id)
-            .cloned()
-            .map(|executor_state| executor_state.function_container_ids)
-            .unwrap_or_default();
-
-        info!(
-            executor_id = executor_id.get(),
-            num_fc_ids = fc_ids.len(),
-            fc_ids = ?fc_ids.iter().map(|id| id.get().to_string()).collect::<Vec<_>>(),
-            "computing desired state: function container IDs from executor state"
-        );
-
-        let mut active_function_containers = Vec::new();
-        for container_id in fc_ids {
-            let Some(fc) = container_scheduler.function_containers.get(&container_id) else {
-                error!(
-                    executor_id = executor_id.get(),
-                    container_id = container_id.get(),
-                    "function container ID in executor state but NOT in function_containers map!"
-                );
-                continue;
-            };
-            if !matches!(fc.desired_state, ContainerState::Terminated { .. }) {
-                active_function_containers.push(fc);
-            } else {
-                info!(
-                    executor_id = executor_id.get(),
-                    container_id = container_id.get(),
-                    fn_name = fc.function_container.function_name,
-                    desired_state = ?fc.desired_state,
-                    "excluding function container from desired state: terminated"
-                );
-            }
-        }
-
-        info!(
-            executor_id = executor_id.get(),
-            num_active_fcs = active_function_containers.len(),
-            active_fcs = ?active_function_containers.iter().map(|fc| format!("{}:{}", fc.function_container.id.get(), fc.function_container.function_name)).collect::<Vec<_>>(),
-            "active function containers for desired state"
-        );
-        let mut function_executors = Vec::new();
-        let mut task_allocations = std::collections::HashMap::new();
-        for fe_meta in active_function_containers {
-            let fe = &fe_meta.function_container;
-
-            let cg_version = indexes
-                .application_versions
-                .get(&ApplicationVersion::key_from(
-                    &fe.namespace,
-                    &fe.application_name,
-                    &fe.version,
-                ))
-                .cloned();
-            let cg_node = cg_version
-                .as_ref()
-                .and_then(|cg_version| cg_version.functions.get(&fe.function_name).cloned());
-            let desired_fc = DesiredStateFunctionExecutor {
-                function_executor: fe_meta.clone(),
-                resources: fe.resources.clone(),
-                secret_names: cg_node
-                    .as_ref()
-                    .and_then(|cg_node| cg_node.secret_names.clone())
-                    .unwrap_or_default(),
-                initialization_timeout_ms: cg_node
-                    .as_ref()
-                    .map(|cg_node| cg_node.initialization_timeout.0)
-                    .unwrap_or((fe.timeout_secs * 1000) as u32),
-                code_payload: cg_version
-                    .and_then(|cg_version| cg_version.code)
-                    .map(|code| data_model::DataPayload {
-                        id: code.id.clone(),
-                        metadata_size: 0,
-                        path: code.path.clone(),
-                        size: code.size,
-                        sha256_hash: code.sha256_hash.clone(),
-                        offset: 0, // Code always uses its full BLOB
-                        encoding: DataPayloadEncoding::BinaryZip.as_str_name().to_string(),
-                    }),
-                image: fe.image.clone(),
-                allocation_timeout_ms: cg_node
-                    .map(|cg_node| cg_node.timeout.0)
-                    .unwrap_or((fe.timeout_secs * 1000) as u32),
-                sandbox_timeout_secs: fe.timeout_secs,
-                entrypoint: fe.entrypoint.clone(),
-                network_policy: fe.network_policy.clone(),
-            };
-
-            function_executors.push(Box::new(desired_fc));
-
-            let allocations = indexes
-                .allocations_by_executor
-                .get(executor_id)
-                .and_then(|allocations| allocations.get(&fe_meta.function_container.id.clone()))
-                .map(|allocations| {
-                    allocations
-                        .values()
-                        .map(|allocation| allocation.as_ref().clone())
-                        .collect::<Vec<_>>()
-                })
-                .unwrap_or_default();
-            task_allocations.insert(fe_meta.function_container.id.clone(), allocations);
-        }
-
-        Some(in_memory_state::DesiredExecutorState {
-            function_executors,
-            function_run_allocations: task_allocations,
-            clock: indexes.clock,
-            function_call_outcomes,
-        })
-    }
-
     /// Get the desired state for an executor
     pub async fn get_executor_state(
         &self,
@@ -584,27 +382,15 @@ impl ExecutorManager {
             .executor_watches
             .get_watches(executor_id.get())
             .await;
-
-        if !fn_call_watches.is_empty() {
-            info!(
-                executor_id = executor_id.get(),
-                num_watches = fn_call_watches.len(),
-                watches = ?fn_call_watches.iter().map(|w| format!("{}:{}", w.function_call_id, w.request_id)).collect::<Vec<_>>(),
-                "computing desired state with watches"
-            );
-        }
-
-        let desired_executor_state = self.desired_state(executor_id, fn_call_watches).await?;
-
-        if !desired_executor_state.function_call_outcomes.is_empty() {
-            info!(
-                executor_id = executor_id.get(),
-                num_results = desired_executor_state.function_call_outcomes.len(),
-                results = ?desired_executor_state.function_call_outcomes.iter().map(|r| format!("{}:{:?}", r.function_call_id, r.outcome)).collect::<Vec<_>>(),
-                "sending function_call_results to executor"
-            );
-        }
-
+        let desired_executor_state = self
+            .indexify_state
+            .in_memory_state
+            .read()
+            .await
+            .clone()
+            .read()
+            .await
+            .desired_state(executor_id, fn_call_watches)?;
         let mut function_call_results_pb = vec![];
         for function_call_outcome in desired_executor_state.function_call_outcomes.iter() {
             let blob_store_url_schema = self
@@ -626,69 +412,56 @@ impl ExecutorManager {
         let mut function_executors_pb = vec![];
         let mut allocations_pb = vec![];
         for desired_state_fe in desired_executor_state.function_executors.iter() {
-            let fe = &desired_state_fe.function_executor.function_container;
-
-            // Build code_payload_pb only if code_payload exists (not for sandboxes)
-            let code_payload_pb = desired_state_fe.code_payload.as_ref().map(|code_payload| {
-                let blob_store_url_schema = self
-                    .blob_store_registry
-                    .get_blob_store(&fe.namespace)
-                    .get_url_scheme();
-                let blob_store_url = self
-                    .blob_store_registry
-                    .get_blob_store(&fe.namespace)
-                    .get_url();
-                executor_api_pb::DataPayload {
-                    id: Some(code_payload.id.clone()),
-                    uri: Some(blob_store_path_to_url(
-                        &code_payload.path,
-                        &blob_store_url_schema,
-                        &blob_store_url,
-                    )),
-                    size: Some(code_payload.size),
-                    sha256_hash: Some(code_payload.sha256_hash.clone()),
-                    encoding: Some(DataPayloadEncoding::BinaryZip.into()),
-                    encoding_version: Some(0),
-                    offset: Some(code_payload.offset),
-                    metadata_size: Some(code_payload.metadata_size),
-                    source_function_call_id: None,
-                    content_type: Some("application/zip".to_string()),
-                }
-            });
-
-            // Convert container type to proto enum
-            let fe_type_pb = match fe.container_type {
-                data_model::ContainerType::Function => FunctionExecutorTypePb::Function,
-                data_model::ContainerType::Sandbox => FunctionExecutorTypePb::Sandbox,
+            let blob_store_url_schema = self
+                .blob_store_registry
+                .get_blob_store(
+                    &desired_state_fe
+                        .function_executor
+                        .function_executor
+                        .namespace,
+                )
+                .get_url_scheme();
+            let blob_store_url = self
+                .blob_store_registry
+                .get_blob_store(
+                    &desired_state_fe
+                        .function_executor
+                        .function_executor
+                        .namespace,
+                )
+                .get_url();
+            let code_payload_pb = DataPayload {
+                id: Some(desired_state_fe.code_payload.id.clone()),
+                uri: Some(blob_store_path_to_url(
+                    &desired_state_fe.code_payload.path,
+                    &blob_store_url_schema,
+                    &blob_store_url,
+                )),
+                size: Some(desired_state_fe.code_payload.size),
+                sha256_hash: Some(desired_state_fe.code_payload.sha256_hash.clone()),
+                encoding: Some(DataPayloadEncoding::BinaryZip.into()),
+                encoding_version: Some(0),
+                offset: Some(desired_state_fe.code_payload.offset),
+                metadata_size: Some(desired_state_fe.code_payload.metadata_size),
+                source_function_call_id: None,
+                content_type: Some("application/zip".to_string()),
             };
-
-            // Convert network policy to proto format (for sandboxes only)
-            let network_policy_pb =
-                desired_state_fe
-                    .network_policy
-                    .as_ref()
-                    .map(|np| NetworkPolicyPb {
-                        allow_internet_access: Some(np.allow_internet_access),
-                        allow_out: np.allow_out.clone(),
-                        deny_out: np.deny_out.clone(),
-                    });
-
-            // Build sandbox_metadata for sandbox containers
-            let sandbox_metadata = if fe.container_type == data_model::ContainerType::Sandbox {
-                Some(SandboxMetadata {
-                    image: desired_state_fe.image.clone(),
-                    timeout_secs: if desired_state_fe.sandbox_timeout_secs > 0 {
-                        Some(desired_state_fe.sandbox_timeout_secs)
-                    } else {
-                        None
-                    },
-                    entrypoint: desired_state_fe.entrypoint.clone(),
-                    network_policy: network_policy_pb,
-                })
-            } else {
-                None
+            let fe = &desired_state_fe.function_executor.function_executor;
+            let Some(application_version) = self
+                .indexify_state
+                .in_memory_state
+                .read()
+                .await
+                .application_versions
+                .get(&ApplicationVersion::key_from(
+                    &fe.namespace,
+                    &fe.application_name,
+                    &fe.version,
+                ))
+                .cloned()
+            else {
+                continue;
             };
-
             let fe_description_pb = FunctionExecutorDescription {
                 id: Some(fe.id.get().to_string()),
                 function: Some(FunctionRef {
@@ -699,12 +472,17 @@ impl ExecutorManager {
                 }),
                 secret_names: desired_state_fe.secret_names.clone(),
                 initialization_timeout_ms: Some(desired_state_fe.initialization_timeout_ms),
-                application: code_payload_pb, // None for sandboxes
-                allocation_timeout_ms: Some(desired_state_fe.allocation_timeout_ms),
+                application: Some(code_payload_pb),
+                allocation_timeout_ms: Some(
+                    application_version
+                        .functions
+                        .get(&fe.function_name)
+                        .unwrap()
+                        .timeout
+                        .0,
+                ),
                 resources: Some(desired_state_fe.resources.clone().try_into().unwrap()),
                 max_concurrency: Some(fe.max_concurrency),
-                sandbox_metadata,
-                container_type: Some(fe_type_pb.into()),
             };
             function_executors_pb.push(fe_description_pb);
         }
@@ -790,7 +568,7 @@ impl ExecutorManager {
         let mut executors = vec![];
         for executor in self
             .indexify_state
-            .container_scheduler
+            .in_memory_state
             .read()
             .await
             .executors
@@ -803,9 +581,8 @@ impl ExecutorManager {
 
     pub async fn api_list_allocations(&self) -> ExecutorsAllocationsResponse {
         let state = self.indexify_state.in_memory_state.read().await;
-        let container_sched = self.indexify_state.container_scheduler.read().await;
         let allocations_by_executor = &state.allocations_by_executor;
-        let function_executors_by_executor = &container_sched.executor_states;
+        let function_executors_by_executor = &state.executor_states;
 
         let executors = function_executors_by_executor
             .iter()
@@ -814,12 +591,15 @@ impl ExecutorManager {
                 let mut function_executors: Vec<FnExecutor> = vec![];
 
                 // Process each function executor
-                for container_id in function_executor_metas.function_container_ids.iter() {
+                for (_, fe_meta) in function_executor_metas.function_executors.iter() {
+                    // Get the function URI string
+                    let fn_uri = fe_meta.fn_uri_str();
+
                     let allocations: Vec<http_objects::Allocation> = allocations_by_executor
                         .get(executor_id)
                         .map(|allocations| {
                             allocations
-                                .get(container_id)
+                                .get(&fe_meta.function_executor.id)
                                 .map(|allocations| {
                                     allocations
                                         .values()
@@ -830,28 +610,17 @@ impl ExecutorManager {
                         })
                         .unwrap_or_default();
 
-                    let Some(function_container_server_meta) =
-                        container_sched.function_containers.get(container_id)
-                    else {
-                        continue;
-                    };
-
-                    // TODO: We won't have function uri for sandboxes. So we need to update
-                    // the data model to support having function uri as optional.
-                    let fn_uri = FunctionURI::from(function_container_server_meta);
                     function_executors.push(FnExecutor {
                         count: allocations.len(),
-                        function_executor_id: container_id.to_string(),
-                        fn_uri: Some(fn_uri.to_string()),
-                        state: function_container_server_meta
-                            .function_container
-                            .state
-                            .as_ref()
+                        function_executor_id: fe_meta
+                            .function_executor
+                            .id
+                            .clone()
+                            .get()
                             .to_string(),
-                        desired_state: function_container_server_meta
-                            .desired_state
-                            .as_ref()
-                            .to_string(),
+                        fn_uri,
+                        state: fe_meta.function_executor.state.as_ref().to_string(),
+                        desired_state: fe_meta.desired_state.as_ref().to_string(),
                         allocations,
                     });
                 }
@@ -878,16 +647,16 @@ fn compute_function_executors_hash(
     let mut sorted_executors = function_executors.iter().collect::<Vec<_>>();
     sorted_executors.sort_by(|a, b| {
         a.function_executor
-            .function_container
+            .function_executor
             .id
             .get()
-            .cmp(b.function_executor.function_container.id.get())
+            .cmp(b.function_executor.function_executor.id.get())
     });
 
     // Hash each function executor's ID and desired state
     for fe in sorted_executors {
         fe.function_executor
-            .function_container
+            .function_executor
             .id
             .get()
             .hash(&mut hasher);
@@ -968,7 +737,7 @@ mod tests {
             .function_allowlist(None)
             .addr("".to_string())
             .labels(Default::default())
-            .containers(Default::default())
+            .function_executors(Default::default())
             .host_resources(Default::default())
             .state(Default::default())
             .tombstoned(false)
@@ -983,7 +752,7 @@ mod tests {
             .function_allowlist(None)
             .addr("".to_string())
             .labels(Default::default())
-            .containers(Default::default())
+            .function_executors(Default::default())
             .host_resources(Default::default())
             .state(Default::default())
             .tombstoned(false)
@@ -998,7 +767,7 @@ mod tests {
             .function_allowlist(None)
             .addr("".to_string())
             .labels(Default::default())
-            .containers(Default::default())
+            .function_executors(Default::default())
             .host_resources(Default::default())
             .state(Default::default())
             .tombstoned(false)
@@ -1029,7 +798,7 @@ mod tests {
 
             // Ensure that no executor has been removed
             let executors = indexify_state
-                .container_scheduler
+                .in_memory_state
                 .read()
                 .await
                 .executors
@@ -1055,7 +824,7 @@ mod tests {
 
             // Ensure that no executor has been removed
             let executors = indexify_state
-                .container_scheduler
+                .in_memory_state
                 .read()
                 .await
                 .executors
@@ -1078,7 +847,7 @@ mod tests {
 
             // Ensure that no executor has been removed
             let executors = indexify_state
-                .container_scheduler
+                .in_memory_state
                 .read()
                 .await
                 .executors
@@ -1106,7 +875,7 @@ mod tests {
         // Ensure that the executor has been removed
         {
             let executors = indexify_state
-                .container_scheduler
+                .in_memory_state
                 .read()
                 .await
                 .executors

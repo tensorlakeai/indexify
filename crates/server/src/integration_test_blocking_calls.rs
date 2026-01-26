@@ -38,7 +38,8 @@ mod tests {
             .allocations
             .clone()
             .into_iter()
-            .find(|a| a.function.clone().unwrap().function_name() == "fn_a")
+            .filter(|a| a.function.clone().unwrap().function_name() == "fn_a")
+            .next()
             .unwrap();
         let function_call_id = allocation_fn_a.function_call_id.clone().unwrap();
         let _fn_b_call_id = executor
@@ -57,7 +58,8 @@ mod tests {
             .allocations
             .clone()
             .into_iter()
-            .find(|a| a.function.clone().unwrap().function_name() == "fn_b")
+            .filter(|a| a.function.clone().unwrap().function_name() == "fn_b")
+            .next()
             .unwrap();
 
         let function_call_id = allocation_fn_b.function_call_id.clone().unwrap();
@@ -77,7 +79,8 @@ mod tests {
             .allocations
             .clone()
             .into_iter()
-            .find(|a| a.function.clone().unwrap().function_name() == "fn_c")
+            .filter(|a| a.function.clone().unwrap().function_name() == "fn_c")
+            .next()
             .unwrap();
 
         // Add fn_c for execution as a blocking function call
@@ -186,7 +189,8 @@ mod tests {
             .allocations
             .clone()
             .into_iter()
-            .find(|a| a.function.clone().unwrap().function_name() == "fn_a")
+            .filter(|a| a.function.clone().unwrap().function_name() == "fn_a")
+            .next()
             .unwrap();
         let function_call_id_fn_a = allocation_fn_a.function_call_id.clone().unwrap();
 
@@ -208,7 +212,8 @@ mod tests {
             .allocations
             .clone()
             .into_iter()
-            .find(|a| a.function.clone().unwrap().function_name() == "fn_b")
+            .filter(|a| a.function.clone().unwrap().function_name() == "fn_b")
+            .next()
             .unwrap();
 
         // Invoke fn_c as a blocking function call from fn_b
@@ -218,7 +223,7 @@ mod tests {
                 TEST_NAMESPACE,
                 "graph_A",
                 &request_id,
-                function_call_id_fn_b.clone(),
+                function_call_id_fn_b.clone().into(),
             )
             .await?;
         test_srv.process_all_state_changes().await?;
@@ -229,7 +234,8 @@ mod tests {
             .allocations
             .clone()
             .into_iter()
-            .find(|a| a.function.clone().unwrap().function_name() == "fn_c")
+            .filter(|a| a.function.clone().unwrap().function_name() == "fn_c")
+            .next()
             .unwrap();
 
         // Complete fn_c and fn_b first (before adding watches)

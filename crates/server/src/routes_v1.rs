@@ -11,7 +11,6 @@ use axum::{
 use base64::prelude::*;
 use download::download_request_error;
 use invoke::invoke_application_with_object_v1;
-use sandboxes::{create_sandbox, delete_sandbox, get_sandbox, list_sandboxes};
 use tracing::info;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
@@ -24,6 +23,7 @@ use crate::{
         CursorDirection,
         ExecutorMetadata,
         ExecutorsAllocationsResponse,
+        Function,
         FunctionRunOutcome,
         IndexifyAPIError,
         ListParams,
@@ -43,7 +43,6 @@ use crate::{
         },
         invoke::{self, progress_stream},
         routes_state::RouteState,
-        sandboxes,
     },
     state_store::{
         self,
@@ -70,11 +69,6 @@ use crate::{
             download::v1_download_fn_output_payload,
             download::v1_download_fn_output_payload_simple,
             download::v1_download_fn_output_payload_head,
-            // Sandbox endpoints
-            sandboxes::create_sandbox,
-            sandboxes::list_sandboxes,
-            sandboxes::get_sandbox,
-            sandboxes::delete_sandbox,
         ),
         components(
             schemas(
@@ -84,6 +78,7 @@ use crate::{
                 Namespace,
                 Application,
 		        CacheKey,
+                Function,
                 ListParams,
                 ApplicationsList,
                 ExecutorMetadata,
@@ -92,17 +87,10 @@ use crate::{
                 ExecutorsAllocationsResponse,
                 UnallocatedFunctionRuns,
                 StateChangesResponse,
-                // Sandbox schemas
-                sandboxes::CreateSandboxRequest,
-                sandboxes::CreateSandboxResponse,
-                sandboxes::SandboxInfo,
-                sandboxes::ContainerResourcesInfo,
-                sandboxes::ListSandboxesResponse,
             )
         ),
         tags(
-            (name = "indexify", description = "Indexify API"),
-            (name = "sandboxes", description = "Sandbox management API")
+            (name = "indexify", description = "Indexify API")
         )
     )]
 pub struct ApiDoc;
@@ -167,22 +155,6 @@ fn v1_namespace_routes(route_state: RouteState) -> Router {
             get(v1_download_fn_output_payload_simple)
                 .head(v1_download_fn_output_payload_head)
                 .with_state(route_state.clone()),
-        )
-        .route(
-            "/applications/{application}/sandboxes",
-            post(create_sandbox).with_state(route_state.clone()),
-        )
-        .route(
-            "/applications/{application}/sandboxes",
-            get(list_sandboxes).with_state(route_state.clone()),
-        )
-        .route(
-            "/applications/{application}/sandboxes/{sandbox_id}",
-            get(get_sandbox).with_state(route_state.clone()),
-        )
-        .route(
-            "/applications/{application}/sandboxes/{sandbox_id}",
-            delete(delete_sandbox).with_state(route_state.clone()),
         )
         .layer(middleware::from_fn(move |rpp, r, n| {
             namespace_middleware(route_state.clone(), rpp, r, n)

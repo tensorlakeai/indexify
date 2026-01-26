@@ -5,8 +5,6 @@ import {
   Application,
   ApplicationRequests,
   ApplicationsList,
-  ListSandboxesResponse,
-  SandboxInfo,
 } from '../types/types'
 import { getIndexifyServiceURL } from './helpers'
 
@@ -74,24 +72,14 @@ export async function ApplicationsDetailsPageLoader({
     const applicationRequests = await apiGet<ApplicationRequests>(
       `/v1/namespaces/${namespace}/applications/${application}/requests?limit=20`
     )
-    // Fetch sandboxes for this application
-    let sandboxes: ListSandboxesResponse = { sandboxes: [] }
-    try {
-      sandboxes = await apiGet<ListSandboxesResponse>(
-        `/v1/namespaces/${namespace}/applications/${application}/sandboxes`
-      )
-    } catch {
-      // Sandboxes endpoint may not exist or return empty
-    }
     return {
       client,
       namespace,
       application: applicationPayload,
       applicationRequests,
-      sandboxes,
     }
   } catch {
-    return { client, namespace, application: null, applicationRequests: null, sandboxes: { sandboxes: [] } }
+    return { client, namespace, application: null, applicationRequests: null }
   }
 }
 
@@ -115,30 +103,6 @@ export async function ApplicationRequestDetailsPageLoader({
       application,
       requestId,
       applicationRequest: null,
-    }
-  }
-}
-
-export async function SandboxDetailsPageLoader({
-  params,
-}: LoaderFunctionArgs) {
-  const namespace = params.namespace || 'default'
-  const application = params.application
-  const sandboxId = params['sandbox-id']
-  const client = createClient(namespace)
-
-  try {
-    const sandbox = await apiGet<SandboxInfo>(
-      `/v1/namespaces/${namespace}/applications/${application}/sandboxes/${sandboxId}`
-    )
-    return { client, namespace, application, sandboxId, sandbox }
-  } catch {
-    return {
-      client,
-      namespace,
-      application,
-      sandboxId,
-      sandbox: null,
     }
   }
 }

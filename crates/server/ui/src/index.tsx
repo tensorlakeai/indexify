@@ -16,7 +16,6 @@ import {
   ApplicationDetailsPage,
   ApplicationRequestDetailsPage,
   ApplicationsListPage,
-  SandboxDetailsPage,
 } from './routes/Namespace'
 import ExecutorsPage from './routes/Namespace/ExecutorsPage'
 import Root from './routes/root'
@@ -26,7 +25,6 @@ import {
   ApplicationsDetailsPageLoader,
   ApplicationsListPageLoader,
   ExecutorsPageLoader,
-  SandboxDetailsPageLoader,
 } from './utils/loaders'
 
 function RedirectToComputeGraphs() {
@@ -92,12 +90,6 @@ const router = createBrowserRouter(
           path: '/:namespace/applications/:application/requests/:request-id',
           element: <ApplicationRequestDetailsPage />,
           loader: ApplicationRequestDetailsPageLoader,
-          errorElement: <ErrorPage />,
-        },
-        {
-          path: '/:namespace/applications/:application/sandboxes/:sandbox-id',
-          element: <SandboxDetailsPage />,
-          loader: SandboxDetailsPageLoader,
           errorElement: <ErrorPage />,
         },
         {

@@ -27,7 +27,6 @@ use crate::{
         GcUrlBuilder,
         NamespaceBuilder,
         RequestCtx,
-        Sandbox,
         StateChange,
     },
     state_store::{
@@ -71,9 +70,6 @@ pub enum IndexifyObjectsColumns {
 
     // CF to hold the events we need to send out for observability
     RequestStateChangeEvents,
-
-    // Sandboxes - Namespace|Application|SandboxId -> Sandbox
-    Sandboxes,
 }
 
 pub(crate) async fn upsert_namespace(
@@ -540,46 +536,22 @@ pub async fn delete_application(
         let value = JsonEncoder::decode::<ApplicationVersion>(&value)?;
 
         // mark all code urls for gc.
-        if let Some(ref code) = value.code {
-            let mut gc_url = GcUrlBuilder::default()
-                .url(code.path.clone())
-                .namespace(namespace.to_string())
-                .build()?;
-            gc_url.prepare_for_persistence(clock);
-            let serialized_gc_url = JsonEncoder::encode(&gc_url)?;
-            txn.put(
-                IndexifyObjectsColumns::GcUrls.as_ref(),
-                gc_url.key().as_bytes(),
-                &serialized_gc_url,
-            )
-            .await?;
-        }
+        let mut gc_url = GcUrlBuilder::default()
+            .url(value.code.path.clone())
+            .namespace(namespace.to_string())
+            .build()?;
+        gc_url.prepare_for_persistence(clock);
+        let serialized_gc_url = JsonEncoder::encode(&gc_url)?;
+        txn.put(
+            IndexifyObjectsColumns::GcUrls.as_ref(),
+            gc_url.key().as_bytes(),
+            &serialized_gc_url,
+        )
+        .await?;
         txn.delete(IndexifyObjectsColumns::ApplicationVersions.as_ref(), &key)
             .await?;
     }
 
-    Ok(())
-}
-
-#[tracing::instrument(skip(txn, sandbox), fields(namespace = sandbox.namespace, application = sandbox.application, sandbox_id = %sandbox.id))]
-pub(crate) async fn upsert_sandbox(txn: &Transaction, sandbox: &Sandbox, clock: u64) -> Result<()> {
-    let mut sandbox = sandbox.clone();
-    sandbox.prepare_for_persistence(clock);
-    let key = sandbox.key();
-    let serialized = JsonEncoder::encode(&sandbox)?;
-    txn.put(
-        IndexifyObjectsColumns::Sandboxes.as_ref(),
-        key.as_bytes(),
-        &serialized,
-    )
-    .await?;
-    debug!(
-        namespace = %sandbox.namespace,
-        application = %sandbox.application,
-        sandbox_id = %sandbox.id,
-        status = %sandbox.status,
-        "upserted sandbox"
-    );
     Ok(())
 }
 
@@ -646,10 +618,6 @@ pub(crate) async fn handle_scheduler_update(
         if upsert_result.usage_recorded {
             result.usage_recorded = true;
         }
-    }
-
-    for sandbox in request.updated_sandboxes.values() {
-        upsert_sandbox(txn, sandbox, clock).await?;
     }
 
     Ok(result)
