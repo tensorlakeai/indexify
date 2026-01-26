@@ -97,26 +97,42 @@ pub struct SandboxInfo {
     pub sandbox_url: Option<String>,
 }
 
-/// Default sandbox-proxy port (for local dev with nip.io).
+/// Default sandbox-proxy port (for production with nip.io).
 const SANDBOX_PROXY_PORT: u16 = 9443;
 
+/// Check if a domain is local (127.0.0.1 or localhost).
+fn is_local_domain(domain: &str) -> bool {
+    domain.contains("127.0.0.1") || domain.contains("localhost")
+}
+
 impl SandboxInfo {
-    /// Create SandboxInfo from a Sandbox, optionally constructing a tunnel URL.
-    pub fn from_sandbox(sandbox: &Sandbox, tunnel_domain: Option<&str>, scheme: &str) -> Self {
-        let sandbox_url = tunnel_domain.map(|domain| {
-            // For nip.io/sslip.io domains (local dev), include the sandbox-proxy port
-            if domain.ends_with(".nip.io") || domain.ends_with(".sslip.io") {
-                format!(
-                    "{}://{}.{}:{}",
-                    scheme,
-                    sandbox.id.get(),
-                    domain,
-                    SANDBOX_PROXY_PORT
-                )
-            } else {
-                format!("{}://{}.{}", scheme, sandbox.id.get(), domain)
-            }
-        });
+    pub fn from_sandbox(
+        sandbox: &Sandbox,
+        sandbox_proxy_domain: Option<&str>,
+        scheme: &str,
+        dataplane_api_address: Option<&str>,
+    ) -> Self {
+        let is_local = sandbox_proxy_domain.map(is_local_domain).unwrap_or(false);
+
+        let sandbox_url = if is_local {
+            // Local dev: use dataplane address directly (UI will add X-Sandbox-Id header)
+            dataplane_api_address.map(|addr| format!("http://{}", addr))
+        } else {
+            // Production: use sandbox-proxy URL
+            sandbox_proxy_domain.map(|domain| {
+                if domain.ends_with(".nip.io") || domain.ends_with(".sslip.io") {
+                    format!(
+                        "{}://{}.{}:{}",
+                        scheme,
+                        sandbox.id.get(),
+                        domain,
+                        SANDBOX_PROXY_PORT
+                    )
+                } else {
+                    format!("{}://{}.{}", scheme, sandbox.id.get(), domain)
+                }
+            })
+        };
 
         Self {
             id: sandbox.id.get().to_string(),
@@ -260,11 +276,24 @@ pub async fn list_sandboxes(
         .await
         .map_err(IndexifyAPIError::internal_error)?;
 
-    let tunnel_domain = state.config.sandbox_proxy_domain.as_deref();
+    let sandbox_domain = state.config.sandbox_proxy_domain.as_deref();
     let scheme = &state.config.sandbox_proxy_scheme;
+
+    // Get container scheduler to look up executor proxy addresses
+    let container_scheduler = state.indexify_state.container_scheduler.read().await;
+
     let sandbox_infos: Vec<SandboxInfo> = sandboxes
         .iter()
-        .map(|s| SandboxInfo::from_sandbox(s, tunnel_domain, scheme))
+        .map(|s| {
+            // Look up dataplane proxy address from the executor
+            let dataplane_api_address = s
+                .executor_id
+                .as_ref()
+                .and_then(|eid| container_scheduler.executors.get(eid))
+                .and_then(|executor| executor.proxy_address.as_deref());
+
+            SandboxInfo::from_sandbox(s, sandbox_domain, scheme, dataplane_api_address)
+        })
         .collect();
 
     Ok(Json(ListSandboxesResponse {
@@ -294,12 +323,22 @@ pub async fn get_sandbox(
         .map_err(IndexifyAPIError::internal_error)?
         .ok_or_else(|| IndexifyAPIError::not_found("Sandbox not found"))?;
 
-    let tunnel_domain = state.config.sandbox_proxy_domain.as_deref();
+    let sandbox_proxy_domain = state.config.sandbox_proxy_domain.as_deref();
     let scheme = &state.config.sandbox_proxy_scheme;
+
+    // Look up dataplane proxy address from the executor
+    let container_scheduler = state.indexify_state.container_scheduler.read().await;
+    let dataplane_api_address = sandbox
+        .executor_id
+        .as_ref()
+        .and_then(|eid| container_scheduler.executors.get(eid))
+        .and_then(|executor| executor.proxy_address.as_deref());
+
     Ok(Json(SandboxInfo::from_sandbox(
         &sandbox,
-        tunnel_domain,
+        sandbox_proxy_domain,
         scheme,
+        dataplane_api_address,
     )))
 }
 

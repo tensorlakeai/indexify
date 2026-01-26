@@ -22,7 +22,7 @@ use std::{
 };
 
 use async_trait::async_trait;
-use pingora::{prelude::*, protocols::TcpKeepalive, upstreams::peer::PeerOptions};
+use pingora::{http::Method, prelude::*, protocols::TcpKeepalive, upstreams::peer::PeerOptions};
 use pingora_http::{RequestHeader, ResponseHeader};
 use pingora_proxy::{ProxyHttp, Session, http_proxy_service};
 use tokio_util::sync::CancellationToken;
@@ -92,6 +92,26 @@ impl HttpProxy {
     }
 }
 
+/// Send an error response with CORS headers.
+async fn send_error_response(
+    session: &mut Session,
+    status: u16,
+    message: &str,
+    origin: Option<&str>,
+) -> Result<bool> {
+    let mut resp = ResponseHeader::build(status, Some(4))?;
+    if let Some(origin) = origin {
+        resp.insert_header("access-control-allow-origin", origin)?;
+        resp.insert_header("access-control-allow-credentials", "true")?;
+    }
+    resp.insert_header("content-type", "text/plain")?;
+    session.write_response_header(Box::new(resp), false).await?;
+    session
+        .write_response_body(Some(bytes::Bytes::from(message.to_owned())), true)
+        .await?;
+    Ok(true)
+}
+
 #[async_trait]
 impl ProxyHttp for HttpProxy {
     type CTX = ProxyContext;
@@ -108,19 +128,56 @@ impl ProxyHttp for HttpProxy {
     /// Extract sandbox routing info from headers and lookup container.
     async fn request_filter(&self, session: &mut Session, ctx: &mut Self::CTX) -> Result<bool> {
         let req = session.req_header();
-        let method = req.method.to_string();
+        let method = &req.method;
         let path = req.uri.path().to_string();
 
+        // Get origin for CORS headers (used for all responses)
+        let origin = session
+            .req_header()
+            .headers
+            .get("origin")
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string());
+
+        // Handle CORS preflight requests (OPTIONS)
+        if method == Method::OPTIONS {
+            let mut resp = ResponseHeader::build(200, Some(4))?;
+            if let Some(ref origin) = origin {
+                resp.insert_header("access-control-allow-origin", origin)?;
+            }
+            resp.insert_header(
+                "access-control-allow-methods",
+                "GET, POST, PUT, DELETE, OPTIONS",
+            )?;
+            resp.insert_header(
+                "access-control-allow-headers",
+                "content-type, x-sandbox-id, x-sandbox-port",
+            )?;
+            resp.insert_header("access-control-allow-credentials", "true")?;
+            resp.insert_header("access-control-max-age", "86400")?;
+            session.write_response_header(Box::new(resp), true).await?;
+            return Ok(true); // Request handled, don't proxy upstream
+        }
+
         // Extract X-Sandbox-Id header (required)
-        let sandbox_id = session
+        let sandbox_id = match session
             .req_header()
             .headers
             .get("x-sandbox-id")
             .and_then(|v| v.to_str().ok())
-            .ok_or_else(|| {
+        {
+            Some(id) => id,
+            None => {
                 warn!(%method, %path, "Missing X-Sandbox-Id header");
-                Error::explain(ErrorType::HTTPStatus(400), "Missing X-Sandbox-Id header")
-            })?;
+                return send_error_response(
+                    session,
+                    400,
+                    "Missing X-Sandbox-Id header",
+                    origin.as_deref(),
+                )
+                .await;
+            }
+        };
 
         // Extract X-Sandbox-Port header (optional, defaults to 9501)
         let port: u16 = session
@@ -136,7 +193,7 @@ impl ProxyHttp for HttpProxy {
             "proxy_request",
             sandbox_id,
             port,
-            method,
+            %method,
             path,
             container_addr = tracing::field::Empty,
             status_code = tracing::field::Empty,
@@ -153,17 +210,13 @@ impl ProxyHttp for HttpProxy {
             SandboxLookupResult::Running(addr) => addr,
             SandboxLookupResult::NotFound => {
                 warn!("Sandbox not found");
-                return Err(Error::explain(
-                    ErrorType::HTTPStatus(404),
-                    "Sandbox not found",
-                ));
+                return send_error_response(session, 404, "Sandbox not found", origin.as_deref())
+                    .await;
             }
             SandboxLookupResult::NotRunning(state) => {
                 warn!(state, "Sandbox not running");
-                return Err(Error::explain(
-                    ErrorType::HTTPStatus(503),
-                    format!("Sandbox not running (state: {})", state),
-                ));
+                let msg = format!("Sandbox not running (state: {})", state);
+                return send_error_response(session, 503, &msg, origin.as_deref()).await;
             }
         };
 
@@ -205,10 +258,10 @@ impl ProxyHttp for HttpProxy {
     }
 
     /// Called when upstream response headers are received.
-    /// Records status code for logging.
+    /// Records status code for logging and adds CORS headers.
     async fn upstream_response_filter(
         &self,
-        _session: &mut Session,
+        session: &mut Session,
         upstream_response: &mut ResponseHeader,
         ctx: &mut Self::CTX,
     ) -> Result<()>
@@ -216,6 +269,34 @@ impl ProxyHttp for HttpProxy {
         Self::CTX: Send + Sync,
     {
         ctx.status_code = Some(upstream_response.status.as_u16());
+
+        // Add CORS headers for browser access (local dev)
+        if let Some(origin) = session
+            .req_header()
+            .headers
+            .get("origin")
+            .and_then(|v| v.to_str().ok())
+        {
+            upstream_response
+                .insert_header("access-control-allow-origin", origin)
+                .ok();
+            upstream_response
+                .insert_header(
+                    "access-control-allow-methods",
+                    "GET, POST, PUT, DELETE, OPTIONS",
+                )
+                .ok();
+            upstream_response
+                .insert_header(
+                    "access-control-allow-headers",
+                    "content-type, x-sandbox-id, x-sandbox-port",
+                )
+                .ok();
+            upstream_response
+                .insert_header("access-control-allow-credentials", "true")
+                .ok();
+        }
+
         Ok(())
     }
 
