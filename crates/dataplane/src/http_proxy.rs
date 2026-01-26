@@ -24,7 +24,7 @@ use std::{
 use async_trait::async_trait;
 use pingora::{http::Method, prelude::*, protocols::TcpKeepalive, upstreams::peer::PeerOptions};
 use pingora_http::{RequestHeader, ResponseHeader};
-use pingora_proxy::{ProxyHttp, Session, http_proxy_service};
+use pingora_proxy::{FailToProxy, ProxyHttp, Session, http_proxy_service};
 use tokio_util::sync::CancellationToken;
 use tracing::{Span, debug, error, info, warn};
 
@@ -92,19 +92,20 @@ impl HttpProxy {
     }
 }
 
-/// Send an error response with CORS headers.
 async fn send_error_response(
     session: &mut Session,
     status: u16,
     message: &str,
     origin: Option<&str>,
 ) -> Result<bool> {
-    let mut resp = ResponseHeader::build(status, Some(4))?;
+    let body = message.as_bytes();
+    let mut resp = ResponseHeader::build(status, Some(5))?;
     if let Some(origin) = origin {
         resp.insert_header("access-control-allow-origin", origin)?;
         resp.insert_header("access-control-allow-credentials", "true")?;
     }
     resp.insert_header("content-type", "text/plain")?;
+    resp.insert_header("content-length", body.len().to_string())?;
     session.write_response_header(Box::new(resp), false).await?;
     session
         .write_response_body(Some(bytes::Bytes::from(message.to_owned())), true)
@@ -346,6 +347,37 @@ impl ProxyHttp for HttpProxy {
         error!(error = %e, error_type = e.etype().as_str(), "Failed to connect to container");
 
         e
+    }
+
+    async fn fail_to_proxy(
+        &self,
+        session: &mut Session,
+        e: &Error,
+        ctx: &mut Self::CTX,
+    ) -> FailToProxy
+    where
+        Self::CTX: Send + Sync,
+    {
+        let error_type = e.etype();
+
+        let status = match error_type {
+            ErrorType::ConnectionClosed => 502,
+            ErrorType::ConnectTimedout => 504,
+            ErrorType::ReadTimedout => 504,
+            ErrorType::WriteTimedout => 504,
+            ErrorType::ConnectRefused => 502,
+            _ => 502,
+        };
+
+        // Disable keepalive to ensure clean connection close
+        session.set_keepalive(None);
+
+        ctx.status_code = Some(status);
+
+        FailToProxy {
+            error_code: status,
+            can_reuse_downstream: false,
+        }
     }
 }
 
