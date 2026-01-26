@@ -63,3 +63,14 @@ executor_catalog:
     disk_gb: 100
     regions:
       - 'eu-west-1'
+
+# Placement constraints for workloads created by the server.
+#
+# With this example configuration, applications will only be scheduled on
+# executors with the label "workload=application" and sandboxes will only be
+# scheduled on executors with the label "workload=sandbox".
+workload_placement_constraints:
+  application:
+    - 'workload==application'
+  sandbox:
+    - 'workload==sandbox'
