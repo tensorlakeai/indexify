@@ -106,6 +106,32 @@ curl -X POST http://localhost:8900/v1/namespaces/test-ns/applications/test-app/s
   -d '{"image": "python:3.11-slim", "timeout_secs": 300}'
 ```
 
+### Placement Constraints
+
+You can specify placement constraints to control which executor runs your sandbox. This is useful for scenarios like:
+- Targeting specific regions or availability zones
+- Requiring GPU-enabled executors
+- Selecting executors with specific hardware or labels
+
+```bash
+# Create a sandbox on a GPU-enabled executor in us-west
+curl -X POST http://localhost:8900/v1/namespaces/test-ns/applications/test-app/sandboxes \
+  -H "Content-Type: application/json" \
+  -d '{
+    "image": "python:3.11-slim",
+    "timeout_secs": 300,
+    "placement_constraints": {
+      "filter_expressions": ["region==us-west", "gpu==true"]
+    }
+  }'
+```
+
+**Supported operators:**
+- `key==value` - Label must equal value
+- `key!=value` - Label must not equal value
+
+The server will only schedule the sandbox on executors whose labels match all constraints.
+
 ---
 
 ## 3. After Writing Code
