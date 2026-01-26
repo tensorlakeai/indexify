@@ -476,7 +476,7 @@ impl ContainerReconciler {
     fn remove_all_function_executors_for_executor(
         &self,
         in_memory_state: &mut InMemoryState,
-        container_scheduler: &ContainerScheduler,
+        container_scheduler: &mut ContainerScheduler,
         executor_id: &ExecutorId,
     ) -> Result<SchedulerUpdateRequest> {
         let mut scheduler_update = SchedulerUpdateRequest::default();
@@ -530,9 +530,16 @@ impl ContainerReconciler {
                 let mut terminated_fc = *fc.clone();
                 terminated_fc.desired_state = terminated_state.clone();
                 terminated_fc.function_container.state = terminated_state.clone();
-                scheduler_update
-                    .containers
-                    .insert(container_id.clone(), Box::new(terminated_fc));
+
+                let container_term_update = SchedulerUpdateRequest {
+                    containers: [(container_id.clone(), Box::new(terminated_fc))].into(),
+                    ..Default::default()
+                };
+                scheduler_update.extend(container_term_update.clone());
+                container_scheduler.update(&RequestPayload::SchedulerUpdate((
+                    Box::new(container_term_update),
+                    vec![],
+                )))?;
             }
 
             // Terminate associated sandbox
