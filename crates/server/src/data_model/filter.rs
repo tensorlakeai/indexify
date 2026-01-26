@@ -145,41 +145,24 @@ impl LabelsFilter {
             .map(|expr| expr.key.clone())
             .collect();
 
-        // Check all additional constraints match
-        for expr in &additional_constraints.0 {
-            let value = values.get(&expr.key);
-            let matches = match value {
-                Some(v) => match expr.operator {
-                    Operator::Eq => v == &expr.value,
-                    Operator::Neq => v != &expr.value,
-                },
-                None => false,
-            };
-            if !matches {
-                return false;
-            }
-        }
-
-        // Check existing constraints, skipping those overridden by additional
-        // constraints
-        for expr in &self.0 {
-            if additional_constraints_keys.contains(&expr.key) {
-                continue; // Skip, additional constraint takes precedence
-            }
-            let value = values.get(&expr.key);
-            let matches = match value {
-                Some(v) => match expr.operator {
-                    Operator::Eq => v == &expr.value,
-                    Operator::Neq => v != &expr.value,
-                },
-                None => false,
-            };
-            if !matches {
-                return false;
-            }
-        }
-
-        true
+        // Check all additional constraints match, then existing constraints
+        // (skipping those overridden by additional constraints)
+        additional_constraints
+            .0
+            .iter()
+            .chain(
+                self.0
+                    .iter()
+                    .filter(|expr| !additional_constraints_keys.contains(&expr.key)),
+            )
+            .all(|expr| {
+                values
+                    .get(&expr.key)
+                    .map_or(false, |v| match expr.operator {
+                        Operator::Eq => v == &expr.value,
+                        Operator::Neq => v != &expr.value,
+                    })
+            })
     }
 }
 
