@@ -34,16 +34,16 @@ hyper.workspace = true
 hyper-util.workspace = true
 http-body-util.workspace = true
 axum.workspace = true
-tokio-rustls.workspace = true
-rustls.workspace = true
-rustls-pemfile.workspace = true
 hostname.workspace = true
 bytes.workspace = true
 sysinfo.workspace = true
 bollard = { workspace = true }
 futures-util = { workspace = true }
 lazy_static = { workspace = true }
-rcgen.workspace = true
+pingora.workspace = true
+pingora-core.workspace = true
+pingora-proxy.workspace = true
+pingora-http.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 nix.workspace = true

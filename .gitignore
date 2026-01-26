@@ -1,5 +1,6 @@
 # IDE and editor files
 .idea
+.claude
 
 dataplane-state.json
 

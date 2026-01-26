@@ -569,7 +569,7 @@ pub async fn create_or_update_application_with_metadata(
 pub struct SandboxLookupResponse {
     pub id: String,
     pub status: String,
-    pub proxy_address: Option<String>,
+    pub dataplane_api_address: Option<String>,
 }
 
 async fn get_sandbox_by_id(
@@ -594,7 +594,7 @@ async fn get_sandbox_by_id(
         crate::data_model::ContainerState::Unknown => "Unknown",
     };
 
-    let proxy_address = container_scheduler
+    let dataplane_api_address = container_scheduler
         .executors
         .get(&container_meta.executor_id)
         .and_then(|executor| executor.proxy_address.clone());
@@ -602,6 +602,6 @@ async fn get_sandbox_by_id(
     Ok(Json(SandboxLookupResponse {
         id: sandbox_id,
         status: status.to_string(),
-        proxy_address,
+        dataplane_api_address,
     }))
 }

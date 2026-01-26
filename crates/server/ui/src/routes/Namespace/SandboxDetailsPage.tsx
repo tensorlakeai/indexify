@@ -116,7 +116,7 @@ const SandboxDetailsPage = () => {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Use sandbox_url for TLS routing via dataplane
+  // Use sandbox_url for routing via sandbox-proxy
   const daemonUrl = sandbox?.sandbox_url ?? null
 
   const fetchProcesses = useCallback(async () => {

@@ -945,24 +945,43 @@ impl FunctionContainerManager {
         containers.values().map(|c| c.to_proto_state()).collect()
     }
 
-    /// Get the address for a sandbox container at a specific port.
+    /// Get detailed status of a sandbox lookup.
     ///
-    /// Returns the host:port address to connect to for the given sandbox and
-    /// port. Uses the cached container IP address for direct access (no docker
-    /// inspect).
-    pub async fn get_sandbox_address(&self, sandbox_id: &str, port: u16) -> Option<String> {
+    /// Returns:
+    /// - `SandboxLookupResult::Running(addr)` - Sandbox is running, returns
+    ///   address
+    /// - `SandboxLookupResult::NotFound` - Sandbox ID not known to this
+    ///   dataplane
+    /// - `SandboxLookupResult::NotRunning(state)` - Sandbox exists but not
+    ///   running
+    pub async fn lookup_sandbox(&self, sandbox_id: &str, port: u16) -> SandboxLookupResult {
         let containers = self.containers.read().await;
-        let container = containers.get(sandbox_id)?;
 
-        // Only return address for running containers
-        let handle = match &container.state {
-            ContainerState::Running { handle, .. } => handle,
-            _ => return None,
+        let Some(container) = containers.get(sandbox_id) else {
+            return SandboxLookupResult::NotFound;
         };
 
-        // Use cached container IP (set when container starts)
-        Some(format!("{}:{}", handle.container_ip, port))
+        match &container.state {
+            ContainerState::Running { handle, .. } => {
+                let addr = format!("{}:{}", handle.container_ip, port);
+                SandboxLookupResult::Running(addr)
+            }
+            ContainerState::Pending => SandboxLookupResult::NotRunning("pending"),
+            ContainerState::Stopping { .. } => SandboxLookupResult::NotRunning("stopping"),
+            ContainerState::Terminated { .. } => SandboxLookupResult::NotRunning("terminated"),
+        }
     }
+}
+
+/// Result of looking up a sandbox for proxying.
+#[derive(Debug, Clone)]
+pub enum SandboxLookupResult {
+    /// Sandbox is running, contains the address to connect to
+    Running(String),
+    /// Sandbox ID is not known to this dataplane (404)
+    NotFound,
+    /// Sandbox exists but is not in running state (503)
+    NotRunning(&'static str),
 }
 
 /// Start a container with the daemon and wait for it to be ready.
