@@ -9,24 +9,10 @@ use tracing::{error, info};
 use crate::{
     config::WorkloadPlacementConstraints,
     data_model::{
-        Application,
-        ApplicationState,
-        Container,
-        ContainerBuilder,
-        ContainerId,
-        ContainerResources,
-        ContainerServerMetadata,
-        ContainerState,
-        ContainerType,
-        ExecutorId,
-        ExecutorMetadata,
-        ExecutorServerMetadata,
-        Function,
-        FunctionExecutorTerminationReason,
-        FunctionResources,
-        FunctionURI,
-        Sandbox,
-        filter,
+        Application, ApplicationState, Container, ContainerBuilder, ContainerId,
+        ContainerResources, ContainerServerMetadata, ContainerState, ContainerType, ExecutorId,
+        ExecutorMetadata, ExecutorServerMetadata, Function, FunctionExecutorTerminationReason,
+        FunctionResources, FunctionURI, Sandbox, filter,
     },
     state_store::{
         in_memory_state::InMemoryState,
@@ -231,8 +217,8 @@ impl ContainerScheduler {
         // The actual removal from indices happens when executor reports them as
         // terminated
         for (_, fc) in self.function_containers.iter_mut() {
-            if fc.function_container.namespace == namespace &&
-                fc.function_container.application_name == name
+            if fc.function_container.namespace == namespace
+                && fc.function_container.application_name == name
             {
                 fc.desired_state = ContainerState::Terminated {
                     reason: FunctionExecutorTerminationReason::DesiredStateRemoved,
@@ -336,7 +322,7 @@ impl ContainerScheduler {
             &function.resources,
             function_container,
             ContainerType::Function,
-            Some(&function.placement_constraints),
+            &function.placement_constraints,
         )
     }
 
@@ -382,7 +368,7 @@ impl ContainerScheduler {
             &resources,
             function_container,
             ContainerType::Sandbox,
-            Some(&sandbox.placement_constraints),
+            &sandbox.placement_constraints,
         )
     }
 
@@ -394,7 +380,7 @@ impl ContainerScheduler {
         resources: &FunctionResources,
         function_container: Container,
         container_type: ContainerType,
-        placement_constraints: Option<&filter::LabelsFilter>,
+        placement_constraints: &filter::LabelsFilter,
     ) -> Result<Option<SchedulerUpdateRequest>> {
         let mut candidates = self.candidate_hosts(
             namespace,
@@ -473,7 +459,7 @@ impl ContainerScheduler {
         application: &str,
         function: Option<&Function>,
         resources: &FunctionResources,
-        placement_constraints: Option<&filter::LabelsFilter>,
+        placement_constraints: &filter::LabelsFilter,
     ) -> Vec<ExecutorServerMetadata> {
         let mut candidates = Vec::new();
 
@@ -496,13 +482,12 @@ impl ContainerScheduler {
                 if !executor.is_function_allowed(namespace, application, func) {
                     continue;
                 }
-                if let Some(placement_constraints) = placement_constraints {
-                    if !placement_constraints.matches_with_additional_constraints(
-                        &executor.labels,
-                        &self.workload_placement_constraints.application,
-                    ) {
-                        continue;
-                    }
+
+                if !placement_constraints.matches_with_additional_constraints(
+                    &executor.labels,
+                    &self.workload_placement_constraints.application,
+                ) {
+                    continue;
                 }
             } else {
                 // Sandbox: check allowlist for namespace/app only
@@ -510,13 +495,11 @@ impl ContainerScheduler {
                     continue;
                 }
                 // Check placement constraints for sandboxes
-                if let Some(placement_constraints) = placement_constraints {
-                    if !placement_constraints.matches_with_additional_constraints(
-                        &executor.labels,
-                        &self.workload_placement_constraints.sandbox,
-                    ) {
-                        continue;
-                    }
+                if !placement_constraints.matches_with_additional_constraints(
+                    &executor.labels,
+                    &self.workload_placement_constraints.sandbox,
+                ) {
+                    continue;
                 }
             }
 
@@ -640,8 +623,8 @@ impl ContainerScheduler {
 
     fn fe_can_be_removed(&self, fe_meta: &ContainerServerMetadata) -> bool {
         // Check if this container matches the executor's allowlist
-        if let Some(executor) = self.executors.get(&fe_meta.executor_id) &&
-            let Some(allowlist) = &executor.function_allowlist
+        if let Some(executor) = self.executors.get(&fe_meta.executor_id)
+            && let Some(allowlist) = &executor.function_allowlist
         {
             for allowlist_entry in allowlist {
                 if allowlist_entry.matches_function_executor(&fe_meta.function_container) {
