@@ -132,6 +132,56 @@ mod duration_serde {
     }
 }
 
+/// Configuration for upstream (container) connections.
+/// These settings help prevent "connection prematurely closed" errors.
+#[serde_inline_default]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpstreamConfig {
+    /// Idle connection timeout in seconds. Connections idle longer than this
+    /// will be closed. Set slightly lower than upstream timeout (usually 60s)
+    /// to ensure we close before the upstream does.
+    #[serde_inline_default(55)]
+    pub idle_timeout_secs: u64,
+
+    /// TCP keepalive idle time in seconds before sending probes.
+    #[serde_inline_default(30)]
+    pub keepalive_idle_secs: u64,
+
+    /// TCP keepalive probe interval in seconds.
+    #[serde_inline_default(10)]
+    pub keepalive_interval_secs: u64,
+
+    /// Number of TCP keepalive probes before giving up.
+    #[serde_inline_default(3)]
+    pub keepalive_count: usize,
+
+    /// Connection establishment timeout in seconds.
+    #[serde_inline_default(10)]
+    pub connection_timeout_secs: u64,
+
+    /// Read operation timeout in seconds.
+    #[serde_inline_default(60)]
+    pub read_timeout_secs: u64,
+
+    /// Write operation timeout in seconds.
+    #[serde_inline_default(60)]
+    pub write_timeout_secs: u64,
+}
+
+impl Default for UpstreamConfig {
+    fn default() -> Self {
+        Self {
+            idle_timeout_secs: 55,
+            keepalive_idle_secs: 30,
+            keepalive_interval_secs: 10,
+            keepalive_count: 3,
+            connection_timeout_secs: 10,
+            read_timeout_secs: 60,
+            write_timeout_secs: 60,
+        }
+    }
+}
+
 /// Configuration for the HTTP proxy server (header-based routing).
 /// Accepts plaintext HTTP from the sandbox-proxy and routes to containers
 /// based on the X-Sandbox-Id header.
@@ -149,6 +199,9 @@ pub struct HttpProxyConfig {
     /// If not set, uses the system hostname with the configured port.
     #[serde(default)]
     pub advertise_address: Option<String>,
+    /// Upstream connection settings for container connections.
+    #[serde(default)]
+    pub upstream: UpstreamConfig,
 }
 
 impl Default for HttpProxyConfig {
@@ -157,6 +210,7 @@ impl Default for HttpProxyConfig {
             port: 8095,
             listen_addr: "0.0.0.0".to_string(),
             advertise_address: None,
+            upstream: UpstreamConfig::default(),
         }
     }
 }
@@ -311,6 +365,7 @@ http_proxy:
             port: 9000,
             listen_addr: "127.0.0.1".to_string(),
             advertise_address: None,
+            upstream: UpstreamConfig::default(),
         };
         assert_eq!(config.socket_addr(), "127.0.0.1:9000");
     }
