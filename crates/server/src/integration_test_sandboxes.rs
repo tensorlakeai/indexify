@@ -13,7 +13,11 @@ mod tests {
             SandboxId,
             SandboxOutcome,
             SandboxStatus,
-            test_objects::tests::{TEST_EXECUTOR_ID, TEST_NAMESPACE, mock_executor_metadata},
+            test_objects::tests::{
+                TEST_EXECUTOR_ID,
+                TEST_NAMESPACE,
+                mock_sandbox_executor_metadata,
+            },
         },
         state_store::{
             IndexifyState,
@@ -141,7 +145,7 @@ mod tests {
 
         // Register an executor
         let _executor = test_srv
-            .create_executor(mock_executor_metadata(TEST_EXECUTOR_ID.into()))
+            .create_executor(mock_sandbox_executor_metadata(TEST_EXECUTOR_ID.into()))
             .await?;
         test_srv.process_all_state_changes().await?;
 
@@ -179,7 +183,7 @@ mod tests {
 
         // Register an executor FIRST
         let _executor = test_srv
-            .create_executor(mock_executor_metadata(TEST_EXECUTOR_ID.into()))
+            .create_executor(mock_sandbox_executor_metadata(TEST_EXECUTOR_ID.into()))
             .await?;
         test_srv.process_all_state_changes().await?;
 
@@ -218,7 +222,7 @@ mod tests {
 
         // Setup: create executor and sandbox
         let _executor = test_srv
-            .create_executor(mock_executor_metadata(TEST_EXECUTOR_ID.into()))
+            .create_executor(mock_sandbox_executor_metadata(TEST_EXECUTOR_ID.into()))
             .await?;
         test_srv.process_all_state_changes().await?;
 
@@ -299,7 +303,7 @@ mod tests {
 
         // Register an executor with enough resources
         let _executor = test_srv
-            .create_executor(mock_executor_metadata(TEST_EXECUTOR_ID.into()))
+            .create_executor(mock_sandbox_executor_metadata(TEST_EXECUTOR_ID.into()))
             .await?;
         test_srv.process_all_state_changes().await?;
 
@@ -393,7 +397,7 @@ mod tests {
 
         // Register an executor first
         let executor = test_srv
-            .create_executor(mock_executor_metadata(TEST_EXECUTOR_ID.into()))
+            .create_executor(mock_sandbox_executor_metadata(TEST_EXECUTOR_ID.into()))
             .await?;
         test_srv.process_all_state_changes().await?;
 
@@ -449,7 +453,7 @@ mod tests {
 
         // Register an executor
         let executor = test_srv
-            .create_executor(mock_executor_metadata(TEST_EXECUTOR_ID.into()))
+            .create_executor(mock_sandbox_executor_metadata(TEST_EXECUTOR_ID.into()))
             .await?;
         test_srv.process_all_state_changes().await?;
 
@@ -509,7 +513,7 @@ mod tests {
 
         // Register an executor
         let executor = test_srv
-            .create_executor(mock_executor_metadata(TEST_EXECUTOR_ID.into()))
+            .create_executor(mock_sandbox_executor_metadata(TEST_EXECUTOR_ID.into()))
             .await?;
         test_srv.process_all_state_changes().await?;
 
@@ -565,7 +569,7 @@ mod tests {
 
         // Register an executor
         let mut executor = test_srv
-            .create_executor(mock_executor_metadata(TEST_EXECUTOR_ID.into()))
+            .create_executor(mock_sandbox_executor_metadata(TEST_EXECUTOR_ID.into()))
             .await?;
         test_srv.process_all_state_changes().await?;
 
@@ -627,7 +631,7 @@ mod tests {
 
         // Register an executor
         let executor = test_srv
-            .create_executor(mock_executor_metadata(TEST_EXECUTOR_ID.into()))
+            .create_executor(mock_sandbox_executor_metadata(TEST_EXECUTOR_ID.into()))
             .await?;
         test_srv.process_all_state_changes().await?;
 

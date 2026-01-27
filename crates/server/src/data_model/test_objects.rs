@@ -202,9 +202,17 @@ pub mod tests {
     }
 
     pub fn mock_executor_metadata(id: ExecutorId) -> ExecutorMetadata {
+        mock_executor_metadata_with_version(id, "1.0.0")
+    }
+
+    pub fn mock_sandbox_executor_metadata(id: ExecutorId) -> ExecutorMetadata {
+        mock_executor_metadata_with_version(id, "0.2.0")
+    }
+
+    pub fn mock_executor_metadata_with_version(id: ExecutorId, version: &str) -> ExecutorMetadata {
         ExecutorMetadataBuilder::default()
             .id(id)
-            .executor_version("1.0.0".to_string())
+            .executor_version(version.to_string())
             .function_allowlist(None)
             .addr("".to_string())
             .labels(Default::default())
