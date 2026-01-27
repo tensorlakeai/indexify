@@ -32,6 +32,8 @@ use crate::{
     },
 };
 
+const SANDBOX_ENABLED_DATAPLANE_VERSION: &str = "0.2.0";
+
 /// Gauges for monitoring the container scheduler state.
 /// Must be kept alive for callbacks to fire.
 #[allow(dead_code)]
@@ -475,7 +477,21 @@ impl ContainerScheduler {
                 if !func.placement_constraints.matches(&executor.labels) {
                     continue;
                 }
+                // Don't place functions on executors that are 2.0.0
+                if executor
+                    .executor_version
+                    .eq_ignore_ascii_case(SANDBOX_ENABLED_DATAPLANE_VERSION)
+                {
+                    continue;
+                }
             } else {
+                // place sandboxes on executors that are 2.0.0
+                if !executor
+                    .executor_version
+                    .eq_ignore_ascii_case(SANDBOX_ENABLED_DATAPLANE_VERSION)
+                {
+                    continue;
+                }
                 // Sandbox: check allowlist for namespace/app only
                 if !executor.is_app_allowed(namespace, application) {
                     continue;
