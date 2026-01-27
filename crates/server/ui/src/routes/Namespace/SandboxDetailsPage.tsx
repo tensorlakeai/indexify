@@ -131,7 +131,7 @@ const SandboxDetailsPage = () => {
 
     try {
       // For local dataplane access, add sandbox_id as query param (or header for axios)
-      const headers = isLocalDataplane ? { 'X-Sandbox-Id': sandboxId } : {}
+      const headers = isLocalDataplane ? { 'Tensorlake-Sandbox-Id': sandboxId } : {}
       const response = await axios.get<ListProcessesResponse>(
         `${daemonUrl}/api/v1/processes`,
         { headers }

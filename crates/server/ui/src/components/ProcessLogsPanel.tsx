@@ -68,7 +68,7 @@ function ProcessLogsPanel({ daemonUrl, pid, sandboxId }: ProcessLogsPanelProps) 
     // Build headers for local dataplane access
     const headers: Record<string, string> = {}
     if (isLocalDataplane && sandboxId) {
-      headers['X-Sandbox-Id'] = sandboxId
+      headers['Tensorlake-Sandbox-Id'] = sandboxId
     }
 
     fetchEventSource(endpoint, {

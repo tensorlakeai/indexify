@@ -1,48 +1,58 @@
 # Indexify Dataplane
 
-The Indexify Dataplane is a service that runs on worker nodes to manage function executor and sandbox containers. It communicates with the Indexify Server via gRPC to receive desired state and report container status.
+The Indexify Dataplane is a service that runs on worker nodes to manage function
+executor and sandbox containers. It communicates with the Indexify Server via
+gRPC to receive desired state and report container status.
 
 ## Architecture
 
 ```
-                    ┌─────────────────────┐
-                    │   Indexify Server   │
-                    │   (Control Plane)   │
-                    └──────────┬──────────┘
-                               │ gRPC (8901)
-                               │
-                    ┌──────────▼──────────┐
-                    │  Indexify Dataplane │
-                    │                     │
-                    │  ┌───────────────┐  │
-                    │  │  HTTP Proxy   │◄─┼──── From Sandbox-Proxy (8095)
-                    │  │ (X-Sandbox-Id)│  │     X-Sandbox-Id, X-Sandbox-Port
-                    │  └───────┬───────┘  │
-                    │          │          │
-                    │  ┌───────▼───────┐  │
-                    │  │   Container   │  │
-                    │  │    Manager    │  │
-                    │  └───────┬───────┘  │
-                    │          │          │
-                    └──────────┼──────────┘
-                               │
-              ┌────────────────┼────────────────┐
-              │                │                │
-       ┌──────▼──────┐  ┌──────▼──────┐  ┌──────▼──────┐
-       │  Container  │  │  Container  │  │  Container  │
-       │  (Sandbox)  │  │  (Function) │  │  (Sandbox)  │
-       │ ┌─────────┐ │  │ ┌─────────┐ │  │ ┌─────────┐ │
-       │ │ Daemon  │ │  │ │ Daemon  │ │  │ │ Daemon  │ │
-       │ └─────────┘ │  │ └─────────┘ │  │ └─────────┘ │
-       └─────────────┘  └─────────────┘  └─────────────┘
+                         ┌─────────────────────┐
+                         │   Indexify Server   │
+                         │   (Control Plane)   │
+                         └──────────┬──────────┘
+                                    │ gRPC (8901)
+                                    │
+  Sandbox-Proxy (8095)              │
+  ─────────────────────┐            │
+  Headers:             │            │
+  • Tensorlake-Sandbox-Id           │
+  • Tensorlake-Sandbox-Port         │
+                       │            │
+                       │ ┌──────────▼──────────┐
+                       │ │  Indexify Dataplane │
+                       │ │                     │
+                       │ │  ┌───────────────┐  │
+                       └─┼─►│  HTTP Proxy   │  │
+                         │  └───────┬───────┘  │
+                         │          │          │
+                         │  ┌───────▼───────┐  │
+                         │  │   Container   │  │
+                         │  │    Manager    │  │
+                         │  └───────┬───────┘  │
+                         │          │          │
+                         └──────────┼──────────┘
+                                    │
+                   ┌────────────────┼────────────────┐
+                   │                │                │
+            ┌──────▼──────┐  ┌──────▼──────┐  ┌──────▼──────┐
+            │  Container  │  │  Container  │  │  Container  │
+            │  (Sandbox)  │  │  (Function) │  │  (Sandbox)  │
+            │ ┌─────────┐ │  │ ┌─────────┐ │  │ ┌─────────┐ │
+            │ │ Daemon  │ │  │ │ Daemon  │ │  │ │ Daemon  │ │
+            │ └─────────┘ │  │ └─────────┘ │  │ └─────────┘ │
+            └─────────────┘  └─────────────┘  └─────────────┘
 ```
 
 ### Components
 
 - **Service**: Main service loop handling heartbeats and desired state streaming
-- **Container Manager**: Creates, monitors, and terminates containers based on desired state
-- **HTTP Proxy**: Header-based routing for sandbox requests (receives `X-Sandbox-Id` from sandbox-proxy)
-- **Process Drivers**: Docker or ForkExec backends for container/process management
+- **Container Manager**: Creates, monitors, and terminates containers based on
+  desired state
+- **HTTP Proxy**: Header-based routing for sandbox requests (receives
+  `Tensorlake-Sandbox-Id` from sandbox-proxy)
+- **Process Drivers**: Docker or ForkExec backends for container/process
+  management
 - **Daemon Client**: gRPC client for communicating with the in-container daemon
 - **Network Rules**: iptables-based network policy enforcement for sandboxes
 
@@ -57,6 +67,7 @@ cargo run -p indexify-dataplane
 ```
 
 The dataplane will:
+
 - Connect to `http://localhost:8901` (default server address)
 - Start HTTP proxy on port `8095`
 - Log the resolved configuration on startup via structured logging
@@ -73,13 +84,13 @@ cargo run -p indexify-dataplane -- --config /etc/indexify/dataplane.yaml
 
 ```yaml
 env: production
-server_addr: "http://indexify.example.com:8901"
+server_addr: 'http://indexify.example.com:8901'
 driver:
   type: docker
 http_proxy:
   port: 8095
-  listen_addr: "0.0.0.0"
-  advertise_address: "worker-1.example.com:8095"
+  listen_addr: '0.0.0.0'
+  advertise_address: 'worker-1.example.com:8095'
 ```
 
 ### Full Configuration Reference
@@ -93,24 +104,24 @@ env: production
 executor_id: worker-node-1
 
 # Indexify Server gRPC address
-server_addr: "http://indexify.example.com:8901"
+server_addr: 'http://indexify.example.com:8901'
 
 # TLS configuration for server gRPC connection (optional)
 tls:
   enabled: false
-  ca_cert_path: "/etc/certs/ca.pem"
-  client_cert_path: "/etc/certs/client.pem"
-  client_key_path: "/etc/certs/client-key.pem"
-  domain_name: "indexify.example.com"
+  ca_cert_path: '/etc/certs/ca.pem'
+  client_cert_path: '/etc/certs/client.pem'
+  client_key_path: '/etc/certs/client-key.pem'
+  domain_name: 'indexify.example.com'
 
 # Telemetry configuration (optional)
 telemetry:
   # OpenTelemetry tracing exporter: "otlp" or "stdout"
   tracing_exporter: otlp
   # OpenTelemetry collector endpoint
-  endpoint: "http://otel-collector:4317"
+  endpoint: 'http://otel-collector:4317'
   # Instance ID for metrics attribution
-  instance_id: "dataplane-prod-worker-1"
+  instance_id: 'dataplane-prod-worker-1'
 
 # Process driver configuration
 driver:
@@ -120,34 +131,35 @@ driver:
   # address: "unix:///var/run/docker.sock"
 
 # HTTP proxy for sandbox routing
-# Receives requests from sandbox-proxy with X-Sandbox-Id header
+# Receives requests from sandbox-proxy with Tensorlake-Sandbox-Id header
 http_proxy:
   port: 8095
-  listen_addr: "0.0.0.0"
+  listen_addr: '0.0.0.0'
   # Address advertised to server (sandbox-proxy uses this to forward requests)
-  advertise_address: "worker-1.example.com:8095"
+  advertise_address: 'worker-1.example.com:8095'
 ```
 
 ## HTTP Proxy
 
-The HTTP proxy receives requests from the sandbox-proxy service and routes them to the appropriate container based on headers.
+The HTTP proxy receives requests from the sandbox-proxy service and routes them
+to the appropriate container based on headers.
 
 ### Headers
 
-| Header | Required | Description |
-|--------|----------|-------------|
-| `X-Sandbox-Id` | Yes | The sandbox container ID to route to |
-| `X-Sandbox-Port` | No | Container port (defaults to 9501 - daemon API) |
+| Header                    | Required | Description                                    |
+| ------------------------- | -------- | ---------------------------------------------- |
+| `Tensorlake-Sandbox-Id`   | Yes      | The sandbox container ID to route to           |
+| `Tensorlake-Sandbox-Port` | No       | Container port (defaults to 9501 - daemon API) |
 
 ### Response Codes
 
-| Code | Meaning |
-|------|---------|
-| 2xx/3xx/4xx/5xx | Forwarded from container |
-| 400 | Missing `X-Sandbox-Id` header |
-| 404 | Sandbox not found |
-| 503 | Sandbox exists but not running (includes state in message) |
-| 502 | Failed to connect to container |
+| Code            | Meaning                                                    |
+| --------------- | ---------------------------------------------------------- |
+| 2xx/3xx/4xx/5xx | Forwarded from container                                   |
+| 400             | Missing `Tensorlake-Sandbox-Id` header                     |
+| 404             | Sandbox not found                                          |
+| 503             | Sandbox exists but not running (includes state in message) |
+| 502             | Failed to connect to container                             |
 
 ### Example Request Flow
 
@@ -156,8 +168,8 @@ sandbox-proxy                          dataplane
      │                                     │
      │  POST /api/v1/processes             │
      │  Host: abc123.sandbox.tensorlake.ai │
-     │  X-Sandbox-Id: abc123               │
-     │  X-Sandbox-Port: 9501               │
+     │  Tensorlake-Sandbox-Id: abc123      │
+     │  Tensorlake-Sandbox-Port: 9501      │
      │ ──────────────────────────────────► │
      │                                     │ Lookup container abc123
      │                                     │ Forward to container:9501
@@ -204,9 +216,11 @@ docker run -d \
 ```
 
 **Important flags:**
+
 - `--privileged`: Required for iptables network policy enforcement
 - `-v /var/run/docker.sock`: Docker socket for container management
-- `-v /proc:/host/proc:ro`: Enables accurate host resource detection from within container
+- `-v /proc:/host/proc:ro`: Enables accurate host resource detection from within
+  container
 
 ### Kubernetes Deployment
 
@@ -226,77 +240,79 @@ spec:
     spec:
       hostNetwork: true
       containers:
-      - name: dataplane
-        image: indexify-dataplane:latest
-        args: ["--config", "/etc/indexify/dataplane.yaml"]
-        securityContext:
-          privileged: true
-        volumeMounts:
-        - name: docker-sock
-          mountPath: /var/run/docker.sock
-        - name: host-proc
-          mountPath: /host/proc
-          readOnly: true
-        - name: config
-          mountPath: /etc/indexify
-        - name: state
-          mountPath: /var/lib/indexify
-        ports:
-        - containerPort: 8095
-          hostPort: 8095
+        - name: dataplane
+          image: indexify-dataplane:latest
+          args: ['--config', '/etc/indexify/dataplane.yaml']
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - name: docker-sock
+              mountPath: /var/run/docker.sock
+            - name: host-proc
+              mountPath: /host/proc
+              readOnly: true
+            - name: config
+              mountPath: /etc/indexify
+            - name: state
+              mountPath: /var/lib/indexify
+          ports:
+            - containerPort: 8095
+              hostPort: 8095
       volumes:
-      - name: docker-sock
-        hostPath:
-          path: /var/run/docker.sock
-      - name: host-proc
-        hostPath:
-          path: /proc
-      - name: config
-        configMap:
-          name: dataplane-config
-      - name: state
-        hostPath:
-          path: /var/lib/indexify
+        - name: docker-sock
+          hostPath:
+            path: /var/run/docker.sock
+        - name: host-proc
+          hostPath:
+            path: /proc
+        - name: config
+          configMap:
+            name: dataplane-config
+        - name: state
+          hostPath:
+            path: /var/lib/indexify
 ```
 
 ### Resource Requirements
 
-| Resource | Minimum | Recommended |
-|----------|---------|-------------|
-| CPU | 0.5 cores | 2 cores |
-| Memory | 256 MB | 1 GB |
-| Disk | 1 GB | 10 GB (for state and logs) |
+| Resource | Minimum   | Recommended                |
+| -------- | --------- | -------------------------- |
+| CPU      | 0.5 cores | 2 cores                    |
+| Memory   | 256 MB    | 1 GB                       |
+| Disk     | 1 GB      | 10 GB (for state and logs) |
 
-The dataplane itself is lightweight; resources are primarily consumed by managed containers.
+The dataplane itself is lightweight; resources are primarily consumed by managed
+containers.
 
 ## Metrics
 
-Metrics are exported via OTLP when telemetry is configured. All metrics are prefixed with `indexify.dataplane.`.
+Metrics are exported via OTLP when telemetry is configured. All metrics are
+prefixed with `indexify.dataplane.`.
 
 ### Counters
 
-| Metric | Labels | Description |
-|--------|--------|-------------|
-| `containers.started` | `container_type` | Number of containers started |
-| `containers.terminated` | `container_type`, `reason` | Number of containers terminated |
-| `desired_state.received` | - | Desired state messages from server |
-| `desired_state.function_executors` | - | Total function executors in desired state |
-| `desired_state.allocations` | - | Total allocations in desired state |
-| `heartbeat.success` | - | Successful heartbeats |
-| `heartbeat.failures` | - | Failed heartbeats |
-| `stream.disconnections` | `reason` | Stream disconnections |
+| Metric                             | Labels                     | Description                               |
+| ---------------------------------- | -------------------------- | ----------------------------------------- |
+| `containers.started`               | `container_type`           | Number of containers started              |
+| `containers.terminated`            | `container_type`, `reason` | Number of containers terminated           |
+| `desired_state.received`           | -                          | Desired state messages from server        |
+| `desired_state.function_executors` | -                          | Total function executors in desired state |
+| `desired_state.allocations`        | -                          | Total allocations in desired state        |
+| `heartbeat.success`                | -                          | Successful heartbeats                     |
+| `heartbeat.failures`               | -                          | Failed heartbeats                         |
+| `stream.disconnections`            | `reason`                   | Stream disconnections                     |
 
 ### Gauges (Observable)
 
-| Metric | Unit | Description |
-|--------|------|-------------|
+| Metric                         | Unit  | Description                 |
+| ------------------------------ | ----- | --------------------------- |
 | `containers.running.functions` | count | Running function containers |
-| `containers.running.sandboxes` | count | Running sandbox containers |
+| `containers.running.sandboxes` | count | Running sandbox containers  |
 | `containers.pending.functions` | count | Pending function containers |
-| `containers.pending.sandboxes` | count | Pending sandbox containers |
-| `resources.free_cpu_percent` | % | Available CPU percentage |
-| `resources.free_memory_bytes` | bytes | Available memory |
-| `resources.free_disk_bytes` | bytes | Available disk space |
+| `containers.pending.sandboxes` | count | Pending sandbox containers  |
+| `resources.free_cpu_percent`   | %     | Available CPU percentage    |
+| `resources.free_memory_bytes`  | bytes | Available memory            |
+| `resources.free_disk_bytes`    | bytes | Available disk space        |
 
 ## Logs
 
@@ -322,20 +338,21 @@ RUST_LOG=indexify_dataplane::http_proxy=debug cargo run -p indexify-dataplane
 
 ### Key Log Events
 
-| Event | Level | Description |
-|-------|-------|-------------|
-| `Starting HTTP proxy server` | INFO | Proxy startup with listen address |
-| `proxy_request` | INFO | Request span with sandbox_id, method, path, status |
-| `Routing request to container` | DEBUG | Request forwarded to container |
-| `Request completed` | INFO | Successful request with duration_ms |
-| `Missing X-Sandbox-Id header` | WARN | Request without required header |
-| `Sandbox not found` | WARN | Container ID not found |
-| `Sandbox not running` | WARN | Container exists but not in running state |
-| `Failed to connect to container` | ERROR | Cannot reach container |
+| Event                                  | Level | Description                                        |
+| -------------------------------------- | ----- | -------------------------------------------------- |
+| `Starting HTTP proxy server`           | INFO  | Proxy startup with listen address                  |
+| `proxy_request`                        | INFO  | Request span with sandbox_id, method, path, status |
+| `Routing request to container`         | DEBUG | Request forwarded to container                     |
+| `Request completed`                    | INFO  | Successful request with duration_ms                |
+| `Missing Tensorlake-Sandbox-Id header` | WARN  | Request without required header                    |
+| `Sandbox not found`                    | WARN  | Container ID not found                             |
+| `Sandbox not running`                  | WARN  | Container exists but not in running state          |
+| `Failed to connect to container`       | ERROR | Cannot reach container                             |
 
 ### Structured Log Fields
 
 HTTP proxy request events include:
+
 - `sandbox_id`: Target container ID
 - `port`: Target port
 - `method`: HTTP method
@@ -383,13 +400,15 @@ cargo run -p indexify-dataplane
 ```
 
 The dataplane will:
+
 - Connect to the server at `http://localhost:8901`
 - Start HTTP proxy on port `8095`
 - Report its proxy address to the server for routing
 
 ### Testing with Docker on macOS
 
-When testing with Docker containers on macOS, you need to cross-compile the Linux daemon binary:
+When testing with Docker containers on macOS, you need to cross-compile the
+Linux daemon binary:
 
 ```bash
 # Build with Linux daemon for Docker containers
@@ -399,25 +418,29 @@ RUN_DOCKER_TESTS=1 cargo build -p indexify-dataplane
 RUN_DOCKER_TESTS=1 cargo run -p indexify-dataplane -- --config /tmp/dataplane.yaml
 ```
 
-**Important**: Without `RUN_DOCKER_TESTS=1`, the daemon binary will be compiled for macOS and won't run inside Linux containers.
+**Important**: Without `RUN_DOCKER_TESTS=1`, the daemon binary will be compiled
+for macOS and won't run inside Linux containers.
 
 ### Local Testing with Sandbox Proxy
 
-When testing with sandbox-proxy locally, use `advertise_address` to avoid IPv6 resolution issues:
+When testing with sandbox-proxy locally, use `advertise_address` to avoid IPv6
+resolution issues:
 
 ```yaml
 # /tmp/dataplane-docker.yaml
 env: local
-server_addr: "http://localhost:8901"
+server_addr: 'http://localhost:8901'
 driver:
   type: docker
 http_proxy:
   port: 8095
-  listen_addr: "0.0.0.0"
-  advertise_address: "127.0.0.1:8095"  # Required for local testing
+  listen_addr: '0.0.0.0'
+  advertise_address: '127.0.0.1:8095' # Required for local testing
 ```
 
-Without `advertise_address`, the dataplane advertises its hostname (e.g., `my-macbook.local:8095`), which may resolve to IPv6 and cause connection failures from sandbox-proxy.
+Without `advertise_address`, the dataplane advertises its hostname (e.g.,
+`my-macbook.local:8095`), which may resolve to IPv6 and cause connection
+failures from sandbox-proxy.
 
 ### Testing the HTTP Proxy
 
@@ -432,30 +455,30 @@ curl -X POST "http://localhost:8900/v1/namespaces/default/applications/test-app/
 curl "http://localhost:8900/v1/namespaces/default/applications/test-app/sandboxes/abc123"
 
 # Test routing directly to dataplane (bypassing sandbox-proxy)
-curl -H "X-Sandbox-Id: abc123" http://localhost:8095/api/v1/processes
+curl -H "Tensorlake-Sandbox-Id: abc123" http://localhost:8095/api/v1/processes
 # Returns: {"processes":[]}
 
 # Test with explicit port (default daemon API port is 9501)
-curl -H "X-Sandbox-Id: abc123" -H "X-Sandbox-Port: 9501" \
+curl -H "Tensorlake-Sandbox-Id: abc123" -H "Tensorlake-Sandbox-Port: 9501" \
      http://localhost:8095/api/v1/processes
 
 # Test port-based routing to a custom service
 # First, start a server on port 8080 in the container:
-curl -X POST -H "X-Sandbox-Id: abc123" \
+curl -X POST -H "Tensorlake-Sandbox-Id: abc123" \
   -H "Content-Type: application/json" \
   http://localhost:8095/api/v1/processes \
   -d '{"command": "python", "args": ["-m", "http.server", "8080"]}'
 
 # Then access port 8080:
-curl -H "X-Sandbox-Id: abc123" -H "X-Sandbox-Port: 8080" http://localhost:8095/
+curl -H "Tensorlake-Sandbox-Id: abc123" -H "Tensorlake-Sandbox-Port: 8080" http://localhost:8095/
 # Returns: Directory listing HTML from Python HTTP server
 
 # Test error cases
-curl -H "X-Sandbox-Id: nonexistent" http://localhost:8095/health
+curl -H "Tensorlake-Sandbox-Id: nonexistent" http://localhost:8095/health
 # Returns: 404 Sandbox not found
 
 curl http://localhost:8095/health
-# Returns: 400 Missing X-Sandbox-Id header
+# Returns: 400 Missing Tensorlake-Sandbox-Id header
 ```
 
 ### Creating a Test Sandbox
@@ -489,16 +512,19 @@ RUST_LOG=debug cargo test -p indexify-dataplane -- --nocapture
 ### Debugging Tips
 
 1. **View container logs**:
+
    ```bash
    docker logs indexify-<container_id>
    ```
 
 2. **List managed containers**:
+
    ```bash
    docker ps --filter "label=indexify.managed=true"
    ```
 
 3. **Check proxy routing**:
+
    ```bash
    RUST_LOG=indexify_dataplane::http_proxy=debug cargo run -p indexify-dataplane
    ```
@@ -513,15 +539,15 @@ RUST_LOG=debug cargo test -p indexify-dataplane -- --nocapture
 
 ### Common Issues
 
-| Issue | Cause | Solution |
-|-------|-------|----------|
-| Heartbeat failures | Server unreachable | Check `server_addr` and network connectivity |
-| Container startup timeout | Slow image pull | Pre-pull images or increase timeout |
-| 400 Missing X-Sandbox-Id | No header in request | Ensure requests come through sandbox-proxy |
-| 404 Sandbox not found | Container doesn't exist | Verify sandbox was created |
-| 503 Sandbox not running | Container stopped/terminated | Check container state, may need recreation |
-| Network rules not applied | Missing privileges | Run with `--privileged` or `NET_ADMIN` capability |
-| Resource detection wrong | Running in container | Mount `/proc:/host/proc:ro` |
+| Issue                             | Cause                        | Solution                                          |
+| --------------------------------- | ---------------------------- | ------------------------------------------------- |
+| Heartbeat failures                | Server unreachable           | Check `server_addr` and network connectivity      |
+| Container startup timeout         | Slow image pull              | Pre-pull images or increase timeout               |
+| 400 Missing Tensorlake-Sandbox-Id | No header in request         | Ensure requests come through sandbox-proxy        |
+| 404 Sandbox not found             | Container doesn't exist      | Verify sandbox was created                        |
+| 503 Sandbox not running           | Container stopped/terminated | Check container state, may need recreation        |
+| Network rules not applied         | Missing privileges           | Run with `--privileged` or `NET_ADMIN` capability |
+| Resource detection wrong          | Running in container         | Mount `/proc:/host/proc:ro`                       |
 
 ### Health Checks
 
@@ -536,5 +562,5 @@ docker ps --filter "label=indexify.managed=true"
 nc -zv localhost 8095
 
 # Test proxy with debug logging
-RUST_LOG=debug curl -H "X-Sandbox-Id: test" http://localhost:8095/health
+RUST_LOG=debug curl -H "Tensorlake-Sandbox-Id: test" http://localhost:8095/health
 ```

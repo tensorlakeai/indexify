@@ -1,13 +1,13 @@
 //! HTTP Proxy server with header-based routing.
 //!
 //! Accepts HTTP connections and routes to sandbox containers based on
-//! the `X-Sandbox-Id` header. This proxy receives plaintext HTTP from
+//! the `Tensorlake-Sandbox-Id` header. This proxy receives plaintext HTTP from
 //! the external sandbox-proxy (which handles TLS termination and auth).
 //!
 //! ## Headers
 //!
-//! - `X-Sandbox-Id` (required): The sandbox ID to route to
-//! - `X-Sandbox-Port` (optional): The container port (defaults to 9501)
+//! - `Tensorlake-Sandbox-Id` (required): The sandbox ID to route to
+//! - `Tensorlake-Sandbox-Port` (optional): The container port (defaults to 9501)
 //!
 //! ## Flow
 //!
@@ -152,7 +152,7 @@ impl ProxyHttp for HttpProxy {
             )?;
             resp.insert_header(
                 "access-control-allow-headers",
-                "content-type, x-sandbox-id, x-sandbox-port",
+                "content-type, tensorlake-sandbox-id, tensorlake-sandbox-port",
             )?;
             resp.insert_header("access-control-allow-credentials", "true")?;
             resp.insert_header("access-control-max-age", "86400")?;
@@ -160,31 +160,31 @@ impl ProxyHttp for HttpProxy {
             return Ok(true); // Request handled, don't proxy upstream
         }
 
-        // Extract X-Sandbox-Id header (required)
+        // Extract Tensorlake-Sandbox-Id header (required)
         let sandbox_id = match session
             .req_header()
             .headers
-            .get("x-sandbox-id")
+            .get("tensorlake-sandbox-id")
             .and_then(|v| v.to_str().ok())
         {
             Some(id) => id,
             None => {
-                warn!(%method, %path, "Missing X-Sandbox-Id header");
+                warn!(%method, %path, "Missing Tensorlake-Sandbox-Id header");
                 return send_error_response(
                     session,
                     400,
-                    "Missing X-Sandbox-Id header",
+                    "Missing Tensorlake-Sandbox-Id header",
                     origin.as_deref(),
                 )
                 .await;
             }
         };
 
-        // Extract X-Sandbox-Port header (optional, defaults to 9501)
+        // Extract Tensorlake-Sandbox-Port header (optional, defaults to 9501)
         let port: u16 = session
             .req_header()
             .headers
-            .get("x-sandbox-port")
+            .get("tensorlake-sandbox-port")
             .and_then(|v| v.to_str().ok())
             .and_then(|v| v.parse().ok())
             .unwrap_or(DEFAULT_SANDBOX_PORT);
@@ -253,8 +253,8 @@ impl ProxyHttp for HttpProxy {
         _ctx: &mut Self::CTX,
     ) -> Result<()> {
         // Remove internal routing headers - container doesn't need these
-        upstream_request.remove_header("x-sandbox-id");
-        upstream_request.remove_header("x-sandbox-port");
+        upstream_request.remove_header("tensorlake-sandbox-id");
+        upstream_request.remove_header("tensorlake-sandbox-port");
         Ok(())
     }
 
@@ -290,7 +290,7 @@ impl ProxyHttp for HttpProxy {
             upstream_response
                 .insert_header(
                     "access-control-allow-headers",
-                    "content-type, x-sandbox-id, x-sandbox-port",
+                    "content-type, tensorlake-sandbox-id, tensorlake-sandbox-port",
                 )
                 .ok();
             upstream_response

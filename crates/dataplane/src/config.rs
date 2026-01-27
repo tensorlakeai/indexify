@@ -184,7 +184,7 @@ impl Default for UpstreamConfig {
 
 /// Configuration for the HTTP proxy server (header-based routing).
 /// Accepts plaintext HTTP from the sandbox-proxy and routes to containers
-/// based on the X-Sandbox-Id header.
+/// based on the Tensorlake-Sandbox-Id header.
 #[serde_inline_default]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HttpProxyConfig {
@@ -261,7 +261,7 @@ pub struct DataplaneConfig {
     #[serde_inline_default("./dataplane-state.json".to_string())]
     pub state_file: String,
     /// HTTP proxy server configuration (header-based routing).
-    /// Receives requests from sandbox-proxy with X-Sandbox-Id header.
+    /// Receives requests from sandbox-proxy with Tensorlake-Sandbox-Id header.
     #[serde(default)]
     pub http_proxy: HttpProxyConfig,
 }

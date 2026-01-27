@@ -10,10 +10,8 @@ use crate::{
     http_objects::{ContainerResources, IndexifyAPIError},
     routes::routes_state::RouteState,
     state_store::requests::{
-        CreateSandboxRequest as StateCreateSandboxRequest,
-        RequestPayload,
-        StateMachineUpdateRequest,
-        TerminateSandboxRequest,
+        CreateSandboxRequest as StateCreateSandboxRequest, RequestPayload,
+        StateMachineUpdateRequest, TerminateSandboxRequest,
     },
     utils::get_epoch_time_in_ns,
 };
@@ -115,7 +113,7 @@ impl SandboxInfo {
         let is_local = sandbox_proxy_domain.map(is_local_domain).unwrap_or(false);
 
         let sandbox_url = if is_local {
-            // Local dev: use dataplane address directly (UI will add X-Sandbox-Id header)
+            // Local dev: use dataplane address directly (UI will add Tensorlake-Sandbox-Id header)
             dataplane_api_address.map(|addr| format!("http://{}", addr))
         } else {
             // Production: use sandbox-proxy URL
