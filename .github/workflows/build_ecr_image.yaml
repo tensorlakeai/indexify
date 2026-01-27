@@ -1,5 +1,7 @@
 name: Build ECR images
 
+run-name: Build and push to ECR ${{ inputs.environment }}
+
 on:
   workflow_dispatch:
     inputs:
@@ -26,7 +28,7 @@ permissions:
 
 jobs:
   build-and-push:
-    name: Build indexify server and push to ${{ inputs.environment }}
+    name: Build ${{ matrix.image }}
     strategy:
       matrix:
         include:
