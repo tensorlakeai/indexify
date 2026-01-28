@@ -9,8 +9,13 @@ use std::{
 use anyhow::{Context, Result};
 use prost::Message;
 use proto_api::executor_api_pb::{
-    DesiredExecutorState, ExecutorState, ExecutorStatus, ExecutorUpdate,
-    GetDesiredExecutorStatesRequest, HostResources, ReportExecutorStateRequest,
+    DesiredExecutorState,
+    ExecutorState,
+    ExecutorStatus,
+    ExecutorUpdate,
+    GetDesiredExecutorStatesRequest,
+    HostResources,
+    ReportExecutorStateRequest,
     executor_api_client::ExecutorApiClient,
 };
 use sha2::{Digest, Sha256};
