@@ -264,6 +264,10 @@ pub struct DataplaneConfig {
     /// Receives requests from sandbox-proxy with Tensorlake-Sandbox-Id header.
     #[serde(default)]
     pub http_proxy: HttpProxyConfig,
+    /// Path where the daemon binary will be extracted.
+    /// Defaults to /tmp/indexify-container-daemon.
+    #[serde(default)]
+    pub daemon_binary_extract_path: Option<String>,
 }
 
 fn default_executor_id() -> String {
@@ -281,6 +285,7 @@ impl Default for DataplaneConfig {
             driver: DriverConfig::default(),
             state_file: "./dataplane-state.json".to_string(),
             http_proxy: HttpProxyConfig::default(),
+            daemon_binary_extract_path: None,
         }
     }
 }
