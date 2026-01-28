@@ -7,6 +7,7 @@ use std::{
 
 use anyhow::Result;
 use opentelemetry::KeyValue;
+use rayon::prelude::*;
 use tracing::{debug, error, info};
 
 use crate::{
@@ -189,78 +190,98 @@ impl InMemoryState {
         reader: StateReader,
         executor_catalog: ExecutorCatalog,
     ) -> Result<Self> {
-        info!(
-            "initializing in-memory state from state store at clock {}",
-            clock
-        );
+        info!(clock, "initializing in-memory state from state store",);
+        let start_time = Instant::now();
 
         let metrics = InMemoryStoreMetrics::new();
 
-        // Creating Namespaces
-        let mut namespaces = imbl::HashMap::new();
-        let mut applications = imbl::HashMap::new();
-        {
-            let all_ns = reader.get_all_namespaces().await?;
-            for ns in &all_ns {
-                // Creating Namespaces
-                namespaces.insert(ns.name.clone(), Box::new(ns.clone()));
+        // Execute all independent database queries in parallel.
+        let (
+            all_ns,
+            all_apps,
+            all_cg_versions,
+            allocations_result,
+            all_app_request_ctx,
+            all_sandboxes,
+        ) = tokio::join!(
+            reader.get_all_namespaces(),
+            reader.get_all_rows_from_cf::<Application>(IndexifyObjectsColumns::Applications),
+            reader.get_all_rows_from_cf::<ApplicationVersion>(
+                IndexifyObjectsColumns::ApplicationVersions
+            ),
+            reader.get_rows_from_cf_with_limits::<Allocation>(
+                &[],
+                None,
+                IndexifyObjectsColumns::Allocations,
+                None,
+            ),
+            reader.get_all_rows_from_cf::<RequestCtx>(IndexifyObjectsColumns::RequestCtx),
+            reader.get_all_rows_from_cf::<Sandbox>(IndexifyObjectsColumns::Sandboxes),
+        );
 
-                // Creating Compute Graphs and Versions
-                let cgs = reader.list_applications(&ns.name, None, None).await?.0;
-                for cg in cgs {
-                    applications.insert(cg.key(), Box::new(cg));
-                }
-            }
+        // Unwrap all results
+        let all_ns = all_ns?;
+        let all_apps: Vec<(String, Application)> = all_apps?;
+        let all_cg_versions: Vec<(String, ApplicationVersion)> = all_cg_versions?;
+        let (allocations, _) = allocations_result?;
+        let all_app_request_ctx: Vec<(String, RequestCtx)> = all_app_request_ctx?;
+        let all_sandboxes: Vec<(String, Sandbox)> = all_sandboxes?;
+
+        debug!(
+            duration = get_elapsed_time(start_time.elapsed().as_millis(), TimeUnit::Milliseconds),
+            "loaded in-memory initialization data from database",
+        );
+
+        let mut namespaces = imbl::HashMap::new();
+        for ns in all_ns {
+            namespaces.insert(ns.name.clone(), Box::new(ns));
+        }
+
+        let mut applications = imbl::HashMap::new();
+        for (_, app) in all_apps {
+            applications.insert(app.key(), Box::new(app));
         }
 
         let mut application_versions = imbl::OrdMap::new();
-        {
-            let all_cg_versions: Vec<(String, ApplicationVersion)> = reader
-                .get_all_rows_from_cf(IndexifyObjectsColumns::ApplicationVersions)
-                .await?;
-            for (id, cg) in all_cg_versions {
-                application_versions.insert(id, Box::new(cg));
-            }
+        for (id, cg) in all_cg_versions {
+            application_versions.insert(id, Box::new(cg));
         }
-        // Creating Allocated Tasks By Function by Executor
+
+        let allocations_grouped: Vec<_> = allocations
+            .par_iter()
+            .filter(|allocation| !allocation.is_terminal())
+            .map(|allocation| {
+                (
+                    allocation.target.executor_id.clone(),
+                    allocation.target.function_executor_id.clone(),
+                    allocation.id.clone(),
+                    allocation.clone(),
+                )
+            })
+            .collect();
+
         let mut allocations_by_executor: imbl::HashMap<
             ExecutorId,
             HashMap<ContainerId, HashMap<AllocationId, Box<Allocation>>>,
         > = imbl::HashMap::new();
-        {
-            let (allocations, _) = reader
-                .get_rows_from_cf_with_limits::<Allocation>(
-                    &[],
-                    None,
-                    IndexifyObjectsColumns::Allocations,
-                    None,
-                )
-                .await?;
-            for allocation in allocations {
-                if allocation.is_terminal() {
-                    continue;
-                }
-                allocations_by_executor
-                    .entry(allocation.target.executor_id.clone())
-                    .or_default()
-                    .entry(allocation.target.function_executor_id.clone())
-                    .or_default()
-                    .insert(allocation.id.clone(), Box::new(allocation));
-            }
+        for (executor_id, fe_id, alloc_id, allocation) in allocations_grouped {
+            allocations_by_executor
+                .entry(executor_id)
+                .or_default()
+                .entry(fe_id)
+                .or_default()
+                .insert(alloc_id, Box::new(allocation));
         }
 
+        let request_ctx_filtered: Vec<_> = all_app_request_ctx
+            .par_iter()
+            .filter(|(_id, ctx)| ctx.outcome.is_none())
+            .map(|(_id, ctx)| (ctx.key().into(), Box::new(ctx.clone())))
+            .collect();
+
         let mut request_ctx = imbl::OrdMap::new();
-        {
-            let all_app_request_ctx: Vec<(String, RequestCtx)> = reader
-                .get_all_rows_from_cf(IndexifyObjectsColumns::RequestCtx)
-                .await?;
-            for (_id, ctx) in all_app_request_ctx {
-                // Do not cache completed requests
-                if ctx.outcome.is_some() {
-                    continue;
-                }
-                request_ctx.insert(ctx.key().into(), Box::new(ctx));
-            }
+        for (key, ctx) in request_ctx_filtered {
+            request_ctx.insert(key, ctx);
         }
 
         let mut function_runs = imbl::OrdMap::new();
@@ -274,26 +295,26 @@ impl InMemoryState {
             }
         }
 
-        // Build the index of function runs by catalog entry
         let function_runs_by_catalog_entry: imbl::HashMap<String, imbl::OrdSet<FunctionRunKey>> =
             imbl::HashMap::new();
 
+        let sandboxes_filtered: Vec<_> = all_sandboxes
+            .par_iter()
+            .filter(|(_key, sandbox)| sandbox.status != SandboxStatus::Terminated)
+            .map(|(_key, sandbox)| {
+                let sandbox_key = SandboxKey::from(sandbox);
+                let is_pending = sandbox.status == SandboxStatus::Pending;
+                (sandbox_key, Box::new(sandbox.clone()), is_pending)
+            })
+            .collect();
+
         let mut sandboxes = imbl::OrdMap::new();
         let mut pending_sandboxes = imbl::OrdSet::new();
-        {
-            let all_sandboxes: Vec<(String, Sandbox)> = reader
-                .get_all_rows_from_cf(IndexifyObjectsColumns::Sandboxes)
-                .await?;
-            for (_key, sandbox) in all_sandboxes {
-                if sandbox.status == SandboxStatus::Terminated {
-                    continue;
-                }
-                let sandbox_key = SandboxKey::from(&sandbox);
-                if sandbox.status == SandboxStatus::Pending {
-                    pending_sandboxes.insert(sandbox_key.clone());
-                }
-                sandboxes.insert(sandbox_key, Box::new(sandbox));
+        for (sandbox_key, sandbox, is_pending) in sandboxes_filtered {
+            if is_pending {
+                pending_sandboxes.insert(sandbox_key.clone());
             }
+            sandboxes.insert(sandbox_key, sandbox);
         }
 
         let mut in_memory_state = Self {
@@ -312,16 +333,61 @@ impl InMemoryState {
             metrics,
         };
 
-        // Populate the catalog index for all existing function runs
+        // Populate the catalog index for all existing function runs in parallel.
         let function_runs_to_index: Vec<_> =
             in_memory_state.function_runs.values().cloned().collect();
-        for function_run in function_runs_to_index {
-            in_memory_state.index_function_run_by_catalog(&function_run);
+
+        let catalog_entries = in_memory_state.executor_catalog.entries.clone();
+        let application_versions = in_memory_state.application_versions.clone();
+
+        // Parallel computation: for each function run, determine which catalog entries
+        // match
+        let catalog_matches: Vec<_> = function_runs_to_index
+            .par_iter()
+            .filter_map(|function_run| {
+                // Get the application version to check placement constraints
+                let app_version = application_versions
+                    .get(&function_run.key_application_version(&function_run.application))?;
+
+                let function = app_version.functions.get(&function_run.name)?;
+
+                // Find all catalog entries that match this function run
+                let matching_entries: Vec<String> = catalog_entries
+                    .iter()
+                    .filter(|catalog_entry| {
+                        function
+                            .placement_constraints
+                            .matches(&catalog_entry.labels) &&
+                            function
+                                .resources
+                                .can_be_handled_by_catalog_entry(catalog_entry)
+                    })
+                    .map(|entry| entry.name.clone())
+                    .collect();
+
+                if matching_entries.is_empty() {
+                    None
+                } else {
+                    Some((FunctionRunKey::from(&**function_run), matching_entries))
+                }
+            })
+            .collect();
+
+        // Merge the results into the catalog index
+        for (function_run_key, catalog_entry_names) in catalog_matches {
+            for catalog_entry_name in catalog_entry_names {
+                in_memory_state
+                    .function_runs_by_catalog_entry
+                    .entry(catalog_entry_name)
+                    .or_default()
+                    .insert(function_run_key.clone());
+            }
         }
 
         info!(
-            "completed in-memory state initialization from state store at clock {}",
-            clock
+            clock,
+            duration = get_elapsed_time(start_time.elapsed().as_millis(), TimeUnit::Milliseconds),
+            "completed in-memory state initialization from state store",
         );
         Ok(in_memory_state)
     }

@@ -61,6 +61,7 @@ bytes.workspace = true
 priority-queue.workspace = true
 imbl.workspace = true
 rand.workspace = true
+rayon.workspace = true
 url.workspace = true
 chrono.workspace = true
 strum.workspace = true
