@@ -423,10 +423,12 @@ server_addr: "indexify.example.com:8901"
 "#;
         let result = DataplaneConfig::from_yaml_str(yaml);
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("must include a scheme"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("must include a scheme")
+        );
     }
 
     #[test]
