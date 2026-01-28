@@ -31,9 +31,14 @@ const DEFAULT_DAEMON_PATH: &str = "/tmp/indexify-container-daemon";
 
 /// Extract the embedded daemon binary to the filesystem.
 /// This should be called once at startup.
-pub fn extract_daemon_binary() -> Result<&'static Path> {
+///
+/// If `custom_path` is provided, the binary will be extracted to that location.
+/// Otherwise, it defaults to `/tmp/indexify-container-daemon`.
+pub fn extract_daemon_binary(custom_path: Option<&str>) -> Result<&'static Path> {
     let path = DAEMON_PATH.get_or_init(|| {
-        let path = PathBuf::from(DEFAULT_DAEMON_PATH);
+        let path = custom_path
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from(DEFAULT_DAEMON_PATH));
 
         // Extract the binary
         if let Err(e) = extract_to_path(&path) {

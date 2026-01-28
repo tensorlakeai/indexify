@@ -111,6 +111,7 @@ impl Service {
             let cancel_token = cancel_token.clone();
             let metrics = self.metrics.clone();
             let http_proxy_address = self.config.http_proxy.get_advertise_address();
+            let server_addr = self.config.server_addr.clone();
             async move {
                 run_heartbeat_loop(
                     channel,
@@ -122,6 +123,7 @@ impl Service {
                     cancel_token,
                     metrics,
                     http_proxy_address,
+                    server_addr,
                 )
                 .await
             }
@@ -247,6 +249,7 @@ async fn run_heartbeat_loop(
     cancel_token: CancellationToken,
     metrics: Arc<DataplaneMetrics>,
     proxy_address: String,
+    server_addr: String,
 ) {
     let mut client = ExecutorApiClient::new(channel);
 
@@ -308,7 +311,7 @@ async fn run_heartbeat_loop(
             }
             Err(e) => {
                 metrics.counters.record_heartbeat(false);
-                tracing::warn!(error = %e, "Heartbeat failed, retrying");
+                tracing::warn!(error = %e, %server_addr, "Heartbeat failed, retrying");
                 heartbeat_healthy.store(false, Ordering::SeqCst);
                 tokio::select! {
                     _ = cancel_token.cancelled() => {

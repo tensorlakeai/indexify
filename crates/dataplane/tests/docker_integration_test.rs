@@ -64,7 +64,7 @@ async fn is_docker_available() -> bool {
 
 /// Extract the daemon binary for testing
 fn extract_daemon_binary() -> Result<PathBuf> {
-    indexify_dataplane::daemon_binary::extract_daemon_binary().map(|p| p.to_path_buf())
+    indexify_dataplane::daemon_binary::extract_daemon_binary(None).map(|p| p.to_path_buf())
 }
 
 /// Test: Docker container starts with daemon binary mounted
