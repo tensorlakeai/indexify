@@ -14,6 +14,7 @@ use uuid::Uuid;
 use crate::{blob_store::BlobStorageConfig, state_store::driver::rocksdb::RocksDBConfig};
 
 const LOCAL_ENV: &str = "local";
+pub const DEFAULT_SANDBOX_IMAGE: &str = "python:3.14-slim";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -85,7 +86,7 @@ pub struct ServerConfig {
     #[serde_inline_default(600)]
     pub default_sandbox_timeout_secs: u64,
     /// Default Docker image for sandbox containers.
-    #[serde_inline_default("python:3.11-slim".to_string())]
+    #[serde_inline_default(DEFAULT_SANDBOX_IMAGE.to_string())]
     pub default_sandbox_image: String,
     /// Domain suffix for sandbox proxy URLs (e.g., "sandboxes.tensorlake.ai").
     #[serde_inline_default(Some("127.0.0.1.nip.io".to_string()))]
@@ -112,7 +113,7 @@ impl Default for ServerConfig {
             usage_queue: None,
             cloud_events: None,
             default_sandbox_timeout_secs: 600,
-            default_sandbox_image: "python:3.11-slim".to_string(),
+            default_sandbox_image: DEFAULT_SANDBOX_IMAGE.to_string(),
             sandbox_proxy_domain: Some("127.0.0.1.nip.io".to_string()),
             sandbox_proxy_scheme: "http".to_string(),
         }
