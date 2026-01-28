@@ -448,7 +448,7 @@ failures from sandbox-proxy.
 # Create a sandbox first via Indexify API
 curl -X POST "http://localhost:8900/v1/namespaces/default/applications/test-app/sandboxes" \
   -H "Content-Type: application/json" \
-  -d '{"image": "python:3.11-slim"}'
+  -d '{"image": "python:3.14-slim"}'
 # Returns: {"sandbox_id":"abc123...","status":"Pending"}
 
 # Wait for Running status
@@ -496,7 +496,7 @@ curl -X POST http://localhost:8900/v1/namespaces/default/applications \
 # Create sandbox
 curl -X POST http://localhost:8900/v1/namespaces/default/applications/test-app/sandboxes \
   -H "Content-Type: application/json" \
-  -d '{"image": "python:3.11-slim"}'
+  -d '{"image": "python:3.14-slim"}'
 ```
 
 ### Running Tests

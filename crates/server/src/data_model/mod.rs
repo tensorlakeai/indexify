@@ -21,6 +21,7 @@ use strum::Display;
 use tracing::info;
 
 use crate::{
+    config::DEFAULT_SANDBOX_IMAGE,
     data_model::clocks::VectorClock,
     utils::{get_epoch_time_in_ms, get_epoch_time_in_ns},
 };
@@ -1776,7 +1777,7 @@ pub struct Container {
     pub container_type: ContainerType,
     /// docker image to use for the sandbox
     #[builder(default)]
-    #[serde_inline_default(Some("python:3.13-slim".into()))]
+    #[serde_inline_default(Some(DEFAULT_SANDBOX_IMAGE.to_string()))]
     pub image: Option<String>,
     #[builder(default)]
     #[serde(default)]
