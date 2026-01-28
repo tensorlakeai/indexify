@@ -3,7 +3,7 @@ use std::{sync::Arc, time::Duration};
 use anyhow::Result;
 use async_broadcast::Receiver;
 use opentelemetry::metrics::{Counter, Histogram, ObservableGauge};
-use otlp_logs_exporter::OtlpLogsExporter;
+use otlp_logs_exporter::{OtlpLogsExporter, runtime::Tokio};
 use tokio::sync::watch;
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::{error, info, instrument, warn};
@@ -85,7 +85,7 @@ impl RequestStateChangeProcessor {
     #[instrument(skip_all)]
     pub async fn start(
         &self,
-        cloud_events_exporter: Option<OtlpLogsExporter>,
+        cloud_events_exporter: Option<OtlpLogsExporter<Tokio>>,
         mut shutdown_rx: watch::Receiver<()>,
     ) {
         let cancel_token = CancellationToken::new();
@@ -187,7 +187,7 @@ async fn sse_delivery_worker(
 /// HTTP. Provides stronger delivery guarantees than SSE.
 async fn http_export_worker(
     mut rx: Receiver<RequestStateChangeEvent>,
-    mut exporter: OtlpLogsExporter,
+    mut exporter: OtlpLogsExporter<Tokio>,
     state: Arc<IndexifyState>,
     latency: Histogram<f64>,
     counter: Counter<u64>,
@@ -301,7 +301,7 @@ async fn persist_event(
 
 /// Export a batch of events via HTTP.
 async fn export_batch(
-    exporter: &mut OtlpLogsExporter,
+    exporter: &mut OtlpLogsExporter<Tokio>,
     events: &[PersistedRequestStateChangeEvent],
 ) -> Result<()> {
     let raw_events: Vec<_> = events.iter().map(|e| e.event.clone()).collect();
