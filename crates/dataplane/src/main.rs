@@ -68,10 +68,7 @@ async fn start_dataplane(config: DataplaneConfig) -> anyhow::Result<()> {
 
     let daemon_path =
         daemon_binary::extract_daemon_binary(config.daemon_binary_extract_path.as_deref())
-            .context(format!(
-                "Failed to extract daemon binary to {}",
-                config.daemon_binary_extract_path
-            ))?;
+            .context("Failed to extract daemon binary")?;
     info!(daemon_path = %daemon_path.display(), "Daemon binary ready");
 
     let service = Service::new(config)
