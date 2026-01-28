@@ -5,7 +5,7 @@ use axum::{Router, extract::DefaultBodyLimit};
 use axum_server::Handle;
 use axum_tracing_opentelemetry::middleware::{OtelAxumLayer, OtelInResponseLayer};
 use hyper::Method;
-use otlp_logs_exporter::OtlpLogsExporter;
+use otlp_logs_exporter::{OtlpLogsExporter, runtime::Tokio};
 pub use proto_api::descriptor as executor_api_descriptor;
 use tokio::{self, signal, sync::watch};
 use tonic::transport::Server;
@@ -186,7 +186,7 @@ impl Service {
 
             let cloud_events_exporter = if let Some(config) = &cloud_events_config {
                 info!(?config, "Initializing CloudEvents exporter");
-                match OtlpLogsExporter::with_default_retry(&config.endpoint).await {
+                match OtlpLogsExporter::with_default_retry(Tokio, &config.endpoint).await {
                     Ok(exporter) => Some(exporter),
                     Err(err) => {
                         tracing::error!(?err, "Failed to create CloudEvents exporter");
