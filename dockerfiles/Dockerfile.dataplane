@@ -1,0 +1,42 @@
+FROM rust:slim-trixie AS builder
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y \
+    unzip \
+    build-essential make cmake ca-certificates \
+    curl pkg-config git \
+    sqlite3 clang gcc g++ \
+    protobuf-compiler \
+    musl-tools && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Add musl target for static linking of the embedded container-daemon
+RUN rustup target add x86_64-unknown-linux-musl
+
+COPY rust-toolchain.toml .
+COPY Cargo.toml .
+COPY Cargo.lock .
+COPY proto proto
+COPY crates crates
+
+# Build the dataplane binary (this also builds and embeds the container-daemon)
+RUN cargo build --release --bin indexify-dataplane
+
+FROM ubuntu:24.04 AS runner
+
+RUN apt-get update && apt-get install -y \
+    curl \
+    libssl-dev \
+    ca-certificates && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+RUN update-ca-certificates
+
+WORKDIR /indexify
+
+COPY --from=builder /app/target/release/indexify-dataplane ./
+
+ENV PATH="/indexify:${PATH}"
+
+ENTRYPOINT [ "/indexify/indexify-dataplane" ]

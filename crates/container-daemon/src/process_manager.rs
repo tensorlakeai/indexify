@@ -275,7 +275,7 @@ impl ProcessManager {
         let process = processes.get(&pid).context("Process not found")?;
 
         if !matches!(process.status, ProcessStatus::Running) {
-            anyhow::bail!("Process is not running");
+            anyhow::bail!("Process {} is not running", pid);
         }
 
         info!(pid = pid, signal = signal, "Sending signal to process");
@@ -283,7 +283,8 @@ impl ProcessManager {
         #[cfg(unix)]
         {
             let nix_signal = Signal::try_from(signal).context("Invalid signal number")?;
-            kill(Pid::from_raw(pid as i32), nix_signal).context("Failed to send signal")?;
+            kill(Pid::from_raw(pid as i32), nix_signal)
+                .with_context(|| format!("Failed to send signal to pid {}", pid))?;
         }
 
         #[cfg(not(unix))]
@@ -513,12 +514,18 @@ impl ProcessManager {
             .find(|(_, p)| matches!(p.status, ProcessStatus::Running))
             .map(|(id, _)| *id);
 
+        let total_processes = processes.len();
         drop(processes);
 
         if let Some(id) = running_id {
             self.send_signal(id, signal).await
+        } else if total_processes == 0 {
+            anyhow::bail!("No processes spawned")
         } else {
-            anyhow::bail!("No running process found")
+            anyhow::bail!(
+                "No running process found ({} processes exited)",
+                total_processes
+            )
         }
     }
 

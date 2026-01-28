@@ -111,6 +111,7 @@ impl ProcessDriver for ForkExecDriver {
             id: id.clone(),
             daemon_addr,
             http_addr,
+            container_ip: "127.0.0.1".to_string(),
         };
 
         self.processes.lock().await.insert(id, child);
@@ -188,6 +189,11 @@ impl ProcessDriver for ForkExecDriver {
             Ok(None)
         }
     }
+
+    async fn list_containers(&self) -> Result<Vec<String>> {
+        // Fork-exec processes don't persist across restarts, so nothing to list
+        Ok(vec![])
+    }
 }
 
 #[cfg(test)]
@@ -199,6 +205,7 @@ mod tests {
         let driver = ForkExecDriver::new();
 
         let config = ProcessConfig {
+            id: "test".to_string(),
             image: None,
             command: "sleep".to_string(),
             args: vec!["10".to_string()],
@@ -224,6 +231,7 @@ mod tests {
         let driver = ForkExecDriver::new();
 
         let config = ProcessConfig {
+            id: "test".to_string(),
             image: None,
             command: "echo".to_string(),
             args: vec!["hello".to_string()],
@@ -247,6 +255,7 @@ mod tests {
         let driver = ForkExecDriver::new();
 
         let config = ProcessConfig {
+            id: "test".to_string(),
             image: None,
             command: "sleep".to_string(),
             args: vec!["60".to_string()],
@@ -273,6 +282,7 @@ mod tests {
         let driver = ForkExecDriver::new();
 
         let config = ProcessConfig {
+            id: "test".to_string(),
             image: None,
             command: "env".to_string(),
             args: vec![],
@@ -296,6 +306,7 @@ mod tests {
         let driver = ForkExecDriver::new();
 
         let config = ProcessConfig {
+            id: "test".to_string(),
             image: None,
             command: "nonexistent_command_12345".to_string(),
             args: vec![],
@@ -315,6 +326,7 @@ mod tests {
         let driver = ForkExecDriver::new();
 
         let config = ProcessConfig {
+            id: "test".to_string(),
             image: None,
             command: "sleep".to_string(),
             args: vec!["60".to_string()],
@@ -344,6 +356,7 @@ mod tests {
             id: "99999999".to_string(),
             daemon_addr: None,
             http_addr: None,
+            container_ip: "127.0.0.1".to_string(),
         };
 
         // Unknown handle should return false (not alive)

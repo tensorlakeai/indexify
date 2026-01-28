@@ -11,7 +11,7 @@ use proto_api::executor_api_pb::{
     FunctionExecutorTerminationReason,
     FunctionExecutorType,
 };
-use tokio::sync::Mutex;
+use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 
 use crate::{
@@ -41,18 +41,18 @@ fn termination_reason_from_exit_status(
     }
 }
 
-/// Helper struct for structured logging of function executor info.
-struct FunctionInfo<'a> {
-    fe_id: &'a str,
+/// Helper struct for structured logging of container info.
+struct ContainerInfo<'a> {
+    container_id: &'a str,
     namespace: &'a str,
     app: &'a str,
     fn_name: &'a str,
     app_version: &'a str,
 }
 
-impl<'a> FunctionInfo<'a> {
+impl<'a> ContainerInfo<'a> {
     fn from_description(desc: &'a FunctionExecutorDescription) -> Self {
-        let fe_id = desc.id.as_deref().unwrap_or("");
+        let container_id = desc.id.as_deref().unwrap_or("");
         let (namespace, app, fn_name, app_version) = desc
             .function
             .as_ref()
@@ -67,7 +67,7 @@ impl<'a> FunctionInfo<'a> {
             .unwrap_or(("", "", "", ""));
 
         Self {
-            fe_id,
+            container_id,
             namespace,
             app,
             fn_name,
@@ -106,9 +106,6 @@ struct ManagedContainer {
     created_at: Instant,
     /// When the container started running (set when state becomes Running)
     started_at: Option<Instant>,
-    /// HTTP address of the sandbox API (host:port).
-    /// Set when the container becomes Running.
-    sandbox_http_address: Option<String>,
 }
 
 impl ManagedContainer {
@@ -127,12 +124,11 @@ impl ManagedContainer {
             status: Some(status.into()),
             termination_reason: termination_reason.map(|r| r.into()),
             allocation_ids_caused_termination: vec![],
-            sandbox_http_address: self.sandbox_http_address.clone(),
         }
     }
 
-    fn info(&self) -> FunctionInfo<'_> {
-        FunctionInfo::from_description(&self.description)
+    fn info(&self) -> ContainerInfo<'_> {
+        ContainerInfo::from_description(&self.description)
     }
 
     /// Check if this sandbox container has exceeded its timeout.
@@ -199,7 +195,7 @@ impl ImageResolver for DefaultImageResolver {
 pub struct FunctionContainerManager {
     driver: Arc<dyn ProcessDriver>,
     image_resolver: Arc<dyn ImageResolver>,
-    containers: Arc<Mutex<HashMap<String, ManagedContainer>>>,
+    containers: Arc<RwLock<HashMap<String, ManagedContainer>>>,
     metrics: Arc<DataplaneMetrics>,
     state_file: Arc<StateFile>,
 }
@@ -214,7 +210,7 @@ impl FunctionContainerManager {
         Self {
             driver,
             image_resolver,
-            containers: Arc::new(Mutex::new(HashMap::new())),
+            containers: Arc::new(RwLock::new(HashMap::new())),
             metrics,
             state_file,
         }
@@ -234,6 +230,7 @@ impl FunctionContainerManager {
                 id: entry.handle_id.clone(),
                 daemon_addr: Some(entry.daemon_addr.clone()),
                 http_addr: Some(entry.http_addr.clone()),
+                container_ip: entry.container_ip.clone(),
             };
 
             match self.driver.alive(&handle).await {
@@ -246,18 +243,25 @@ impl FunctionContainerManager {
                     .await
                     {
                         Ok(daemon_client) => {
+                            // Decode the full description from the state file
+                            let description = match entry.decode_description() {
+                                Some(desc) => desc,
+                                None => {
+                                    tracing::warn!(
+                                        container_id = %entry.container_id,
+                                        "No description stored in state file, skipping recovery"
+                                    );
+                                    let _ = self.state_file.remove(&entry.container_id).await;
+                                    continue;
+                                }
+                            };
+
                             tracing::info!(
-                                fe_id = %entry.fe_id,
+                                container_id = %entry.container_id,
                                 handle_id = %entry.handle_id,
                                 daemon_addr = %entry.daemon_addr,
                                 "Recovered container from state file"
                             );
-
-                            // Create a minimal description for the recovered container
-                            let description = FunctionExecutorDescription {
-                                id: Some(entry.fe_id.clone()),
-                                ..Default::default()
-                            };
 
                             let container = ManagedContainer {
                                 description,
@@ -267,40 +271,39 @@ impl FunctionContainerManager {
                                 },
                                 created_at: Instant::now(),
                                 started_at: Some(Instant::now()),
-                                sandbox_http_address: Some(entry.http_addr.clone()),
                             };
 
-                            let mut containers = self.containers.lock().await;
-                            containers.insert(entry.fe_id.clone(), container);
+                            let mut containers = self.containers.write().await;
+                            containers.insert(entry.container_id.clone(), container);
                             recovered += 1;
                         }
                         Err(e) => {
                             tracing::warn!(
-                                fe_id = %entry.fe_id,
+                                container_id = %entry.container_id,
                                 handle_id = %entry.handle_id,
                                 error = %e,
                                 "Failed to reconnect to daemon, removing from state"
                             );
-                            let _ = self.state_file.remove(&entry.fe_id).await;
+                            let _ = self.state_file.remove(&entry.container_id).await;
                         }
                     }
                 }
                 Ok(false) => {
                     tracing::info!(
-                        fe_id = %entry.fe_id,
+                        container_id = %entry.container_id,
                         handle_id = %entry.handle_id,
                         "Container no longer alive, removing from state"
                     );
-                    let _ = self.state_file.remove(&entry.fe_id).await;
+                    let _ = self.state_file.remove(&entry.container_id).await;
                 }
                 Err(e) => {
                     tracing::warn!(
-                        fe_id = %entry.fe_id,
+                        container_id = %entry.container_id,
                         handle_id = %entry.handle_id,
                         error = %e,
                         "Failed to check container status, removing from state"
                     );
-                    let _ = self.state_file.remove(&entry.fe_id).await;
+                    let _ = self.state_file.remove(&entry.container_id).await;
                 }
             }
         }
@@ -308,12 +311,69 @@ impl FunctionContainerManager {
         recovered
     }
 
+    /// Clean up orphaned containers that exist in Docker but not in the state
+    /// file.
+    ///
+    /// This handles containers that were created but the dataplane crashed
+    /// before saving them to the state file, or containers left behind when
+    /// the server terminated a sandbox while the dataplane was down.
+    pub async fn cleanup_orphans(&self) -> usize {
+        let known_handles: HashSet<String> = {
+            let containers = self.containers.read().await;
+            containers
+                .values()
+                .filter_map(|c| match &c.state {
+                    ContainerState::Running { handle, .. } |
+                    ContainerState::Stopping { handle, .. } => Some(handle.id.clone()),
+                    _ => None,
+                })
+                .collect()
+        };
+
+        let all_containers = match self.driver.list_containers().await {
+            Ok(containers) => containers,
+            Err(e) => {
+                tracing::warn!(error = %e, "Failed to list containers for orphan cleanup");
+                return 0;
+            }
+        };
+
+        let mut cleaned = 0;
+        for container_id in all_containers {
+            if !known_handles.contains(&container_id) {
+                tracing::info!(
+                    container_id = %container_id,
+                    "Removing orphaned container"
+                );
+
+                let handle = ProcessHandle {
+                    id: container_id.clone(),
+                    daemon_addr: None,
+                    http_addr: None,
+                    container_ip: String::new(), // Unknown for orphans, not needed for kill
+                };
+
+                if let Err(e) = self.driver.kill(&handle).await {
+                    tracing::warn!(
+                        container_id = %container_id,
+                        error = %e,
+                        "Failed to remove orphaned container"
+                    );
+                } else {
+                    cleaned += 1;
+                }
+            }
+        }
+
+        cleaned
+    }
+
     /// Sync the containers with the desired state from the server.
     /// Creates new containers, and marks removed ones for termination.
     pub async fn sync(&self, desired: Vec<FunctionExecutorDescription>) {
         let desired_ids: HashSet<String> = desired.iter().filter_map(|d| d.id.clone()).collect();
 
-        let mut containers = self.containers.lock().await;
+        let mut containers = self.containers.write().await;
 
         // Check for sandbox timeouts and stop expired containers
         let timed_out_ids: Vec<String> = containers
@@ -336,7 +396,7 @@ impl FunctionContainerManager {
             };
             let info = container.info();
             tracing::warn!(
-                fe_id = %info.fe_id,
+                container_id = %info.container_id,
                 namespace = %info.namespace,
                 app = %info.app,
                 fn_name = %info.fn_name,
@@ -361,7 +421,7 @@ impl FunctionContainerManager {
                     ContainerState::Terminated { .. } => {
                         // Server no longer wants this FE, remove from memory and state file
                         tracing::info!(
-                            fe_id = %info.fe_id,
+                            container_id = %info.container_id,
                             namespace = %info.namespace,
                             app = %info.app,
                             fn_name = %info.fn_name,
@@ -370,7 +430,7 @@ impl FunctionContainerManager {
                         );
                         if let Err(e) = self.state_file.remove(&id).await {
                             tracing::warn!(
-                                fe_id = %info.fe_id,
+                                container_id = %info.container_id,
                                 error = %e,
                                 "Failed to remove container from state file"
                             );
@@ -400,11 +460,11 @@ impl FunctionContainerManager {
             };
 
             if !containers.contains_key(&id) {
-                let info = FunctionInfo::from_description(&desc);
+                let info = ContainerInfo::from_description(&desc);
                 let container_type = container_type_str(&desc);
 
                 tracing::info!(
-                    fe_id = %info.fe_id,
+                    container_id = %info.container_id,
                     namespace = %info.namespace,
                     app = %info.app,
                     fn_name = %info.fn_name,
@@ -419,7 +479,6 @@ impl FunctionContainerManager {
                     state: ContainerState::Pending,
                     created_at: Instant::now(),
                     started_at: None,
-                    sandbox_http_address: None,
                 };
                 containers.insert(id.clone(), container);
 
@@ -435,7 +494,7 @@ impl FunctionContainerManager {
                     let result =
                         start_container_with_daemon(&driver, &image_resolver, &desc_clone).await;
 
-                    let mut containers = containers_ref.lock().await;
+                    let mut containers = containers_ref.write().await;
                     if let Some(container) = containers.get_mut(&id) {
                         let startup_duration_ms = container.created_at.elapsed().as_millis();
                         let info = container.info();
@@ -448,7 +507,7 @@ impl FunctionContainerManager {
 
                                 // Structured log with latency
                                 tracing::info!(
-                                    fe_id = %info.fe_id,
+                                    container_id = %info.container_id,
                                     namespace = %info.namespace,
                                     app = %info.app,
                                     fn_name = %info.fn_name,
@@ -466,25 +525,28 @@ impl FunctionContainerManager {
                                     (&handle.daemon_addr, &handle.http_addr)
                                 {
                                     let persisted = PersistedContainer {
-                                        fe_id: id.clone(),
+                                        container_id: id.clone(),
                                         handle_id: handle.id.clone(),
                                         daemon_addr: daemon_addr.clone(),
                                         http_addr: http_addr.clone(),
+                                        container_ip: handle.container_ip.clone(),
                                         started_at: std::time::SystemTime::now()
                                             .duration_since(std::time::UNIX_EPOCH)
                                             .map(|d| d.as_millis() as u64)
                                             .unwrap_or(0),
+                                        description_proto: Some(
+                                            PersistedContainer::encode_description(&desc_clone),
+                                        ),
                                     };
                                     if let Err(e) = state_file.upsert(persisted).await {
                                         tracing::warn!(
-                                            fe_id = %info.fe_id,
+                                            container_id = %info.container_id,
                                             error = %e,
                                             "Failed to persist container state"
                                         );
                                     }
                                 }
 
-                                container.sandbox_http_address = handle.http_addr.clone();
                                 container.state = ContainerState::Running {
                                     handle,
                                     daemon_client,
@@ -501,7 +563,7 @@ impl FunctionContainerManager {
                                     .record_container_terminated(container_type, "startup_failed");
 
                                 tracing::error!(
-                                    fe_id = %info.fe_id,
+                                    container_id = %info.container_id,
                                     namespace = %info.namespace,
                                     app = %info.app,
                                     fn_name = %info.fn_name,
@@ -556,12 +618,12 @@ impl FunctionContainerManager {
             _ => return,
         };
 
-        // Extract fe_id for logging before modifying container state
-        let fe_id_for_log = container.description.id.clone().unwrap_or_default();
+        // Extract container_id for logging before modifying container state
+        let container_id_for_log = container.description.id.clone().unwrap_or_default();
         {
             let info = container.info();
             tracing::info!(
-                fe_id = %info.fe_id,
+                container_id = %info.container_id,
                 namespace = %info.namespace,
                 app = %info.app,
                 fn_name = %info.fn_name,
@@ -574,15 +636,15 @@ impl FunctionContainerManager {
             // Try to signal via daemon first (SIGTERM to the function executor)
             if let Some(mut client) = daemon_client.clone() {
                 if let Err(e) = client.send_signal(15).await {
-                    tracing::warn!(
-                        fe_id = %info.fe_id,
+                    tracing::info!(
+                        container_id = %info.container_id,
                         error = %e,
-                        "Failed to send signal via daemon, falling back to container signal"
+                        "No process to signal via daemon, falling back to container signal"
                     );
                     // Fall back to docker signal
                     if let Err(e) = self.driver.send_sig(&handle, 15).await {
                         tracing::warn!(
-                            fe_id = %info.fe_id,
+                            container_id = %info.container_id,
                             error = %e,
                             "Failed to send signal to container"
                         );
@@ -590,7 +652,7 @@ impl FunctionContainerManager {
                 }
             } else if let Err(e) = self.driver.send_sig(&handle, 15).await {
                 tracing::warn!(
-                    fe_id = %info.fe_id,
+                    container_id = %info.container_id,
                     error = %e,
                     "Failed to send signal to container"
                 );
@@ -607,7 +669,7 @@ impl FunctionContainerManager {
         // Remove from state file since container is no longer running
         if let Err(e) = self.state_file.remove(&id).await {
             tracing::warn!(
-                fe_id = %fe_id_for_log,
+                container_id = %container_id_for_log,
                 error = %e,
                 "Failed to remove container from state file"
             );
@@ -623,7 +685,7 @@ impl FunctionContainerManager {
         tokio::spawn(async move {
             tokio::time::sleep(KILL_GRACE_PERIOD).await;
 
-            let mut containers = containers_ref.lock().await;
+            let mut containers = containers_ref.write().await;
             if let Some(container) = containers.get_mut(&container_id) &&
                 let ContainerState::Stopping { handle, .. } = &container.state
             {
@@ -635,7 +697,7 @@ impl FunctionContainerManager {
                     .unwrap_or(0);
 
                 tracing::info!(
-                    fe_id = %info.fe_id,
+                    container_id = %info.container_id,
                     namespace = %info.namespace,
                     app = %info.app,
                     fn_name = %info.fn_name,
@@ -647,12 +709,9 @@ impl FunctionContainerManager {
                 );
 
                 // Clean up network rules before killing container
-                // (need container IP while it's still running)
-                if let Ok(ip) = network_rules::get_container_ip(&handle.id) &&
-                    let Err(e) = network_rules::remove_rules(&handle.id, &ip)
-                {
+                if let Err(e) = network_rules::remove_rules(&handle.id, &handle.container_ip) {
                     tracing::warn!(
-                        fe_id = %info.fe_id,
+                        container_id = %info.container_id,
                         error = %e,
                         "Failed to remove network rules"
                     );
@@ -660,7 +719,7 @@ impl FunctionContainerManager {
 
                 if let Err(e) = driver.kill(&handle).await {
                     tracing::warn!(
-                        fe_id = %info.fe_id,
+                        container_id = %info.container_id,
                         namespace = %info.namespace,
                         app = %info.app,
                         fn_name = %info.fn_name,
@@ -675,7 +734,7 @@ impl FunctionContainerManager {
                     .record_container_terminated(&container_type_owned, "grace_period_kill");
 
                 tracing::info!(
-                    fe_id = %info.fe_id,
+                    container_id = %info.container_id,
                     namespace = %info.namespace,
                     app = %info.app,
                     fn_name = %info.fn_name,
@@ -715,7 +774,7 @@ impl FunctionContainerManager {
 
     /// Check for sandbox containers that have exceeded their timeout.
     async fn check_timeouts(&self) {
-        let mut containers = self.containers.lock().await;
+        let mut containers = self.containers.write().await;
 
         // Find timed out containers
         let timed_out_ids: Vec<String> = containers
@@ -743,7 +802,7 @@ impl FunctionContainerManager {
                 .map(|s| s.elapsed().as_secs())
                 .unwrap_or(0);
             tracing::warn!(
-                fe_id = %info.fe_id,
+                container_id = %info.container_id,
                 namespace = %info.namespace,
                 app = %info.app,
                 fn_name = %info.fn_name,
@@ -761,7 +820,7 @@ impl FunctionContainerManager {
 
     /// Check all running containers to see if they're still alive.
     async fn check_all_containers(&self) {
-        let mut containers = self.containers.lock().await;
+        let mut containers = self.containers.write().await;
         let ids: Vec<String> = containers.keys().cloned().collect();
 
         for id in ids {
@@ -791,7 +850,7 @@ impl FunctionContainerManager {
                         if let Ok(false) = self.driver.alive(&handle).await {
                             // Use the reason from initiate_stop (not exit code)
                             tracing::info!(
-                                fe_id = %info.fe_id,
+                                container_id = %info.container_id,
                                 namespace = %info.namespace,
                                 app = %info.app,
                                 fn_name = %info.fn_name,
@@ -814,7 +873,7 @@ impl FunctionContainerManager {
                                         Ok(healthy) => {
                                             if !healthy {
                                                 tracing::info!(
-                                                    fe_id = %info.fe_id,
+                                                    container_id = %info.container_id,
                                                     namespace = %info.namespace,
                                                     app = %info.app,
                                                     fn_name = %info.fn_name,
@@ -822,13 +881,10 @@ impl FunctionContainerManager {
                                                     "Daemon is unhealthy, terminating container"
                                                 );
                                                 // Clean up network rules before killing
-                                                if let Ok(ip) =
-                                                    network_rules::get_container_ip(&handle.id)
-                                                {
-                                                    let _ = network_rules::remove_rules(
-                                                        &handle.id, &ip,
-                                                    );
-                                                }
+                                                let _ = network_rules::remove_rules(
+                                                    &handle.id,
+                                                    &handle.container_ip,
+                                                );
                                                 let _ = self.driver.kill(&handle).await;
                                                 container.state = ContainerState::Terminated {
                                                     reason:
@@ -838,7 +894,7 @@ impl FunctionContainerManager {
                                         }
                                         Err(e) => {
                                             tracing::warn!(
-                                                fe_id = %info.fe_id,
+                                                container_id = %info.container_id,
                                                 error = %e,
                                                 "Failed to check daemon health"
                                             );
@@ -853,7 +909,7 @@ impl FunctionContainerManager {
                                 let reason =
                                     termination_reason_from_exit_status(exit_status.clone());
                                 tracing::info!(
-                                    fe_id = %info.fe_id,
+                                    container_id = %info.container_id,
                                     namespace = %info.namespace,
                                     app = %info.app,
                                     fn_name = %info.fn_name,
@@ -867,7 +923,7 @@ impl FunctionContainerManager {
                             }
                             Err(e) => {
                                 tracing::warn!(
-                                    fe_id = %info.fe_id,
+                                    container_id = %info.container_id,
                                     namespace = %info.namespace,
                                     app = %info.app,
                                     fn_name = %info.fn_name,
@@ -885,55 +941,47 @@ impl FunctionContainerManager {
 
     /// Get the current state of all containers for reporting to the server.
     pub async fn get_states(&self) -> Vec<FunctionExecutorState> {
-        let containers = self.containers.lock().await;
+        let containers = self.containers.read().await;
         containers.values().map(|c| c.to_proto_state()).collect()
     }
 
-    /// Get the address for a sandbox container at a specific port.
+    /// Get detailed status of a sandbox lookup.
     ///
-    /// Returns the host:port address to connect to for the given sandbox and
-    /// port. The host is extracted from the sandbox's HTTP address, and the
-    /// requested port is used directly.
-    pub async fn get_sandbox_address(&self, sandbox_id: &str, port: u16) -> Option<String> {
-        let containers = self.containers.lock().await;
-        let container = containers.get(sandbox_id)?;
+    /// Returns:
+    /// - `SandboxLookupResult::Running(addr)` - Sandbox is running, returns
+    ///   address
+    /// - `SandboxLookupResult::NotFound` - Sandbox ID not known to this
+    ///   dataplane
+    /// - `SandboxLookupResult::NotRunning(state)` - Sandbox exists but not
+    ///   running
+    pub async fn lookup_sandbox(&self, sandbox_id: &str, port: u16) -> SandboxLookupResult {
+        let containers = self.containers.read().await;
 
-        // Only return address for running containers
-        if !matches!(container.state, ContainerState::Running { .. }) {
-            return None;
+        let Some(container) = containers.get(sandbox_id) else {
+            return SandboxLookupResult::NotFound;
+        };
+
+        match &container.state {
+            ContainerState::Running { handle, .. } => {
+                let addr = format!("{}:{}", handle.container_ip, port);
+                SandboxLookupResult::Running(addr)
+            }
+            ContainerState::Pending => SandboxLookupResult::NotRunning("pending"),
+            ContainerState::Stopping { .. } => SandboxLookupResult::NotRunning("stopping"),
+            ContainerState::Terminated { .. } => SandboxLookupResult::NotRunning("terminated"),
         }
-
-        // Extract host from sandbox_http_address (format: "host:port")
-        let http_addr = container.sandbox_http_address.as_ref()?;
-        let host = http_addr.split(':').next()?;
-
-        Some(format!("{}:{}", host, port))
-    }
-
-    /// List all running sandboxes with their IDs and HTTP addresses.
-    pub async fn list_sandboxes(&self) -> Vec<SandboxInfo> {
-        let containers = self.containers.lock().await;
-        containers
-            .iter()
-            .filter_map(|(id, container)| {
-                if matches!(container.state, ContainerState::Running { .. }) {
-                    Some(SandboxInfo {
-                        id: id.clone(),
-                        http_address: container.sandbox_http_address.clone(),
-                    })
-                } else {
-                    None
-                }
-            })
-            .collect()
     }
 }
 
-/// Information about a running sandbox.
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct SandboxInfo {
-    pub id: String,
-    pub http_address: Option<String>,
+/// Result of looking up a sandbox for proxying.
+#[derive(Debug, Clone)]
+pub enum SandboxLookupResult {
+    /// Sandbox is running, contains the address to connect to
+    Running(String),
+    /// Sandbox ID is not known to this dataplane (404)
+    NotFound,
+    /// Sandbox exists but is not in running state (503)
+    NotRunning(&'static str),
 }
 
 /// Start a container with the daemon and wait for it to be ready.
@@ -942,7 +990,7 @@ async fn start_container_with_daemon(
     image_resolver: &Arc<dyn ImageResolver>,
     desc: &FunctionExecutorDescription,
 ) -> anyhow::Result<(ProcessHandle, DaemonClient)> {
-    let info = FunctionInfo::from_description(desc);
+    let info = ContainerInfo::from_description(desc);
     let image = image_resolver.resolve_image(desc)?;
 
     // Extract resource limits from the function executor description
@@ -985,10 +1033,14 @@ async fn start_container_with_daemon(
         ("indexify.application".to_string(), info.app.to_string()),
         ("indexify.function".to_string(), info.fn_name.to_string()),
         ("indexify.version".to_string(), info.app_version.to_string()),
-        ("indexify.fe_id".to_string(), info.fe_id.to_string()),
+        (
+            "indexify.container_id".to_string(),
+            info.container_id.to_string(),
+        ),
     ];
 
     let config = ProcessConfig {
+        id: info.container_id.to_string(),
         image: Some(image),
         command,
         args,
@@ -1002,34 +1054,21 @@ async fn start_container_with_daemon(
     let handle = driver.start(config).await?;
 
     // Apply network firewall rules BEFORE daemon connection.
-    // Container has IP now, but hasn't done any network requests yet.
-    // This ensures network policy is enforced before any user code runs.
+    // Container has IP now (cached in handle), but hasn't done any network requests
+    // yet. This ensures network policy is enforced before any user code runs.
     if let Some(policy) = desc
         .sandbox_metadata
         .as_ref()
-        .and_then(|m| m.network_policy.as_ref())
+        .and_then(|m| m.network_policy.as_ref()) &&
+        let Err(e) = network_rules::apply_rules(&handle.id, &handle.container_ip, policy)
     {
-        match network_rules::get_container_ip(&handle.id) {
-            Ok(ip) => {
-                if let Err(e) = network_rules::apply_rules(&handle.id, &ip, policy) {
-                    tracing::warn!(
-                        fe_id = %info.fe_id,
-                        container_id = %handle.id,
-                        error = %e,
-                        "Failed to apply network rules (continuing anyway)"
-                    );
-                    // Continue anyway - rules are defense-in-depth
-                }
-            }
-            Err(e) => {
-                tracing::warn!(
-                    fe_id = %info.fe_id,
-                    container_id = %handle.id,
-                    error = %e,
-                    "Failed to get container IP for network rules (continuing anyway)"
-                );
-            }
-        }
+        tracing::warn!(
+            container_id = %info.container_id,
+            container_id = %handle.id,
+            error = %e,
+            "Failed to apply network rules (continuing anyway)"
+        );
+        // Continue anyway - rules are defense-in-depth
     }
 
     // Get the daemon address from the handle
@@ -1039,7 +1078,7 @@ async fn start_container_with_daemon(
         .ok_or_else(|| anyhow::anyhow!("No daemon address available for container"))?;
 
     tracing::info!(
-        fe_id = %info.fe_id,
+        container_id = %info.container_id,
         container_id = %handle.id,
         daemon_addr = %daemon_addr,
         "Container started, connecting to daemon"
@@ -1053,7 +1092,7 @@ async fn start_container_with_daemon(
     daemon_client.wait_for_ready(DAEMON_READY_TIMEOUT).await?;
 
     tracing::info!(
-        fe_id = %info.fe_id,
+        container_id = %info.container_id,
         container_id = %handle.id,
         "Daemon ready, waiting for HTTP API commands"
     );
@@ -1167,6 +1206,7 @@ mod tests {
                 id: format!("mock-container-{}", self.start_count.load(Ordering::SeqCst)),
                 daemon_addr: None, // No daemon address means daemon connection will fail
                 http_addr: None,
+                container_ip: "127.0.0.1".to_string(),
             })
         }
 
@@ -1190,6 +1230,10 @@ mod tests {
                 exit_code: Some(0),
                 oom_killed: false,
             }))
+        }
+
+        async fn list_containers(&self) -> anyhow::Result<Vec<String>> {
+            Ok(vec![])
         }
     }
 
@@ -1216,9 +1260,9 @@ mod tests {
     #[test]
     fn test_function_info_from_description() {
         let desc = create_test_fe_description("fe-123");
-        let info = FunctionInfo::from_description(&desc);
+        let info = ContainerInfo::from_description(&desc);
 
-        assert_eq!(info.fe_id, "fe-123");
+        assert_eq!(info.container_id, "fe-123");
         assert_eq!(info.namespace, "test-ns");
         assert_eq!(info.app, "test-app");
         assert_eq!(info.fn_name, "test-fn");
@@ -1239,9 +1283,9 @@ mod tests {
             sandbox_metadata: None,
             container_type: None,
         };
-        let info = FunctionInfo::from_description(&desc);
+        let info = ContainerInfo::from_description(&desc);
 
-        assert_eq!(info.fe_id, "");
+        assert_eq!(info.container_id, "");
         assert_eq!(info.namespace, "");
         assert_eq!(info.app, "");
         assert_eq!(info.fn_name, "");
@@ -1286,7 +1330,6 @@ mod tests {
             state: ContainerState::Pending,
             created_at: Instant::now(),
             started_at: None,
-            sandbox_http_address: None,
         };
 
         let proto_state = container.to_proto_state();
@@ -1295,7 +1338,6 @@ mod tests {
             Some(FunctionExecutorStatus::Pending.into())
         );
         assert!(proto_state.termination_reason.is_none());
-        assert!(proto_state.sandbox_http_address.is_none());
     }
 
     #[test]
@@ -1307,7 +1349,6 @@ mod tests {
             },
             created_at: Instant::now(),
             started_at: None,
-            sandbox_http_address: None,
         };
 
         let proto_state = container.to_proto_state();
@@ -1467,6 +1508,7 @@ mod tests {
             id: id.to_string(),
             daemon_addr: None,
             http_addr: None,
+            container_ip: "172.17.0.2".to_string(),
         }
     }
 
@@ -1478,7 +1520,6 @@ mod tests {
             state: ContainerState::Pending,
             created_at: Instant::now(),
             started_at: Some(Instant::now() - Duration::from_secs(1000)),
-            sandbox_http_address: None,
         };
 
         assert!(!container.is_timed_out());
@@ -1492,7 +1533,6 @@ mod tests {
             state: ContainerState::Pending,
             created_at: Instant::now(),
             started_at: Some(Instant::now() - Duration::from_secs(100)),
-            sandbox_http_address: None,
         };
 
         assert!(!container.is_timed_out());
@@ -1508,7 +1548,6 @@ mod tests {
             },
             created_at: Instant::now(),
             started_at: None,
-            sandbox_http_address: None,
         };
 
         assert!(!container.is_timed_out());
@@ -1524,7 +1563,6 @@ mod tests {
             },
             created_at: Instant::now(),
             started_at: Some(Instant::now()), // Just started
-            sandbox_http_address: None,
         };
 
         assert!(!container.is_timed_out());
@@ -1541,7 +1579,6 @@ mod tests {
             created_at: Instant::now(),
             // Started 15 seconds ago, so 10 second timeout is exceeded
             started_at: Some(Instant::now() - Duration::from_secs(15)),
-            sandbox_http_address: None,
         };
 
         assert!(container.is_timed_out());
@@ -1558,7 +1595,6 @@ mod tests {
             created_at: Instant::now(),
             // Started exactly 10 seconds ago - should be timed out (>= comparison)
             started_at: Some(Instant::now() - Duration::from_secs(10)),
-            sandbox_http_address: None,
         };
 
         assert!(container.is_timed_out());
@@ -1577,7 +1613,7 @@ mod tests {
         // Insert a container that started 10 seconds ago with a 5 second timeout
         // (already timed out)
         {
-            let mut containers = manager.containers.lock().await;
+            let mut containers = manager.containers.write().await;
             let container = ManagedContainer {
                 description: create_test_fe_description_with_timeout("fe-timeout-test", 5),
                 state: ContainerState::Running {
@@ -1587,14 +1623,13 @@ mod tests {
                 created_at: Instant::now(),
                 // Set started_at to 10 seconds ago - well past the 5 second timeout
                 started_at: Some(Instant::now() - Duration::from_secs(10)),
-                sandbox_http_address: None,
             };
             containers.insert("fe-timeout-test".to_string(), container);
         }
 
         // Verify container is timed out
         {
-            let containers = manager.containers.lock().await;
+            let containers = manager.containers.write().await;
             let container = containers.get("fe-timeout-test").unwrap();
             assert!(container.is_timed_out(), "Container should be timed out");
         }
@@ -1604,7 +1639,7 @@ mod tests {
 
         // Container should now be in Stopping state (initiate_stop was called)
         {
-            let containers = manager.containers.lock().await;
+            let containers = manager.containers.write().await;
             let container = containers.get("fe-timeout-test").unwrap();
             assert!(
                 matches!(container.state, ContainerState::Stopping { .. }),
@@ -1630,7 +1665,7 @@ mod tests {
 
         // Insert a container that just started with a 600 second timeout
         {
-            let mut containers = manager.containers.lock().await;
+            let mut containers = manager.containers.write().await;
             let container = ManagedContainer {
                 description: create_test_fe_description_with_timeout("fe-not-expired", 600),
                 state: ContainerState::Running {
@@ -1639,7 +1674,6 @@ mod tests {
                 },
                 created_at: Instant::now(),
                 started_at: Some(Instant::now()), // Just started
-                sandbox_http_address: None,
             };
             containers.insert("fe-not-expired".to_string(), container);
         }
@@ -1649,7 +1683,7 @@ mod tests {
 
         // Container should still be running
         {
-            let containers = manager.containers.lock().await;
+            let containers = manager.containers.write().await;
             let container = containers.get("fe-not-expired").unwrap();
             assert!(
                 matches!(container.state, ContainerState::Running { .. }),
@@ -1668,7 +1702,7 @@ mod tests {
 
         // Insert a container with no timeout that started a long time ago
         {
-            let mut containers = manager.containers.lock().await;
+            let mut containers = manager.containers.write().await;
             let container = ManagedContainer {
                 description: create_test_fe_description("fe-no-timeout"), // No timeout (None)
                 state: ContainerState::Running {
@@ -1678,7 +1712,6 @@ mod tests {
                 created_at: Instant::now(),
                 // Started 1 hour ago, but has no timeout so shouldn't be stopped
                 started_at: Some(Instant::now() - Duration::from_secs(3600)),
-                sandbox_http_address: None,
             };
             containers.insert("fe-no-timeout".to_string(), container);
         }
@@ -1688,7 +1721,7 @@ mod tests {
 
         // Container should still be running (no timeout configured)
         {
-            let containers = manager.containers.lock().await;
+            let containers = manager.containers.write().await;
             let container = containers.get("fe-no-timeout").unwrap();
             assert!(
                 matches!(container.state, ContainerState::Running { .. }),

@@ -1,6 +1,6 @@
 [package]
 name = "indexify-dataplane"
-version = "0.1.0"
+version = "0.2.0"
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
@@ -12,7 +12,7 @@ serde.workspace = true
 serde_json.workspace = true
 serde-inline-default.workspace = true
 serde-saphyr.workspace = true
-tonic = { workspace = true, features = ["transport", "tls-ring", "tls-native-roots"] }
+tonic.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 tracing-opentelemetry.workspace = true
@@ -27,18 +27,23 @@ clap.workspace = true
 uuid.workspace = true
 proto-api.workspace = true
 prost.workspace = true
+base64.workspace = true
 sha2.workspace = true
-tower = "0.5"
-hyper = { workspace = true, features = ["client", "http1"] }
-hyper-util = { version = "0.1", features = ["tokio", "client-legacy"] }
-http-body-util = "0.1"
+tower.workspace = true
+hyper.workspace = true
+hyper-util.workspace = true
+http-body-util.workspace = true
 axum.workspace = true
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
+hostname.workspace = true
 bytes.workspace = true
-sysinfo = "0.37.2"
+sysinfo.workspace = true
 bollard = { workspace = true }
 futures-util = { workspace = true }
 lazy_static = { workspace = true }
+pingora.workspace = true
+pingora-core.workspace = true
+pingora-proxy.workspace = true
+pingora-http.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 nix.workspace = true

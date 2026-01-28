@@ -4,13 +4,7 @@ use anyhow::{Context, Result};
 use async_trait::async_trait;
 use bollard::{
     Docker,
-    models::{
-        ContainerCreateBody,
-        ContainerStateStatusEnum,
-        HostConfig,
-        PortBinding,
-        ResourcesUlimits,
-    },
+    models::{ContainerCreateBody, ContainerStateStatusEnum, HostConfig, ResourcesUlimits},
     query_parameters::{
         CreateContainerOptions,
         CreateImageOptions,
@@ -23,17 +17,18 @@ use bollard::{
 use futures_util::StreamExt;
 use tracing::info;
 
-use super::{ExitStatus, ProcessConfig, ProcessDriver, ProcessHandle};
+use super::{
+    DAEMON_GRPC_PORT,
+    DAEMON_HTTP_PORT,
+    ExitStatus,
+    ProcessConfig,
+    ProcessDriver,
+    ProcessHandle,
+};
 use crate::daemon_binary;
 
 /// Container path for the daemon binary.
 const CONTAINER_DAEMON_PATH: &str = "/indexify-daemon";
-
-/// Container port for the daemon gRPC server (internal API).
-const DAEMON_GRPC_PORT: u16 = 9500;
-
-/// Container port for the daemon HTTP server (user-facing Sandbox API).
-const DAEMON_HTTP_PORT: u16 = 9501;
 
 pub struct DockerDriver {
     docker: Docker,
@@ -90,6 +85,32 @@ impl DockerDriver {
         }
     }
 
+    /// Get a container's IP address using bollard inspect.
+    async fn get_container_ip(&self, container_name: &str) -> Result<String> {
+        let inspect = self
+            .docker
+            .inspect_container(container_name, None::<InspectContainerOptions>)
+            .await
+            .context("Failed to inspect container")?;
+
+        // Extract IP from network settings
+        let networks = inspect
+            .network_settings
+            .and_then(|ns| ns.networks)
+            .context("Container has no network settings")?;
+
+        // Get the first network's IP address (usually "bridge" network)
+        for (_network_name, endpoint) in networks {
+            if let Some(ip) = endpoint.ip_address &&
+                !ip.is_empty()
+            {
+                return Ok(ip);
+            }
+        }
+
+        anyhow::bail!("Container {} has no IP address", container_name)
+    }
+
     /// Ensure an image is available locally, pulling it if necessary.
     async fn ensure_image(&self, image: &str) -> Result<()> {
         if self.image_exists(image).await? {
@@ -138,37 +159,6 @@ impl DockerDriver {
 
         Ok(())
     }
-
-    /// Get the host port mapped to a container port.
-    async fn get_mapped_port(&self, container_name: &str, container_port: u16) -> Result<u16> {
-        let inspect = self
-            .docker
-            .inspect_container(container_name, None::<InspectContainerOptions>)
-            .await
-            .context("Failed to inspect container for port mapping")?;
-
-        let network_settings = inspect
-            .network_settings
-            .context("No network settings found")?;
-
-        let ports = network_settings.ports.context("No ports found")?;
-
-        let port_key = format!("{}/tcp", container_port);
-        let bindings = ports
-            .get(&port_key)
-            .context(format!("Port {} not found in container", container_port))?
-            .as_ref()
-            .context("No bindings for port")?;
-
-        let binding = bindings.first().context("No port binding found")?;
-
-        binding
-            .host_port
-            .as_ref()
-            .context("No host port in binding")?
-            .parse()
-            .context("Invalid port number")
-    }
 }
 
 impl Default for DockerDriver {
@@ -188,7 +178,7 @@ impl ProcessDriver for DockerDriver {
         // Ensure image is available locally (pull if needed)
         self.ensure_image(image).await?;
 
-        let container_name = format!("indexify-{}", uuid::Uuid::new_v4());
+        let container_name = format!("indexify-{}", config.id);
 
         // Get daemon binary path
         let daemon_binary_path =
@@ -200,23 +190,6 @@ impl ProcessDriver for DockerDriver {
             grpc_port = DAEMON_GRPC_PORT,
             http_port = DAEMON_HTTP_PORT,
             "Starting container with daemon injection"
-        );
-
-        // Build port bindings - expose container ports to random host ports
-        let mut port_bindings: HashMap<String, Option<Vec<PortBinding>>> = HashMap::new();
-        port_bindings.insert(
-            format!("{}/tcp", DAEMON_GRPC_PORT),
-            Some(vec![PortBinding {
-                host_ip: Some("0.0.0.0".to_string()),
-                host_port: None, // Let Docker choose
-            }]),
-        );
-        port_bindings.insert(
-            format!("{}/tcp", DAEMON_HTTP_PORT),
-            Some(vec![PortBinding {
-                host_ip: Some("0.0.0.0".to_string()),
-                host_port: None, // Let Docker choose
-            }]),
         );
 
         // Build bind mount for daemon binary
@@ -259,20 +232,17 @@ impl ProcessDriver for DockerDriver {
             DAEMON_HTTP_PORT.to_string(),
             "--log-dir".to_string(),
             "/var/log/indexify".to_string(),
-            "--".to_string(),
-            config.command.clone(),
         ];
-        cmd.extend(config.args.clone());
 
-        // Exposed ports for container
-        let exposed_ports = vec![
-            format!("{}/tcp", DAEMON_GRPC_PORT),
-            format!("{}/tcp", DAEMON_HTTP_PORT),
-        ];
+        // Only add entrypoint command if specified
+        if !config.command.is_empty() {
+            cmd.push("--".to_string());
+            cmd.push(config.command.clone());
+            cmd.extend(config.args.clone());
+        }
 
         let host_config = HostConfig {
             binds: Some(binds),
-            port_bindings: Some(port_bindings),
             memory: memory_limit,
             nano_cpus,
             // Set reasonable ulimits
@@ -291,7 +261,6 @@ impl ProcessDriver for DockerDriver {
             env: Some(env),
             labels: Some(labels),
             working_dir: config.working_dir.clone(),
-            exposed_ports: Some(exposed_ports),
             host_config: Some(host_config),
             ..Default::default()
         };
@@ -313,30 +282,28 @@ impl ProcessDriver for DockerDriver {
             .await
             .context("Failed to start container")?;
 
-        // Get the mapped host ports
-        let grpc_host_port = self
-            .get_mapped_port(&container_name, DAEMON_GRPC_PORT)
-            .await?;
-        let http_host_port = self
-            .get_mapped_port(&container_name, DAEMON_HTTP_PORT)
-            .await?;
+        // Get container's internal IP address using bollard
+        let container_ip = self
+            .get_container_ip(&container_name)
+            .await
+            .context("Failed to get container IP address")?;
 
-        let daemon_addr = format!("127.0.0.1:{}", grpc_host_port);
-        let http_addr = format!("127.0.0.1:{}", http_host_port);
+        let daemon_addr = format!("{}:{}", container_ip, DAEMON_GRPC_PORT);
+        let http_addr = format!("{}:{}", container_ip, DAEMON_HTTP_PORT);
 
         info!(
             container = %container_name,
+            container_ip = %container_ip,
             daemon_addr = %daemon_addr,
             http_addr = %http_addr,
-            grpc_port = grpc_host_port,
-            http_port = http_host_port,
-            "Container started, daemon available on localhost"
+            "Container started, daemon available on container IP"
         );
 
         Ok(ProcessHandle {
             id: container_name,
             daemon_addr: Some(daemon_addr),
             http_addr: Some(http_addr),
+            container_ip,
         })
     }
 
@@ -432,5 +399,41 @@ impl ProcessDriver for DockerDriver {
             }) => Ok(None),
             Err(e) => Err(e).context("Failed to inspect container for exit status"),
         }
+    }
+
+    async fn list_containers(&self) -> Result<Vec<String>> {
+        use std::collections::HashMap;
+
+        use bollard::query_parameters::ListContainersOptions;
+
+        // Filter by label instead of name prefix for more reliable reconciliation
+        let mut filters: HashMap<String, Vec<String>> = HashMap::new();
+        filters.insert(
+            "label".to_string(),
+            vec!["indexify.managed=true".to_string()],
+        );
+
+        let options = ListContainersOptions {
+            all: true,
+            filters: Some(filters),
+            ..Default::default()
+        };
+
+        let containers = self
+            .docker
+            .list_containers(Some(options))
+            .await
+            .context("Failed to list containers")?;
+
+        let names: Vec<String> = containers
+            .into_iter()
+            .filter_map(|c| {
+                c.names
+                    .and_then(|names| names.first().cloned())
+                    .map(|name| name.trim_start_matches('/').to_string())
+            })
+            .collect();
+
+        Ok(names)
     }
 }

@@ -7,9 +7,9 @@ pub mod daemon_binary;
 pub mod daemon_client;
 pub mod driver;
 pub mod function_container_manager;
+pub mod http_proxy;
 pub mod metrics;
 pub mod network_rules;
-pub mod proxy;
 mod resources;
 pub mod state_file;
 
@@ -20,7 +20,7 @@ pub use function_container_manager::{
     DefaultImageResolver,
     FunctionContainerManager,
     ImageResolver,
-    SandboxInfo,
+    SandboxLookupResult,
 };
+pub use http_proxy::run_http_proxy;
 pub use metrics::{ContainerCounts, DataplaneMetrics, ResourceAvailability};
-pub use proxy::ProxyServer;

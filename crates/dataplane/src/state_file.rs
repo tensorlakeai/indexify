@@ -10,6 +10,9 @@ use std::{
 };
 
 use anyhow::{Context, Result};
+use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
+use prost::Message;
+use proto_api::executor_api_pb::FunctionExecutorDescription;
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 use tracing::{info, warn};
@@ -17,8 +20,8 @@ use tracing::{info, warn};
 /// Persisted state for a single container.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PersistedContainer {
-    /// Function executor ID.
-    pub fe_id: String,
+    /// Container ID (same as sandbox ID for sandboxes).
+    pub container_id: String,
     /// Process/container handle ID (container name for Docker, PID for
     /// ForkExec).
     pub handle_id: String,
@@ -26,8 +29,28 @@ pub struct PersistedContainer {
     pub daemon_addr: String,
     /// HTTP daemon address (host:port).
     pub http_addr: String,
+    /// Container's internal IP address.
+    pub container_ip: String,
     /// Timestamp when the container was started (epoch ms).
     pub started_at: u64,
+    /// Base64-encoded protobuf of FunctionExecutorDescription.
+    /// Contains the full container description including function ref.
+    #[serde(default)]
+    pub description_proto: Option<String>,
+}
+
+impl PersistedContainer {
+    /// Decode the FunctionExecutorDescription from the stored protobuf.
+    pub fn decode_description(&self) -> Option<FunctionExecutorDescription> {
+        let proto_b64 = self.description_proto.as_ref()?;
+        let proto_bytes = BASE64.decode(proto_b64).ok()?;
+        FunctionExecutorDescription::decode(proto_bytes.as_slice()).ok()
+    }
+
+    /// Encode a FunctionExecutorDescription to base64 protobuf.
+    pub fn encode_description(desc: &FunctionExecutorDescription) -> String {
+        BASE64.encode(desc.encode_to_vec())
+    }
 }
 
 /// State file contents.
@@ -105,16 +128,18 @@ impl StateFile {
     pub async fn upsert(&self, container: PersistedContainer) -> Result<()> {
         {
             let mut state = self.state.lock().await;
-            state.containers.insert(container.fe_id.clone(), container);
+            state
+                .containers
+                .insert(container.container_id.clone(), container);
         }
         self.save_to_file().await
     }
 
     /// Remove a container from the state file.
-    pub async fn remove(&self, fe_id: &str) -> Result<()> {
+    pub async fn remove(&self, container_id: &str) -> Result<()> {
         {
             let mut state = self.state.lock().await;
-            state.containers.remove(fe_id);
+            state.containers.remove(container_id);
         }
         self.save_to_file().await
     }
@@ -141,11 +166,13 @@ mod tests {
         let state_file = StateFile::new(&path).await.unwrap();
         state_file
             .upsert(PersistedContainer {
-                fe_id: "fe-1".to_string(),
+                container_id: "fe-1".to_string(),
                 handle_id: "container-123".to_string(),
                 daemon_addr: "127.0.0.1:9500".to_string(),
                 http_addr: "127.0.0.1:9501".to_string(),
+                container_ip: "172.17.0.2".to_string(),
                 started_at: 1234567890,
+                description_proto: None,
             })
             .await
             .unwrap();
@@ -157,7 +184,7 @@ mod tests {
         let state_file2 = StateFile::new(&path).await.unwrap();
         let containers = state_file2.get_all().await;
         assert_eq!(containers.len(), 1);
-        assert_eq!(containers[0].fe_id, "fe-1");
+        assert_eq!(containers[0].container_id, "fe-1");
         assert_eq!(containers[0].handle_id, "container-123");
     }
 
@@ -169,11 +196,13 @@ mod tests {
         let state_file = StateFile::new(&path).await.unwrap();
         state_file
             .upsert(PersistedContainer {
-                fe_id: "fe-1".to_string(),
+                container_id: "fe-1".to_string(),
                 handle_id: "container-123".to_string(),
                 daemon_addr: "127.0.0.1:9500".to_string(),
                 http_addr: "127.0.0.1:9501".to_string(),
+                container_ip: "172.17.0.2".to_string(),
                 started_at: 1234567890,
+                description_proto: None,
             })
             .await
             .unwrap();
@@ -192,5 +221,55 @@ mod tests {
         let state_file = StateFile::new(&path).await.unwrap();
         let containers = state_file.get_all().await;
         assert!(containers.is_empty());
+    }
+
+    #[test]
+    fn test_description_encode_decode() {
+        use proto_api::executor_api_pb::FunctionRef;
+
+        let desc = FunctionExecutorDescription {
+            id: Some("test-container".to_string()),
+            function: Some(FunctionRef {
+                namespace: Some("test-ns".to_string()),
+                application_name: Some("test-app".to_string()),
+                function_name: Some("test-fn".to_string()),
+                application_version: Some("v1".to_string()),
+            }),
+            ..Default::default()
+        };
+
+        let encoded = PersistedContainer::encode_description(&desc);
+        let container = PersistedContainer {
+            container_id: "test".to_string(),
+            handle_id: "h1".to_string(),
+            daemon_addr: "127.0.0.1:9500".to_string(),
+            http_addr: "127.0.0.1:9501".to_string(),
+            container_ip: "127.0.0.1".to_string(),
+            started_at: 0,
+            description_proto: Some(encoded),
+        };
+
+        let decoded = container.decode_description().expect("should decode");
+        assert_eq!(decoded.id, Some("test-container".to_string()));
+        assert!(decoded.function.is_some());
+        let func = decoded.function.unwrap();
+        assert_eq!(func.namespace, Some("test-ns".to_string()));
+        assert_eq!(func.application_name, Some("test-app".to_string()));
+        assert_eq!(func.function_name, Some("test-fn".to_string()));
+    }
+
+    #[test]
+    fn test_description_decode_none() {
+        let container = PersistedContainer {
+            container_id: "test".to_string(),
+            handle_id: "h1".to_string(),
+            daemon_addr: "127.0.0.1:9500".to_string(),
+            http_addr: "127.0.0.1:9501".to_string(),
+            container_ip: "127.0.0.1".to_string(),
+            started_at: 0,
+            description_proto: None,
+        };
+
+        assert!(container.decode_description().is_none());
     }
 }

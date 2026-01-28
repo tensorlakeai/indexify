@@ -315,19 +315,37 @@ class FunctionRef(_message.Message):
         application_version: _Optional[str] = ...,
     ) -> None: ...
 
+class NetworkPolicy(_message.Message):
+    __slots__ = ("allow_internet_access", "allow_out", "deny_out")
+    ALLOW_INTERNET_ACCESS_FIELD_NUMBER: _ClassVar[int]
+    ALLOW_OUT_FIELD_NUMBER: _ClassVar[int]
+    DENY_OUT_FIELD_NUMBER: _ClassVar[int]
+    allow_internet_access: bool
+    allow_out: _containers.RepeatedScalarFieldContainer[str]
+    deny_out: _containers.RepeatedScalarFieldContainer[str]
+    def __init__(
+        self,
+        allow_internet_access: bool = ...,
+        allow_out: _Optional[_Iterable[str]] = ...,
+        deny_out: _Optional[_Iterable[str]] = ...,
+    ) -> None: ...
+
 class SandboxMetadata(_message.Message):
-    __slots__ = ("timeout_secs", "entrypoint", "image")
+    __slots__ = ("timeout_secs", "entrypoint", "image", "network_policy")
     TIMEOUT_SECS_FIELD_NUMBER: _ClassVar[int]
     ENTRYPOINT_FIELD_NUMBER: _ClassVar[int]
     IMAGE_FIELD_NUMBER: _ClassVar[int]
+    NETWORK_POLICY_FIELD_NUMBER: _ClassVar[int]
     timeout_secs: int
     entrypoint: _containers.RepeatedScalarFieldContainer[str]
     image: str
+    network_policy: NetworkPolicy
     def __init__(
         self,
         timeout_secs: _Optional[int] = ...,
         entrypoint: _Optional[_Iterable[str]] = ...,
         image: _Optional[str] = ...,
+        network_policy: _Optional[_Union[NetworkPolicy, _Mapping]] = ...,
     ) -> None: ...
 
 class FunctionExecutorDescription(_message.Message):
@@ -383,18 +401,15 @@ class FunctionExecutorState(_message.Message):
         "status",
         "termination_reason",
         "allocation_ids_caused_termination",
-        "sandbox_http_address",
     )
     DESCRIPTION_FIELD_NUMBER: _ClassVar[int]
     STATUS_FIELD_NUMBER: _ClassVar[int]
     TERMINATION_REASON_FIELD_NUMBER: _ClassVar[int]
     ALLOCATION_IDS_CAUSED_TERMINATION_FIELD_NUMBER: _ClassVar[int]
-    SANDBOX_HTTP_ADDRESS_FIELD_NUMBER: _ClassVar[int]
     description: FunctionExecutorDescription
     status: FunctionExecutorStatus
     termination_reason: FunctionExecutorTerminationReason
     allocation_ids_caused_termination: _containers.RepeatedScalarFieldContainer[str]
-    sandbox_http_address: str
     def __init__(
         self,
         description: _Optional[_Union[FunctionExecutorDescription, _Mapping]] = ...,
@@ -403,7 +418,6 @@ class FunctionExecutorState(_message.Message):
             _Union[FunctionExecutorTerminationReason, str]
         ] = ...,
         allocation_ids_caused_termination: _Optional[_Iterable[str]] = ...,
-        sandbox_http_address: _Optional[str] = ...,
     ) -> None: ...
 
 class ExecutorState(_message.Message):
@@ -421,6 +435,7 @@ class ExecutorState(_message.Message):
         "server_clock",
         "catalog_entry_name",
         "function_call_watches",
+        "proxy_address",
     )
 
     class LabelsEntry(_message.Message):
@@ -446,6 +461,7 @@ class ExecutorState(_message.Message):
     SERVER_CLOCK_FIELD_NUMBER: _ClassVar[int]
     CATALOG_ENTRY_NAME_FIELD_NUMBER: _ClassVar[int]
     FUNCTION_CALL_WATCHES_FIELD_NUMBER: _ClassVar[int]
+    PROXY_ADDRESS_FIELD_NUMBER: _ClassVar[int]
     executor_id: str
     hostname: str
     version: str
@@ -463,6 +479,7 @@ class ExecutorState(_message.Message):
     function_call_watches: _containers.RepeatedCompositeFieldContainer[
         FunctionCallWatch
     ]
+    proxy_address: str
     def __init__(
         self,
         executor_id: _Optional[str] = ...,
@@ -486,6 +503,7 @@ class ExecutorState(_message.Message):
         function_call_watches: _Optional[
             _Iterable[_Union[FunctionCallWatch, _Mapping]]
         ] = ...,
+        proxy_address: _Optional[str] = ...,
     ) -> None: ...
 
 class ExecutorUpdate(_message.Message):

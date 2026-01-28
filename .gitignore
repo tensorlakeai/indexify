@@ -1,5 +1,8 @@
 # IDE and editor files
 .idea
+.claude
+
+dataplane-state.json
 
 # Python-related files
 __pycache__

@@ -132,27 +132,105 @@ mod duration_serde {
     }
 }
 
-/// Configuration for the sandbox proxy server.
+/// Configuration for upstream (container) connections.
+/// These settings help prevent "connection prematurely closed" errors.
 #[serde_inline_default]
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ProxyConfig {
-    /// Enable the proxy server.
-    #[serde_inline_default(true)]
-    pub enabled: bool,
-    /// Port to listen on for proxy requests.
-    #[serde_inline_default(9000)]
-    pub port: u16,
-    /// Listen address for the proxy server.
-    #[serde_inline_default("0.0.0.0".to_string())]
-    pub listen_addr: String,
+pub struct UpstreamConfig {
+    /// Idle connection timeout in seconds. Connections idle longer than this
+    /// will be closed. Set slightly lower than upstream timeout (usually 60s)
+    /// to ensure we close before the upstream does.
+    #[serde_inline_default(55)]
+    pub idle_timeout_secs: u64,
+
+    /// TCP keepalive idle time in seconds before sending probes.
+    #[serde_inline_default(30)]
+    pub keepalive_idle_secs: u64,
+
+    /// TCP keepalive probe interval in seconds.
+    #[serde_inline_default(10)]
+    pub keepalive_interval_secs: u64,
+
+    /// Number of TCP keepalive probes before giving up.
+    #[serde_inline_default(3)]
+    pub keepalive_count: usize,
+
+    /// Connection establishment timeout in seconds.
+    #[serde_inline_default(10)]
+    pub connection_timeout_secs: u64,
+
+    /// Read operation timeout in seconds.
+    #[serde_inline_default(60)]
+    pub read_timeout_secs: u64,
+
+    /// Write operation timeout in seconds.
+    #[serde_inline_default(60)]
+    pub write_timeout_secs: u64,
 }
 
-impl Default for ProxyConfig {
+impl Default for UpstreamConfig {
     fn default() -> Self {
         Self {
-            enabled: true,
-            port: 9000,
+            idle_timeout_secs: 55,
+            keepalive_idle_secs: 30,
+            keepalive_interval_secs: 10,
+            keepalive_count: 3,
+            connection_timeout_secs: 10,
+            read_timeout_secs: 60,
+            write_timeout_secs: 60,
+        }
+    }
+}
+
+/// Configuration for the HTTP proxy server (header-based routing).
+/// Accepts plaintext HTTP from the sandbox-proxy and routes to containers
+/// based on the Tensorlake-Sandbox-Id header.
+#[serde_inline_default]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HttpProxyConfig {
+    /// Port to listen on for HTTP connections.
+    #[serde_inline_default(8095)]
+    pub port: u16,
+    /// Listen address for the HTTP proxy server.
+    #[serde_inline_default("0.0.0.0".to_string())]
+    pub listen_addr: String,
+    /// Address to advertise to the server (host:port).
+    /// This is the address that sandbox-proxy will connect to.
+    /// If not set, uses the system hostname with the configured port.
+    #[serde(default)]
+    pub advertise_address: Option<String>,
+    /// Upstream connection settings for container connections.
+    #[serde(default)]
+    pub upstream: UpstreamConfig,
+}
+
+impl Default for HttpProxyConfig {
+    fn default() -> Self {
+        Self {
+            port: 8095,
             listen_addr: "0.0.0.0".to_string(),
+            advertise_address: None,
+            upstream: UpstreamConfig::default(),
+        }
+    }
+}
+
+impl HttpProxyConfig {
+    /// Get the socket address to bind to.
+    pub fn socket_addr(&self) -> String {
+        format!("{}:{}", self.listen_addr, self.port)
+    }
+
+    /// Get the address to advertise to the server.
+    /// Returns advertise_address if set, otherwise hostname:port.
+    pub fn get_advertise_address(&self) -> String {
+        if let Some(addr) = &self.advertise_address {
+            addr.clone()
+        } else {
+            let hostname = hostname::get()
+                .map(|h| h.to_string_lossy().to_string())
+                .unwrap_or_else(|_| "localhost".to_string());
+            format!("{}:{}", hostname, self.port)
         }
     }
 }
@@ -182,9 +260,10 @@ pub struct DataplaneConfig {
     /// Path to the state file for persisting container state across restarts.
     #[serde_inline_default("./dataplane-state.json".to_string())]
     pub state_file: String,
-    /// Proxy server configuration.
+    /// HTTP proxy server configuration (header-based routing).
+    /// Receives requests from sandbox-proxy with Tensorlake-Sandbox-Id header.
     #[serde(default)]
-    pub proxy: ProxyConfig,
+    pub http_proxy: HttpProxyConfig,
 }
 
 fn default_executor_id() -> String {
@@ -201,7 +280,7 @@ impl Default for DataplaneConfig {
             telemetry: TelemetryConfig::default(),
             driver: DriverConfig::default(),
             state_file: "./dataplane-state.json".to_string(),
-            proxy: ProxyConfig::default(),
+            http_proxy: HttpProxyConfig::default(),
         }
     }
 }
@@ -213,12 +292,12 @@ impl DataplaneConfig {
     }
 
     fn from_yaml_str(config_str: &str) -> Result<DataplaneConfig> {
-        let config: DataplaneConfig = serde_saphyr::from_str(config_str)?;
+        let mut config: DataplaneConfig = serde_saphyr::from_str(config_str)?;
         config.validate()?;
         Ok(config)
     }
 
-    pub fn validate(&self) -> Result<()> {
+    pub fn validate(&mut self) -> Result<()> {
         self.tls.validate()?;
         Ok(())
     }
@@ -241,16 +320,60 @@ mod tests {
 
     #[test]
     fn test_default_config() {
-        let config = DataplaneConfig::default();
+        let mut config = DataplaneConfig::default();
         assert_eq!(config.env, "local");
         assert_eq!(config.server_addr, "http://localhost:8901");
         assert!(!config.tls.enabled);
+        assert!(config.validate().is_ok());
+        // HTTP proxy has sensible defaults
+        assert_eq!(config.http_proxy.port, 8095);
+        assert_eq!(config.http_proxy.listen_addr, "0.0.0.0");
     }
 
     #[test]
-    fn test_parse_yaml_config() {
+    fn test_local_env_config() {
         let yaml = r#"
-env: staging
+env: local
+server_addr: "http://localhost:8901"
+"#;
+        let config = DataplaneConfig::from_yaml_str(yaml).unwrap();
+        assert_eq!(config.env, "local");
+        assert_eq!(config.http_proxy.port, 8095);
+    }
+
+    #[test]
+    fn test_production_config() {
+        let yaml = r#"
+env: production
+server_addr: "http://indexify.example.com:8901"
+http_proxy:
+  port: 8080
+  advertise_address: "worker.example.com:8080"
+"#;
+        let config = DataplaneConfig::from_yaml_str(yaml).unwrap();
+        assert_eq!(config.env, "production");
+        assert_eq!(config.http_proxy.port, 8080);
+        assert_eq!(
+            config.http_proxy.get_advertise_address(),
+            "worker.example.com:8080"
+        );
+    }
+
+    #[test]
+    fn test_http_proxy_socket_addr() {
+        let config = HttpProxyConfig {
+            port: 9000,
+            listen_addr: "127.0.0.1".to_string(),
+            advertise_address: None,
+            upstream: UpstreamConfig::default(),
+        };
+        assert_eq!(config.socket_addr(), "127.0.0.1:9000");
+    }
+
+    #[test]
+    fn test_parse_yaml_with_mtls() {
+        let yaml = r#"
+env: production
 server_addr: "https://indexify.example.com:8901"
 tls:
   enabled: true
@@ -258,13 +381,9 @@ tls:
   client_cert_path: "/etc/certs/client.pem"
   client_key_path: "/etc/certs/client-key.pem"
   domain_name: "indexify.example.com"
-telemetry:
-  tracing_exporter: otlp
-  endpoint: "http://otel-collector:4317"
 "#;
         let config = DataplaneConfig::from_yaml_str(yaml).unwrap();
-        assert_eq!(config.env, "staging");
-        assert_eq!(config.server_addr, "https://indexify.example.com:8901");
+        assert_eq!(config.env, "production");
         assert!(config.tls.enabled);
         assert_eq!(
             config.tls.ca_cert_path,
@@ -274,8 +393,9 @@ telemetry:
 
     #[test]
     fn test_invalid_mtls_config() {
+        // mTLS requires both cert and key
         let yaml = r#"
-env: staging
+env: local
 server_addr: "https://indexify.example.com:8901"
 tls:
   enabled: true

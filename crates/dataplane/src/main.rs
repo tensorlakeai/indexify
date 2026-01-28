@@ -8,10 +8,10 @@ mod daemon_binary;
 mod daemon_client;
 mod driver;
 mod function_container_manager;
+mod http_proxy;
 mod metrics;
 mod network_rules;
 mod otel_tracing;
-mod proxy;
 mod resources;
 mod service;
 mod state_file;
@@ -35,7 +35,13 @@ async fn main() -> anyhow::Result<()> {
 
     let config = match cli.config {
         Some(path) => DataplaneConfig::from_path(path.to_str().unwrap())?,
-        None => DataplaneConfig::default(),
+        None => {
+            let mut config = DataplaneConfig::default();
+            config
+                .validate()
+                .context("Failed to validate default config")?;
+            config
+        }
     };
 
     setup_tracing(&config)?;
@@ -53,7 +59,10 @@ async fn main() -> anyhow::Result<()> {
 async fn start_dataplane(config: DataplaneConfig) -> anyhow::Result<()> {
     info!(
         server_addr = %config.server_addr,
+        executor_id = %config.executor_id,
         tls_enabled = config.tls.enabled,
+        http_proxy_listen = %config.http_proxy.socket_addr(),
+        http_proxy_advertise = %config.http_proxy.get_advertise_address(),
         "Starting Indexify Dataplane"
     );
 

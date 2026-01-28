@@ -1,5 +1,7 @@
 name: Build ECR images
 
+run-name: Build and push to ECR ${{ inputs.environment }}
+
 on:
   workflow_dispatch:
     inputs:
@@ -26,7 +28,14 @@ permissions:
 
 jobs:
   build-and-push:
-    name: Build indexify server and push to ${{ inputs.environment }}
+    name: Build ${{ matrix.image }}
+    strategy:
+      matrix:
+        include:
+          - dockerfile: dockerfiles/Dockerfile.server
+            image: indexify-server
+          - dockerfile: dockerfiles/Dockerfile.dataplane
+            image: indexify-dataplane
     environment: ${{ inputs.environment }}
     runs-on: namespace-profile-indexify-builder
     steps:
@@ -50,10 +59,10 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           context: .
-          file: dockerfiles/Dockerfile.server
+          file: ${{ matrix.dockerfile }}
           outputs: type=image,push=true,image-manifest=true,oci-mediatypes=true
           cache-from: type=gha
           cache-to: type=gha,mode=max
           tags: |
-            ${{ steps.login-ecr.outputs.registry }}/indexify-server:${{ github.sha }}
-            ${{ steps.login-ecr.outputs.registry }}/indexify-server:latest
+            ${{ steps.login-ecr.outputs.registry }}/${{ matrix.image }}:${{ github.sha }}
+            ${{ steps.login-ecr.outputs.registry }}/${{ matrix.image }}:latest

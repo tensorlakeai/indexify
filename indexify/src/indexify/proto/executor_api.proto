@@ -141,17 +141,32 @@ message FunctionRef {
     optional string application_version = 4;
 }
 
+// Network access control policy for sandboxes.
+// Rules are applied using host-level iptables on the DOCKER-USER chain.
+message NetworkPolicy {
+    // If false, all outbound internet access is blocked by default (DROP).
+    // If true (default), outbound is allowed unless explicitly denied.
+    optional bool allow_internet_access = 1;
+    // List of allowed destination IPs/CIDRs (e.g., "8.8.8.8", "10.0.0.0/8").
+    // Allow rules take precedence over deny rules.
+    repeated string allow_out = 2;
+    // List of denied destination IPs/CIDRs (e.g., "192.168.1.100").
+    repeated string deny_out = 3;
+}
+
 message SandboxMetadata {
     // timeout after which the sandbox is killed
-    // by the dataplane 
+    // by the dataplane
     optional uint64 timeout_secs = 11;
-    // user specified entrypoint. if provided 
+    // user specified entrypoint. if provided
     // container daemon starts this as a child process
-    // during sandbox initialization and shows this as one 
+    // during sandbox initialization and shows this as one
     // of the pid
     repeated string entrypoint = 12;
     // container image of the sandbox
     optional string image = 10;
+    // Network access control policy for sandbox containers.
+    optional NetworkPolicy network_policy = 13;
 }
 
 // This will be container description 
@@ -183,9 +198,6 @@ message FunctionExecutorState {
     optional FunctionExecutorStatus status = 2;
     optional FunctionExecutorTerminationReason termination_reason = 3;
     repeated string allocation_ids_caused_termination = 4;
-    // HTTP address of the sandbox API.
-    // Format: "host:port" (e.g., "192.168.1.100:64759")
-    optional string sandbox_http_address = 5;
 }
 
 enum ExecutorStatus {
@@ -223,6 +235,9 @@ message ExecutorState {
     optional string catalog_entry_name = 14;
 
     repeated FunctionCallWatch function_call_watches = 15;
+
+    // Address of the HTTP proxy (host:port) for routing sandbox traffic.
+    optional string proxy_address = 16;
 }
 
 // Updates that Executor wants to report to Server. If report_executor_state RPC is successful

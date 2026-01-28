@@ -8,7 +8,7 @@ env: local
 # executor_id: "executor-1"
 
 # The gRPC server address to connect to
-server_addr: "http://localhost:8901"
+server_addr: 'http://localhost:8901'
 
 # TLS configuration for authenticating with the gRPC server
 tls:
@@ -35,7 +35,19 @@ telemetry:
 # Process driver configuration
 # Options: "fork_exec" (default) or "docker"
 driver:
-  type: fork_exec
+  type: docker
   # For docker driver:
   # type: docker
   # socket_path: "/var/run/docker.sock"
+
+# HTTP proxy configuration for sandbox routing
+# Receives requests from sandbox-proxy with Tensorlake-Sandbox-Id header
+http_proxy:
+  # Port to listen on (default: 8095)
+  port: 8095
+  # Listen address (default: 0.0.0.0)
+  listen_addr: '0.0.0.0'
+  # Address to advertise to the server (defaults to hostname:port)
+  # IMPORTANT: For local development, set this to 127.0.0.1:port
+  # so sandbox-proxy can reach the dataplane
+  advertise_address: '127.0.0.1:8095'
