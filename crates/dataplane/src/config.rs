@@ -299,6 +299,15 @@ impl DataplaneConfig {
 
     pub fn validate(&mut self) -> Result<()> {
         self.tls.validate()?;
+
+        // Validate server_addr has a scheme
+        if !self.server_addr.starts_with("http://") && !self.server_addr.starts_with("https://") {
+            return Err(anyhow::anyhow!(
+                "server_addr must include a scheme (http:// or https://), got: {}",
+                self.server_addr
+            ));
+        }
+
         Ok(())
     }
 
@@ -403,5 +412,40 @@ tls:
 "#;
         let result = DataplaneConfig::from_yaml_str(yaml);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_server_addr_requires_scheme() {
+        // server_addr without scheme should fail
+        let yaml = r#"
+env: local
+server_addr: "indexify.example.com:8901"
+"#;
+        let result = DataplaneConfig::from_yaml_str(yaml);
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("must include a scheme"));
+    }
+
+    #[test]
+    fn test_server_addr_with_http_scheme() {
+        let yaml = r#"
+env: local
+server_addr: "http://indexify.example.com:8901"
+"#;
+        let config = DataplaneConfig::from_yaml_str(yaml).unwrap();
+        assert_eq!(config.server_addr, "http://indexify.example.com:8901");
+    }
+
+    #[test]
+    fn test_server_addr_with_https_scheme() {
+        let yaml = r#"
+env: local
+server_addr: "https://indexify.example.com:8901"
+"#;
+        let config = DataplaneConfig::from_yaml_str(yaml).unwrap();
+        assert_eq!(config.server_addr, "https://indexify.example.com:8901");
     }
 }
