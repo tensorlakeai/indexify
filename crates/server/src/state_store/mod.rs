@@ -311,6 +311,10 @@ impl IndexifyState {
                 )
                 .await;
             changed_executors.extend(impacted_executors.into_iter().map(|e| e.into()));
+
+            for executor_id in request.updated_executor_states.keys() {
+                changed_executors.insert(executor_id.clone());
+            }
         }
         if let RequestPayload::UpsertExecutor(req) = &request.payload &&
             !req.watch_function_calls.is_empty()
