@@ -460,12 +460,16 @@ impl ExecutorManager {
                 request_error: function_run.request_error.clone(),
             });
         }
-        let fc_ids = container_scheduler
-            .executor_states
-            .get(executor_id)
-            .cloned()
-            .map(|executor_state| executor_state.function_container_ids)
-            .unwrap_or_default();
+        let Some(executor_server_metadata) = container_scheduler.executor_states.get(executor_id)
+        else {
+            info!(
+                executor_id = executor_id.get(),
+                "executor not yet reconciled, skipping desired state"
+            );
+            return None;
+        };
+
+        let fc_ids = executor_server_metadata.function_container_ids.clone();
 
         info!(
             executor_id = executor_id.get(),
