@@ -216,11 +216,11 @@ impl ProxyHttp for HttpProxy {
         {
             Some(id) => id,
             None => {
-                debug!(%method, %path, "Missing {HEADER_SANDBOX_ID} header");
+                debug!(%method, %path, "Missing X-Tensorlake-Sandbox-Id header");
                 return send_error_response(
                     session,
                     400,
-                    &format!("Missing {HEADER_SANDBOX_ID} header"),
+                    "Missing X-Tensorlake-Sandbox-Id header",
                     error_code::MISSING_SANDBOX_ID,
                     origin.as_deref(),
                 )

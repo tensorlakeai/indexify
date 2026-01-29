@@ -261,8 +261,7 @@ pub struct DataplaneConfig {
     #[serde_inline_default("./dataplane-state.json".to_string())]
     pub state_file: String,
     /// HTTP proxy server configuration (header-based routing).
-    /// Receives requests from sandbox-proxy with X-Tensorlake-Sandbox-Id
-    /// header.
+    /// Receives requests from sandbox-proxy with X-Tensorlake-Sandbox-Id header.
     #[serde(default)]
     pub http_proxy: HttpProxyConfig,
     /// Path where the daemon binary will be extracted.
