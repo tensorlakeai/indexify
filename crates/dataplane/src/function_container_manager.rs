@@ -687,9 +687,10 @@ impl FunctionContainerManager {
 
             let mut containers = containers_ref.write().await;
             if let Some(container) = containers.get_mut(&container_id) &&
-                let ContainerState::Stopping { handle, .. } = &container.state
+                let ContainerState::Stopping { handle, reason, .. } = &container.state
             {
                 let handle = handle.clone();
+                let termination_reason = *reason;
                 let info = container.info();
                 let run_duration_ms = container
                     .started_at
@@ -746,7 +747,7 @@ impl FunctionContainerManager {
                 );
 
                 container.state = ContainerState::Terminated {
-                    reason: FunctionExecutorTerminationReason::Unknown,
+                    reason: termination_reason,
                 };
 
                 update_container_counts(&containers, &metrics).await;
