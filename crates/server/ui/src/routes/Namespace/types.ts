@@ -23,6 +23,10 @@ export interface ApplicationDetailsLoaderData extends NamespaceLoaderData {
   sandboxes: ListSandboxesResponse
 }
 
+export interface SandboxesListLoaderData extends NamespaceLoaderData {
+  sandboxes: ListSandboxesResponse
+}
+
 export interface ExecutorsLoaderData {
   executors: ExecutorMetadata[]
 }

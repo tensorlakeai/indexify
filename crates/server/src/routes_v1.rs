@@ -169,19 +169,19 @@ fn v1_namespace_routes(route_state: RouteState) -> Router {
                 .with_state(route_state.clone()),
         )
         .route(
-            "/applications/{application}/sandboxes",
+            "/sandboxes",
             post(create_sandbox).with_state(route_state.clone()),
         )
         .route(
-            "/applications/{application}/sandboxes",
+            "/sandboxes",
             get(list_sandboxes).with_state(route_state.clone()),
         )
         .route(
-            "/applications/{application}/sandboxes/{sandbox_id}",
+            "/sandboxes/{sandbox_id}",
             get(get_sandbox).with_state(route_state.clone()),
         )
         .route(
-            "/applications/{application}/sandboxes/{sandbox_id}",
+            "/sandboxes/{sandbox_id}",
             delete(delete_sandbox).with_state(route_state.clone()),
         )
         .layer(middleware::from_fn(move |rpp, r, n| {

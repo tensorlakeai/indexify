@@ -15,7 +15,7 @@ import {
   Typography,
 } from '@mui/material'
 import { ThemeProvider } from '@mui/material/styles'
-import { Cpu, Setting4 } from 'iconsax-react'
+import { Box as BoxIcon, Cpu, Setting4 } from 'iconsax-react'
 import { type ReactElement } from 'react'
 import {
   Link,
@@ -68,6 +68,11 @@ function Dashboard() {
       path: `${namespace}/applications`,
       icon: <Cpu size="20" className="drawer-logo" variant="Outline" />,
       label: 'Applications',
+    },
+    {
+      path: `${namespace}/sandboxes`,
+      icon: <BoxIcon size="20" className="drawer-logo" variant="Outline" />,
+      label: 'Sandboxes',
     },
     {
       path: '/executors',

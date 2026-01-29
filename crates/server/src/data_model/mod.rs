@@ -2117,13 +2117,13 @@ impl fmt::Display for ChangeType {
             ),
             ChangeType::CreateSandbox(ev) => write!(
                 f,
-                "CreateSandbox, namespace: {}, app: {}, sandbox_id: {}",
-                ev.namespace, ev.application, ev.sandbox_id
+                "CreateSandbox, namespace: {}, sandbox_id: {}",
+                ev.namespace, ev.sandbox_id
             ),
             ChangeType::TerminateSandbox(ev) => write!(
                 f,
-                "TerminateSandbox, namespace: {}, app: {}, sandbox_id: {}",
-                ev.namespace, ev.application, ev.sandbox_id
+                "TerminateSandbox, namespace: {}, sandbox_id: {}",
+                ev.namespace, ev.sandbox_id
             ),
         }
     }
@@ -2423,17 +2423,17 @@ impl Display for SandboxFailureReason {
     }
 }
 
-/// Key for sandbox storage: namespace|application|sandbox_id
+/// Key for sandbox storage: namespace|sandbox_id
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct SandboxKey(pub String);
 
 impl SandboxKey {
-    pub fn new(namespace: &str, application: &str, sandbox_id: &str) -> Self {
-        Self(format!("{namespace}|{application}|{sandbox_id}"))
+    pub fn new(namespace: &str, sandbox_id: &str) -> Self {
+        Self(format!("{namespace}|{sandbox_id}"))
     }
 
     pub fn from_sandbox(sandbox: &Sandbox) -> Self {
-        Self::new(&sandbox.namespace, &sandbox.application, sandbox.id.get())
+        Self::new(&sandbox.namespace, sandbox.id.get())
     }
 }
 
@@ -2487,8 +2487,6 @@ fn default_true() -> bool {
 pub struct Sandbox {
     pub id: SandboxId,
     pub namespace: String,
-    pub application: String,
-    pub application_version: String,
     /// Docker image to use
     pub image: String,
     #[builder(default)]
@@ -2529,7 +2527,7 @@ impl SandboxBuilder {
 impl Sandbox {
     /// Returns the storage key for this sandbox
     pub fn key(&self) -> String {
-        format!("{}|{}|{}", self.namespace, self.application, self.id.0)
+        format!("{}|{}", self.namespace, self.id.0)
     }
 
     /// Prepares the sandbox for persistence by setting the server clock
@@ -2545,7 +2543,6 @@ impl Sandbox {
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
 pub struct CreateSandboxEvent {
     pub namespace: String,
-    pub application: String,
     pub sandbox_id: SandboxId,
 }
 
@@ -2553,7 +2550,6 @@ pub struct CreateSandboxEvent {
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
 pub struct TerminateSandboxEvent {
     pub namespace: String,
-    pub application: String,
     pub sandbox_id: SandboxId,
 }
 

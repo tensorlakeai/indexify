@@ -187,10 +187,9 @@ pub fn create_sandbox(
     let last_change_id = last_change_id.fetch_add(1, atomic::Ordering::Relaxed);
     let state_change = StateChangeBuilder::default()
         .namespace(Some(request.sandbox.namespace.clone()))
-        .application(Some(request.sandbox.application.clone()))
+        .application(None)
         .change_type(ChangeType::CreateSandbox(CreateSandboxEvent {
             namespace: request.sandbox.namespace.clone(),
-            application: request.sandbox.application.clone(),
             sandbox_id: request.sandbox.id.clone(),
         }))
         .created_at(get_epoch_time_in_ms())
@@ -208,10 +207,9 @@ pub fn terminate_sandbox(
     let last_change_id = last_change_id.fetch_add(1, atomic::Ordering::Relaxed);
     let state_change = StateChangeBuilder::default()
         .namespace(Some(request.namespace.clone()))
-        .application(Some(request.application.clone()))
+        .application(None)
         .change_type(ChangeType::TerminateSandbox(TerminateSandboxEvent {
             namespace: request.namespace.clone(),
-            application: request.application.clone(),
             sandbox_id: request.sandbox_id.clone(),
         }))
         .created_at(get_epoch_time_in_ms())

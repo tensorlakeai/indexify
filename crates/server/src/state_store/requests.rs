@@ -322,6 +322,5 @@ pub struct CreateSandboxRequest {
 #[derive(Debug, Clone)]
 pub struct TerminateSandboxRequest {
     pub namespace: String,
-    pub application: String,
     pub sandbox_id: SandboxId,
 }

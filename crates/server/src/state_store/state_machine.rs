@@ -561,7 +561,7 @@ pub async fn delete_application(
     Ok(())
 }
 
-#[tracing::instrument(skip(txn, sandbox), fields(namespace = sandbox.namespace, application = sandbox.application, sandbox_id = %sandbox.id))]
+#[tracing::instrument(skip(txn, sandbox), fields(namespace = sandbox.namespace, sandbox_id = %sandbox.id))]
 pub(crate) async fn upsert_sandbox(txn: &Transaction, sandbox: &Sandbox, clock: u64) -> Result<()> {
     let mut sandbox = sandbox.clone();
     sandbox.prepare_for_persistence(clock);
@@ -575,7 +575,6 @@ pub(crate) async fn upsert_sandbox(txn: &Transaction, sandbox: &Sandbox, clock: 
     .await?;
     debug!(
         namespace = %sandbox.namespace,
-        application = %sandbox.application,
         sandbox_id = %sandbox.id,
         status = %sandbox.status,
         "upserted sandbox"

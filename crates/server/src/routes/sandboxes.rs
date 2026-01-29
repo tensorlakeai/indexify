@@ -84,7 +84,6 @@ pub struct ContainerResourcesInfo {
 pub struct SandboxInfo {
     pub id: String,
     pub namespace: String,
-    pub application: String,
     pub image: String,
     pub status: String,
     pub outcome: Option<String>,
@@ -138,7 +137,6 @@ impl SandboxInfo {
         Self {
             id: sandbox.id.get().to_string(),
             namespace: sandbox.namespace.clone(),
-            application: sandbox.application.clone(),
             image: sandbox.image.clone(),
             status: sandbox.status.to_string(),
             outcome: sandbox.outcome.as_ref().map(|o| o.to_string()),
@@ -162,10 +160,10 @@ pub struct ListSandboxesResponse {
     pub sandboxes: Vec<SandboxInfo>,
 }
 
-/// Create a new sandbox for an application
+/// Create a new sandbox in a namespace
 #[utoipa::path(
     post,
-    path = "/v1/namespaces/{namespace}/applications/{application}/sandboxes",
+    path = "/v1/namespaces/{namespace}/sandboxes",
     tag = "sandboxes",
     request_body = CreateSandboxRequest,
     responses(
@@ -175,26 +173,10 @@ pub struct ListSandboxesResponse {
     ),
 )]
 pub async fn create_sandbox(
-    Path((namespace, application)): Path<(String, String)>,
+    Path(namespace): Path<String>,
     State(state): State<RouteState>,
     Json(request): Json<CreateSandboxRequest>,
 ) -> Result<Json<CreateSandboxResponse>, IndexifyAPIError> {
-    let app_key = data_model::Application::key_from(&namespace, &application);
-    let app_exists = state
-        .indexify_state
-        .in_memory_state
-        .read()
-        .await
-        .applications
-        .contains_key(&app_key);
-
-    if !app_exists {
-        return Err(IndexifyAPIError::not_found(&format!(
-            "Application '{}' not found in namespace '{}'",
-            application, namespace
-        )));
-    }
-
     // Apply config defaults for image and timeout
     let image = request
         .image
@@ -207,8 +189,6 @@ pub async fn create_sandbox(
     let sandbox = SandboxBuilder::default()
         .id(sandbox_id.clone())
         .namespace(namespace.clone())
-        .application(application.clone())
-        .application_version("inline".to_string()) // No app version needed for inline spec
         .image(image)
         .status(SandboxStatus::Pending)
         .creation_time_ns(get_epoch_time_in_ns())
@@ -255,25 +235,24 @@ pub async fn create_sandbox(
     }))
 }
 
-/// List all sandboxes for an application
+/// List all sandboxes in a namespace
 #[utoipa::path(
     get,
-    path = "/v1/namespaces/{namespace}/applications/{application}/sandboxes",
+    path = "/v1/namespaces/{namespace}/sandboxes",
     tag = "sandboxes",
     responses(
         (status = 200, description = "List of sandboxes", body = ListSandboxesResponse),
-        (status = 404, description = "Application not found"),
         (status = 500, description = "Internal server error")
     ),
 )]
 pub async fn list_sandboxes(
-    Path((namespace, application)): Path<(String, String)>,
+    Path(namespace): Path<String>,
     State(state): State<RouteState>,
 ) -> Result<Json<ListSandboxesResponse>, IndexifyAPIError> {
     // Read sandboxes from database (includes terminated sandboxes)
     let reader = state.indexify_state.reader();
     let sandboxes = reader
-        .list_sandboxes(&namespace, &application)
+        .list_sandboxes(&namespace)
         .await
         .map_err(IndexifyAPIError::internal_error)?;
 
@@ -305,7 +284,7 @@ pub async fn list_sandboxes(
 /// Get a specific sandbox
 #[utoipa::path(
     get,
-    path = "/v1/namespaces/{namespace}/applications/{application}/sandboxes/{sandbox_id}",
+    path = "/v1/namespaces/{namespace}/sandboxes/{sandbox_id}",
     tag = "sandboxes",
     responses(
         (status = 200, description = "Sandbox details", body = SandboxInfo),
@@ -314,12 +293,12 @@ pub async fn list_sandboxes(
     ),
 )]
 pub async fn get_sandbox(
-    Path((namespace, application, sandbox_id)): Path<(String, String, String)>,
+    Path((namespace, sandbox_id)): Path<(String, String)>,
     State(state): State<RouteState>,
 ) -> Result<Json<SandboxInfo>, IndexifyAPIError> {
     let reader = state.indexify_state.reader();
     let sandbox = reader
-        .get_sandbox(&namespace, &application, &sandbox_id)
+        .get_sandbox(&namespace, &sandbox_id)
         .await
         .map_err(IndexifyAPIError::internal_error)?
         .ok_or_else(|| IndexifyAPIError::not_found("Sandbox not found"))?;
@@ -346,7 +325,7 @@ pub async fn get_sandbox(
 /// Delete (terminate) a sandbox
 #[utoipa::path(
     delete,
-    path = "/v1/namespaces/{namespace}/applications/{application}/sandboxes/{sandbox_id}",
+    path = "/v1/namespaces/{namespace}/sandboxes/{sandbox_id}",
     tag = "sandboxes",
     responses(
         (status = 200, description = "Sandbox terminated"),
@@ -355,13 +334,13 @@ pub async fn get_sandbox(
     ),
 )]
 pub async fn delete_sandbox(
-    Path((namespace, application, sandbox_id)): Path<(String, String, String)>,
+    Path((namespace, sandbox_id)): Path<(String, String)>,
     State(state): State<RouteState>,
 ) -> Result<(), IndexifyAPIError> {
     // Check if sandbox exists and is not already terminated
     let reader = state.indexify_state.reader();
     let sandbox = reader
-        .get_sandbox(&namespace, &application, &sandbox_id)
+        .get_sandbox(&namespace, &sandbox_id)
         .await
         .map_err(IndexifyAPIError::internal_error)?
         .ok_or_else(|| IndexifyAPIError::not_found("Sandbox not found"))?;
@@ -375,7 +354,6 @@ pub async fn delete_sandbox(
     let request = StateMachineUpdateRequest {
         payload: RequestPayload::TerminateSandbox(TerminateSandboxRequest {
             namespace: namespace.clone(),
-            application: application.clone(),
             sandbox_id: SandboxId::new(sandbox_id),
         }),
     };
