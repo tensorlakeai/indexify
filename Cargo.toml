@@ -55,7 +55,7 @@ object_store = { version = "0.13.1", features = ["aws"] }
 rocksdb = "0.24.0"
 anyhow = "1.0.100"
 thiserror = "2.0.18"
-clap = { version = "4.5.54", features = ["derive"] }
+clap = { version = "4.5.55", features = ["derive"] }
 sha2 = "0.10.9"
 base64 = "0.22.1"
 nanoid = "0.4.0"
