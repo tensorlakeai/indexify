@@ -442,7 +442,6 @@ impl ApplicationProcessor {
                     &mut indexes_guard,
                     &mut container_scheduler_guard,
                     &ev.namespace,
-                    &ev.application,
                     ev.sandbox_id.get(),
                 )?;
                 StateMachineUpdateRequest {
@@ -457,7 +456,6 @@ impl ApplicationProcessor {
                     &indexes_guard,
                     &mut container_scheduler_guard,
                     &ev.namespace,
-                    &ev.application,
                     ev.sandbox_id.get(),
                 )?;
                 StateMachineUpdateRequest {

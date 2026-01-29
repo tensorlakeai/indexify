@@ -32,21 +32,14 @@ mod tests {
         utils::get_epoch_time_in_ns,
     };
 
-    const TEST_APP_NAME: &str = "sandbox_test_app";
     const TEST_IMAGE: &str = "test-image:latest";
 
     /// Helper to create a sandbox via state store with inline spec
-    async fn create_sandbox(
-        indexify_state: &IndexifyState,
-        namespace: &str,
-        application: &str,
-    ) -> SandboxId {
+    async fn create_sandbox(indexify_state: &IndexifyState, namespace: &str) -> SandboxId {
         let sandbox_id = SandboxId::default();
         let sandbox = SandboxBuilder::default()
             .id(sandbox_id.clone())
             .namespace(namespace.to_string())
-            .application(application.to_string())
-            .application_version("inline".to_string())
             .image(TEST_IMAGE.to_string())
             .status(SandboxStatus::Pending)
             .creation_time_ns(get_epoch_time_in_ns())
@@ -75,12 +68,11 @@ mod tests {
     async fn get_sandbox(
         indexify_state: &IndexifyState,
         namespace: &str,
-        application: &str,
         sandbox_id: &str,
     ) -> Option<Sandbox> {
         indexify_state
             .reader()
-            .get_sandbox(namespace, application, sandbox_id)
+            .get_sandbox(namespace, sandbox_id)
             .await
             .ok()
             .flatten()
@@ -98,20 +90,15 @@ mod tests {
         let indexify_state = test_srv.service.indexify_state.clone();
 
         // Create sandbox - should start as Pending since no executors exist
-        let sandbox_id = create_sandbox(&indexify_state, TEST_NAMESPACE, TEST_APP_NAME).await;
+        let sandbox_id = create_sandbox(&indexify_state, TEST_NAMESPACE).await;
 
         // Process state changes
         test_srv.process_all_state_changes().await?;
 
         // Verify sandbox exists and is Pending
-        let sandbox = get_sandbox(
-            &indexify_state,
-            TEST_NAMESPACE,
-            TEST_APP_NAME,
-            sandbox_id.get(),
-        )
-        .await
-        .expect("Sandbox should exist");
+        let sandbox = get_sandbox(&indexify_state, TEST_NAMESPACE, sandbox_id.get())
+            .await
+            .expect("Sandbox should exist");
 
         assert_eq!(sandbox.status, SandboxStatus::Pending);
         assert!(sandbox.executor_id.is_none());
@@ -129,18 +116,13 @@ mod tests {
         let indexify_state = test_srv.service.indexify_state.clone();
 
         // Create sandbox while no executor exists
-        let sandbox_id = create_sandbox(&indexify_state, TEST_NAMESPACE, TEST_APP_NAME).await;
+        let sandbox_id = create_sandbox(&indexify_state, TEST_NAMESPACE).await;
         test_srv.process_all_state_changes().await?;
 
         // Verify sandbox is pending
-        let sandbox = get_sandbox(
-            &indexify_state,
-            TEST_NAMESPACE,
-            TEST_APP_NAME,
-            sandbox_id.get(),
-        )
-        .await
-        .expect("Sandbox should exist");
+        let sandbox = get_sandbox(&indexify_state, TEST_NAMESPACE, sandbox_id.get())
+            .await
+            .expect("Sandbox should exist");
         assert_eq!(sandbox.status, SandboxStatus::Pending);
 
         // Register an executor
@@ -150,14 +132,9 @@ mod tests {
         test_srv.process_all_state_changes().await?;
 
         // Verify sandbox is now Running
-        let sandbox = get_sandbox(
-            &indexify_state,
-            TEST_NAMESPACE,
-            TEST_APP_NAME,
-            sandbox_id.get(),
-        )
-        .await
-        .expect("Sandbox should exist");
+        let sandbox = get_sandbox(&indexify_state, TEST_NAMESPACE, sandbox_id.get())
+            .await
+            .expect("Sandbox should exist");
 
         assert_eq!(
             sandbox.status,
@@ -188,18 +165,13 @@ mod tests {
         test_srv.process_all_state_changes().await?;
 
         // Create sandbox - should be allocated immediately
-        let sandbox_id = create_sandbox(&indexify_state, TEST_NAMESPACE, TEST_APP_NAME).await;
+        let sandbox_id = create_sandbox(&indexify_state, TEST_NAMESPACE).await;
         test_srv.process_all_state_changes().await?;
 
         // Verify sandbox is Running (allocated immediately)
-        let sandbox = get_sandbox(
-            &indexify_state,
-            TEST_NAMESPACE,
-            TEST_APP_NAME,
-            sandbox_id.get(),
-        )
-        .await
-        .expect("Sandbox should exist");
+        let sandbox = get_sandbox(&indexify_state, TEST_NAMESPACE, sandbox_id.get())
+            .await
+            .expect("Sandbox should exist");
 
         assert_eq!(
             sandbox.status,
@@ -226,25 +198,19 @@ mod tests {
             .await?;
         test_srv.process_all_state_changes().await?;
 
-        let sandbox_id = create_sandbox(&indexify_state, TEST_NAMESPACE, TEST_APP_NAME).await;
+        let sandbox_id = create_sandbox(&indexify_state, TEST_NAMESPACE).await;
         test_srv.process_all_state_changes().await?;
 
         // Verify sandbox is running
-        let sandbox = get_sandbox(
-            &indexify_state,
-            TEST_NAMESPACE,
-            TEST_APP_NAME,
-            sandbox_id.get(),
-        )
-        .await
-        .expect("Sandbox should exist");
+        let sandbox = get_sandbox(&indexify_state, TEST_NAMESPACE, sandbox_id.get())
+            .await
+            .expect("Sandbox should exist");
         assert_eq!(sandbox.status, SandboxStatus::Running);
 
         // Terminate the sandbox
         let request = StateMachineUpdateRequest {
             payload: RequestPayload::TerminateSandbox(TerminateSandboxRequest {
                 namespace: TEST_NAMESPACE.to_string(),
-                application: TEST_APP_NAME.to_string(),
                 sandbox_id: sandbox_id.clone(),
             }),
         };
@@ -252,14 +218,9 @@ mod tests {
         test_srv.process_all_state_changes().await?;
 
         // Verify sandbox is terminated
-        let sandbox = get_sandbox(
-            &indexify_state,
-            TEST_NAMESPACE,
-            TEST_APP_NAME,
-            sandbox_id.get(),
-        )
-        .await
-        .expect("Sandbox should still exist after termination");
+        let sandbox = get_sandbox(&indexify_state, TEST_NAMESPACE, sandbox_id.get())
+            .await
+            .expect("Sandbox should still exist after termination");
 
         assert_eq!(
             sandbox.status,
@@ -276,13 +237,13 @@ mod tests {
         let indexify_state = test_srv.service.indexify_state.clone();
 
         // Create multiple sandboxes without an executor
-        let sandbox_id_1 = create_sandbox(&indexify_state, TEST_NAMESPACE, TEST_APP_NAME).await;
+        let sandbox_id_1 = create_sandbox(&indexify_state, TEST_NAMESPACE).await;
         test_srv.process_all_state_changes().await?;
 
-        let sandbox_id_2 = create_sandbox(&indexify_state, TEST_NAMESPACE, TEST_APP_NAME).await;
+        let sandbox_id_2 = create_sandbox(&indexify_state, TEST_NAMESPACE).await;
         test_srv.process_all_state_changes().await?;
 
-        let sandbox_id_3 = create_sandbox(&indexify_state, TEST_NAMESPACE, TEST_APP_NAME).await;
+        let sandbox_id_3 = create_sandbox(&indexify_state, TEST_NAMESPACE).await;
         test_srv.process_all_state_changes().await?;
 
         // Verify all sandboxes are pending
@@ -290,14 +251,9 @@ mod tests {
         assert_eq!(pending_count, 3, "All 3 sandboxes should be pending");
 
         for sandbox_id in [&sandbox_id_1, &sandbox_id_2, &sandbox_id_3] {
-            let sandbox = get_sandbox(
-                &indexify_state,
-                TEST_NAMESPACE,
-                TEST_APP_NAME,
-                sandbox_id.get(),
-            )
-            .await
-            .expect("Sandbox should exist");
+            let sandbox = get_sandbox(&indexify_state, TEST_NAMESPACE, sandbox_id.get())
+                .await
+                .expect("Sandbox should exist");
             assert_eq!(sandbox.status, SandboxStatus::Pending);
         }
 
@@ -315,14 +271,9 @@ mod tests {
         );
 
         for sandbox_id in [&sandbox_id_1, &sandbox_id_2, &sandbox_id_3] {
-            let sandbox = get_sandbox(
-                &indexify_state,
-                TEST_NAMESPACE,
-                TEST_APP_NAME,
-                sandbox_id.get(),
-            )
-            .await
-            .expect("Sandbox should exist");
+            let sandbox = get_sandbox(&indexify_state, TEST_NAMESPACE, sandbox_id.get())
+                .await
+                .expect("Sandbox should exist");
             assert_eq!(
                 sandbox.status,
                 SandboxStatus::Running,
@@ -340,22 +291,16 @@ mod tests {
         let indexify_state = test_srv.service.indexify_state.clone();
 
         // Create sandbox
-        let sandbox_id = create_sandbox(&indexify_state, TEST_NAMESPACE, TEST_APP_NAME).await;
+        let sandbox_id = create_sandbox(&indexify_state, TEST_NAMESPACE).await;
         test_srv.process_all_state_changes().await?;
 
         // Verify sandbox is in in-memory state
-        let sandbox = get_sandbox(
-            &indexify_state,
-            TEST_NAMESPACE,
-            TEST_APP_NAME,
-            sandbox_id.get(),
-        )
-        .await
-        .expect("Sandbox should exist in memory");
+        let sandbox = get_sandbox(&indexify_state, TEST_NAMESPACE, sandbox_id.get())
+            .await
+            .expect("Sandbox should exist in memory");
 
         assert_eq!(sandbox.id, sandbox_id);
         assert_eq!(sandbox.namespace, TEST_NAMESPACE);
-        assert_eq!(sandbox.application, TEST_APP_NAME);
         assert_eq!(sandbox.image, TEST_IMAGE);
         assert_eq!(sandbox.status, SandboxStatus::Pending);
 
@@ -363,20 +308,20 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_list_sandboxes_for_application() -> Result<()> {
+    async fn test_list_sandboxes_for_namespace() -> Result<()> {
         let test_srv = testing::TestService::new().await?;
         let indexify_state = test_srv.service.indexify_state.clone();
 
         // Create multiple sandboxes
-        let sandbox_id_1 = create_sandbox(&indexify_state, TEST_NAMESPACE, TEST_APP_NAME).await;
+        let sandbox_id_1 = create_sandbox(&indexify_state, TEST_NAMESPACE).await;
         test_srv.process_all_state_changes().await?;
 
-        let sandbox_id_2 = create_sandbox(&indexify_state, TEST_NAMESPACE, TEST_APP_NAME).await;
+        let sandbox_id_2 = create_sandbox(&indexify_state, TEST_NAMESPACE).await;
         test_srv.process_all_state_changes().await?;
 
         // List sandboxes from database
         let reader = indexify_state.reader();
-        let sandbox_list = reader.list_sandboxes(TEST_NAMESPACE, TEST_APP_NAME).await?;
+        let sandbox_list = reader.list_sandboxes(TEST_NAMESPACE).await?;
 
         assert_eq!(sandbox_list.len(), 2);
 
@@ -409,18 +354,13 @@ mod tests {
         );
 
         // Create sandbox - should be allocated immediately
-        let sandbox_id = create_sandbox(&indexify_state, TEST_NAMESPACE, TEST_APP_NAME).await;
+        let sandbox_id = create_sandbox(&indexify_state, TEST_NAMESPACE).await;
         test_srv.process_all_state_changes().await?;
 
         // Verify sandbox is running
-        let sandbox = get_sandbox(
-            &indexify_state,
-            TEST_NAMESPACE,
-            TEST_APP_NAME,
-            sandbox_id.get(),
-        )
-        .await
-        .expect("Sandbox should exist");
+        let sandbox = get_sandbox(&indexify_state, TEST_NAMESPACE, sandbox_id.get())
+            .await
+            .expect("Sandbox should exist");
         assert_eq!(sandbox.status, SandboxStatus::Running);
 
         // Verify the sandbox container appears in executor's desired state
@@ -458,7 +398,7 @@ mod tests {
         test_srv.process_all_state_changes().await?;
 
         // Create sandbox
-        let sandbox_id = create_sandbox(&indexify_state, TEST_NAMESPACE, TEST_APP_NAME).await;
+        let sandbox_id = create_sandbox(&indexify_state, TEST_NAMESPACE).await;
         test_srv.process_all_state_changes().await?;
 
         // Verify sandbox is in desired state
@@ -473,7 +413,6 @@ mod tests {
         let request = StateMachineUpdateRequest {
             payload: RequestPayload::TerminateSandbox(TerminateSandboxRequest {
                 namespace: TEST_NAMESPACE.to_string(),
-                application: TEST_APP_NAME.to_string(),
                 sandbox_id: sandbox_id.clone(),
             }),
         };
@@ -481,14 +420,9 @@ mod tests {
         test_srv.process_all_state_changes().await?;
 
         // Verify sandbox is terminated
-        let sandbox = get_sandbox(
-            &indexify_state,
-            TEST_NAMESPACE,
-            TEST_APP_NAME,
-            sandbox_id.get(),
-        )
-        .await
-        .expect("Sandbox should still exist");
+        let sandbox = get_sandbox(&indexify_state, TEST_NAMESPACE, sandbox_id.get())
+            .await
+            .expect("Sandbox should still exist");
         assert_eq!(sandbox.status, SandboxStatus::Terminated);
 
         // Verify the sandbox container is marked for removal in desired state
@@ -518,18 +452,13 @@ mod tests {
         test_srv.process_all_state_changes().await?;
 
         // Create sandbox
-        let sandbox_id = create_sandbox(&indexify_state, TEST_NAMESPACE, TEST_APP_NAME).await;
+        let sandbox_id = create_sandbox(&indexify_state, TEST_NAMESPACE).await;
         test_srv.process_all_state_changes().await?;
 
         // Verify sandbox is running
-        let sandbox = get_sandbox(
-            &indexify_state,
-            TEST_NAMESPACE,
-            TEST_APP_NAME,
-            sandbox_id.get(),
-        )
-        .await
-        .expect("Sandbox should exist");
+        let sandbox = get_sandbox(&indexify_state, TEST_NAMESPACE, sandbox_id.get())
+            .await
+            .expect("Sandbox should exist");
         assert_eq!(sandbox.status, SandboxStatus::Running);
 
         // Deregister the executor (simulates executor going away)
@@ -537,14 +466,9 @@ mod tests {
         test_srv.process_all_state_changes().await?;
 
         // Verify sandbox is marked as terminated with ExecutorRemoved reason
-        let sandbox = get_sandbox(
-            &indexify_state,
-            TEST_NAMESPACE,
-            TEST_APP_NAME,
-            sandbox_id.get(),
-        )
-        .await
-        .expect("Sandbox should still exist");
+        let sandbox = get_sandbox(&indexify_state, TEST_NAMESPACE, sandbox_id.get())
+            .await
+            .expect("Sandbox should still exist");
 
         assert_eq!(
             sandbox.status,
@@ -574,18 +498,13 @@ mod tests {
         test_srv.process_all_state_changes().await?;
 
         // Create sandbox
-        let sandbox_id = create_sandbox(&indexify_state, TEST_NAMESPACE, TEST_APP_NAME).await;
+        let sandbox_id = create_sandbox(&indexify_state, TEST_NAMESPACE).await;
         test_srv.process_all_state_changes().await?;
 
         // Verify sandbox is running
-        let sandbox = get_sandbox(
-            &indexify_state,
-            TEST_NAMESPACE,
-            TEST_APP_NAME,
-            sandbox_id.get(),
-        )
-        .await
-        .expect("Sandbox should exist");
+        let sandbox = get_sandbox(&indexify_state, TEST_NAMESPACE, sandbox_id.get())
+            .await
+            .expect("Sandbox should exist");
         assert_eq!(sandbox.status, SandboxStatus::Running);
 
         // Simulate executor reporting that the container terminated
@@ -605,14 +524,9 @@ mod tests {
         test_srv.process_all_state_changes().await?;
 
         // Verify sandbox status after executor reports container terminated
-        let sandbox = get_sandbox(
-            &indexify_state,
-            TEST_NAMESPACE,
-            TEST_APP_NAME,
-            sandbox_id.get(),
-        )
-        .await
-        .expect("Sandbox should still exist");
+        let sandbox = get_sandbox(&indexify_state, TEST_NAMESPACE, sandbox_id.get())
+            .await
+            .expect("Sandbox should still exist");
 
         // The sandbox should reflect the container termination
         tracing::info!(
@@ -636,10 +550,10 @@ mod tests {
         test_srv.process_all_state_changes().await?;
 
         // Create multiple sandboxes
-        let sandbox_id_1 = create_sandbox(&indexify_state, TEST_NAMESPACE, TEST_APP_NAME).await;
+        let sandbox_id_1 = create_sandbox(&indexify_state, TEST_NAMESPACE).await;
         test_srv.process_all_state_changes().await?;
 
-        let sandbox_id_2 = create_sandbox(&indexify_state, TEST_NAMESPACE, TEST_APP_NAME).await;
+        let sandbox_id_2 = create_sandbox(&indexify_state, TEST_NAMESPACE).await;
         test_srv.process_all_state_changes().await?;
 
         // Verify both sandboxes are in executor's desired state
@@ -654,7 +568,6 @@ mod tests {
         let request = StateMachineUpdateRequest {
             payload: RequestPayload::TerminateSandbox(TerminateSandboxRequest {
                 namespace: TEST_NAMESPACE.to_string(),
-                application: TEST_APP_NAME.to_string(),
                 sandbox_id: sandbox_id_1.clone(),
             }),
         };
@@ -662,25 +575,15 @@ mod tests {
         test_srv.process_all_state_changes().await?;
 
         // Verify first sandbox is terminated
-        let sandbox_1 = get_sandbox(
-            &indexify_state,
-            TEST_NAMESPACE,
-            TEST_APP_NAME,
-            sandbox_id_1.get(),
-        )
-        .await
-        .expect("Sandbox 1 should exist");
+        let sandbox_1 = get_sandbox(&indexify_state, TEST_NAMESPACE, sandbox_id_1.get())
+            .await
+            .expect("Sandbox 1 should exist");
         assert_eq!(sandbox_1.status, SandboxStatus::Terminated);
 
         // Verify second sandbox is still running
-        let sandbox_2 = get_sandbox(
-            &indexify_state,
-            TEST_NAMESPACE,
-            TEST_APP_NAME,
-            sandbox_id_2.get(),
-        )
-        .await
-        .expect("Sandbox 2 should exist");
+        let sandbox_2 = get_sandbox(&indexify_state, TEST_NAMESPACE, sandbox_id_2.get())
+            .await
+            .expect("Sandbox 2 should exist");
         assert_eq!(sandbox_2.status, SandboxStatus::Running);
 
         Ok(())

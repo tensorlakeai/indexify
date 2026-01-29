@@ -78,7 +78,17 @@ function ProcessLogsPanel({ daemonUrl, pid, sandboxId }: ProcessLogsPanelProps) 
         if (response.ok) {
           setIsConnected(true)
           setError(null)
+        } else if (response.status === 503) {
+          setError('Sandbox container is starting up. Please wait...')
+          setIsConnected(false)
+          throw new Error('Sandbox not ready')
+        } else if (response.status === 404) {
+          setError('Process or sandbox not found')
+          setIsConnected(false)
+          throw new Error('Not found')
         } else {
+          setError(`Failed to connect: ${response.statusText}`)
+          setIsConnected(false)
           throw new Error(`Failed to connect: ${response.status}`)
         }
       },
@@ -108,7 +118,9 @@ function ProcessLogsPanel({ daemonUrl, pid, sandboxId }: ProcessLogsPanelProps) 
         }
       },
       onerror: (err) => {
-        setError('Failed to connect to log stream')
+        if (!error) {
+          setError('Failed to connect to log stream')
+        }
         setIsConnected(false)
         throw err // This will close the connection
       },

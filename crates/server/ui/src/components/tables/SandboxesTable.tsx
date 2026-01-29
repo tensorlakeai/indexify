@@ -24,7 +24,6 @@ import CopyText from '../CopyText'
 interface SandboxesTableProps {
   sandboxes: SandboxInfo[]
   namespace: string
-  applicationName: string
   onSandboxDeleted?: () => void
 }
 
@@ -49,7 +48,7 @@ function getStatusColor(status: string): 'success' | 'warning' | 'error' | 'defa
   }
 }
 
-function SandboxesTable({ sandboxes, namespace, applicationName, onSandboxDeleted }: SandboxesTableProps) {
+function SandboxesTable({ sandboxes, namespace, onSandboxDeleted }: SandboxesTableProps) {
   const [stoppingIds, setStoppingIds] = useState<Set<string>>(new Set())
 
   const handleStopSandbox = async (sandboxId: string) => {
@@ -57,7 +56,7 @@ function SandboxesTable({ sandboxes, namespace, applicationName, onSandboxDelete
     try {
       const serviceURL = getIndexifyServiceURL()
       await axios.delete(
-        `${serviceURL}/v1/namespaces/${namespace}/applications/${applicationName}/sandboxes/${sandboxId}`
+        `${serviceURL}/v1/namespaces/${namespace}/sandboxes/${sandboxId}`
       )
       onSandboxDeleted?.()
     } catch (error) {
@@ -125,7 +124,7 @@ function SandboxesTable({ sandboxes, namespace, applicationName, onSandboxDelete
                 <TableCell sx={CELL_STYLES}>
                   <Box display="flex" flexDirection="row" alignItems="center">
                     <Link
-                      to={`/${namespace}/applications/${applicationName}/sandboxes/${sandbox.id}`}
+                      to={`/${namespace}/sandboxes/${sandbox.id}`}
                       style={{ textDecoration: 'none' }}
                     >
                       <Typography

@@ -99,13 +99,13 @@ const ApplicationDetailsPage = () => {
     try {
       const serviceURL = getIndexifyServiceURL()
       const response = await axios.get(
-        `${serviceURL}/v1/namespaces/${namespace}/applications/${application.name}/sandboxes`
+        `${serviceURL}/v1/namespaces/${namespace}/sandboxes`
       )
       setSandboxesList(response.data.sandboxes || [])
     } catch (error) {
       console.error('Failed to refresh sandboxes:', error)
     }
-  }, [namespace, application.name])
+  }, [namespace])
 
   return (
     <Stack direction="column" spacing={3}>
@@ -164,7 +164,6 @@ const ApplicationDetailsPage = () => {
 
           <SandboxesTable
             namespace={namespace}
-            applicationName={application.name}
             sandboxes={sandboxesList}
             onSandboxDeleted={refreshSandboxes}
           />

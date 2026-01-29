@@ -74,11 +74,11 @@ export async function ApplicationsDetailsPageLoader({
     const applicationRequests = await apiGet<ApplicationRequests>(
       `/v1/namespaces/${namespace}/applications/${application}/requests?limit=20`
     )
-    // Fetch sandboxes for this application
+    // Fetch sandboxes for this namespace (sandboxes are now at namespace level)
     let sandboxes: ListSandboxesResponse = { sandboxes: [] }
     try {
       sandboxes = await apiGet<ListSandboxesResponse>(
-        `/v1/namespaces/${namespace}/applications/${application}/sandboxes`
+        `/v1/namespaces/${namespace}/sandboxes`
       )
     } catch {
       // Sandboxes endpoint may not exist or return empty
@@ -119,24 +119,38 @@ export async function ApplicationRequestDetailsPageLoader({
   }
 }
 
+export async function SandboxesListPageLoader({
+  params,
+}: LoaderFunctionArgs) {
+  const namespace = params.namespace || 'default'
+  const client = createClient(namespace)
+
+  try {
+    const sandboxes = await apiGet<ListSandboxesResponse>(
+      `/v1/namespaces/${namespace}/sandboxes`
+    )
+    return { client, sandboxes, namespace }
+  } catch {
+    return { client, sandboxes: { sandboxes: [] }, namespace }
+  }
+}
+
 export async function SandboxDetailsPageLoader({
   params,
 }: LoaderFunctionArgs) {
   const namespace = params.namespace || 'default'
-  const application = params.application
   const sandboxId = params['sandbox-id']
   const client = createClient(namespace)
 
   try {
     const sandbox = await apiGet<SandboxInfo>(
-      `/v1/namespaces/${namespace}/applications/${application}/sandboxes/${sandboxId}`
+      `/v1/namespaces/${namespace}/sandboxes/${sandboxId}`
     )
-    return { client, namespace, application, sandboxId, sandbox }
+    return { client, namespace, sandboxId, sandbox }
   } catch {
     return {
       client,
       namespace,
-      application,
       sandboxId,
       sandbox: null,
     }

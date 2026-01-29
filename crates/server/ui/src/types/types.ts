@@ -631,7 +631,6 @@ export type ContainerResourcesInfo = {
 export type SandboxInfo = {
   id: string
   namespace: string
-  application: string
   image: string
   status: string
   outcome?: string | null

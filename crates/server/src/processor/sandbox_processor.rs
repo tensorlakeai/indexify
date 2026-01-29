@@ -58,7 +58,6 @@ impl SandboxProcessor {
                     warn!(
                         sandbox_id = %sandbox.id,
                         namespace = %sandbox.namespace,
-                        app = %sandbox.application,
                         error = %err,
                         "Failed to allocate sandbox"
                     );
@@ -75,10 +74,9 @@ impl SandboxProcessor {
         in_memory_state: &mut InMemoryState,
         container_scheduler: &mut ContainerScheduler,
         namespace: &str,
-        application: &str,
         sandbox_id: &str,
     ) -> Result<SchedulerUpdateRequest> {
-        let sandbox_key = SandboxKey::new(namespace, application, sandbox_id);
+        let sandbox_key = SandboxKey::new(namespace, sandbox_id);
         let Some(sandbox) = in_memory_state.sandboxes.get(&sandbox_key).cloned() else {
             return Ok(SchedulerUpdateRequest::default());
         };
@@ -89,7 +87,6 @@ impl SandboxProcessor {
     /// Allocate a single sandbox
     #[tracing::instrument(skip_all, fields(
         namespace = %sandbox.namespace,
-        app = %sandbox.application,
         sandbox_id = %sandbox.id
     ))]
     fn allocate_sandbox(
@@ -124,7 +121,6 @@ impl SandboxProcessor {
                     info!(
                         sandbox_id = %sandbox.id,
                         namespace = %sandbox.namespace,
-                        app = %sandbox.application,
                         "Sandbox allocated successfully"
                     );
 
@@ -151,7 +147,6 @@ impl SandboxProcessor {
                     info!(
                         sandbox_id = %sandbox.id,
                         namespace = %sandbox.namespace,
-                        app = %sandbox.application,
                         "No resources available for sandbox, keeping as pending"
                     );
                 }
@@ -161,7 +156,6 @@ impl SandboxProcessor {
                 info!(
                     sandbox_id = %sandbox.id,
                     namespace = %sandbox.namespace,
-                    app = %sandbox.application,
                     "No executors available for sandbox, keeping as pending"
                 );
             }
@@ -186,7 +180,6 @@ impl SandboxProcessor {
                     warn!(
                         sandbox_id = %sandbox.id,
                         namespace = %sandbox.namespace,
-                        app = %sandbox.application,
                         "Sandbox allocation failed: constraint unsatisfiable"
                     );
 
@@ -208,10 +201,9 @@ impl SandboxProcessor {
         in_memory_state: &InMemoryState,
         container_scheduler: &mut ContainerScheduler,
         namespace: &str,
-        application: &str,
         sandbox_id: &str,
     ) -> Result<SchedulerUpdateRequest> {
-        let sandbox_key = SandboxKey::new(namespace, application, sandbox_id);
+        let sandbox_key = SandboxKey::new(namespace, sandbox_id);
         let mut update = SchedulerUpdateRequest::default();
 
         let Some(sandbox) = in_memory_state.sandboxes.get(&sandbox_key) else {

@@ -104,9 +104,8 @@ function CodeBlock({ code, label }: CodeBlockProps) {
 }
 
 const SandboxDetailsPage = () => {
-  const { namespace, application, sandboxId, sandbox } = useLoaderData() as {
+  const { namespace, sandboxId, sandbox } = useLoaderData() as {
     namespace: string
-    application: string
     sandboxId: string
     sandbox: SandboxInfo | null
   }
@@ -141,9 +140,19 @@ const SandboxDetailsPage = () => {
       if (response.data.processes.length > 0 && selectedPid === null) {
         setSelectedPid(response.data.processes[0].pid)
       }
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Failed to fetch processes:', err)
-      setError('Failed to fetch processes from sandbox')
+      if (axios.isAxiosError(err) && err.response) {
+        if (err.response.status === 503) {
+          setError('Sandbox container is starting up. Please wait...')
+        } else if (err.response.status === 404) {
+          setError('Sandbox not found on executor')
+        } else {
+          setError(`Failed to fetch processes: ${err.response.statusText}`)
+        }
+      } else {
+        setError('Failed to fetch processes from sandbox')
+      }
     } finally {
       setLoading(false)
     }
@@ -176,17 +185,11 @@ const SandboxDetailsPage = () => {
         <CopyTextPopover text={namespace}>
           <Typography color="text.primary">{namespace}</Typography>
         </CopyTextPopover>
-        <Link to={`/${namespace}/applications`}>
-          <CopyTextPopover text="Applications">
-            <Typography color="text.primary">Applications</Typography>
+        <Link to={`/${namespace}/sandboxes`}>
+          <CopyTextPopover text="Sandboxes">
+            <Typography color="text.primary">Sandboxes</Typography>
           </CopyTextPopover>
         </Link>
-        <Link to={`/${namespace}/applications/${application}`}>
-          <CopyTextPopover text={application}>
-            <Typography color="text.primary">{application}</Typography>
-          </CopyTextPopover>
-        </Link>
-        <Typography color="text.primary">Sandboxes</Typography>
         <CopyTextPopover text={sandboxId}>
           <Typography color="text.primary">
             {sandboxId.substring(0, 12)}...

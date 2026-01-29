@@ -102,15 +102,12 @@ impl ContainerReconciler {
                 if fe.container_type == ContainerType::Sandbox {
                     // For sandbox containers, container ID == sandbox ID
                     let reader = self.indexify_state.reader();
-                    if let Ok(Some(sandbox)) = reader
-                        .get_sandbox(&fe.namespace, &fe.application_name, fe.id.get())
-                        .await &&
+                    if let Ok(Some(sandbox)) = reader.get_sandbox(&fe.namespace, fe.id.get()).await &&
                         sandbox.status == SandboxStatus::Terminated
                     {
                         warn!(
                             container_id = %fe.id,
                             namespace = %fe.namespace,
-                            app = %fe.application_name,
                             "Ignoring container from executor - associated sandbox is terminated"
                         );
                         continue;
@@ -419,7 +416,6 @@ impl ContainerReconciler {
                 info!(
                     sandbox_id = %sandbox.id,
                     namespace = %sandbox.namespace,
-                    app = %sandbox.application,
                     container_id = %container_id,
                     "terminating sandbox due to container termination"
                 );
@@ -611,7 +607,6 @@ impl ContainerReconciler {
                 info!(
                     sandbox_id = %sandbox.id,
                     namespace = %sandbox.namespace,
-                    app = %sandbox.application,
                     executor_id = %executor_id,
                     "terminating sandbox due to executor deregistration"
                 );

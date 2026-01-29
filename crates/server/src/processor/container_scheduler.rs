@@ -353,9 +353,9 @@ impl ContainerScheduler {
         let function_container = ContainerBuilder::default()
             .id(container_id)
             .namespace(sandbox.namespace.clone())
-            .application_name(sandbox.application.clone())
+            .application_name(String::new()) // Sandboxes are not associated with applications
             .function_name(sandbox.id.get().to_string())
-            .version(sandbox.application_version.clone())
+            .version(String::new()) // Sandboxes don't have versions
             .state(ContainerState::Pending)
             .resources(sandbox.resources.clone())
             .max_concurrency(1u32)
@@ -369,7 +369,7 @@ impl ContainerScheduler {
 
         self.create_container(
             &sandbox.namespace,
-            &sandbox.application,
+            "",   // Sandboxes are not associated with applications
             None, // No function for sandboxes
             &resources,
             function_container,

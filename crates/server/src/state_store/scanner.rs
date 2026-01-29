@@ -489,27 +489,22 @@ impl StateReader {
         Ok(Some(request_ctx))
     }
 
-    pub async fn get_sandbox(
-        &self,
-        namespace: &str,
-        application: &str,
-        sandbox_id: &str,
-    ) -> Result<Option<Sandbox>> {
+    pub async fn get_sandbox(&self, namespace: &str, sandbox_id: &str) -> Result<Option<Sandbox>> {
         let kvs = &[KeyValue::new("op", "get_sandbox")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
 
-        let key = format!("{namespace}|{application}|{sandbox_id}");
+        let key = format!("{namespace}|{sandbox_id}");
         let sandbox = self
             .get_from_cf(&IndexifyObjectsColumns::Sandboxes, key.as_bytes())
             .await?;
         Ok(sandbox)
     }
 
-    pub async fn list_sandboxes(&self, namespace: &str, application: &str) -> Result<Vec<Sandbox>> {
+    pub async fn list_sandboxes(&self, namespace: &str) -> Result<Vec<Sandbox>> {
         let kvs = &[KeyValue::new("op", "list_sandboxes")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
 
-        let key_prefix = format!("{namespace}|{application}|");
+        let key_prefix = format!("{namespace}|");
         let (sandboxes, _) = self
             .get_rows_from_cf_with_limits::<Sandbox>(
                 key_prefix.as_bytes(),
