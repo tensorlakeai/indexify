@@ -1,7 +1,7 @@
 use std::{net::SocketAddr, sync::Arc};
 
 use anyhow::Result;
-use axum::{Router, extract::DefaultBodyLimit};
+use axum::Router;
 use axum_server::Handle;
 use axum_tracing_opentelemetry::middleware::{OtelAxumLayer, OtelInResponseLayer};
 use hyper::Method;
@@ -302,8 +302,7 @@ impl Service {
         let router = router
             .merge(helper_routes)
             .layer(instance_trace)
-            .layer(cors)
-            .layer(DefaultBodyLimit::disable());
+            .layer(cors);
         axum_server::bind(addr)
             .handle(handle)
             .serve(router.into_make_service())

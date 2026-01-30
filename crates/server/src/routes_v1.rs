@@ -3,7 +3,7 @@ use applications::{applications, delete_application, get_application};
 use axum::{
     Json,
     Router,
-    extract::{Path, Query, RawPathParams, Request, State},
+    extract::{DefaultBodyLimit, Path, Query, RawPathParams, Request, State},
     middleware::{self, Next},
     response::IntoResponse,
     routing::{delete, get, post},
@@ -121,11 +121,24 @@ pub fn configure_v1_routes(route_state: RouteState) -> Router {
 
 /// Namespace router with namespace specific layers.
 fn v1_namespace_routes(route_state: RouteState) -> Router {
-    Router::new()
+    const APPLICATION_DEPLOY_BODY_LIMIT: usize = 6 * 1024 * 1024; // 6MB
+    const INVOCATION_BODY_LIMIT: usize = 10 * 1024 * 1024; // 10MB
+
+    let application_routes = Router::new()
         .route(
             "/applications",
             post(create_or_update_application).with_state(route_state.clone()),
         )
+        .layer(DefaultBodyLimit::max(APPLICATION_DEPLOY_BODY_LIMIT));
+
+    let invocation_routes = Router::new()
+        .route(
+            "/applications/{application}",
+            post(invoke_application_with_object_v1).with_state(route_state.clone()),
+        )
+        .layer(DefaultBodyLimit::max(INVOCATION_BODY_LIMIT));
+
+    let other_routes = Router::new()
         .route(
             "/applications",
             get(applications).with_state(route_state.clone()),
@@ -137,10 +150,6 @@ fn v1_namespace_routes(route_state: RouteState) -> Router {
         .route(
             "/applications/{application}",
             get(get_application).with_state(route_state.clone()),
-        )
-        .route(
-            "/applications/{application}",
-            post(invoke_application_with_object_v1).with_state(route_state.clone()),
         )
         .route(
             "/applications/{application}/requests",
@@ -183,7 +192,12 @@ fn v1_namespace_routes(route_state: RouteState) -> Router {
         .route(
             "/sandboxes/{sandbox_id}",
             delete(delete_sandbox).with_state(route_state.clone()),
-        )
+        );
+
+    Router::new()
+        .merge(application_routes)
+        .merge(invocation_routes)
+        .merge(other_routes)
         .layer(middleware::from_fn(move |rpp, r, n| {
             namespace_middleware(route_state.clone(), rpp, r, n)
         }))
