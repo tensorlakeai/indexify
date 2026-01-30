@@ -23,8 +23,8 @@ use crate::{
         ContainerState,
         DataPayload,
         ExecutorId,
+        Function,
         FunctionCallId,
-        FunctionResources,
         FunctionRun,
         FunctionRunFailureReason,
         FunctionRunOutcome,
@@ -50,7 +50,7 @@ use crate::{
 };
 
 /// A hashable resource profile for bucketing pending work by resource
-/// requirements
+/// requirements and placement constraints
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ResourceProfile {
     pub cpu_ms_per_sec: u32,
@@ -58,21 +58,33 @@ pub struct ResourceProfile {
     pub disk_mb: u64,
     pub gpu_count: u32,
     pub gpu_model: Option<String>,
+    /// Placement constraint expressions (e.g., "gpu_type==nvidia-a100")
+    pub placement_constraints: Vec<String>,
 }
 
 impl ResourceProfile {
-    pub fn from_function_resources(resources: &FunctionResources) -> Self {
-        let (gpu_count, gpu_model) = resources
+    pub fn from_function(function: &Function) -> Self {
+        let (gpu_count, gpu_model) = function
+            .resources
             .gpu_configs
             .first()
             .map(|g| (g.count, Some(g.model.clone())))
             .unwrap_or((0, None));
+        // Convert placement constraints to sorted strings for consistent hashing
+        let mut placement_constraints: Vec<String> = function
+            .placement_constraints
+            .0
+            .iter()
+            .map(|expr| expr.to_string())
+            .collect();
+        placement_constraints.sort();
         Self {
-            cpu_ms_per_sec: resources.cpu_ms_per_sec,
-            memory_mb: resources.memory_mb,
-            disk_mb: resources.ephemeral_disk_mb,
+            cpu_ms_per_sec: function.resources.cpu_ms_per_sec,
+            memory_mb: function.resources.memory_mb,
+            disk_mb: function.resources.ephemeral_disk_mb,
             gpu_count,
             gpu_model,
+            placement_constraints,
         }
     }
 
@@ -88,6 +100,7 @@ impl ResourceProfile {
             disk_mb: resources.ephemeral_disk_mb,
             gpu_count,
             gpu_model,
+            placement_constraints: vec![], // Sandboxes don't have placement constraints
         }
     }
 }
@@ -369,12 +382,12 @@ impl InMemoryState {
             for function_run in ctx.function_runs.values() {
                 if function_run.status == FunctionRunStatus::Pending {
                     unallocated_function_runs.insert(function_run.into());
-                    if let Some(resources) =
-                        Self::get_function_resources_static(&application_versions, function_run)
+                    if let Some(function) =
+                        Self::get_function_static(&application_versions, function_run)
                     {
                         pending_resources
                             .function_runs
-                            .increment(ResourceProfile::from_function_resources(&resources));
+                            .increment(ResourceProfile::from_function(&function));
                     }
                 }
                 function_runs.insert(function_run.into(), Box::new(function_run.clone()));
@@ -449,10 +462,10 @@ impl InMemoryState {
                     self.function_runs
                         .insert(function_run.into(), Box::new(function_run.clone()));
                     self.unallocated_function_runs.insert(function_run.into());
-                    if let Some(resources) = self.get_function_resources(function_run) {
+                    if let Some(function) = self.get_function(function_run) {
                         self.pending_resources
                             .function_runs
-                            .increment(ResourceProfile::from_function_resources(&resources));
+                            .increment(ResourceProfile::from_function(&function));
                     }
                 }
             }
@@ -537,22 +550,6 @@ impl InMemoryState {
                 let key = Application::key_from(&req.namespace, &req.name);
                 self.applications.remove(&key);
 
-                // Remove app versions
-                {
-                    let version_key_prefix =
-                        ApplicationVersion::key_prefix_from(&req.namespace, &req.name);
-                    let keys_to_remove = self
-                        .application_versions
-                        .range(version_key_prefix.clone()..)
-                        .take_while(|(k, _v)| k.starts_with(&version_key_prefix))
-                        .map(|(k, _v)| k.clone())
-                        .collect::<Vec<String>>();
-                    for k in keys_to_remove {
-                        self.application_versions.remove(&k);
-                    }
-                }
-
-                // Remove request contexts
                 {
                     let request_key_prefix =
                         RequestCtx::key_prefix_for_application(&req.namespace, &req.name);
@@ -566,6 +563,21 @@ impl InMemoryState {
                         .collect::<Vec<String>>();
                     for k in requests_to_remove {
                         self.delete_request(&req.namespace, &req.name, &k);
+                    }
+                }
+
+                // Remove app versions (after request contexts are cleaned up)
+                {
+                    let version_key_prefix =
+                        ApplicationVersion::key_prefix_from(&req.namespace, &req.name);
+                    let keys_to_remove = self
+                        .application_versions
+                        .range(version_key_prefix.clone()..)
+                        .take_while(|(k, _v)| k.starts_with(&version_key_prefix))
+                        .map(|(k, _v)| k.clone())
+                        .collect::<Vec<String>>();
+                    for k in keys_to_remove {
+                        self.application_versions.remove(&k);
                     }
                 }
             }
@@ -608,26 +620,25 @@ impl InMemoryState {
                         match (was_pending, is_pending) {
                             (false, true) => {
                                 self.unallocated_function_runs.insert(function_run.into());
-                                if let Some(resources) = self.get_function_resources(function_run) {
-                                    self.pending_resources.function_runs.increment(
-                                        ResourceProfile::from_function_resources(&resources),
-                                    );
+                                if let Some(function) = self.get_function(function_run) {
+                                    self.pending_resources
+                                        .function_runs
+                                        .increment(ResourceProfile::from_function(&function));
                                 }
                             }
                             (true, false) => {
                                 self.unallocated_function_runs.remove(&function_run.into());
-                                if let Some(resources) = self.get_function_resources(function_run) {
-                                    self.pending_resources.function_runs.decrement(
-                                        &ResourceProfile::from_function_resources(&resources),
-                                    );
+                                if let Some(function) = self.get_function(function_run) {
+                                    self.pending_resources
+                                        .function_runs
+                                        .decrement(&ResourceProfile::from_function(&function));
                                 }
                             }
-                            _ => {
-                                if is_pending {
-                                    self.unallocated_function_runs.insert(function_run.into());
-                                } else {
-                                    self.unallocated_function_runs.remove(&function_run.into());
-                                }
+                            (_, true) => {
+                                self.unallocated_function_runs.insert(function_run.into());
+                            }
+                            (_, false) => {
+                                self.unallocated_function_runs.remove(&function_run.into());
                             }
                         }
 
@@ -831,10 +842,10 @@ impl InMemoryState {
             self.function_runs.remove(&function_run.into());
             self.unallocated_function_runs.remove(&function_run.into());
 
-            if was_pending && let Some(resources) = self.get_function_resources(function_run) {
+            if was_pending && let Some(function) = self.get_function(function_run) {
                 self.pending_resources
                     .function_runs
-                    .decrement(&ResourceProfile::from_function_resources(&resources));
+                    .decrement(&ResourceProfile::from_function(&function));
             }
         }
 
@@ -908,18 +919,18 @@ impl InMemoryState {
         &self.pending_resources
     }
 
-    pub fn get_function_resources(&self, function_run: &FunctionRun) -> Option<FunctionResources> {
-        Self::get_function_resources_static(&self.application_versions, function_run)
+    pub fn get_function(&self, function_run: &FunctionRun) -> Option<Function> {
+        Self::get_function_static(&self.application_versions, function_run)
     }
 
-    fn get_function_resources_static(
+    fn get_function_static(
         application_versions: &imbl::OrdMap<String, Box<ApplicationVersion>>,
         function_run: &FunctionRun,
-    ) -> Option<FunctionResources> {
+    ) -> Option<Function> {
         let app_version = application_versions
             .get(&function_run.key_application_version(&function_run.application))?;
         let function = app_version.functions.get(&function_run.name)?;
-        Some(function.resources.clone())
+        Some(function.clone())
     }
 
     #[allow(clippy::borrowed_box)]
@@ -1058,6 +1069,7 @@ mod tests {
             disk_mb: 1024,
             gpu_count: 0,
             gpu_model: None,
+            placement_constraints: vec![],
         };
 
         // Initially empty
@@ -1090,6 +1102,7 @@ mod tests {
             disk_mb: 1024,
             gpu_count: 0,
             gpu_model: None,
+            placement_constraints: vec![],
         };
 
         // Decrementing non-existent profile should not panic (logs error)
@@ -1106,6 +1119,7 @@ mod tests {
             disk_mb: 1024,
             gpu_count: 0,
             gpu_model: None,
+            placement_constraints: vec![],
         };
         let large_profile = ResourceProfile {
             cpu_ms_per_sec: 8000,
@@ -1113,6 +1127,7 @@ mod tests {
             disk_mb: 10240,
             gpu_count: 2,
             gpu_model: Some("nvidia-h100".to_string()),
+            placement_constraints: vec!["gpu_type==nvidia-h100".to_string()],
         };
 
         // Add multiple of each

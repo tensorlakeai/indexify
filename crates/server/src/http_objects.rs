@@ -862,7 +862,7 @@ pub struct HealthzChecks {
 }
 
 /// A resource profile representing a unique combination of resource
-/// requirements
+/// requirements and placement constraints
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, ToSchema)]
 pub struct ResourceProfile {
     /// CPU demand in millicores per second
@@ -875,6 +875,8 @@ pub struct ResourceProfile {
     pub gpu_count: u32,
     /// GPU model required (if any)
     pub gpu_model: Option<String>,
+    /// Placement constraint expressions (e.g., "gpu_type==nvidia-a100")
+    pub placement_constraints: Vec<String>,
 }
 
 impl From<crate::state_store::in_memory_state::ResourceProfile> for ResourceProfile {
@@ -885,6 +887,7 @@ impl From<crate::state_store::in_memory_state::ResourceProfile> for ResourceProf
             disk_mb: profile.disk_mb,
             gpu_count: profile.gpu_count,
             gpu_model: profile.gpu_model,
+            placement_constraints: profile.placement_constraints,
         }
     }
 }

@@ -191,20 +191,26 @@ impl TestService {
             "Pending tasks in mem store",
         );
 
-        let unallocated_function_runs = self
-            .service
-            .indexify_state
-            .in_memory_state
-            .read()
-            .await
-            .unallocated_function_runs
-            .clone();
+        let in_memory_state = self.service.indexify_state.in_memory_state.read().await;
+
+        let unallocated_function_runs = in_memory_state.unallocated_function_runs.clone();
 
         assert_eq!(
             unallocated_function_runs.len(),
             pending_count,
             "Unallocated function runs in mem store",
         );
+
+        // Verify pending_resources histogram count matches
+        let pending_resources = in_memory_state.get_pending_resources();
+        let histogram_total: u64 = pending_resources.function_runs.profiles.values().sum();
+        assert_eq!(
+            histogram_total as usize, pending_count,
+            "Pending resources histogram count mismatch: histogram={}, pending={}",
+            histogram_total, pending_count,
+        );
+
+        drop(in_memory_state);
 
         Ok(pending_tasks)
     }
