@@ -1,13 +1,13 @@
 //! HTTP Proxy server with header-based routing.
 //!
 //! Accepts HTTP connections and routes to sandbox containers based on
-//! the `Tensorlake-Sandbox-Id` header. This proxy receives plaintext HTTP from
-//! the external sandbox-proxy (which handles TLS termination and auth).
+//! the `X-Tensorlake-Sandbox-Id` header. This proxy receives plaintext HTTP
+//! from the external sandbox-proxy (which handles TLS termination and auth).
 //!
 //! ## Headers
 //!
-//! - `Tensorlake-Sandbox-Id` (required): The sandbox ID to route to
-//! - `Tensorlake-Sandbox-Port` (optional): The container port (defaults to
+//! - `X-Tensorlake-Sandbox-Id` (required): The sandbox ID to route to
+//! - `X-Tensorlake-Sandbox-Port` (optional): The container port (defaults to
 //!   9501)
 //!
 //! ## Flow
@@ -23,9 +23,17 @@ use std::{
 };
 
 use async_trait::async_trait;
-use pingora::{http::Method, prelude::*, protocols::TcpKeepalive, upstreams::peer::PeerOptions};
+use pingora::{
+    http::Method,
+    prelude::*,
+    protocols::TcpKeepalive,
+    services::listening::Service,
+    upstreams::peer::PeerOptions,
+};
+use pingora_core::apps::HttpServerOptions;
 use pingora_http::{RequestHeader, ResponseHeader};
-use pingora_proxy::{FailToProxy, ProxyHttp, Session, http_proxy_service};
+use pingora_proxy::{FailToProxy, HttpProxy as PingoraHttpProxy, ProxyHttp, Session};
+use serde::Serialize;
 use tokio_util::sync::CancellationToken;
 use tracing::{Span, debug, error, info, warn};
 
@@ -34,7 +42,30 @@ use crate::{
     function_container_manager::{FunctionContainerManager, SandboxLookupResult},
 };
 
+// Header names
+const HEADER_SANDBOX_ID: &str = "x-tensorlake-sandbox-id";
+const HEADER_SANDBOX_PORT: &str = "x-tensorlake-sandbox-port";
+const HEADER_ORIGIN: &str = "origin";
+
+// CORS headers
+const CORS_ALLOW_METHODS: &str = "GET, POST, PUT, DELETE, OPTIONS";
+const CORS_ALLOW_HEADERS: &str = "content-type, x-tensorlake-sandbox-id, x-tensorlake-sandbox-port";
+const CORS_MAX_AGE: &str = "86400";
+
 const DEFAULT_SANDBOX_PORT: u16 = 9501;
+
+// Error codes for machine-readable error responses
+mod error_code {
+    pub const MISSING_SANDBOX_ID: &str = "MISSING_SANDBOX_ID";
+    pub const SANDBOX_NOT_FOUND: &str = "SANDBOX_NOT_FOUND";
+    pub const SANDBOX_NOT_RUNNING: &str = "SANDBOX_NOT_RUNNING";
+    pub const CONNECTION_CLOSED: &str = "CONNECTION_CLOSED";
+    pub const CONNECTION_TIMEOUT: &str = "CONNECTION_TIMEOUT";
+    pub const READ_TIMEOUT: &str = "READ_TIMEOUT";
+    pub const WRITE_TIMEOUT: &str = "WRITE_TIMEOUT";
+    pub const CONNECTION_REFUSED: &str = "CONNECTION_REFUSED";
+    pub const PROXY_ERROR: &str = "PROXY_ERROR";
+}
 
 fn create_peer_options(config: &UpstreamConfig) -> PeerOptions {
     let mut options = PeerOptions::new();
@@ -93,23 +124,56 @@ impl HttpProxy {
     }
 }
 
+/// JSON error response body.
+#[derive(Serialize)]
+struct ErrorResponse<'a> {
+    error: &'a str,
+    code: &'a str,
+}
+
+/// Add CORS headers to a response.
+fn add_cors_headers(resp: &mut ResponseHeader, origin: Option<&str>) {
+    if let Some(origin) = origin {
+        resp.insert_header("access-control-allow-origin", origin)
+            .ok();
+        resp.insert_header("access-control-allow-methods", CORS_ALLOW_METHODS)
+            .ok();
+        resp.insert_header("access-control-allow-headers", CORS_ALLOW_HEADERS)
+            .ok();
+        resp.insert_header("access-control-allow-credentials", "true")
+            .ok();
+    }
+}
+
+/// Extract origin header from request for CORS.
+fn get_origin(session: &Session) -> Option<String> {
+    session
+        .req_header()
+        .headers
+        .get(HEADER_ORIGIN)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string())
+}
+
 async fn send_error_response(
     session: &mut Session,
     status: u16,
     message: &str,
+    code: &str,
     origin: Option<&str>,
 ) -> Result<bool> {
-    let body = message.as_bytes();
+    let error = ErrorResponse {
+        error: message,
+        code,
+    };
+    let body = serde_json::to_vec(&error).unwrap_or_else(|_| message.as_bytes().to_vec());
     let mut resp = ResponseHeader::build(status, Some(5))?;
-    if let Some(origin) = origin {
-        resp.insert_header("access-control-allow-origin", origin)?;
-        resp.insert_header("access-control-allow-credentials", "true")?;
-    }
-    resp.insert_header("content-type", "text/plain")?;
+    add_cors_headers(&mut resp, origin);
+    resp.insert_header("content-type", "application/json")?;
     resp.insert_header("content-length", body.len().to_string())?;
     session.write_response_header(Box::new(resp), false).await?;
     session
-        .write_response_body(Some(bytes::Bytes::from(message.to_owned())), true)
+        .write_response_body(Some(bytes::Bytes::from(body)), true)
         .await?;
     Ok(true)
 }
@@ -132,60 +196,43 @@ impl ProxyHttp for HttpProxy {
         let req = session.req_header();
         let method = &req.method;
         let path = req.uri.path().to_string();
-
-        // Get origin for CORS headers (used for all responses)
-        let origin = session
-            .req_header()
-            .headers
-            .get("origin")
-            .and_then(|v| v.to_str().ok())
-            .map(|s| s.to_string());
+        let origin = get_origin(session);
 
         // Handle CORS preflight requests (OPTIONS)
         if method == Method::OPTIONS {
-            let mut resp = ResponseHeader::build(200, Some(4))?;
-            if let Some(ref origin) = origin {
-                resp.insert_header("access-control-allow-origin", origin)?;
-            }
-            resp.insert_header(
-                "access-control-allow-methods",
-                "GET, POST, PUT, DELETE, OPTIONS",
-            )?;
-            resp.insert_header(
-                "access-control-allow-headers",
-                "content-type, tensorlake-sandbox-id, tensorlake-sandbox-port",
-            )?;
-            resp.insert_header("access-control-allow-credentials", "true")?;
-            resp.insert_header("access-control-max-age", "86400")?;
+            let mut resp = ResponseHeader::build(200, Some(5))?;
+            add_cors_headers(&mut resp, origin.as_deref());
+            resp.insert_header("access-control-max-age", CORS_MAX_AGE)?;
             session.write_response_header(Box::new(resp), true).await?;
             return Ok(true); // Request handled, don't proxy upstream
         }
 
-        // Extract Tensorlake-Sandbox-Id header (required)
+        // Extract X-Tensorlake-Sandbox-Id header (required)
         let sandbox_id = match session
             .req_header()
             .headers
-            .get("tensorlake-sandbox-id")
+            .get(HEADER_SANDBOX_ID)
             .and_then(|v| v.to_str().ok())
         {
             Some(id) => id,
             None => {
-                warn!(%method, %path, "Missing Tensorlake-Sandbox-Id header");
+                debug!(%method, %path, "Missing {HEADER_SANDBOX_ID} header");
                 return send_error_response(
                     session,
                     400,
-                    "Missing Tensorlake-Sandbox-Id header",
+                    &format!("Missing {HEADER_SANDBOX_ID} header"),
+                    error_code::MISSING_SANDBOX_ID,
                     origin.as_deref(),
                 )
                 .await;
             }
         };
 
-        // Extract Tensorlake-Sandbox-Port header (optional, defaults to 9501)
+        // Extract X-Tensorlake-Sandbox-Port header (optional, defaults to 9501)
         let port: u16 = session
             .req_header()
             .headers
-            .get("tensorlake-sandbox-port")
+            .get(HEADER_SANDBOX_PORT)
             .and_then(|v| v.to_str().ok())
             .and_then(|v| v.parse().ok())
             .unwrap_or(DEFAULT_SANDBOX_PORT);
@@ -212,13 +259,26 @@ impl ProxyHttp for HttpProxy {
             SandboxLookupResult::Running(addr) => addr,
             SandboxLookupResult::NotFound => {
                 warn!("Sandbox not found");
-                return send_error_response(session, 404, "Sandbox not found", origin.as_deref())
-                    .await;
+                return send_error_response(
+                    session,
+                    404,
+                    "Sandbox not found",
+                    error_code::SANDBOX_NOT_FOUND,
+                    origin.as_deref(),
+                )
+                .await;
             }
             SandboxLookupResult::NotRunning(state) => {
                 warn!(state, "Sandbox not running");
                 let msg = format!("Sandbox not running (state: {})", state);
-                return send_error_response(session, 503, &msg, origin.as_deref()).await;
+                return send_error_response(
+                    session,
+                    503,
+                    &msg,
+                    error_code::SANDBOX_NOT_RUNNING,
+                    origin.as_deref(),
+                )
+                .await;
             }
         };
 
@@ -240,9 +300,14 @@ impl ProxyHttp for HttpProxy {
             .as_ref()
             .ok_or_else(|| Error::explain(ErrorType::HTTPStatus(500), "No container address"))?;
 
-        // Connect to container over plaintext HTTP with configured connection options
+        // Connect to container with HTTP/2 preferred, HTTP/1.1 fallback
+        // This supports gRPC (requires HTTP/2), regular HTTP, and WebSockets (HTTP/1.1
+        // upgrade)
         let mut peer = HttpPeer::new(addr, false, String::new());
         peer.options = create_peer_options(&self.upstream_config);
+        // Prefer HTTP/2 (h2c) but allow HTTP/1.1 fallback for WebSockets and legacy
+        // services
+        peer.options.set_http_version(2, 1);
         Ok(Box::new(peer))
     }
 
@@ -254,8 +319,8 @@ impl ProxyHttp for HttpProxy {
         _ctx: &mut Self::CTX,
     ) -> Result<()> {
         // Remove internal routing headers - container doesn't need these
-        upstream_request.remove_header("tensorlake-sandbox-id");
-        upstream_request.remove_header("tensorlake-sandbox-port");
+        upstream_request.remove_header(HEADER_SANDBOX_ID);
+        upstream_request.remove_header(HEADER_SANDBOX_PORT);
         Ok(())
     }
 
@@ -271,34 +336,7 @@ impl ProxyHttp for HttpProxy {
         Self::CTX: Send + Sync,
     {
         ctx.status_code = Some(upstream_response.status.as_u16());
-
-        // Add CORS headers for browser access (local dev)
-        if let Some(origin) = session
-            .req_header()
-            .headers
-            .get("origin")
-            .and_then(|v| v.to_str().ok())
-        {
-            upstream_response
-                .insert_header("access-control-allow-origin", origin)
-                .ok();
-            upstream_response
-                .insert_header(
-                    "access-control-allow-methods",
-                    "GET, POST, PUT, DELETE, OPTIONS",
-                )
-                .ok();
-            upstream_response
-                .insert_header(
-                    "access-control-allow-headers",
-                    "content-type, tensorlake-sandbox-id, tensorlake-sandbox-port",
-                )
-                .ok();
-            upstream_response
-                .insert_header("access-control-allow-credentials", "true")
-                .ok();
-        }
-
+        add_cors_headers(upstream_response, get_origin(session).as_deref());
         Ok(())
     }
 
@@ -361,29 +399,38 @@ impl ProxyHttp for HttpProxy {
     {
         let error_type = e.etype();
 
-        // Determine status and message based on error type
-        let (status, message) = match error_type {
+        // Determine status, message, and code based on error type
+        let (status, message, code) = match error_type {
             ErrorType::ConnectionClosed => (
                 502,
                 "Connection to sandbox closed unexpectedly. The sandbox may have terminated.",
+                error_code::CONNECTION_CLOSED,
             ),
             ErrorType::ConnectTimedout => (
                 504,
                 "Connection to sandbox timed out. The sandbox may be overloaded or unresponsive.",
+                error_code::CONNECTION_TIMEOUT,
             ),
             ErrorType::ReadTimedout => (
                 504,
                 "Reading from sandbox timed out. The operation is taking longer than expected.",
+                error_code::READ_TIMEOUT,
             ),
             ErrorType::WriteTimedout => (
                 504,
                 "Writing to sandbox timed out. The sandbox may be overloaded.",
+                error_code::WRITE_TIMEOUT,
             ),
             ErrorType::ConnectRefused => (
                 502,
                 "Connection to sandbox refused. The sandbox may not be running.",
+                error_code::CONNECTION_REFUSED,
             ),
-            _ => (502, "Failed to proxy request to sandbox."),
+            _ => (
+                502,
+                "Failed to proxy request to sandbox.",
+                error_code::PROXY_ERROR,
+            ),
         };
 
         // Disable keepalive to ensure clean connection close
@@ -391,16 +438,10 @@ impl ProxyHttp for HttpProxy {
 
         ctx.status_code = Some(status);
 
-        // Try to send error response with body (may fail if headers already sent)
-        let origin = session
-            .req_header()
-            .headers
-            .get("origin")
-            .and_then(|v| v.to_str().ok())
-            .map(|s| s.to_string());
+        let origin = get_origin(session);
 
         // Best effort - if this fails, Pingora will still return the status code
-        let _ = send_error_response(session, status, message, origin.as_deref()).await;
+        let _ = send_error_response(session, status, message, code, origin.as_deref()).await;
 
         FailToProxy {
             error_code: status,
@@ -428,7 +469,16 @@ pub async fn run_http_proxy(
     let mut server = Server::new(None)?;
     server.bootstrap();
 
-    let mut proxy_service = http_proxy_service(&server.configuration, proxy);
+    // Create HttpProxy with h2c support enabled for gRPC compatibility
+    let mut http_proxy = PingoraHttpProxy::new(proxy, server.configuration.clone());
+
+    // Enable HTTP/2 cleartext (h2c) for inbound connections from sandbox-proxy
+    let mut http_server_options = HttpServerOptions::default();
+    http_server_options.h2c = true;
+    http_proxy.server_options = Some(http_server_options);
+
+    http_proxy.handle_init_modules();
+    let mut proxy_service = Service::new("Dataplane HTTP Proxy".to_string(), http_proxy);
     proxy_service.add_tcp(&addr);
 
     server.add_service(proxy_service);
