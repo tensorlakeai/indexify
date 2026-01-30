@@ -861,6 +861,86 @@ pub struct HealthzChecks {
     pub executor_manager: HealthzStatus,
 }
 
+/// A resource profile representing a unique combination of resource
+/// requirements
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, ToSchema)]
+pub struct ResourceProfile {
+    /// CPU demand in millicores per second
+    pub cpu_ms_per_sec: u32,
+    /// Memory demand in megabytes
+    pub memory_mb: u64,
+    /// Ephemeral disk demand in megabytes
+    pub disk_mb: u64,
+    /// GPU count demanded
+    pub gpu_count: u32,
+    /// GPU model required (if any)
+    pub gpu_model: Option<String>,
+}
+
+impl From<crate::state_store::in_memory_state::ResourceProfile> for ResourceProfile {
+    fn from(profile: crate::state_store::in_memory_state::ResourceProfile) -> Self {
+        Self {
+            cpu_ms_per_sec: profile.cpu_ms_per_sec,
+            memory_mb: profile.memory_mb,
+            disk_mb: profile.disk_mb,
+            gpu_count: profile.gpu_count,
+            gpu_model: profile.gpu_model,
+        }
+    }
+}
+
+/// A resource profile with the count of pending items requiring those resources
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct ResourceProfileEntry {
+    /// The resource requirements
+    #[serde(flatten)]
+    pub profile: ResourceProfile,
+    /// Number of pending items with these requirements
+    pub count: u64,
+}
+
+/// Histogram of resource profiles with counts
+#[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]
+pub struct ResourceProfileHistogram {
+    /// List of resource profiles with counts
+    pub profiles: Vec<ResourceProfileEntry>,
+}
+
+impl From<crate::state_store::in_memory_state::ResourceProfileHistogram>
+    for ResourceProfileHistogram
+{
+    fn from(histogram: crate::state_store::in_memory_state::ResourceProfileHistogram) -> Self {
+        Self {
+            profiles: histogram
+                .profiles
+                .into_iter()
+                .map(|(profile, count)| ResourceProfileEntry {
+                    profile: profile.into(),
+                    count,
+                })
+                .collect(),
+        }
+    }
+}
+
+/// Pending resources histogram for capacity planning
+#[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]
+pub struct PendingResourcesResponse {
+    /// Resource profiles for pending function runs
+    pub function_runs: ResourceProfileHistogram,
+    /// Resource profiles for pending sandboxes
+    pub sandboxes: ResourceProfileHistogram,
+}
+
+impl From<crate::state_store::in_memory_state::PendingResources> for PendingResourcesResponse {
+    fn from(pending: crate::state_store::in_memory_state::PendingResources) -> Self {
+        Self {
+            function_runs: pending.function_runs.into(),
+            sandboxes: pending.sandboxes.into(),
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ApplicationVersion {
     pub name: String,

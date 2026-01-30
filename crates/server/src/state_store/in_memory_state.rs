@@ -8,6 +8,7 @@ use std::{
 use anyhow::Result;
 use opentelemetry::KeyValue;
 use rayon::prelude::*;
+use serde::{Deserialize, Serialize};
 use tracing::{debug, error, info};
 
 use crate::{
@@ -23,6 +24,7 @@ use crate::{
         DataPayload,
         ExecutorId,
         FunctionCallId,
+        FunctionResources,
         FunctionRun,
         FunctionRunFailureReason,
         FunctionRunOutcome,
@@ -46,6 +48,82 @@ use crate::{
     },
     utils::{TimeUnit, get_elapsed_time, get_epoch_time_in_ms},
 };
+
+/// A hashable resource profile for bucketing pending work by resource
+/// requirements
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct ResourceProfile {
+    pub cpu_ms_per_sec: u32,
+    pub memory_mb: u64,
+    pub disk_mb: u64,
+    pub gpu_count: u32,
+    pub gpu_model: Option<String>,
+}
+
+impl ResourceProfile {
+    pub fn from_function_resources(resources: &FunctionResources) -> Self {
+        let (gpu_count, gpu_model) = resources
+            .gpu_configs
+            .first()
+            .map(|g| (g.count, Some(g.model.clone())))
+            .unwrap_or((0, None));
+        Self {
+            cpu_ms_per_sec: resources.cpu_ms_per_sec,
+            memory_mb: resources.memory_mb,
+            disk_mb: resources.ephemeral_disk_mb,
+            gpu_count,
+            gpu_model,
+        }
+    }
+
+    pub fn from_container_resources(resources: &ContainerResources) -> Self {
+        let (gpu_count, gpu_model) = resources
+            .gpu
+            .as_ref()
+            .map(|g| (g.count, Some(g.model.clone())))
+            .unwrap_or((0, None));
+        Self {
+            cpu_ms_per_sec: resources.cpu_ms_per_sec,
+            memory_mb: resources.memory_mb,
+            disk_mb: resources.ephemeral_disk_mb,
+            gpu_count,
+            gpu_model,
+        }
+    }
+}
+
+/// Histogram of resource profiles with counts
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ResourceProfileHistogram {
+    pub profiles: HashMap<ResourceProfile, u64>,
+}
+
+impl ResourceProfileHistogram {
+    pub fn increment(&mut self, profile: ResourceProfile) {
+        *self.profiles.entry(profile).or_insert(0) += 1;
+    }
+
+    pub fn decrement(&mut self, profile: &ResourceProfile) {
+        if let Some(count) = self.profiles.get_mut(profile) {
+            *count = count.saturating_sub(1);
+            if *count == 0 {
+                self.profiles.remove(profile);
+            }
+        } else {
+            error!(
+                ?profile,
+                "attempted to decrement non-existent resource profile - possible state drift"
+            );
+        }
+    }
+}
+
+/// Tracks pending resource requirements for capacity reporting
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct PendingResources {
+    pub function_runs: ResourceProfileHistogram,
+    pub sandboxes: ResourceProfileHistogram,
+}
 
 pub struct DesiredStateFunctionExecutor {
     pub function_executor: Box<ContainerServerMetadata>,
@@ -176,6 +254,9 @@ pub struct InMemoryState {
     // Pending sandboxes waiting for executor allocation
     pub pending_sandboxes: imbl::OrdSet<SandboxKey>,
 
+    // Tracks resource profile histogram for pending function runs and sandboxes
+    pub pending_resources: PendingResources,
+
     // Histogram metrics for task latency measurements for direct recording
     metrics: InMemoryStoreMetrics,
 }
@@ -282,10 +363,19 @@ impl InMemoryState {
 
         let mut function_runs = imbl::OrdMap::new();
         let mut unallocated_function_runs = imbl::OrdSet::new();
+        let mut pending_resources = PendingResources::default();
+
         for ctx in request_ctx.values() {
             for function_run in ctx.function_runs.values() {
                 if function_run.status == FunctionRunStatus::Pending {
                     unallocated_function_runs.insert(function_run.into());
+                    if let Some(resources) =
+                        Self::get_function_resources_static(&application_versions, function_run)
+                    {
+                        pending_resources
+                            .function_runs
+                            .increment(ResourceProfile::from_function_resources(&resources));
+                    }
                 }
                 function_runs.insert(function_run.into(), Box::new(function_run.clone()));
             }
@@ -306,6 +396,11 @@ impl InMemoryState {
         for (sandbox_key, sandbox, is_pending) in sandboxes_filtered {
             if is_pending {
                 pending_sandboxes.insert(sandbox_key.clone());
+                pending_resources
+                    .sandboxes
+                    .increment(ResourceProfile::from_container_resources(
+                        &sandbox.resources,
+                    ));
             }
             sandboxes.insert(sandbox_key, sandbox);
         }
@@ -322,6 +417,7 @@ impl InMemoryState {
             executor_catalog,
             sandboxes,
             pending_sandboxes,
+            pending_resources,
             metrics,
         };
 
@@ -353,6 +449,11 @@ impl InMemoryState {
                     self.function_runs
                         .insert(function_run.into(), Box::new(function_run.clone()));
                     self.unallocated_function_runs.insert(function_run.into());
+                    if let Some(resources) = self.get_function_resources(function_run) {
+                        self.pending_resources
+                            .function_runs
+                            .increment(ResourceProfile::from_function_resources(&resources));
+                    }
                 }
             }
             RequestPayload::CreateNameSpace(req) => {
@@ -480,31 +581,60 @@ impl InMemoryState {
                 }
 
                 for (ctx_key, function_call_ids) in &req.updated_function_runs {
-                        for function_call_id in function_call_ids {
-                            let Some(ctx) = req.updated_request_states.get(ctx_key) else {
-                                error!(
-                                    ctx_key = ctx_key,
-                                    "request ctx not found for updated function runs"
-                                );
-                                continue;
-                            };
-                            let Some(function_run) = ctx.function_runs.get(function_call_id) else {
-                                error!(
-                                    ctx_key = ctx_key,
-                                    fn_call_id = %function_call_id,
-                                    "function run not found for updated function runs"
-                                );
-                                continue;
-                            };
-                            if function_run.status == FunctionRunStatus::Pending {
+                    for function_call_id in function_call_ids {
+                        let Some(ctx) = req.updated_request_states.get(ctx_key) else {
+                            error!(
+                                ctx_key = ctx_key,
+                                "request ctx not found for updated function runs"
+                            );
+                            continue;
+                        };
+                        let Some(function_run) = ctx.function_runs.get(function_call_id) else {
+                            error!(
+                                ctx_key = ctx_key,
+                                fn_call_id = %function_call_id,
+                                "function run not found for updated function runs"
+                            );
+                            continue;
+                        };
+
+                        // Check if the function run was previously pending BEFORE modifying state
+                        let was_pending = self
+                            .unallocated_function_runs
+                            .contains(&function_run.into());
+                        let is_pending = function_run.status == FunctionRunStatus::Pending;
+
+                        // Update pending resources based on state transitions
+                        match (was_pending, is_pending) {
+                            (false, true) => {
                                 self.unallocated_function_runs.insert(function_run.into());
-                            } else {
-                                self.unallocated_function_runs.remove(&function_run.into());
+                                if let Some(resources) = self.get_function_resources(function_run) {
+                                    self.pending_resources.function_runs.increment(
+                                        ResourceProfile::from_function_resources(&resources),
+                                    );
+                                }
                             }
-                            self.function_runs
-                                .insert(function_run.into(), Box::new(function_run.clone()));
+                            (true, false) => {
+                                self.unallocated_function_runs.remove(&function_run.into());
+                                if let Some(resources) = self.get_function_resources(function_run) {
+                                    self.pending_resources.function_runs.decrement(
+                                        &ResourceProfile::from_function_resources(&resources),
+                                    );
+                                }
+                            }
+                            _ => {
+                                if is_pending {
+                                    self.unallocated_function_runs.insert(function_run.into());
+                                } else {
+                                    self.unallocated_function_runs.remove(&function_run.into());
+                                }
+                            }
                         }
+
+                        self.function_runs
+                            .insert(function_run.into(), Box::new(function_run.clone()));
                     }
+                }
 
                 {
                     let start_time = Instant::now();
@@ -531,8 +661,6 @@ impl InMemoryState {
                     let start_time = Instant::now();
                     for allocation in &req.new_allocations {
                         if let Some(function_run) = self.function_runs.get(&allocation.into()) {
-                            self.unallocated_function_runs.remove(&function_run.into());
-
                             self.allocations_by_executor
                                 .entry(allocation.target.executor_id.clone())
                                 .or_default()
@@ -584,18 +712,36 @@ impl InMemoryState {
                 }
 
                 for (sandbox_key, sandbox) in &req.updated_sandboxes {
+                    let was_pending = self.pending_sandboxes.contains(sandbox_key);
                     match sandbox.status {
                         SandboxStatus::Pending => {
                             self.sandboxes
                                 .insert(sandbox_key.clone(), Box::new(sandbox.clone()));
-                            self.pending_sandboxes.insert(sandbox_key.clone());
+                            if !was_pending {
+                                self.pending_sandboxes.insert(sandbox_key.clone());
+                                // Track pending resources
+                                self.pending_resources.sandboxes.increment(
+                                    ResourceProfile::from_container_resources(&sandbox.resources),
+                                );
+                            }
                         }
                         SandboxStatus::Running => {
                             self.sandboxes
                                 .insert(sandbox_key.clone(), Box::new(sandbox.clone()));
-                            self.pending_sandboxes.remove(sandbox_key);
+                            if was_pending {
+                                self.pending_sandboxes.remove(sandbox_key);
+                                // Remove from pending resources
+                                self.pending_resources.sandboxes.decrement(
+                                    &ResourceProfile::from_container_resources(&sandbox.resources),
+                                );
+                            }
                         }
                         SandboxStatus::Terminated => {
+                            if was_pending {
+                                self.pending_resources.sandboxes.decrement(
+                                    &ResourceProfile::from_container_resources(&sandbox.resources),
+                                );
+                            }
                             self.sandboxes.remove(sandbox_key);
                             self.pending_sandboxes.remove(sandbox_key);
                         }
@@ -664,6 +810,9 @@ impl InMemoryState {
                     .insert(sandbox_key.clone(), Box::new(req.sandbox.clone()));
                 if req.sandbox.status == SandboxStatus::Pending {
                     self.pending_sandboxes.insert(sandbox_key);
+                    self.pending_resources.sandboxes.increment(
+                        ResourceProfile::from_container_resources(&req.sandbox.resources),
+                    );
                 }
             }
             _ => {}
@@ -674,8 +823,19 @@ impl InMemoryState {
 
     pub fn delete_function_runs(&mut self, function_runs: Vec<FunctionRun>) {
         for function_run in function_runs.iter() {
+            // Check if it was pending before removing
+            let was_pending = self
+                .unallocated_function_runs
+                .contains(&function_run.into());
+
             self.function_runs.remove(&function_run.into());
             self.unallocated_function_runs.remove(&function_run.into());
+
+            if was_pending && let Some(resources) = self.get_function_resources(function_run) {
+                self.pending_resources
+                    .function_runs
+                    .decrement(&ResourceProfile::from_function_resources(&resources));
+            }
         }
 
         for (_executor, allocations_by_fe) in self.allocations_by_executor.iter_mut() {
@@ -740,7 +900,26 @@ impl InMemoryState {
             unallocated_function_runs: self.unallocated_function_runs.clone(),
             sandboxes: self.sandboxes.clone(),
             pending_sandboxes: self.pending_sandboxes.clone(),
+            pending_resources: self.pending_resources.clone(),
         }))
+    }
+
+    pub fn get_pending_resources(&self) -> &PendingResources {
+        &self.pending_resources
+    }
+
+    pub fn get_function_resources(&self, function_run: &FunctionRun) -> Option<FunctionResources> {
+        Self::get_function_resources_static(&self.application_versions, function_run)
+    }
+
+    fn get_function_resources_static(
+        application_versions: &imbl::OrdMap<String, Box<ApplicationVersion>>,
+        function_run: &FunctionRun,
+    ) -> Option<FunctionResources> {
+        let app_version = application_versions
+            .get(&function_run.key_application_version(&function_run.application))?;
+        let function = app_version.functions.get(&function_run.name)?;
+        Some(function.resources.clone())
     }
 
     #[allow(clippy::borrowed_box)]
@@ -840,6 +1019,7 @@ mod test_helpers {
                 unallocated_function_runs: imbl::OrdSet::new(),
                 sandboxes: imbl::OrdMap::new(),
                 pending_sandboxes: imbl::OrdSet::new(),
+                pending_resources: PendingResources::default(),
             }
         }
     }
@@ -847,17 +1027,10 @@ mod test_helpers {
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        config::GpuModel,
-        data_model::{
-            ComputeOp,
-            FunctionCall,
-            FunctionCallId,
-            FunctionRun,
-            FunctionRunBuilder,
-            FunctionRunStatus,
-        },
-        state_store::in_memory_state::FunctionRunKey,
+    use crate::state_store::in_memory_state::{
+        FunctionRunKey,
+        ResourceProfile,
+        ResourceProfileHistogram,
     };
 
     #[test]
@@ -874,5 +1047,91 @@ mod tests {
             assert!(fn_run_key3 < fn_run_key4);
             assert!(fn_run_key4 < fn_run_key5);
         }
+    }
+
+    #[test]
+    fn test_histogram_increment_decrement() {
+        let mut histogram = ResourceProfileHistogram::default();
+        let profile = ResourceProfile {
+            cpu_ms_per_sec: 1000,
+            memory_mb: 256,
+            disk_mb: 1024,
+            gpu_count: 0,
+            gpu_model: None,
+        };
+
+        // Initially empty
+        assert!(histogram.profiles.is_empty());
+
+        // Increment creates entry
+        histogram.increment(profile.clone());
+        assert_eq!(histogram.profiles.get(&profile), Some(&1));
+
+        // Increment again
+        histogram.increment(profile.clone());
+        assert_eq!(histogram.profiles.get(&profile), Some(&2));
+
+        // Decrement reduces count
+        histogram.decrement(&profile);
+        assert_eq!(histogram.profiles.get(&profile), Some(&1));
+
+        // Decrement to zero removes entry
+        histogram.decrement(&profile);
+        assert!(histogram.profiles.get(&profile).is_none());
+        assert!(histogram.profiles.is_empty());
+    }
+
+    #[test]
+    fn test_histogram_decrement_nonexistent_profile() {
+        let mut histogram = ResourceProfileHistogram::default();
+        let profile = ResourceProfile {
+            cpu_ms_per_sec: 1000,
+            memory_mb: 256,
+            disk_mb: 1024,
+            gpu_count: 0,
+            gpu_model: None,
+        };
+
+        // Decrementing non-existent profile should not panic (logs error)
+        histogram.decrement(&profile);
+        assert!(histogram.profiles.is_empty());
+    }
+
+    #[test]
+    fn test_histogram_multiple_profiles() {
+        let mut histogram = ResourceProfileHistogram::default();
+        let small_profile = ResourceProfile {
+            cpu_ms_per_sec: 1000,
+            memory_mb: 256,
+            disk_mb: 1024,
+            gpu_count: 0,
+            gpu_model: None,
+        };
+        let large_profile = ResourceProfile {
+            cpu_ms_per_sec: 8000,
+            memory_mb: 4096,
+            disk_mb: 10240,
+            gpu_count: 2,
+            gpu_model: Some("nvidia-h100".to_string()),
+        };
+
+        // Add multiple of each
+        histogram.increment(small_profile.clone());
+        histogram.increment(small_profile.clone());
+        histogram.increment(small_profile.clone());
+        histogram.increment(large_profile.clone());
+
+        assert_eq!(histogram.profiles.get(&small_profile), Some(&3));
+        assert_eq!(histogram.profiles.get(&large_profile), Some(&1));
+        assert_eq!(histogram.profiles.len(), 2);
+
+        // Decrement one small
+        histogram.decrement(&small_profile);
+        assert_eq!(histogram.profiles.get(&small_profile), Some(&2));
+
+        // Decrement all large
+        histogram.decrement(&large_profile);
+        assert!(histogram.profiles.get(&large_profile).is_none());
+        assert_eq!(histogram.profiles.len(), 1);
     }
 }

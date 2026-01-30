@@ -33,6 +33,10 @@ use crate::{
         IndexifyAPIError,
         Namespace,
         NamespaceList,
+        PendingResourcesResponse,
+        ResourceProfile,
+        ResourceProfileEntry,
+        ResourceProfileHistogram,
         StateChangesResponse,
         UnallocatedFunctionRuns,
         from_data_model_executor_metadata,
@@ -61,6 +65,7 @@ use crate::{
             get_application_by_version,
             create_or_update_application_with_metadata,
             healthz_handler,
+            get_pending_resources,
         ),
         components(
             schemas(
@@ -81,6 +86,10 @@ use crate::{
                 Application,
                 ApplicationMetadata,
                 CodeDigest,
+                ResourceProfile,
+                ResourceProfileEntry,
+                ResourceProfileHistogram,
+                PendingResourcesResponse,
             )
         ),
         tags(
@@ -134,6 +143,10 @@ pub fn configure_internal_routes(route_state: RouteState) -> Router {
         .route(
             "/internal/v1/sandboxes/{sandbox_id}",
             get(get_sandbox_by_id).with_state(route_state.clone()),
+        )
+        .route(
+            "/internal/pending_resources",
+            get(get_pending_resources).with_state(route_state.clone()),
         )
 }
 
@@ -410,6 +423,35 @@ async fn list_executor_catalog(
         .await
         .executor_catalog;
     Ok(Json(ExecutorCatalog::from(catalog)))
+}
+
+/// Get pending resource profiles for capacity planning
+///
+/// Returns a histogram of resource profiles for pending function runs and
+/// sandboxes. Each profile represents a unique combination of resource
+/// requirements with a count of how many pending items need those resources.
+/// This can be used by external autoscalers to determine what types of machines
+/// are needed.
+#[utoipa::path(
+    get,
+    path = "/internal/pending_resources",
+    tag = "operations",
+    responses(
+        (status = 200, description = "Get pending resource profiles", body = PendingResourcesResponse),
+        (status = INTERNAL_SERVER_ERROR, description = "Internal Server Error")
+    ),
+)]
+async fn get_pending_resources(
+    State(state): State<RouteState>,
+) -> Result<Json<PendingResourcesResponse>, IndexifyAPIError> {
+    let pending = state
+        .indexify_state
+        .in_memory_state
+        .read()
+        .await
+        .get_pending_resources()
+        .clone();
+    Ok(Json(pending.into()))
 }
 
 /// Update the application state
