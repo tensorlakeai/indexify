@@ -23,6 +23,19 @@ impl BufferReconciler {
 
     /// Main entry point: reconcile all pool buffers
     /// Called at the end of each state change processing cycle
+    ///
+    /// ## buffer_containers Semantics
+    ///
+    /// When `buffer_containers` is not configured (None):
+    /// - **Phase 1**: Not affected (creates up to min_containers)
+    /// - **Phase 2**: Treats as 0 (no additional buffer containers created)
+    /// - **Phase 3**: Preserves existing containers (no trimming for warm
+    ///   starts)
+    /// - **Deficit**: Treats as 0 (only reports deficit for min, not buffer)
+    ///
+    /// When `buffer_containers` is explicitly set (including 0):
+    /// - All phases use the configured value
+    /// - Setting to 0 enables aggressive scale-to-zero behavior
     pub fn reconcile(
         &self,
         in_memory_state: &InMemoryState,
@@ -40,11 +53,14 @@ impl BufferReconciler {
         // Phase 1: Ensure minimums are met (highest priority)
         for pool in &pools {
             let min = pool.min_containers.unwrap_or(0);
+            let max = pool.max_containers.unwrap_or(u32::MAX);
+            // Don't exceed max even when meeting min (handles invalid min > max config)
+            let effective_min = min.min(max);
             let (active, idle) = self.count_pool_containers(pool, container_scheduler);
             let current = active + idle;
 
-            if current < min {
-                let needed = min - current;
+            if current < effective_min {
+                let needed = effective_min - current;
                 for _ in 0..needed {
                     match self.create_container_for_pool(pool, in_memory_state, container_scheduler)
                     {
@@ -75,17 +91,21 @@ impl BufferReconciler {
                 let (active, idle) = self.count_pool_containers(pool, container_scheduler);
 
                 // Need more idle and not at max
-                if idle < buffer &&
-                    (active + idle) < max &&
-                    let Ok(Some(u)) = self.create_container_for_pool(
-                        pool,
-                        in_memory_state,
-                        container_scheduler,
-                    )
-                {
-                    self.apply_container_update(pool, &u, container_scheduler);
-                    update.extend(u);
-                    any_created = true;
+                if idle < buffer && (active + idle) < max {
+                    match self.create_container_for_pool(pool, in_memory_state, container_scheduler)
+                    {
+                        Ok(Some(u)) => {
+                            self.apply_container_update(pool, &u, container_scheduler);
+                            update.extend(u);
+                            any_created = true;
+                        }
+                        Ok(None) => {
+                            // No resources available, continue to next pool
+                        }
+                        Err(e) => {
+                            warn!(pool_id = %pool.id.get(), error = %e, "Error filling buffer");
+                        }
+                    }
                 }
             }
 
@@ -94,69 +114,45 @@ impl BufferReconciler {
             }
         }
 
-        // Phase 3: Trim excess idle containers
-        for pool in &pools {
-            let pool_key = ContainerPoolKey::from(pool.as_ref());
-            let buffer = pool.buffer_containers.unwrap_or(0);
-            let min = pool.min_containers.unwrap_or(0);
-            let (active, idle) = self.count_pool_containers(pool, container_scheduler);
-
-            let target_idle = buffer;
-            let target_total = (active + target_idle).max(min);
-            let current_total = active + idle;
-
-            if current_total > target_total && idle > 0 {
-                let excess = (current_total - target_total).min(idle);
-                let trim_update =
-                    self.trim_idle_containers(&pool_key, pool, excess, container_scheduler)?;
-                update.extend(trim_update);
-            }
-        }
-
-        // Phase 4: Compute pool deficits for capacity reporting
-        // This tells autoscalers how many containers are needed but couldn't be created
-        let pool_deficits = self.compute_pool_deficits(&pools, container_scheduler);
-        update.pool_deficits = Some(pool_deficits);
-
-        Ok(update)
-    }
-
-    /// Compute the deficit for each pool: gap between target and current
-    /// containers. Returns a histogram of resource profiles with counts
-    /// representing unmet demand.
-    ///
-    /// Target calculation matches Phase 2/3 logic:
-    /// - target = min(max_containers, max(min_containers, active +
-    ///   buffer_containers))
-    /// - This ensures we have at least `min` total AND at least `buffer` idle,
-    ///   but never exceed `max`.
-    fn compute_pool_deficits(
-        &self,
-        pools: &[Box<ContainerPool>],
-        container_scheduler: &ContainerScheduler,
-    ) -> ResourceProfileHistogram {
+        // Phase 3: Trim excess idle containers AND compute deficits
+        // (Combined to avoid duplicate container counting)
         let mut deficits = ResourceProfileHistogram::default();
 
-        for pool in pools {
+        for pool in &pools {
             let min = pool.min_containers.unwrap_or(0);
-            let buffer = pool.buffer_containers.unwrap_or(0);
             let max = pool.max_containers.unwrap_or(u32::MAX);
-
             let (active, idle) = self.count_pool_containers(pool, container_scheduler);
-            let current = active + idle;
+            let current_total = active + idle;
 
-            // Target: need at least `min` total, AND at least `buffer` idle,
-            // but never exceed `max`
-            let target = (active + buffer).max(min).min(max);
+            // If buffer is explicitly set, target = active + buffer (at least min)
+            // If buffer is not set, preserve existing containers for warm starts
+            let target_total = if let Some(buffer) = pool.buffer_containers {
+                (active + buffer).max(min)
+            } else {
+                current_total.max(min)
+            };
+            let effective_limit = target_total.min(max);
 
-            if current < target {
-                let deficit = target - current;
+            // Trim excess idle containers
+            if current_total > effective_limit && idle > 0 {
+                let excess = (current_total - effective_limit).min(idle);
+                let trim_update = self.trim_idle_containers(pool, excess, container_scheduler)?;
+                update.extend(trim_update);
+            }
+
+            // Compute deficit for this pool (uses buffer=0 when None for deficit reporting)
+            let buffer = pool.buffer_containers.unwrap_or(0);
+            let deficit_target = (active + buffer).max(min).min(max);
+            if current_total < deficit_target {
+                let deficit = deficit_target - current_total;
                 let profile = ResourceProfile::from_container_resources(&pool.resources);
                 deficits.increment_by(profile, deficit as u64);
             }
         }
 
-        deficits
+        update.pool_deficits = Some(deficits);
+
+        Ok(update)
     }
 
     /// Count containers for a pool (active with work, idle without work)
@@ -236,7 +232,6 @@ impl BufferReconciler {
     /// Trim idle containers from a pool
     fn trim_idle_containers(
         &self,
-        pool_key: &ContainerPoolKey,
         pool: &ContainerPool,
         count: u32,
         container_scheduler: &mut ContainerScheduler,
@@ -250,7 +245,9 @@ impl BufferReconciler {
                 vec![]
             }
         } else {
-            container_scheduler.select_warm_pool_containers(pool_key, count)
+            // Only construct pool_key for sandbox pools where it's needed
+            let pool_key = ContainerPoolKey::from(pool);
+            container_scheduler.select_warm_pool_containers(&pool_key, count)
         };
 
         for container_id in containers {

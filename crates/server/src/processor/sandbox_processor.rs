@@ -301,6 +301,7 @@ impl SandboxProcessor {
             namespace = %sandbox.namespace,
             pool_id = %pool_key.pool_id,
             container_id = %container_id,
+            executor_id = %executor_id,
             "Sandbox claimed warm container from pool"
         );
 

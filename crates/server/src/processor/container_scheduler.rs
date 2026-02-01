@@ -242,14 +242,34 @@ impl ContainerScheduler {
         // Mark existing containers' desired_state as Terminated
         // The actual removal from indices happens when executor reports them as
         // terminated
-        for (_, fc) in self.function_containers.iter_mut() {
+        let mut containers_to_remove_from_warm: Vec<(ContainerPoolKey, ContainerId)> = Vec::new();
+
+        for (container_id, fc) in self.function_containers.iter_mut() {
             if fc.function_container.namespace == namespace &&
                 fc.function_container.application_name == name
             {
+                // Track containers that were warm before termination
+                if fc.function_container.sandbox_id.is_none() &&
+                    !matches!(fc.desired_state, ContainerState::Terminated { .. })
+                {
+                    containers_to_remove_from_warm
+                        .push((fc.function_container.pool_key(), container_id.clone()));
+                }
+
                 fc.desired_state = ContainerState::Terminated {
                     reason: FunctionExecutorTerminationReason::DesiredStateRemoved,
                     failed_alloc_ids: vec![],
                 };
+            }
+        }
+
+        // Remove terminated containers from warm index
+        for (pool_key, container_id) in containers_to_remove_from_warm {
+            if let Some(warm_ids) = self.warm_containers_by_pool.get_mut(&pool_key) {
+                warm_ids.retain(|id| id != &container_id);
+                if warm_ids.is_empty() {
+                    self.warm_containers_by_pool.remove(&pool_key);
+                }
             }
         }
     }
@@ -283,6 +303,16 @@ impl ContainerScheduler {
 
         // Clear the warm index for this pool since all are now terminated
         self.warm_containers_by_pool.remove(&pool_key);
+
+        // Also remove terminated containers from containers_by_pool
+        if let Some(pool_ids) = self.containers_by_pool.get_mut(&pool_key) {
+            for container_id in &warm_ids {
+                pool_ids.retain(|id| id != container_id);
+            }
+            if pool_ids.is_empty() {
+                self.containers_by_pool.remove(&pool_key);
+            }
+        }
     }
 
     fn update_scheduler_update(&mut self, scheduler_update: &SchedulerUpdateRequest) {
@@ -920,6 +950,15 @@ impl ContainerScheduler {
             return Ok(None); // Container not found, nothing to terminate
         };
 
+        // Remove from warm index before marking as terminated
+        let pool_key = fc.function_container.pool_key();
+        if let Some(warm_ids) = self.warm_containers_by_pool.get_mut(&pool_key) {
+            warm_ids.retain(|id| id != container_id);
+            if warm_ids.is_empty() {
+                self.warm_containers_by_pool.remove(&pool_key);
+            }
+        }
+
         // Mark for termination
         fc.desired_state = ContainerState::Terminated {
             reason: FunctionExecutorTerminationReason::DesiredStateRemoved,
@@ -1161,26 +1200,21 @@ impl ContainerScheduler {
         pool_key: &ContainerPoolKey,
         sandbox_id: &SandboxId,
     ) -> Option<(ContainerId, ExecutorId, SchedulerUpdateRequest)> {
-        // Find a warm container using the warm index (O(1) lookup)
         let warm_container = self
             .warm_containers_by_pool
             .get(pool_key)
             .and_then(|warm_ids| {
                 warm_ids.iter().find_map(|id| {
-                    self.function_containers.get(id).and_then(|meta| {
-                        // Double-check not terminated (index should be consistent, but be safe)
-                        if !matches!(meta.desired_state, ContainerState::Terminated { .. }) {
-                            Some((id.clone(), meta.executor_id.clone()))
-                        } else {
-                            None
-                        }
-                    })
+                    self.function_containers
+                        .get(id)
+                        .map(|meta| (id.clone(), meta.executor_id.clone()))
                 })
             });
 
         let (container_id, executor_id) = warm_container?;
 
         // Claim it by setting sandbox_id
+        // The warm index only contains containers with sandbox_id = None
         let meta = self.function_containers.get_mut(&container_id)?;
         meta.function_container.sandbox_id = Some(sandbox_id.clone());
 
