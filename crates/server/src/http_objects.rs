@@ -343,6 +343,7 @@ pub struct ApplicationFunction {
     pub max_concurrency: u32,
     pub min_containers: Option<u32>,
     pub max_containers: Option<u32>,
+    pub buffer_containers: Option<u32>,
 }
 
 impl TryFrom<ApplicationFunction> for data_model::Function {
@@ -366,6 +367,7 @@ impl TryFrom<ApplicationFunction> for data_model::Function {
             max_concurrency: val.max_concurrency,
             min_containers: val.min_containers,
             max_containers: val.max_containers,
+            buffer_containers: val.buffer_containers,
         })
     }
 }
@@ -387,6 +389,7 @@ impl From<data_model::Function> for ApplicationFunction {
             max_concurrency: c.max_concurrency,
             max_containers: c.max_containers,
             min_containers: c.min_containers,
+            buffer_containers: c.buffer_containers,
         }
     }
 }
@@ -398,6 +401,7 @@ impl ApplicationFunction {
                 "ComputeFn name cannot be empty",
             ));
         }
+        self.initialization_timeout_sec.validate()?;
         self.timeout_sec.validate()?;
         self.retry_policy.validate()?;
         Ok(())
@@ -861,6 +865,93 @@ pub struct HealthzChecks {
     pub executor_manager: HealthzStatus,
 }
 
+/// A resource profile representing a unique combination of resource
+/// requirements and placement constraints
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, ToSchema)]
+pub struct ResourceProfile {
+    /// CPU demand in millicores per second
+    pub cpu_ms_per_sec: u32,
+    /// Memory demand in megabytes
+    pub memory_mb: u64,
+    /// Ephemeral disk demand in megabytes
+    pub disk_mb: u64,
+    /// GPU count demanded
+    pub gpu_count: u32,
+    /// GPU model required (if any)
+    pub gpu_model: Option<String>,
+    /// Placement constraint expressions (e.g., "gpu_type==nvidia-a100")
+    pub placement_constraints: Vec<String>,
+}
+
+impl From<crate::state_store::in_memory_state::ResourceProfile> for ResourceProfile {
+    fn from(profile: crate::state_store::in_memory_state::ResourceProfile) -> Self {
+        Self {
+            cpu_ms_per_sec: profile.cpu_ms_per_sec,
+            memory_mb: profile.memory_mb,
+            disk_mb: profile.disk_mb,
+            gpu_count: profile.gpu_count,
+            gpu_model: profile.gpu_model,
+            placement_constraints: profile.placement_constraints,
+        }
+    }
+}
+
+/// A resource profile with the count of pending items requiring those resources
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct ResourceProfileEntry {
+    /// The resource requirements
+    #[serde(flatten)]
+    pub profile: ResourceProfile,
+    /// Number of pending items with these requirements
+    pub count: u64,
+}
+
+/// Histogram of resource profiles with counts
+#[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]
+pub struct ResourceProfileHistogram {
+    /// List of resource profiles with counts
+    pub profiles: Vec<ResourceProfileEntry>,
+}
+
+impl From<crate::state_store::in_memory_state::ResourceProfileHistogram>
+    for ResourceProfileHistogram
+{
+    fn from(histogram: crate::state_store::in_memory_state::ResourceProfileHistogram) -> Self {
+        Self {
+            profiles: histogram
+                .profiles
+                .into_iter()
+                .map(|(profile, count)| ResourceProfileEntry {
+                    profile: profile.into(),
+                    count,
+                })
+                .collect(),
+        }
+    }
+}
+
+/// Pending resources histogram for capacity planning
+#[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]
+pub struct PendingResourcesResponse {
+    /// Resource profiles for pending function runs
+    pub function_runs: ResourceProfileHistogram,
+    /// Resource profiles for pending sandboxes
+    pub sandboxes: ResourceProfileHistogram,
+    /// Resource profiles for pool deficits (gap between target and current
+    /// containers)
+    pub pool_deficits: ResourceProfileHistogram,
+}
+
+impl From<crate::state_store::in_memory_state::PendingResources> for PendingResourcesResponse {
+    fn from(pending: crate::state_store::in_memory_state::PendingResources) -> Self {
+        Self {
+            function_runs: pending.function_runs.into(),
+            sandboxes: pending.sandboxes.into(),
+            pool_deficits: pending.pool_deficits.into(),
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ApplicationVersion {
     pub name: String,
@@ -889,6 +980,14 @@ impl From<data_model::ApplicationVersion> for ApplicationVersion {
             state: application_version.state.into(),
         }
     }
+}
+
+/// Resource info for container response
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct ContainerResourcesInfo {
+    pub cpus: f64,
+    pub memory_mb: u64,
+    pub ephemeral_disk_mb: u64,
 }
 
 #[cfg(test)]

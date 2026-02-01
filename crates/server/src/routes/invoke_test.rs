@@ -153,6 +153,7 @@ mod tests {
                         namespace: ctx.namespace.clone(),
                         application: app,
                         upgrade_requests_to_current_version: false,
+                        container_pools: vec![],
                     },
                 )),
             })

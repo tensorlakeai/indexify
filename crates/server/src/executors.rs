@@ -533,7 +533,12 @@ impl ExecutorManager {
                 initialization_timeout_ms: cg_node
                     .as_ref()
                     .map(|cg_node| cg_node.initialization_timeout.0)
-                    .unwrap_or((fe.timeout_secs * 1000) as u32),
+                    .unwrap_or_else(|| {
+                        fe.timeout_secs
+                            .saturating_mul(1000)
+                            .try_into()
+                            .unwrap_or(u32::MAX)
+                    }),
                 code_payload: cg_version
                     .and_then(|cg_version| cg_version.code)
                     .map(|code| data_model::DataPayload {
@@ -546,9 +551,14 @@ impl ExecutorManager {
                         encoding: DataPayloadEncoding::BinaryZip.as_str_name().to_string(),
                     }),
                 image: fe.image.clone(),
-                allocation_timeout_ms: cg_node
-                    .map(|cg_node| cg_node.timeout.0)
-                    .unwrap_or((fe.timeout_secs * 1000) as u32),
+                allocation_timeout_ms: cg_node.map(|cg_node| cg_node.timeout.0).unwrap_or_else(
+                    || {
+                        fe.timeout_secs
+                            .saturating_mul(1000)
+                            .try_into()
+                            .unwrap_or(u32::MAX)
+                    },
+                ),
                 sandbox_timeout_secs: fe.timeout_secs,
                 entrypoint: fe.entrypoint.clone(),
                 network_policy: fe.network_policy.clone(),
@@ -693,6 +703,19 @@ impl ExecutorManager {
                 None
             };
 
+            let resources_pb = match desired_state_fe.resources.clone().try_into() {
+                Ok(r) => Some(r),
+                Err(e) => {
+                    error!(
+                        executor_id = executor_id.get(),
+                        container_id = fe.id.get(),
+                        error = %e,
+                        "Failed to convert container resources, skipping function executor"
+                    );
+                    continue;
+                }
+            };
+
             let fe_description_pb = FunctionExecutorDescription {
                 id: Some(fe.id.get().to_string()),
                 function: Some(FunctionRef {
@@ -705,10 +728,11 @@ impl ExecutorManager {
                 initialization_timeout_ms: Some(desired_state_fe.initialization_timeout_ms),
                 application: code_payload_pb, // None for sandboxes
                 allocation_timeout_ms: Some(desired_state_fe.allocation_timeout_ms),
-                resources: Some(desired_state_fe.resources.clone().try_into().unwrap()),
+                resources: resources_pb,
                 max_concurrency: Some(fe.max_concurrency),
                 sandbox_metadata,
                 container_type: Some(fe_type_pb.into()),
+                pool_id: Some(fe.pool_id.get().to_string()),
             };
             function_executors_pb.push(fe_description_pb);
         }

@@ -12,6 +12,10 @@ pub mod tests {
             ApplicationEntryPoint,
             ApplicationState,
             ComputeOp,
+            ContainerPool,
+            ContainerPoolBuilder,
+            ContainerPoolId,
+            ContainerResources,
             DataPayload,
             ExecutorId,
             ExecutorMetadata,
@@ -23,6 +27,10 @@ pub mod tests {
             InputArgs,
             RequestCtx,
             RequestCtxBuilder,
+            Sandbox,
+            SandboxBuilder,
+            SandboxId,
+            SandboxStatus,
         },
         state_store::requests::RequestUpdates,
         utils::get_epoch_time_in_ms,
@@ -228,6 +236,103 @@ pub mod tests {
             .tombstoned(false)
             .state_hash("state_hash".to_string())
             .clock(0)
+            .build()
+            .unwrap()
+    }
+
+    /// Create a mock container pool for testing buffer/warm pool functionality
+    pub fn mock_container_pool(namespace: &str, pool_id: &str) -> ContainerPool {
+        ContainerPoolBuilder::default()
+            .id(ContainerPoolId::new(pool_id))
+            .namespace(namespace.to_string())
+            .image("python:3.11".to_string())
+            .resources(ContainerResources {
+                cpu_ms_per_sec: 1000,
+                memory_mb: 512,
+                ephemeral_disk_mb: 1024,
+                gpu: None,
+            })
+            .min_containers(Some(0))
+            .max_containers(Some(10))
+            .buffer_containers(Some(3))
+            .build()
+            .unwrap()
+    }
+
+    /// Create a mock sandbox that references a pool
+    pub fn mock_sandbox_with_pool(namespace: &str, pool_id: &str) -> Sandbox {
+        SandboxBuilder::default()
+            .id(SandboxId::default())
+            .namespace(namespace.to_string())
+            .pool_id(Some(ContainerPoolId::new(pool_id)))
+            .image("python:3.11".to_string())
+            .status(SandboxStatus::Pending)
+            .resources(ContainerResources {
+                cpu_ms_per_sec: 1000,
+                memory_mb: 512,
+                ephemeral_disk_mb: 1024,
+                gpu: None,
+            })
+            .build()
+            .unwrap()
+    }
+
+    /// Create a function with buffer_containers configured
+    pub fn test_function_with_buffer(name: &str, max_retries: u32, buffer: u32) -> Function {
+        Function {
+            name: name.to_string(),
+            description: format!("description {name}"),
+            retry_policy: FunctionRetryPolicy {
+                max_retries,
+                ..Default::default()
+            },
+            max_concurrency: 1,
+            buffer_containers: Some(buffer),
+            ..Default::default()
+        }
+    }
+
+    /// Create an application with a function that has buffer_containers set
+    pub fn mock_app_with_buffer(app_name: &str, version: &str, buffer: u32) -> Application {
+        let fn_a = test_function_with_buffer("fn_a", 0, buffer);
+        let fn_b = test_function("fn_b", 0);
+        let fn_c = test_function("fn_c", 0);
+        let fn_d = test_function("fn_d", 0);
+
+        ApplicationBuilder::default()
+            .namespace(TEST_NAMESPACE.to_string())
+            .state(ApplicationState::Active)
+            .name(app_name.to_string())
+            .tags(HashMap::from([
+                ("tag1".to_string(), "val1".to_string()),
+                ("tag2".to_string(), "val2".to_string()),
+            ]))
+            .tombstoned(false)
+            .functions(HashMap::from([
+                ("fn_b".to_string(), fn_b),
+                ("fn_c".to_string(), fn_c),
+                ("fn_a".to_string(), fn_a.clone()),
+                ("fn_d".to_string(), fn_d),
+            ]))
+            .version(version.to_string())
+            .description(format!("description {}", app_name))
+            .code(Some(DataPayload {
+                id: "code_id".to_string(),
+                metadata_size: 0,
+                offset: 0,
+                encoding: "application/octet-stream".to_string(),
+                path: "cg_path".to_string(),
+                size: 23,
+                sha256_hash: "hash123".to_string(),
+            }))
+            .created_at(5)
+            .entrypoint(Some(ApplicationEntryPoint {
+                function_name: "fn_a".to_string(),
+                input_serializer: "json".to_string(),
+                inputs_base64: "".to_string(),
+                output_serializer: "json".to_string(),
+                output_type_hints_base64: "".to_string(),
+            }))
             .build()
             .unwrap()
     }

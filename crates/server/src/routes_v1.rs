@@ -6,11 +6,18 @@ use axum::{
     extract::{DefaultBodyLimit, Path, Query, RawPathParams, Request, State},
     middleware::{self, Next},
     response::IntoResponse,
-    routing::{delete, get, post},
+    routing::{delete, get, post, put},
 };
 use base64::prelude::*;
 use download::download_request_error;
 use invoke::invoke_application_with_object_v1;
+use sandbox_pools::{
+    create_sandbox_pool,
+    delete_sandbox_pool,
+    get_sandbox_pool,
+    list_sandbox_pools,
+    update_sandbox_pool,
+};
 use sandboxes::{create_sandbox, delete_sandbox, get_sandbox, list_sandboxes};
 use tracing::info;
 use utoipa::OpenApi;
@@ -20,6 +27,7 @@ use crate::{
     http_objects::{
         Allocation,
         CacheKey,
+        ContainerResourcesInfo,
         CreateNamespace,
         CursorDirection,
         ExecutorMetadata,
@@ -43,6 +51,7 @@ use crate::{
         },
         invoke::{self, progress_stream},
         routes_state::RouteState,
+        sandbox_pools,
         sandboxes,
     },
     state_store::{
@@ -75,6 +84,12 @@ use crate::{
             sandboxes::list_sandboxes,
             sandboxes::get_sandbox,
             sandboxes::delete_sandbox,
+            // Sandbox pool endpoints
+            sandbox_pools::create_sandbox_pool,
+            sandbox_pools::list_sandbox_pools,
+            sandbox_pools::get_sandbox_pool,
+            sandbox_pools::update_sandbox_pool,
+            sandbox_pools::delete_sandbox_pool,
         ),
         components(
             schemas(
@@ -92,17 +107,24 @@ use crate::{
                 ExecutorsAllocationsResponse,
                 UnallocatedFunctionRuns,
                 StateChangesResponse,
+                ContainerResourcesInfo,
                 // Sandbox schemas
                 sandboxes::CreateSandboxRequest,
                 sandboxes::CreateSandboxResponse,
                 sandboxes::SandboxInfo,
-                sandboxes::ContainerResourcesInfo,
                 sandboxes::ListSandboxesResponse,
+                // Sandbox pool schemas
+                sandbox_pools::CreateSandboxPoolRequest,
+                sandbox_pools::UpdateSandboxPoolRequest,
+                sandbox_pools::CreateSandboxPoolResponse,
+                sandbox_pools::SandboxPoolInfo,
+                sandbox_pools::ListSandboxPoolsResponse,
             )
         ),
         tags(
             (name = "indexify", description = "Indexify API"),
-            (name = "sandboxes", description = "Sandbox management API")
+            (name = "sandboxes", description = "Sandbox management API"),
+            (name = "sandbox-pools", description = "Sandbox pool management API")
         )
     )]
 pub struct ApiDoc;
@@ -192,6 +214,27 @@ fn v1_namespace_routes(route_state: RouteState) -> Router {
         .route(
             "/sandboxes/{sandbox_id}",
             delete(delete_sandbox).with_state(route_state.clone()),
+        )
+        // Sandbox pool routes
+        .route(
+            "/sandbox-pools",
+            post(create_sandbox_pool).with_state(route_state.clone()),
+        )
+        .route(
+            "/sandbox-pools",
+            get(list_sandbox_pools).with_state(route_state.clone()),
+        )
+        .route(
+            "/sandbox-pools/{pool_id}",
+            get(get_sandbox_pool).with_state(route_state.clone()),
+        )
+        .route(
+            "/sandbox-pools/{pool_id}",
+            put(update_sandbox_pool).with_state(route_state.clone()),
+        )
+        .route(
+            "/sandbox-pools/{pool_id}",
+            delete(delete_sandbox_pool).with_state(route_state.clone()),
         );
 
     Router::new()
@@ -261,7 +304,9 @@ async fn list_requests(
 ) -> Result<Json<ApplicationRequests>, IndexifyAPIError> {
     let cursor = params
         .cursor
-        .map(|c| BASE64_STANDARD.decode(c).unwrap_or_default());
+        .map(|c| BASE64_STANDARD.decode(c))
+        .transpose()
+        .map_err(|e| IndexifyAPIError::bad_request(&format!("Invalid cursor: {}", e)))?;
     let direction = match params.direction {
         Some(CursorDirection::Forward) => Some(state_store::scanner::CursorDirection::Forward),
         Some(CursorDirection::Backward) => Some(state_store::scanner::CursorDirection::Backward),

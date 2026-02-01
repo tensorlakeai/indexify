@@ -409,6 +409,27 @@ impl TryFrom<FunctionExecutorState> for data_model::Container {
             },
         };
 
+        // Get pool_id from protobuf, or compute from identity as fallback for backwards
+        // compat FIXME - Remove this once all executors have been updated to
+        // set pool_id.
+        let pool_id = description
+            .and_then(|d| d.pool_id.clone())
+            .map(data_model::ContainerPoolId::new)
+            .unwrap_or_else(|| {
+                match container_type {
+                    ContainerType::Function => data_model::ContainerPoolId::for_function(
+                        &namespace,
+                        &application_name,
+                        &function_name,
+                        &version,
+                    ),
+                    ContainerType::Sandbox => {
+                        // For sandboxes, function_name is the sandbox_id
+                        data_model::ContainerPoolId::for_sandbox(&namespace, &function_name)
+                    }
+                }
+            });
+
         ContainerBuilder::default()
             .id(ContainerId::new(id.clone()))
             .namespace(namespace.clone())
@@ -423,6 +444,7 @@ impl TryFrom<FunctionExecutorState> for data_model::Container {
             .timeout_secs(timeout_secs)
             .entrypoint(entrypoint)
             .image(image)
+            .pool_id(pool_id)
             .build()
             .map_err(Into::into)
     }
@@ -901,7 +923,9 @@ impl ExecutorApi for ExecutorAPIService {
 
         let mut watch_function_calls = HashSet::new();
         for function_call_watch in &executor_state.function_call_watches {
-            let executor_watch: ExecutorWatch = function_call_watch.try_into().unwrap();
+            let executor_watch: ExecutorWatch = function_call_watch.try_into().map_err(|e| {
+                Status::invalid_argument(format!("Invalid function call watch: {}", e))
+            })?;
             watch_function_calls.insert(executor_watch);
         }
 

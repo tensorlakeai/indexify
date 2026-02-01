@@ -17,7 +17,6 @@ use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
 use crate::{
-    data_model::ContainerId,
     http_objects::{
         Allocation,
         ApplicationVersion,
@@ -33,6 +32,10 @@ use crate::{
         IndexifyAPIError,
         Namespace,
         NamespaceList,
+        PendingResourcesResponse,
+        ResourceProfile,
+        ResourceProfileEntry,
+        ResourceProfileHistogram,
         StateChangesResponse,
         UnallocatedFunctionRuns,
         from_data_model_executor_metadata,
@@ -61,6 +64,7 @@ use crate::{
             get_application_by_version,
             create_or_update_application_with_metadata,
             healthz_handler,
+            get_pending_resources,
         ),
         components(
             schemas(
@@ -81,6 +85,10 @@ use crate::{
                 Application,
                 ApplicationMetadata,
                 CodeDigest,
+                ResourceProfile,
+                ResourceProfileEntry,
+                ResourceProfileHistogram,
+                PendingResourcesResponse,
             )
         ),
         tags(
@@ -132,8 +140,12 @@ pub fn configure_internal_routes(route_state: RouteState) -> Router {
             get(get_application_by_version).with_state(route_state.clone()),
         )
         .route(
-            "/internal/v1/sandboxes/{sandbox_id}",
+            "/internal/v1/namespaces/{namespace}/sandboxes/{sandbox_id}",
             get(get_sandbox_by_id).with_state(route_state.clone()),
+        )
+        .route(
+            "/internal/pending_resources",
+            get(get_pending_resources).with_state(route_state.clone()),
         )
 }
 
@@ -412,6 +424,35 @@ async fn list_executor_catalog(
     Ok(Json(ExecutorCatalog::from(catalog)))
 }
 
+/// Get pending resource profiles for capacity planning
+///
+/// Returns a histogram of resource profiles for pending function runs and
+/// sandboxes. Each profile represents a unique combination of resource
+/// requirements with a count of how many pending items need those resources.
+/// This can be used by external autoscalers to determine what types of machines
+/// are needed.
+#[utoipa::path(
+    get,
+    path = "/internal/pending_resources",
+    tag = "operations",
+    responses(
+        (status = 200, description = "Get pending resource profiles", body = PendingResourcesResponse),
+        (status = INTERNAL_SERVER_ERROR, description = "Internal Server Error")
+    ),
+)]
+async fn get_pending_resources(
+    State(state): State<RouteState>,
+) -> Result<Json<PendingResourcesResponse>, IndexifyAPIError> {
+    let pending = state
+        .indexify_state
+        .in_memory_state
+        .read()
+        .await
+        .get_pending_resources()
+        .clone();
+    Ok(Json(pending.into()))
+}
+
 /// Update the application state
 #[utoipa::path(
     get,
@@ -443,6 +484,7 @@ async fn change_application_state(
         namespace,
         application: app,
         upgrade_requests_to_current_version: true,
+        container_pools: vec![],
     };
 
     state
@@ -574,18 +616,27 @@ pub struct SandboxLookupResponse {
 
 async fn get_sandbox_by_id(
     State(state): State<RouteState>,
-    Path(sandbox_id): Path<String>,
+    Path((namespace, sandbox_id)): Path<(String, String)>,
 ) -> Result<Json<SandboxLookupResponse>, IndexifyAPIError> {
+    let in_memory_state = state.indexify_state.in_memory_state.read().await;
+
+    let sandbox_key = crate::data_model::SandboxKey::new(&namespace, &sandbox_id);
+    let sandbox = in_memory_state
+        .sandboxes
+        .get(&sandbox_key)
+        .ok_or_else(|| IndexifyAPIError::not_found("Sandbox not found"))?;
+
+    let container_id = sandbox
+        .container_id
+        .as_ref()
+        .ok_or_else(|| IndexifyAPIError::not_found("Sandbox has no container assigned"))?;
+
     let container_scheduler = state.indexify_state.container_scheduler.read().await;
 
     let container_meta = container_scheduler
         .function_containers
-        .get(&ContainerId::new(sandbox_id.clone()))
-        .ok_or_else(|| IndexifyAPIError::not_found("Sandbox not found"))?;
-
-    if container_meta.container_type != crate::data_model::ContainerType::Sandbox {
-        return Err(IndexifyAPIError::bad_request("Container is not sandbox"));
-    }
+        .get(container_id)
+        .ok_or_else(|| IndexifyAPIError::not_found("Container not found"))?;
 
     let status = match &container_meta.function_container.state {
         crate::data_model::ContainerState::Pending => "Pending",

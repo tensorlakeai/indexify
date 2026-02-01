@@ -270,6 +270,7 @@ impl UsageProcessor {
 
                 let delay = Duration::from_secs(attempt as u64);
                 tokio::time::sleep(delay).await;
+                continue; // Retry the loop instead of falling through to commit
             }
 
             match txn.commit().await {

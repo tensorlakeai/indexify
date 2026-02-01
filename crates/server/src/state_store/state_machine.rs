@@ -24,6 +24,7 @@ use crate::{
         Application,
         ApplicationVersion,
         ChangeType,
+        ContainerPool,
         GcUrlBuilder,
         NamespaceBuilder,
         RequestCtx,
@@ -74,6 +75,9 @@ pub enum IndexifyObjectsColumns {
 
     // Sandboxes - Namespace|Application|SandboxId -> Sandbox
     Sandboxes,
+
+    // Container Pools - Namespace|PoolId -> ContainerPool
+    ContainerPools,
 }
 
 pub(crate) async fn upsert_namespace(
@@ -436,11 +440,12 @@ async fn update_requests_for_application(
     Ok(())
 }
 
-#[tracing::instrument(skip(txn, application), fields(namespace = application.namespace, name = application.name, app_version = application.version))]
+#[tracing::instrument(skip(txn, application, container_pools), fields(namespace = application.namespace, name = application.name, app_version = application.version))]
 pub(crate) async fn create_or_update_application(
     txn: &Transaction,
     application: Application,
     upgrade_existing_function_runs_to_current_version: bool,
+    container_pools: &[ContainerPool],
     clock: u64,
 ) -> Result<()> {
     let application_key = application.key();
@@ -488,6 +493,18 @@ pub(crate) async fn create_or_update_application(
 
     if upgrade_existing_function_runs_to_current_version {
         update_requests_for_application(txn, &application).await?;
+    }
+
+    let pool_key_prefix = format!(
+        "{}|fn:{}:{}:",
+        application.namespace, application.namespace, application.name
+    );
+    delete_container_pools_by_prefix(txn, &pool_key_prefix).await?;
+
+    for pool in container_pools {
+        let mut pool = pool.clone();
+        pool.prepare_for_persistence(clock);
+        upsert_container_pool(txn, &pool, clock).await?;
     }
 
     info!("finished creating/updating application");
@@ -558,6 +575,9 @@ pub async fn delete_application(
             .await?;
     }
 
+    let pool_key_prefix = format!("{}|fn:{}:{}:", namespace, namespace, name);
+    delete_container_pools_by_prefix(txn, &pool_key_prefix).await?;
+
     Ok(())
 }
 
@@ -579,6 +599,67 @@ pub(crate) async fn upsert_sandbox(txn: &Transaction, sandbox: &Sandbox, clock: 
         status = %sandbox.status,
         "upserted sandbox"
     );
+    Ok(())
+}
+
+#[tracing::instrument(skip(txn, pool), fields(namespace = pool.namespace, pool_id = %pool.id))]
+pub(crate) async fn upsert_container_pool(
+    txn: &Transaction,
+    pool: &ContainerPool,
+    clock: u64,
+) -> Result<()> {
+    let mut pool = pool.clone();
+    pool.prepare_for_persistence(clock);
+    let key = pool.key().key();
+    let serialized = JsonEncoder::encode(&pool)?;
+    txn.put(
+        IndexifyObjectsColumns::ContainerPools.as_ref(),
+        key.as_bytes(),
+        &serialized,
+    )
+    .await?;
+    debug!(
+        namespace = %pool.namespace,
+        pool_id = %pool.id,
+        "upserted container pool"
+    );
+    Ok(())
+}
+
+#[tracing::instrument(skip(txn), fields(namespace = namespace, pool_id = pool_id))]
+pub(crate) async fn delete_container_pool(
+    txn: &Transaction,
+    namespace: &str,
+    pool_id: &str,
+) -> Result<()> {
+    let key = format!("{}|{}", namespace, pool_id);
+    txn.delete(
+        IndexifyObjectsColumns::ContainerPools.as_ref(),
+        key.as_bytes(),
+    )
+    .await?;
+    debug!(namespace = %namespace, pool_id = %pool_id, "deleted container pool");
+    Ok(())
+}
+
+#[tracing::instrument(skip(txn))]
+pub(crate) async fn delete_container_pools_by_prefix(
+    txn: &Transaction,
+    key_prefix: &str,
+) -> Result<()> {
+    let cf = IndexifyObjectsColumns::ContainerPools.as_ref();
+    let iter = txn.iter(cf, key_prefix.as_bytes().to_vec()).await;
+
+    for kv in iter {
+        let (key, _) = kv?;
+        if key.starts_with(key_prefix.as_bytes()) {
+            debug!(key = ?String::from_utf8_lossy(&key), "deleted container pool by prefix");
+            txn.delete(cf, &key).await?;
+        } else {
+            break;
+        }
+    }
+
     Ok(())
 }
 

@@ -1255,6 +1255,7 @@ mod tests {
             allocation_timeout_ms: None,
             sandbox_metadata: None,
             container_type: None,
+            pool_id: None,
         }
     }
 
@@ -1283,6 +1284,7 @@ mod tests {
             allocation_timeout_ms: None,
             sandbox_metadata: None,
             container_type: None,
+            pool_id: None,
         };
         let info = ContainerInfo::from_description(&desc);
 

@@ -25,7 +25,13 @@ use tracing::{debug, error, info, span};
 
 use crate::{
     config::ExecutorCatalogEntry,
-    data_model::{ExecutorId, FunctionRunStatus, StateChange, StateMachineMetadata},
+    data_model::{
+        ContainerPoolKey,
+        ExecutorId,
+        FunctionRunStatus,
+        StateChange,
+        StateMachineMetadata,
+    },
     metrics::{StateStoreMetrics, Timer},
     processor::container_scheduler::{ContainerScheduler, ContainerSchedulerGauges},
     state_store::{
@@ -211,14 +217,18 @@ impl IndexifyState {
         // Deactivate the initial receiver but keep it alive to prevent channel closure
         let _request_events_rx = request_events_rx.deactivate();
 
+        let state_reader = scanner::StateReader::new(db.clone(), state_store_metrics.clone());
+
         let in_memory_state = InMemoryState::new(
             sm_meta.last_change_idx,
-            scanner::StateReader::new(db.clone(), state_store_metrics.clone()),
+            state_reader.clone(),
             executor_catalog,
         )
         .await?;
 
-        let container_scheduler = Arc::new(RwLock::new(ContainerScheduler::new(&in_memory_state)));
+        let container_scheduler = Arc::new(RwLock::new(
+            ContainerScheduler::new(in_memory_state.clock, &state_reader).await?,
+        ));
         let container_scheduler_gauges = ContainerSchedulerGauges::new(container_scheduler.clone());
         let indexes = Arc::new(RwLock::new(in_memory_state));
         let in_memory_store_gauges = InMemoryStoreGauges::new(indexes.clone());
@@ -314,6 +324,17 @@ impl IndexifyState {
 
             for executor_id in request.updated_executor_states.keys() {
                 changed_executors.insert(executor_id.clone());
+            }
+        }
+        // Notify executors when a container pool is deleted so they terminate
+        // containers immediately rather than waiting for the next poll cycle.
+        if let RequestPayload::DeleteContainerPool((delete_req, _)) = &request.payload {
+            let pool_key = ContainerPoolKey::new(&delete_req.namespace, &delete_req.pool_id);
+            let container_scheduler = self.container_scheduler.read().await;
+            for (_, meta) in container_scheduler.function_containers.iter() {
+                if meta.function_container.belongs_to_pool(&pool_key) {
+                    changed_executors.insert(meta.executor_id.clone());
+                }
             }
         }
         if let RequestPayload::UpsertExecutor(req) = &request.payload &&
@@ -452,6 +473,7 @@ impl IndexifyState {
                     &txn,
                     req.application.clone(),
                     req.upgrade_requests_to_current_version,
+                    &req.container_pools,
                     current_clock,
                 )
                 .await?;
@@ -533,6 +555,22 @@ impl IndexifyState {
             }
             RequestPayload::CreateSandbox(request) => {
                 state_machine::upsert_sandbox(&txn, &request.sandbox, current_clock).await?;
+            }
+            RequestPayload::CreateContainerPool(request) => {
+                state_machine::upsert_container_pool(&txn, &request.pool, current_clock).await?;
+            }
+            RequestPayload::UpdateContainerPool(request) => {
+                state_machine::upsert_container_pool(&txn, &request.pool, current_clock).await?;
+            }
+            RequestPayload::TombstoneContainerPool(_) => {}
+            RequestPayload::DeleteContainerPool((request, processed_state_changes)) => {
+                state_machine::delete_container_pool(
+                    &txn,
+                    &request.namespace,
+                    request.pool_id.get(),
+                )
+                .await?;
+                state_machine::mark_state_changes_processed(&txn, processed_state_changes).await?;
             }
             _ => {} // Handle other request types as needed
         };
@@ -845,6 +883,7 @@ mod tests {
             "ApplicationStateChanges",
             "RequestStateChangeEvents",
             "Sandboxes",
+            "ContainerPools",
         ];
 
         let columns_iter = columns
@@ -916,6 +955,7 @@ mod tests {
                         namespace: TEST_NAMESPACE.to_string(),
                         application: application.clone(),
                         upgrade_requests_to_current_version: false,
+                        container_pools: vec![],
                     },
                 )),
             })

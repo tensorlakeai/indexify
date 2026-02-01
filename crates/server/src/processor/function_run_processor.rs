@@ -8,6 +8,8 @@ use crate::{
     data_model::{
         AllocationBuilder,
         AllocationTarget,
+        ContainerPoolId,
+        ContainerPoolKey,
         ContainerState,
         FunctionRun,
         FunctionRunFailureReason,
@@ -215,7 +217,7 @@ impl FunctionRunProcessor {
                 })
         };
 
-        // Helper: try to create a new container
+        // Helper: try to create a new container (respects max_containers limit)
         let try_create_container = |in_memory_state: &InMemoryState,
                                     container_scheduler: &mut ContainerScheduler,
                                     function_run: &FunctionRun|
@@ -227,6 +229,41 @@ impl FunctionRunProcessor {
             let Some(function) = app_version.functions.get(&function_run.name) else {
                 return Ok(None);
             };
+
+            // Check max_containers limit from the pool
+            let pool_id = ContainerPoolId::for_function(
+                &function_run.namespace,
+                &function_run.application,
+                &function_run.name,
+                &function_run.version,
+            );
+            let pool_key = ContainerPoolKey::new(&function_run.namespace, &pool_id);
+
+            if let Some(pool) = container_scheduler.container_pools.get(&pool_key) &&
+                let Some(max) = pool.max_containers
+            {
+                let fn_uri = FunctionURI {
+                    namespace: function_run.namespace.clone(),
+                    application: function_run.application.clone(),
+                    function: function_run.name.clone(),
+                    version: function_run.version.clone(),
+                };
+                let (active, idle) = container_scheduler.count_active_idle_containers(&fn_uri);
+                let current = active + idle;
+
+                if current >= max {
+                    warn!(
+                        namespace = %function_run.namespace,
+                        application = %function_run.application,
+                        function = %function_run.name,
+                        current = current,
+                        max = max,
+                        "Function pool at capacity, cannot create container"
+                    );
+                    return Ok(None);
+                }
+            }
+
             container_scheduler.create_container_for_function(
                 &function_run.namespace,
                 &function_run.application,

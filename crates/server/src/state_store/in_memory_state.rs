@@ -8,6 +8,7 @@ use std::{
 use anyhow::Result;
 use opentelemetry::KeyValue;
 use rayon::prelude::*;
+use serde::{Deserialize, Serialize};
 use tracing::{debug, error, info};
 
 use crate::{
@@ -22,6 +23,7 @@ use crate::{
         ContainerState,
         DataPayload,
         ExecutorId,
+        Function,
         FunctionCallId,
         FunctionRun,
         FunctionRunFailureReason,
@@ -46,6 +48,105 @@ use crate::{
     },
     utils::{TimeUnit, get_elapsed_time, get_epoch_time_in_ms},
 };
+
+/// A hashable resource profile for bucketing pending work by resource
+/// requirements and placement constraints
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct ResourceProfile {
+    pub cpu_ms_per_sec: u32,
+    pub memory_mb: u64,
+    pub disk_mb: u64,
+    pub gpu_count: u32,
+    pub gpu_model: Option<String>,
+    /// Placement constraint expressions (e.g., "gpu_type==nvidia-a100")
+    pub placement_constraints: Vec<String>,
+}
+
+impl ResourceProfile {
+    pub fn from_function(function: &Function) -> Self {
+        let (gpu_count, gpu_model) = function
+            .resources
+            .gpu_configs
+            .first()
+            .map(|g| (g.count, Some(g.model.clone())))
+            .unwrap_or((0, None));
+        // Convert placement constraints to sorted strings for consistent hashing
+        let mut placement_constraints: Vec<String> = function
+            .placement_constraints
+            .0
+            .iter()
+            .map(|expr| expr.to_string())
+            .collect();
+        placement_constraints.sort();
+        Self {
+            cpu_ms_per_sec: function.resources.cpu_ms_per_sec,
+            memory_mb: function.resources.memory_mb,
+            disk_mb: function.resources.ephemeral_disk_mb,
+            gpu_count,
+            gpu_model,
+            placement_constraints,
+        }
+    }
+
+    pub fn from_container_resources(resources: &ContainerResources) -> Self {
+        let (gpu_count, gpu_model) = resources
+            .gpu
+            .as_ref()
+            .map(|g| (g.count, Some(g.model.clone())))
+            .unwrap_or((0, None));
+        Self {
+            cpu_ms_per_sec: resources.cpu_ms_per_sec,
+            memory_mb: resources.memory_mb,
+            disk_mb: resources.ephemeral_disk_mb,
+            gpu_count,
+            gpu_model,
+            placement_constraints: vec![], // Sandboxes don't have placement constraints
+        }
+    }
+}
+
+/// Histogram of resource profiles with counts
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ResourceProfileHistogram {
+    pub profiles: HashMap<ResourceProfile, u64>,
+}
+
+impl ResourceProfileHistogram {
+    pub fn increment(&mut self, profile: ResourceProfile) {
+        *self.profiles.entry(profile).or_insert(0) += 1;
+    }
+
+    pub fn increment_by(&mut self, profile: ResourceProfile, count: u64) {
+        if count > 0 {
+            *self.profiles.entry(profile).or_insert(0) += count;
+        }
+    }
+
+    pub fn decrement(&mut self, profile: &ResourceProfile) {
+        if let Some(count) = self.profiles.get_mut(profile) {
+            *count = count.saturating_sub(1);
+            if *count == 0 {
+                self.profiles.remove(profile);
+            }
+        } else {
+            error!(
+                ?profile,
+                "attempted to decrement non-existent resource profile - possible state drift"
+            );
+        }
+    }
+}
+
+/// Tracks pending resource requirements for capacity reporting
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct PendingResources {
+    pub function_runs: ResourceProfileHistogram,
+    pub sandboxes: ResourceProfileHistogram,
+    /// Pool deficits: gap between target and current container counts.
+    /// Target = min(max, max(min, active + buffer)).
+    /// Computed by buffer reconciler after container creation attempts.
+    pub pool_deficits: ResourceProfileHistogram,
+}
 
 pub struct DesiredStateFunctionExecutor {
     pub function_executor: Box<ContainerServerMetadata>,
@@ -170,15 +271,17 @@ pub struct InMemoryState {
     // Configured executor label sets
     pub executor_catalog: ExecutorCatalog,
 
-    // Index: Executor Catalog Entry Name -> Set of Function Run Keys
-    // Maps executor catalog entry names to function runs that match those catalog entry labels
-    pub function_runs_by_catalog_entry: imbl::HashMap<String, imbl::OrdSet<FunctionRunKey>>,
-
     // Sandboxes - SandboxKey -> Sandbox
     pub sandboxes: imbl::OrdMap<SandboxKey, Box<Sandbox>>,
 
+    // Reverse index: ContainerId -> SandboxKey (for containers serving sandboxes)
+    pub sandbox_by_container: imbl::HashMap<ContainerId, SandboxKey>,
+
     // Pending sandboxes waiting for executor allocation
     pub pending_sandboxes: imbl::OrdSet<SandboxKey>,
+
+    // Tracks resource profile histogram for pending function runs and sandboxes
+    pub pending_resources: PendingResources,
 
     // Histogram metrics for task latency measurements for direct recording
     metrics: InMemoryStoreMetrics,
@@ -286,17 +389,23 @@ impl InMemoryState {
 
         let mut function_runs = imbl::OrdMap::new();
         let mut unallocated_function_runs = imbl::OrdSet::new();
+        let mut pending_resources = PendingResources::default();
+
         for ctx in request_ctx.values() {
             for function_run in ctx.function_runs.values() {
                 if function_run.status == FunctionRunStatus::Pending {
                     unallocated_function_runs.insert(function_run.into());
+                    if let Some(function) =
+                        Self::get_function_static(&application_versions, function_run)
+                    {
+                        pending_resources
+                            .function_runs
+                            .increment(ResourceProfile::from_function(&function));
+                    }
                 }
                 function_runs.insert(function_run.into(), Box::new(function_run.clone()));
             }
         }
-
-        let function_runs_by_catalog_entry: imbl::HashMap<String, imbl::OrdSet<FunctionRunKey>> =
-            imbl::HashMap::new();
 
         let sandboxes_filtered: Vec<_> = all_sandboxes
             .par_iter()
@@ -309,15 +418,25 @@ impl InMemoryState {
             .collect();
 
         let mut sandboxes = imbl::OrdMap::new();
+        let mut sandbox_by_container = imbl::HashMap::new();
         let mut pending_sandboxes = imbl::OrdSet::new();
         for (sandbox_key, sandbox, is_pending) in sandboxes_filtered {
             if is_pending {
                 pending_sandboxes.insert(sandbox_key.clone());
+                pending_resources
+                    .sandboxes
+                    .increment(ResourceProfile::from_container_resources(
+                        &sandbox.resources,
+                    ));
+            }
+            // Build reverse index for containers serving sandboxes
+            if let Some(container_id) = &sandbox.container_id {
+                sandbox_by_container.insert(container_id.clone(), sandbox_key.clone());
             }
             sandboxes.insert(sandbox_key, sandbox);
         }
 
-        let mut in_memory_state = Self {
+        let in_memory_state = Self {
             clock,
             namespaces,
             applications,
@@ -327,62 +446,12 @@ impl InMemoryState {
             request_ctx,
             allocations_by_executor,
             executor_catalog,
-            function_runs_by_catalog_entry,
             sandboxes,
+            sandbox_by_container,
             pending_sandboxes,
+            pending_resources,
             metrics,
         };
-
-        // Populate the catalog index for all existing function runs in parallel.
-        let function_runs_to_index: Vec<_> =
-            in_memory_state.function_runs.values().cloned().collect();
-
-        let catalog_entries = in_memory_state.executor_catalog.entries.clone();
-        let application_versions = in_memory_state.application_versions.clone();
-
-        // Parallel computation: for each function run, determine which catalog entries
-        // match
-        let catalog_matches: Vec<_> = function_runs_to_index
-            .par_iter()
-            .filter_map(|function_run| {
-                // Get the application version to check placement constraints
-                let app_version = application_versions
-                    .get(&function_run.key_application_version(&function_run.application))?;
-
-                let function = app_version.functions.get(&function_run.name)?;
-
-                // Find all catalog entries that match this function run
-                let matching_entries: Vec<String> = catalog_entries
-                    .iter()
-                    .filter(|catalog_entry| {
-                        function
-                            .placement_constraints
-                            .matches(&catalog_entry.labels) &&
-                            function
-                                .resources
-                                .can_be_handled_by_catalog_entry(catalog_entry)
-                    })
-                    .map(|entry| entry.name.clone())
-                    .collect();
-
-                if matching_entries.is_empty() {
-                    None
-                } else {
-                    Some((FunctionRunKey::from(&**function_run), matching_entries))
-                }
-            })
-            .collect();
-
-        // Merge the results into the catalog index
-        for (function_run_key, catalog_entry_names) in catalog_matches {
-            for catalog_entry_name in catalog_entry_names {
-                in_memory_state
-                    .function_runs_by_catalog_entry
-                    .entry(catalog_entry_name)
-                    .or_default()
-                    .insert(function_run_key.clone());
-            }
-        }
 
         info!(
             clock,
@@ -412,8 +481,11 @@ impl InMemoryState {
                     self.function_runs
                         .insert(function_run.into(), Box::new(function_run.clone()));
                     self.unallocated_function_runs.insert(function_run.into());
-                    // Index the function run by catalog entry
-                    self.index_function_run_by_catalog(function_run);
+                    if let Some(function) = self.get_function(function_run) {
+                        self.pending_resources
+                            .function_runs
+                            .increment(ResourceProfile::from_function(&function));
+                    }
                 }
             }
             RequestPayload::CreateNameSpace(req) => {
@@ -497,22 +569,6 @@ impl InMemoryState {
                 let key = Application::key_from(&req.namespace, &req.name);
                 self.applications.remove(&key);
 
-                // Remove app versions
-                {
-                    let version_key_prefix =
-                        ApplicationVersion::key_prefix_from(&req.namespace, &req.name);
-                    let keys_to_remove = self
-                        .application_versions
-                        .range(version_key_prefix.clone()..)
-                        .take_while(|(k, _v)| k.starts_with(&version_key_prefix))
-                        .map(|(k, _v)| k.clone())
-                        .collect::<Vec<String>>();
-                    for k in keys_to_remove {
-                        self.application_versions.remove(&k);
-                    }
-                }
-
-                // Remove request contexts
                 {
                     let request_key_prefix =
                         RequestCtx::key_prefix_for_application(&req.namespace, &req.name);
@@ -528,6 +584,21 @@ impl InMemoryState {
                         self.delete_request(&req.namespace, &req.name, &k);
                     }
                 }
+
+                // Remove app versions (after request contexts are cleaned up)
+                {
+                    let version_key_prefix =
+                        ApplicationVersion::key_prefix_from(&req.namespace, &req.name);
+                    let keys_to_remove = self
+                        .application_versions
+                        .range(version_key_prefix.clone()..)
+                        .take_while(|(k, _v)| k.starts_with(&version_key_prefix))
+                        .map(|(k, _v)| k.clone())
+                        .collect::<Vec<String>>();
+                    for k in keys_to_remove {
+                        self.application_versions.remove(&k);
+                    }
+                }
             }
             RequestPayload::SchedulerUpdate((req, _)) => {
                 // Note: Allocations are removed from allocations_by_executor in two places:
@@ -540,41 +611,59 @@ impl InMemoryState {
                     changed_executors.insert(allocation.target.executor_id.clone());
                 }
 
-                {
-                    let start_time = Instant::now();
-                    for (ctx_key, function_call_ids) in &req.updated_function_runs {
-                        for function_call_id in function_call_ids {
-                            let Some(ctx) = req.updated_request_states.get(ctx_key) else {
-                                error!(
-                                    ctx_key = ctx_key,
-                                    "request ctx not found for updated function runs"
-                                );
-                                continue;
-                            };
-                            let Some(function_run) = ctx.function_runs.get(function_call_id) else {
-                                error!(
-                                    ctx_key = ctx_key,
-                                    fn_call_id = %function_call_id,
-                                    "function run not found for updated function runs"
-                                );
-                                continue;
-                            };
-                            if function_run.status == FunctionRunStatus::Pending {
+                for (ctx_key, function_call_ids) in &req.updated_function_runs {
+                    for function_call_id in function_call_ids {
+                        let Some(ctx) = req.updated_request_states.get(ctx_key) else {
+                            error!(
+                                ctx_key = ctx_key,
+                                "request ctx not found for updated function runs"
+                            );
+                            continue;
+                        };
+                        let Some(function_run) = ctx.function_runs.get(function_call_id) else {
+                            error!(
+                                ctx_key = ctx_key,
+                                fn_call_id = %function_call_id,
+                                "function run not found for updated function runs"
+                            );
+                            continue;
+                        };
+
+                        // Check if the function run was previously pending BEFORE modifying state
+                        let was_pending = self
+                            .unallocated_function_runs
+                            .contains(&function_run.into());
+                        let is_pending = function_run.status == FunctionRunStatus::Pending;
+
+                        // Update pending resources based on state transitions
+                        match (was_pending, is_pending) {
+                            (false, true) => {
                                 self.unallocated_function_runs.insert(function_run.into());
-                            } else {
+                                if let Some(function) = self.get_function(function_run) {
+                                    self.pending_resources
+                                        .function_runs
+                                        .increment(ResourceProfile::from_function(&function));
+                                }
+                            }
+                            (true, false) => {
+                                self.unallocated_function_runs.remove(&function_run.into());
+                                if let Some(function) = self.get_function(function_run) {
+                                    self.pending_resources
+                                        .function_runs
+                                        .decrement(&ResourceProfile::from_function(&function));
+                                }
+                            }
+                            (_, true) => {
+                                self.unallocated_function_runs.insert(function_run.into());
+                            }
+                            (_, false) => {
                                 self.unallocated_function_runs.remove(&function_run.into());
                             }
-                            self.function_runs
-                                .insert(function_run.into(), Box::new(function_run.clone()));
-                            // Index the function run by catalog entry
-                            self.index_function_run_by_catalog(function_run);
                         }
+
+                        self.function_runs
+                            .insert(function_run.into(), Box::new(function_run.clone()));
                     }
-                    // record the time instead of using a timer because we cannot
-                    // borrow the metric as immutable and borrow self as mutable inside the loop.
-                    self.metrics
-                        .scheduler_update_index_function_run_by_catalog
-                        .record(start_time.elapsed().as_secs_f64(), &[]);
                 }
 
                 {
@@ -602,8 +691,6 @@ impl InMemoryState {
                     let start_time = Instant::now();
                     for allocation in &req.new_allocations {
                         if let Some(function_run) = self.function_runs.get(&allocation.into()) {
-                            self.unallocated_function_runs.remove(&function_run.into());
-
                             self.allocations_by_executor
                                 .entry(allocation.target.executor_id.clone())
                                 .or_default()
@@ -655,18 +742,57 @@ impl InMemoryState {
                 }
 
                 for (sandbox_key, sandbox) in &req.updated_sandboxes {
+                    let was_pending = self.pending_sandboxes.contains(sandbox_key);
+                    // Get old container_id before updating (for index cleanup)
+                    let old_container_id = self
+                        .sandboxes
+                        .get(sandbox_key)
+                        .and_then(|s| s.container_id.clone());
+
                     match sandbox.status {
                         SandboxStatus::Pending => {
                             self.sandboxes
                                 .insert(sandbox_key.clone(), Box::new(sandbox.clone()));
-                            self.pending_sandboxes.insert(sandbox_key.clone());
+                            if !was_pending {
+                                self.pending_sandboxes.insert(sandbox_key.clone());
+                                // Track pending resources
+                                self.pending_resources.sandboxes.increment(
+                                    ResourceProfile::from_container_resources(&sandbox.resources),
+                                );
+                            }
                         }
                         SandboxStatus::Running => {
                             self.sandboxes
                                 .insert(sandbox_key.clone(), Box::new(sandbox.clone()));
-                            self.pending_sandboxes.remove(sandbox_key);
+                            if was_pending {
+                                self.pending_sandboxes.remove(sandbox_key);
+                                // Remove from pending resources
+                                self.pending_resources.sandboxes.decrement(
+                                    &ResourceProfile::from_container_resources(&sandbox.resources),
+                                );
+                            }
+                            // Update reverse index: container_id -> sandbox_key
+                            // Remove old mapping if container_id changed
+                            if old_container_id.as_ref() != sandbox.container_id.as_ref() &&
+                                let Some(old_id) = &old_container_id
+                            {
+                                self.sandbox_by_container.remove(old_id);
+                            }
+                            if let Some(container_id) = &sandbox.container_id {
+                                self.sandbox_by_container
+                                    .insert(container_id.clone(), sandbox_key.clone());
+                            }
                         }
                         SandboxStatus::Terminated => {
+                            if was_pending {
+                                self.pending_resources.sandboxes.decrement(
+                                    &ResourceProfile::from_container_resources(&sandbox.resources),
+                                );
+                            }
+                            // Remove from reverse index
+                            if let Some(container_id) = old_container_id {
+                                self.sandbox_by_container.remove(&container_id);
+                            }
                             self.sandboxes.remove(sandbox_key);
                             self.pending_sandboxes.remove(sandbox_key);
                         }
@@ -680,6 +806,11 @@ impl InMemoryState {
                     ) {
                         changed_executors.insert(fc_metadata.executor_id.clone());
                     }
+                }
+
+                // Update pool deficits if provided by buffer reconciler
+                if let Some(deficits) = &req.pool_deficits {
+                    self.pending_resources.pool_deficits = deficits.clone();
                 }
             }
             RequestPayload::UpsertExecutor(req) => {
@@ -735,8 +866,12 @@ impl InMemoryState {
                     .insert(sandbox_key.clone(), Box::new(req.sandbox.clone()));
                 if req.sandbox.status == SandboxStatus::Pending {
                     self.pending_sandboxes.insert(sandbox_key);
+                    self.pending_resources.sandboxes.increment(
+                        ResourceProfile::from_container_resources(&req.sandbox.resources),
+                    );
                 }
             }
+            // Pool operations handled by ContainerScheduler
             _ => {}
         }
 
@@ -745,10 +880,19 @@ impl InMemoryState {
 
     pub fn delete_function_runs(&mut self, function_runs: Vec<FunctionRun>) {
         for function_run in function_runs.iter() {
+            // Check if it was pending before removing
+            let was_pending = self
+                .unallocated_function_runs
+                .contains(&function_run.into());
+
             self.function_runs.remove(&function_run.into());
             self.unallocated_function_runs.remove(&function_run.into());
-            // Remove from catalog entry index
-            self.unindex_function_run_from_catalog(function_run);
+
+            if was_pending && let Some(function) = self.get_function(function_run) {
+                self.pending_resources
+                    .function_runs
+                    .decrement(&ResourceProfile::from_function(&function));
+            }
         }
 
         for (_executor, allocations_by_fe) in self.allocations_by_executor.iter_mut() {
@@ -808,13 +952,32 @@ impl InMemoryState {
             request_ctx: self.request_ctx.clone(),
             allocations_by_executor: self.allocations_by_executor.clone(),
             executor_catalog: self.executor_catalog.clone(),
-            function_runs_by_catalog_entry: self.function_runs_by_catalog_entry.clone(),
             metrics: self.metrics.clone(),
             function_runs: self.function_runs.clone(),
             unallocated_function_runs: self.unallocated_function_runs.clone(),
             sandboxes: self.sandboxes.clone(),
+            sandbox_by_container: self.sandbox_by_container.clone(),
             pending_sandboxes: self.pending_sandboxes.clone(),
+            pending_resources: self.pending_resources.clone(),
         }))
+    }
+
+    pub fn get_pending_resources(&self) -> &PendingResources {
+        &self.pending_resources
+    }
+
+    pub fn get_function(&self, function_run: &FunctionRun) -> Option<Function> {
+        Self::get_function_static(&self.application_versions, function_run)
+    }
+
+    fn get_function_static(
+        application_versions: &imbl::OrdMap<String, Box<ApplicationVersion>>,
+        function_run: &FunctionRun,
+    ) -> Option<Function> {
+        let app_version = application_versions
+            .get(&function_run.key_application_version(&function_run.application))?;
+        let function = app_version.functions.get(&function_run.name)?;
+        Some(function.clone())
     }
 
     #[allow(clippy::borrowed_box)]
@@ -862,108 +1025,6 @@ impl InMemoryState {
             })
     }
 
-    /// Add a function run to the catalog entry index if it matches any catalog
-    /// entry labels and resources
-    fn index_function_run_by_catalog(&mut self, function_run: &FunctionRun) {
-        // Get the application version to check placement constraints
-        let Some(app_version) = self.get_existing_application_version(function_run) else {
-            debug!(
-                fn_call_id = function_run.id.to_string(),
-                "Skipping catalog indexing: application version not found"
-            );
-            return;
-        };
-
-        let Some(function) = app_version.functions.get(&function_run.name).cloned() else {
-            debug!(
-                fn_call_id = function_run.id.to_string(),
-                fn_name = &function_run.name,
-                "Skipping catalog indexing: function not found"
-            );
-            return;
-        };
-
-        // Clone catalog entries to avoid borrow issues
-        let catalog_entries = self.executor_catalog.entries.clone();
-
-        // Check each catalog entry to see if this function run matches
-        for catalog_entry in &catalog_entries {
-            // Check if the function's placement constraints match this catalog entry's
-            // labels
-            if !function
-                .placement_constraints
-                .matches(&catalog_entry.labels)
-            {
-                continue;
-            }
-
-            // Check if the catalog entry has sufficient resources for this function
-            if !function
-                .resources
-                .can_be_handled_by_catalog_entry(catalog_entry)
-            {
-                continue;
-            }
-
-            // Both labels and resources match - add to index
-            self.function_runs_by_catalog_entry
-                .entry(catalog_entry.name.clone())
-                .or_default()
-                .insert(function_run.into());
-        }
-    }
-
-    /// Remove a function run from the catalog entry index
-    fn unindex_function_run_from_catalog(&mut self, function_run: &FunctionRun) {
-        let function_run_key: FunctionRunKey = function_run.into();
-
-        // Remove from all catalog entries
-        for catalog_entry in &self.executor_catalog.entries {
-            let _ = self
-                .function_runs_by_catalog_entry
-                .entry(catalog_entry.name.clone())
-                .and_modify(|run_keys| {
-                    run_keys.remove(&function_run_key);
-                });
-        }
-    }
-
-    /// Get all function runs that match a specific catalog entry by name
-    #[cfg(test)]
-    fn function_runs_for_catalog_entry(&self, catalog_entry_name: &str) -> Vec<FunctionRun> {
-        let Some(run_keys) = self.function_runs_by_catalog_entry.get(catalog_entry_name) else {
-            return Vec::new();
-        };
-
-        let mut results = Vec::new();
-        for run_key in run_keys.iter() {
-            if let Some(function_run) = self.function_runs.get(run_key) {
-                results.push(*function_run.clone());
-            }
-        }
-        results
-    }
-
-    /// Get all function runs grouped by catalog entry
-    #[cfg(test)]
-    fn all_function_runs_by_catalog_entry(&self) -> HashMap<String, Vec<FunctionRun>> {
-        let mut result = HashMap::new();
-
-        for (catalog_entry_name, run_keys) in self.function_runs_by_catalog_entry.iter() {
-            let mut function_runs = Vec::new();
-            for run_key in run_keys.iter() {
-                if let Some(function_run) = self.function_runs.get(run_key) {
-                    function_runs.push(*function_run.clone());
-                }
-            }
-            if !function_runs.is_empty() {
-                result.insert(catalog_entry_name.clone(), function_runs);
-            }
-        }
-
-        result
-    }
-
     /// Simulates a server restart by clearing executor-related in-memory state
     /// while preserving allocations. This creates the scenario where:
     /// - allocations_by_executor has allocations (loaded from DB)
@@ -1005,18 +1066,16 @@ mod test_helpers {
                 namespaces: imbl::HashMap::new(),
                 applications: imbl::HashMap::new(),
                 application_versions: imbl::OrdMap::new(),
-                //executors: imbl::HashMap::new(),
-                //executor_states: imbl::HashMap::new(),
-                //function_executors_by_fn_uri: imbl::HashMap::new(),
                 allocations_by_executor: imbl::HashMap::new(),
                 request_ctx: imbl::OrdMap::new(),
                 executor_catalog: ExecutorCatalog::default(),
-                function_runs_by_catalog_entry: imbl::HashMap::new(),
                 metrics: InMemoryStoreMetrics::new(),
                 function_runs: imbl::OrdMap::new(),
                 unallocated_function_runs: imbl::OrdSet::new(),
                 sandboxes: imbl::OrdMap::new(),
+                sandbox_by_container: imbl::HashMap::new(),
                 pending_sandboxes: imbl::OrdSet::new(),
+                pending_resources: PendingResources::default(),
             }
         }
     }
@@ -1024,17 +1083,10 @@ mod test_helpers {
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        config::GpuModel,
-        data_model::{
-            ComputeOp,
-            FunctionCall,
-            FunctionCallId,
-            FunctionRun,
-            FunctionRunBuilder,
-            FunctionRunStatus,
-        },
-        state_store::in_memory_state::FunctionRunKey,
+    use crate::state_store::in_memory_state::{
+        FunctionRunKey,
+        ResourceProfile,
+        ResourceProfileHistogram,
     };
 
     #[test]
@@ -1054,316 +1106,92 @@ mod tests {
     }
 
     #[test]
-    fn test_function_run_catalog_indexing() {
-        use std::collections::HashMap;
-
-        use crate::{
-            config::ExecutorCatalogEntry,
-            data_model::{
-                ApplicationEntryPoint,
-                ApplicationState,
-                ApplicationVersionBuilder,
-                Function,
-                FunctionResources,
-                GPUResources,
-                filter::{Expression, LabelsFilter, Operator},
-                test_objects::tests::mock_data_payload,
-            },
-            in_memory_state_bootstrap,
-            state_store::ExecutorCatalog,
-        };
-
-        // Create executor catalog entries with different resource capacities and labels
-        let catalog_entry_small = ExecutorCatalogEntry {
-            name: "small".to_string(),
-            cpu_cores: 2, // 2000 ms/sec
-            memory_gb: 4, // 4096 MB
-            disk_gb: 10,  // 10240 MB
+    fn test_histogram_increment_decrement() {
+        let mut histogram = ResourceProfileHistogram::default();
+        let profile = ResourceProfile {
+            cpu_ms_per_sec: 1000,
+            memory_mb: 256,
+            disk_mb: 1024,
+            gpu_count: 0,
             gpu_model: None,
-            labels: HashMap::new(),
+            placement_constraints: vec![],
         };
 
-        let mut catalog_entry_large_labels = HashMap::new();
-        catalog_entry_large_labels.insert("region".to_string(), "us-west".to_string());
-        catalog_entry_large_labels.insert("tier".to_string(), "premium".to_string());
-        let catalog_entry_large = ExecutorCatalogEntry {
-            name: "large".to_string(),
-            cpu_cores: 16, // 16000 ms/sec
-            memory_gb: 64, // 65536 MB
-            disk_gb: 500,  // 512000 MB
-            gpu_model: None,
-            labels: catalog_entry_large_labels,
-        };
+        // Initially empty
+        assert!(histogram.profiles.is_empty());
 
-        let mut catalog_entry_gpu_labels = HashMap::new();
-        catalog_entry_gpu_labels.insert("has_gpu".to_string(), "true".to_string());
-        catalog_entry_gpu_labels.insert("region".to_string(), "us-east".to_string());
-        let catalog_entry_gpu = ExecutorCatalogEntry {
-            name: "gpu-node".to_string(),
-            cpu_cores: 8,
-            memory_gb: 32,
-            disk_gb: 100,
-            gpu_model: Some(GpuModel {
-                name: "nvidia-a100".to_string(),
-                count: 4,
-            }),
-            labels: catalog_entry_gpu_labels,
-        };
+        // Increment creates entry
+        histogram.increment(profile.clone());
+        assert_eq!(histogram.profiles.get(&profile), Some(&1));
 
-        let executor_catalog = ExecutorCatalog {
-            entries: vec![
-                catalog_entry_small.clone(),
-                catalog_entry_large.clone(),
-                catalog_entry_gpu.clone(),
-            ],
-        };
+        // Increment again
+        histogram.increment(profile.clone());
+        assert_eq!(histogram.profiles.get(&profile), Some(&2));
 
-        // Create functions with different resource requirements and placement
-        // constraints
-        let function_light = Function {
-            name: "light".to_string(),
-            placement_constraints: LabelsFilter::default(), // Matches all labels
-            resources: FunctionResources {
-                cpu_ms_per_sec: 1000, // 1 core
-                memory_mb: 2048,      // 2 GB
-                ephemeral_disk_mb: 5000,
-                gpu_configs: vec![],
-            },
-            ..Default::default()
-        };
+        // Decrement reduces count
+        histogram.decrement(&profile);
+        assert_eq!(histogram.profiles.get(&profile), Some(&1));
 
-        let function_heavy = Function {
-            name: "heavy".to_string(),
-            placement_constraints: LabelsFilter(vec![
-                Expression {
-                    key: "region".to_string(),
-                    value: "us-west".to_string(),
-                    operator: Operator::Eq,
-                },
-                Expression {
-                    key: "tier".to_string(),
-                    value: "premium".to_string(),
-                    operator: Operator::Eq,
-                },
-            ]),
-            resources: FunctionResources {
-                cpu_ms_per_sec: 10000, // 10 cores - only fits on large
-                memory_mb: 32768,      // 32 GB
-                ephemeral_disk_mb: 100000,
-                gpu_configs: vec![],
-            },
-            ..Default::default()
-        };
-
-        let function_gpu = Function {
-            name: "gpu_task".to_string(),
-            placement_constraints: LabelsFilter(vec![Expression {
-                key: "region".to_string(),
-                value: "us-east".to_string(),
-                operator: Operator::Eq,
-            }]),
-            resources: FunctionResources {
-                cpu_ms_per_sec: 2000,
-                memory_mb: 8192,
-                ephemeral_disk_mb: 10000,
-                gpu_configs: vec![GPUResources {
-                    count: 1,
-                    model: "nvidia-a100".to_string(),
-                }],
-            },
-            ..Default::default()
-        };
-
-        let mut functions = HashMap::new();
-        functions.insert("light".to_string(), function_light);
-        functions.insert("heavy".to_string(), function_heavy);
-        functions.insert("gpu_task".to_string(), function_gpu);
-
-        let app_version = ApplicationVersionBuilder::default()
-            .namespace("test-ns".to_string())
-            .name("test-app".to_string())
-            .created_at(0)
-            .version("1.0".to_string())
-            .functions(functions)
-            .edges(HashMap::new())
-            .code(Some(mock_data_payload()))
-            .entrypoint(Some(ApplicationEntryPoint {
-                function_name: "light".to_string(),
-                input_serializer: "cloudpickle".to_string(),
-                inputs_base64: String::new(),
-                output_serializer: "cloudpickle".to_string(),
-                output_type_hints_base64: String::new(),
-            }))
-            .state(ApplicationState::Active)
-            .build()
-            .unwrap();
-
-        let mut application_versions = imbl::OrdMap::new();
-        application_versions.insert(app_version.key(), Box::new(app_version));
-
-        // Create function runs
-        let fn_run_light = create_test_function_run("test-ns", "test-app", "req-1", "light", "1.0");
-        let fn_run_heavy = create_test_function_run("test-ns", "test-app", "req-2", "heavy", "1.0");
-        let fn_run_gpu =
-            create_test_function_run("test-ns", "test-app", "req-3", "gpu_task", "1.0");
-
-        let mut function_runs = imbl::OrdMap::new();
-        function_runs.insert(
-            FunctionRunKey(fn_run_light.key()),
-            Box::new(fn_run_light.clone()),
-        );
-        function_runs.insert(
-            FunctionRunKey(fn_run_heavy.key()),
-            Box::new(fn_run_heavy.clone()),
-        );
-        function_runs.insert(
-            FunctionRunKey(fn_run_gpu.key()),
-            Box::new(fn_run_gpu.clone()),
-        );
-
-        let mut state = in_memory_state_bootstrap! {
-            clock: 1,
-            application_versions: application_versions,
-            function_runs: function_runs,
-            executor_catalog: executor_catalog,
-        };
-
-        // Manually index all function runs
-        let function_runs_to_index: Vec<_> = state.function_runs.values().cloned().collect();
-        for function_run in function_runs_to_index {
-            state.index_function_run_by_catalog(&function_run);
-        }
-
-        // Test 1: Light function (no label constraints) should be in small catalog only
-        // (large and gpu have labels, but light has no constraints so matches empty
-        // labels in small)
-        let small_runs = state.function_runs_for_catalog_entry("small");
-        assert_eq!(
-            small_runs.len(),
-            1,
-            "Small catalog should have 1 function run (light)"
-        );
-        assert!(small_runs.iter().any(|fr| fr.id == fn_run_light.id));
-
-        // Test 2: Large catalog should have light + heavy (labels match, resources fit)
-        let large_runs = state.function_runs_for_catalog_entry("large");
-        assert_eq!(
-            large_runs.len(),
-            2,
-            "Large catalog should have 2 function runs (light + heavy)"
-        );
-        assert!(large_runs.iter().any(|fr| fr.id == fn_run_light.id));
-        assert!(large_runs.iter().any(|fr| fr.id == fn_run_heavy.id));
-
-        // Test 3: Heavy function should ONLY be in large catalog
-        // - Labels match (region=us-west, tier=premium)
-        // - Resources match (requires 10 cores, 32GB - only large has 16 cores, 64GB)
-        assert!(
-            !small_runs.iter().any(|fr| fr.id == fn_run_heavy.id),
-            "Heavy function should not be in small catalog (insufficient resources)"
-        );
-
-        // Test 4: GPU function should ONLY be in gpu-node catalog
-        // - Labels match (region=us-east)
-        // - Resources match (requires GPU, only gpu-node has nvidia-a100)
-        let gpu_runs = state.function_runs_for_catalog_entry("gpu-node");
-        assert_eq!(
-            gpu_runs.len(),
-            2,
-            "GPU catalog should have 2 function runs (light + gpu_task)"
-        );
-        assert!(gpu_runs.iter().any(|fr| fr.id == fn_run_gpu.id));
-        assert!(gpu_runs.iter().any(|fr| fr.id == fn_run_light.id));
-
-        // GPU task should not be in other catalogs (they don't have GPUs or don't match
-        // labels)
-        assert!(
-            !small_runs.iter().any(|fr| fr.id == fn_run_gpu.id),
-            "GPU function should not be in small catalog (no GPU)"
-        );
-        assert!(
-            !large_runs.iter().any(|fr| fr.id == fn_run_gpu.id),
-            "GPU function should not be in large catalog (no GPU)"
-        );
-
-        // Test 5: Query non-existent catalog entry
-        let non_existent = state.function_runs_for_catalog_entry("non-existent");
-        assert_eq!(
-            non_existent.len(),
-            0,
-            "Non-existent catalog should return empty"
-        );
-
-        // Test 6: Get all function runs by catalog entry
-        let all_by_catalog = state.all_function_runs_by_catalog_entry();
-        assert_eq!(
-            all_by_catalog.len(),
-            3,
-            "All three catalogs have at least one function"
-        );
-        assert_eq!(all_by_catalog.get("small").unwrap().len(), 1); // light
-        assert_eq!(all_by_catalog.get("large").unwrap().len(), 2); // light + heavy
-        assert_eq!(all_by_catalog.get("gpu-node").unwrap().len(), 2); // light + gpu_task
-        assert!(all_by_catalog.contains_key("small"));
-        assert!(all_by_catalog.contains_key("large"));
-        assert!(all_by_catalog.contains_key("gpu-node"));
-
-        // Test 7: Remove a function run and verify index update
-        state.delete_function_runs(vec![fn_run_heavy.clone()]);
-        let large_runs_after_delete = state.function_runs_for_catalog_entry("large");
-        assert_eq!(
-            large_runs_after_delete.len(),
-            1,
-            "After delete, large catalog should have 1 function run (light)"
-        );
-        assert!(
-            !large_runs_after_delete
-                .iter()
-                .any(|fr| fr.id == fn_run_heavy.id),
-            "Deleted function should not be in index"
-        );
-        assert!(
-            large_runs_after_delete
-                .iter()
-                .any(|fr| fr.id == fn_run_light.id),
-            "Other functions should remain in index"
-        );
+        // Decrement to zero removes entry
+        histogram.decrement(&profile);
+        assert!(histogram.profiles.get(&profile).is_none());
+        assert!(histogram.profiles.is_empty());
     }
 
-    // Helper function to create a test function run
-    fn create_test_function_run(
-        namespace: &str,
-        application: &str,
-        request_id: &str,
-        function_name: &str,
-        version: &str,
-    ) -> FunctionRun {
-        FunctionRunBuilder::default()
-            .id(FunctionCallId(format!(
-                "{}-{}-{}-{}",
-                namespace, application, request_id, function_name
-            )))
-            .request_id(request_id.to_string())
-            .namespace(namespace.to_string())
-            .application(application.to_string())
-            .name(function_name.to_string())
-            .version(version.to_string())
-            .compute_op(ComputeOp::FunctionCall(FunctionCall {
-                inputs: vec![],
-                function_call_id: FunctionCallId(format!(
-                    "{}-{}-{}-{}",
-                    namespace, application, request_id, function_name
-                )),
-                fn_name: function_name.to_string(),
-                call_metadata: bytes::Bytes::new(),
-                parent_function_call_id: None,
-            }))
-            .status(FunctionRunStatus::Pending)
-            .outcome(None)
-            .input_args(vec![])
-            .attempt_number(0)
-            .call_metadata(bytes::Bytes::new())
-            .build()
-            .unwrap()
+    #[test]
+    fn test_histogram_decrement_nonexistent_profile() {
+        let mut histogram = ResourceProfileHistogram::default();
+        let profile = ResourceProfile {
+            cpu_ms_per_sec: 1000,
+            memory_mb: 256,
+            disk_mb: 1024,
+            gpu_count: 0,
+            gpu_model: None,
+            placement_constraints: vec![],
+        };
+
+        // Decrementing non-existent profile should not panic (logs error)
+        histogram.decrement(&profile);
+        assert!(histogram.profiles.is_empty());
+    }
+
+    #[test]
+    fn test_histogram_multiple_profiles() {
+        let mut histogram = ResourceProfileHistogram::default();
+        let small_profile = ResourceProfile {
+            cpu_ms_per_sec: 1000,
+            memory_mb: 256,
+            disk_mb: 1024,
+            gpu_count: 0,
+            gpu_model: None,
+            placement_constraints: vec![],
+        };
+        let large_profile = ResourceProfile {
+            cpu_ms_per_sec: 8000,
+            memory_mb: 4096,
+            disk_mb: 10240,
+            gpu_count: 2,
+            gpu_model: Some("nvidia-h100".to_string()),
+            placement_constraints: vec!["gpu_type==nvidia-h100".to_string()],
+        };
+
+        // Add multiple of each
+        histogram.increment(small_profile.clone());
+        histogram.increment(small_profile.clone());
+        histogram.increment(small_profile.clone());
+        histogram.increment(large_profile.clone());
+
+        assert_eq!(histogram.profiles.get(&small_profile), Some(&3));
+        assert_eq!(histogram.profiles.get(&large_profile), Some(&1));
+        assert_eq!(histogram.profiles.len(), 2);
+
+        // Decrement one small
+        histogram.decrement(&small_profile);
+        assert_eq!(histogram.profiles.get(&small_profile), Some(&2));
+
+        // Decrement all large
+        histogram.decrement(&large_profile);
+        assert!(histogram.profiles.get(&large_profile).is_none());
+        assert_eq!(histogram.profiles.len(), 1);
     }
 }

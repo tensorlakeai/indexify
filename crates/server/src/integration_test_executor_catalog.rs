@@ -65,6 +65,7 @@ mod tests {
             namespace: TEST_NAMESPACE.to_string(),
             application: application.clone(),
             upgrade_requests_to_current_version: true,
+            container_pools: vec![],
         };
         indexify_state
             .write(StateMachineUpdateRequest {
@@ -124,6 +125,7 @@ mod tests {
             namespace: TEST_NAMESPACE.to_string(),
             application: set_application.clone(),
             upgrade_requests_to_current_version: true,
+            container_pools: vec![],
         };
         indexify_state
             .write(StateMachineUpdateRequest {
@@ -247,6 +249,7 @@ mod tests {
                             namespace: TEST_NAMESPACE.to_string(),
                             application,
                             upgrade_requests_to_current_version: true,
+                            container_pools: vec![],
                         },
                     )),
                 })
@@ -439,6 +442,7 @@ mod tests {
                             namespace: TEST_NAMESPACE.to_string(),
                             application,
                             upgrade_requests_to_current_version: true,
+                            container_pools: vec![],
                         },
                     )),
                 })

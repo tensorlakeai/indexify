@@ -12,6 +12,9 @@ use crate::{
         Application,
         ComputeOp,
         ContainerId,
+        ContainerPool,
+        ContainerPoolId,
+        ContainerPoolKey,
         ContainerServerMetadata,
         DataPayload,
         ExecutorId,
@@ -84,6 +87,15 @@ impl StateMachineUpdateRequest {
             RequestPayload::TerminateSandbox(request) => {
                 state_changes::terminate_sandbox(state_change_id_seq, request)
             }
+            RequestPayload::CreateContainerPool(request) => {
+                state_changes::create_container_pool(state_change_id_seq, request)
+            }
+            RequestPayload::UpdateContainerPool(request) => {
+                state_changes::update_container_pool(state_change_id_seq, request)
+            }
+            RequestPayload::TombstoneContainerPool(request) => {
+                state_changes::delete_container_pool(state_change_id_seq, request)
+            }
             _ => Ok(Vec::new()), // Handle other request types as needed
         }
     }
@@ -97,14 +109,20 @@ pub enum RequestPayload {
     CreateOrUpdateApplication(Box<CreateOrUpdateApplicationRequest>),
     TombstoneApplication(DeleteApplicationRequest),
     TombstoneRequest(DeleteRequestRequest),
-    SchedulerUpdate((Box<SchedulerUpdateRequest>, Vec<StateChange>)),
     UpsertExecutor(UpsertExecutorRequest),
     DeregisterExecutor(DeregisterExecutorRequest),
-    DeleteApplicationRequest((DeleteApplicationRequest, Vec<StateChange>)),
-    DeleteRequestRequest((DeleteRequestRequest, Vec<StateChange>)),
-    ProcessStateChanges(Vec<StateChange>),
     CreateSandbox(CreateSandboxRequest),
     TerminateSandbox(TerminateSandboxRequest),
+    CreateContainerPool(CreateContainerPoolRequest),
+    UpdateContainerPool(UpdateContainerPoolRequest),
+
+    // App Processor -> State Machine requests
+    SchedulerUpdate((Box<SchedulerUpdateRequest>, Vec<StateChange>)),
+    DeleteApplicationRequest((DeleteApplicationRequest, Vec<StateChange>)),
+    DeleteRequestRequest((DeleteRequestRequest, Vec<StateChange>)),
+    TombstoneContainerPool(DeleteContainerPoolRequest),
+    DeleteContainerPool((DeleteContainerPoolRequest, Vec<StateChange>)),
+    ProcessStateChanges(Vec<StateChange>),
 }
 
 #[derive(Debug, Clone, Default)]
@@ -118,6 +136,9 @@ pub struct SchedulerUpdateRequest {
     pub containers: HashMap<ContainerId, Box<ContainerServerMetadata>>,
     pub state_changes: Vec<StateChange>,
     pub updated_sandboxes: HashMap<SandboxKey, Sandbox>,
+    pub updated_pools: HashMap<ContainerPoolKey, ContainerPool>,
+    pub deleted_pools: HashSet<ContainerPoolKey>,
+    pub pool_deficits: Option<super::in_memory_state::ResourceProfileHistogram>,
 }
 
 impl SchedulerUpdateRequest {
@@ -142,6 +163,11 @@ impl SchedulerUpdateRequest {
         }
         self.containers.extend(other.containers);
         self.updated_sandboxes.extend(other.updated_sandboxes);
+        self.updated_pools.extend(other.updated_pools);
+        self.deleted_pools.extend(other.deleted_pools);
+        if other.pool_deficits.is_some() {
+            self.pool_deficits = other.pool_deficits;
+        }
     }
 
     pub fn cancel_allocation(&mut self, allocation: &mut Allocation) {
@@ -248,6 +274,7 @@ pub struct CreateOrUpdateApplicationRequest {
     pub namespace: String,
     pub application: Application,
     pub upgrade_requests_to_current_version: bool,
+    pub container_pools: Vec<ContainerPool>,
 }
 
 #[derive(Debug, Clone)]
@@ -323,4 +350,20 @@ pub struct CreateSandboxRequest {
 pub struct TerminateSandboxRequest {
     pub namespace: String,
     pub sandbox_id: SandboxId,
+}
+
+#[derive(Debug, Clone)]
+pub struct CreateContainerPoolRequest {
+    pub pool: ContainerPool,
+}
+
+#[derive(Debug, Clone)]
+pub struct UpdateContainerPoolRequest {
+    pub pool: ContainerPool,
+}
+
+#[derive(Debug, Clone)]
+pub struct DeleteContainerPoolRequest {
+    pub namespace: String,
+    pub pool_id: ContainerPoolId,
 }
