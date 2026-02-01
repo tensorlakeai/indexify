@@ -7,7 +7,7 @@ use utoipa::ToSchema;
 
 use crate::{
     data_model::{self, Sandbox, SandboxBuilder, SandboxId, SandboxStatus},
-    http_objects::{ContainerResources, IndexifyAPIError},
+    http_objects::{ContainerResources, ContainerResourcesInfo, IndexifyAPIError},
     routes::routes_state::RouteState,
     state_store::requests::{
         CreateSandboxRequest as StateCreateSandboxRequest,
@@ -69,14 +69,6 @@ pub struct CreateSandboxRequest {
 pub struct CreateSandboxResponse {
     pub sandbox_id: String,
     pub status: String,
-}
-
-/// Resource info for sandbox response
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct ContainerResourcesInfo {
-    pub cpus: f64,
-    pub memory_mb: u64,
-    pub ephemeral_disk_mb: u64,
 }
 
 /// Sandbox information returned by list/get operations

@@ -982,6 +982,14 @@ impl From<data_model::ApplicationVersion> for ApplicationVersion {
     }
 }
 
+/// Resource info for container response
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct ContainerResourcesInfo {
+    pub cpus: f64,
+    pub memory_mb: u64,
+    pub ephemeral_disk_mb: u64,
+}
+
 #[cfg(test)]
 mod tests {
     use crate::http_objects::PlacementConstraints;

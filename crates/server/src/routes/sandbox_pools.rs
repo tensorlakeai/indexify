@@ -7,7 +7,7 @@ use utoipa::ToSchema;
 
 use crate::{
     data_model::{self, ContainerPool, ContainerPoolBuilder, ContainerPoolId, ContainerPoolKey},
-    http_objects::{ContainerResources, IndexifyAPIError},
+    http_objects::{ContainerResources, ContainerResourcesInfo, IndexifyAPIError},
     routes::routes_state::RouteState,
     state_store::requests::{
         CreateContainerPoolRequest as StateCreateContainerPoolRequest,
@@ -89,20 +89,12 @@ pub struct SandboxPoolInfo {
     pub pool_id: String,
     pub namespace: String,
     pub image: String,
-    pub resources: SandboxPoolResourcesInfo,
+    pub resources: ContainerResourcesInfo,
     pub min_containers: Option<u32>,
     pub max_containers: Option<u32>,
     pub buffer_containers: Option<u32>,
     pub timeout_secs: u64,
     pub created_at: u64,
-}
-
-/// Resource info for sandbox pool response
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct SandboxPoolResourcesInfo {
-    pub cpus: f64,
-    pub memory_mb: u64,
-    pub ephemeral_disk_mb: u64,
 }
 
 impl SandboxPoolInfo {
@@ -111,7 +103,7 @@ impl SandboxPoolInfo {
             pool_id: pool.id.get().to_string(),
             namespace: pool.namespace.clone(),
             image: pool.image.clone(),
-            resources: SandboxPoolResourcesInfo {
+            resources: ContainerResourcesInfo {
                 cpus: pool.resources.cpu_ms_per_sec as f64 / 1000.0,
                 memory_mb: pool.resources.memory_mb,
                 ephemeral_disk_mb: pool.resources.ephemeral_disk_mb,

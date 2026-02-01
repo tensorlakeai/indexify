@@ -27,6 +27,7 @@ use crate::{
     http_objects::{
         Allocation,
         CacheKey,
+        ContainerResourcesInfo,
         CreateNamespace,
         CursorDirection,
         ExecutorMetadata,
@@ -106,18 +107,17 @@ use crate::{
                 ExecutorsAllocationsResponse,
                 UnallocatedFunctionRuns,
                 StateChangesResponse,
+                ContainerResourcesInfo,
                 // Sandbox schemas
                 sandboxes::CreateSandboxRequest,
                 sandboxes::CreateSandboxResponse,
                 sandboxes::SandboxInfo,
-                sandboxes::ContainerResourcesInfo,
                 sandboxes::ListSandboxesResponse,
                 // Sandbox pool schemas
                 sandbox_pools::CreateSandboxPoolRequest,
                 sandbox_pools::UpdateSandboxPoolRequest,
                 sandbox_pools::CreateSandboxPoolResponse,
                 sandbox_pools::SandboxPoolInfo,
-                sandbox_pools::SandboxPoolResourcesInfo,
                 sandbox_pools::ListSandboxPoolsResponse,
             )
         ),
