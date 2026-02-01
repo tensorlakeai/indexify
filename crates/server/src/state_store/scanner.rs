@@ -45,6 +45,7 @@ impl CursorDirection {
     }
 }
 
+#[derive(Clone)]
 pub struct StateReader {
     db: Arc<RocksDBDriver>,
     metrics: Arc<metrics::StateStoreMetrics>,

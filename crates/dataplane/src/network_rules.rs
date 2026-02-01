@@ -44,7 +44,7 @@ fn chain_name(container_id: &str) -> String {
 /// * `container_ip` - The container's IP address on the Docker network
 /// * `policy` - The network policy to apply
 pub fn apply_rules(container_id: &str, container_ip: &str, policy: &NetworkPolicy) -> Result<()> {
-    let _lock = IPTABLES_LOCK.lock().unwrap();
+    let _lock = IPTABLES_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let chain = chain_name(container_id);
 
     info!(
@@ -128,7 +128,7 @@ pub fn apply_rules(container_id: &str, container_ip: &str, policy: &NetworkPolic
 /// * `container_id` - The Docker container ID
 /// * `container_ip` - The container's IP address (used to remove the jump rule)
 pub fn remove_rules(container_id: &str, container_ip: &str) -> Result<()> {
-    let _lock = IPTABLES_LOCK.lock().unwrap();
+    let _lock = IPTABLES_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let chain = chain_name(container_id);
 
     info!(

@@ -366,6 +366,7 @@ impl TryFrom<ApplicationFunction> for data_model::Function {
             max_concurrency: val.max_concurrency,
             min_containers: val.min_containers,
             max_containers: val.max_containers,
+            buffer_containers: None,
         })
     }
 }
@@ -398,6 +399,7 @@ impl ApplicationFunction {
                 "ComputeFn name cannot be empty",
             ));
         }
+        self.initialization_timeout_sec.validate()?;
         self.timeout_sec.validate()?;
         self.retry_policy.validate()?;
         Ok(())
@@ -933,6 +935,8 @@ pub struct PendingResourcesResponse {
     pub function_runs: ResourceProfileHistogram,
     /// Resource profiles for pending sandboxes
     pub sandboxes: ResourceProfileHistogram,
+    /// Resource profiles for pool deficits (gap between target and current containers)
+    pub pool_deficits: ResourceProfileHistogram,
 }
 
 impl From<crate::state_store::in_memory_state::PendingResources> for PendingResourcesResponse {
@@ -940,6 +944,7 @@ impl From<crate::state_store::in_memory_state::PendingResources> for PendingReso
         Self {
             function_runs: pending.function_runs.into(),
             sandboxes: pending.sandboxes.into(),
+            pool_deficits: pending.pool_deficits.into(),
         }
     }
 }

@@ -141,7 +141,7 @@ impl SandboxInfo {
             status: sandbox.status.to_string(),
             outcome: sandbox.outcome.as_ref().map(|o| o.to_string()),
             created_at: (sandbox.creation_time_ns / 1_000_000) as u64, // Convert ns to ms
-            container_id: Some(sandbox.id.get().to_string()),
+            container_id: sandbox.container_id.as_ref().map(|c| c.get().to_string()),
             executor_id: sandbox.executor_id.as_ref().map(|e| e.get().to_string()),
             resources: ContainerResourcesInfo {
                 cpus: sandbox.resources.cpu_ms_per_sec as f64 / 1000.0,

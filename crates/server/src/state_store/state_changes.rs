@@ -9,7 +9,9 @@ use crate::{
     data_model::{
         AllocationOutputIngestedEvent,
         ChangeType,
+        CreateContainerPoolEvent,
         CreateSandboxEvent,
+        DeleteContainerPoolEvent,
         ExecutorId,
         ExecutorUpsertedEvent,
         FunctionCallEvent,
@@ -21,15 +23,19 @@ use crate::{
         TerminateSandboxEvent,
         TombstoneApplicationEvent,
         TombstoneRequestEvent,
+        UpdateContainerPoolEvent,
     },
     state_store::requests::{
         AllocationOutput,
+        CreateContainerPoolRequest,
         CreateSandboxRequest,
         DeleteApplicationRequest,
+        DeleteContainerPoolRequest,
         DeleteRequestRequest,
         FunctionCallRequest,
         InvokeApplicationRequest,
         TerminateSandboxRequest,
+        UpdateContainerPoolRequest,
     },
     utils::get_epoch_time_in_ms,
 };
@@ -214,6 +220,66 @@ pub fn terminate_sandbox(
         }))
         .created_at(get_epoch_time_in_ms())
         .object_id(request.sandbox_id.to_string())
+        .id(StateChangeId::new(last_change_id))
+        .processed_at(None)
+        .build()?;
+    Ok(vec![state_change])
+}
+
+pub fn create_container_pool(
+    last_change_id: &AtomicU64,
+    request: &CreateContainerPoolRequest,
+) -> Result<Vec<StateChange>> {
+    let last_change_id = last_change_id.fetch_add(1, atomic::Ordering::Relaxed);
+    let state_change = StateChangeBuilder::default()
+        .namespace(Some(request.pool.namespace.clone()))
+        .application(None)
+        .change_type(ChangeType::CreateContainerPool(CreateContainerPoolEvent {
+            namespace: request.pool.namespace.clone(),
+            pool_id: request.pool.id.clone(),
+        }))
+        .created_at(get_epoch_time_in_ms())
+        .object_id(request.pool.id.to_string())
+        .id(StateChangeId::new(last_change_id))
+        .processed_at(None)
+        .build()?;
+    Ok(vec![state_change])
+}
+
+pub fn update_container_pool(
+    last_change_id: &AtomicU64,
+    request: &UpdateContainerPoolRequest,
+) -> Result<Vec<StateChange>> {
+    let last_change_id = last_change_id.fetch_add(1, atomic::Ordering::Relaxed);
+    let state_change = StateChangeBuilder::default()
+        .namespace(Some(request.pool.namespace.clone()))
+        .application(None)
+        .change_type(ChangeType::UpdateContainerPool(UpdateContainerPoolEvent {
+            namespace: request.pool.namespace.clone(),
+            pool_id: request.pool.id.clone(),
+        }))
+        .created_at(get_epoch_time_in_ms())
+        .object_id(request.pool.id.to_string())
+        .id(StateChangeId::new(last_change_id))
+        .processed_at(None)
+        .build()?;
+    Ok(vec![state_change])
+}
+
+pub fn delete_container_pool(
+    last_change_id: &AtomicU64,
+    request: &DeleteContainerPoolRequest,
+) -> Result<Vec<StateChange>> {
+    let last_change_id = last_change_id.fetch_add(1, atomic::Ordering::Relaxed);
+    let state_change = StateChangeBuilder::default()
+        .namespace(Some(request.namespace.clone()))
+        .application(None)
+        .change_type(ChangeType::DeleteContainerPool(DeleteContainerPoolEvent {
+            namespace: request.namespace.clone(),
+            pool_id: request.pool_id.clone(),
+        }))
+        .created_at(get_epoch_time_in_ms())
+        .object_id(request.pool_id.to_string())
         .id(StateChangeId::new(last_change_id))
         .processed_at(None)
         .build()?;

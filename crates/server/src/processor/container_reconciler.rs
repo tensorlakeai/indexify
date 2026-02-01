@@ -19,6 +19,7 @@ use crate::{
         FunctionRunStatus,
         RunningFunctionRunStatus,
         SandboxFailureReason,
+        SandboxKey,
         SandboxOutcome,
         SandboxStatus,
     },
@@ -100,15 +101,48 @@ impl ContainerReconciler {
                     .is_ok()
             {
                 if fe.container_type == ContainerType::Sandbox {
-                    // For sandbox containers, container ID == sandbox ID
-                    let reader = self.indexify_state.reader();
-                    if let Ok(Some(sandbox)) = reader.get_sandbox(&fe.namespace, fe.id.get()).await &&
-                        sandbox.status == SandboxStatus::Terminated
-                    {
+                    // Check if the sandbox this container serves is terminated
+                    // if the container is just a warm pool container we will simply try to add
+                    // it to the executor_server_metadata and continue.
+                    if let Some(sandbox_id) = &fe.sandbox_id {
+                        let reader = self.indexify_state.reader();
+                        if let Ok(Some(sandbox)) =
+                            reader.get_sandbox(&fe.namespace, sandbox_id.get()).await &&
+                            sandbox.status == SandboxStatus::Terminated
+                        {
+                            warn!(
+                                container_id = %fe.id,
+                                sandbox_id = %sandbox_id,
+                                namespace = %fe.namespace,
+                                "Ignoring container from executor - associated sandbox is terminated"
+                            );
+                            continue;
+                        }
+                    }
+                } else if fe.container_type == ContainerType::Function {
+                    // check if application version and function still exist
+                    let app_version_key =
+                        format!("{}|{}|{}", fe.namespace, fe.application_name, fe.version);
+                    let app_version = in_memory_state.application_versions.get(&app_version_key);
+                    if app_version.is_none() {
                         warn!(
                             container_id = %fe.id,
                             namespace = %fe.namespace,
-                            "Ignoring container from executor - associated sandbox is terminated"
+                            app = %fe.application_name,
+                            version = %fe.version,
+                            "Ignoring container from executor - application version no longer exists"
+                        );
+                        continue;
+                    }
+                    if let Some(app_version) = app_version
+                        && !app_version.functions.contains_key(&fe.function_name) {
+                        warn!(
+                            container_id = %fe.id,
+                            namespace = %fe.namespace,
+                            app = %fe.application_name,
+                            version = %fe.version,
+                            function = %fe.function_name,
+                            "Ignoring container from executor - function no longer exists in application version"
                         );
                         continue;
                     }
@@ -373,11 +407,7 @@ impl ContainerReconciler {
             }
 
             // Terminate associated sandbox
-            let sandbox_update = self.terminate_sandbox_for_container(
-                in_memory_state,
-                &ContainerId::new(fe.id.get().to_string()),
-                &fe.state,
-            )?;
+            let sandbox_update = self.terminate_sandbox_for_container(in_memory_state, fe)?;
 
             in_memory_state.update_state(
                 self.clock,
@@ -399,44 +429,49 @@ impl ContainerReconciler {
     }
 
     /// Terminates sandbox associated with a container when the container
-    /// terminates
+    /// terminates. Uses container.sandbox_id to find the associated sandbox.
     fn terminate_sandbox_for_container(
         &self,
         in_memory_state: &InMemoryState,
-        container_id: &ContainerId,
-        container_state: &ContainerState,
+        container: &Container,
     ) -> Result<SchedulerUpdateRequest> {
         let mut update = SchedulerUpdateRequest::default();
 
-        // Find sandbox with this container_id (sandbox ID == container ID for
-        // sandboxes)
-        for (sandbox_key, sandbox) in in_memory_state.sandboxes.iter() {
-            let sandbox_container_id = ContainerId::from(&sandbox.id);
-            if sandbox_container_id == *container_id && sandbox.status == SandboxStatus::Running {
-                info!(
-                    sandbox_id = %sandbox.id,
-                    namespace = %sandbox.namespace,
-                    container_id = %container_id,
-                    "terminating sandbox due to container termination"
-                );
+        // Use the container's sandbox_id to find the associated sandbox
+        let Some(sandbox_id) = &container.sandbox_id else {
+            return Ok(update); // Container not associated with a sandbox
+        };
 
-                let mut terminated_sandbox = sandbox.as_ref().clone();
-                terminated_sandbox.status = SandboxStatus::Terminated;
+        let sandbox_key = SandboxKey::new(&container.namespace, sandbox_id.get());
+        let Some(sandbox) = in_memory_state.sandboxes.get(&sandbox_key) else {
+            return Ok(update); // Sandbox not found (may have already been terminated)
+        };
 
-                // Determine outcome based on container termination reason
-                terminated_sandbox.outcome = match container_state {
-                    ContainerState::Terminated { reason, .. } => Some(SandboxOutcome::Failure(
-                        SandboxFailureReason::ContainerTerminated(*reason),
-                    )),
-                    _ => Some(SandboxOutcome::Failure(SandboxFailureReason::Unknown)),
-                };
-
-                update
-                    .updated_sandboxes
-                    .insert(sandbox_key.clone(), terminated_sandbox);
-                break; // Each container can only be associated with one sandbox
-            }
+        if sandbox.status != SandboxStatus::Running {
+            return Ok(update); // Already terminated
         }
+
+        info!(
+            sandbox_id = %sandbox.id,
+            namespace = %sandbox.namespace,
+            container_id = %container.id,
+            "terminating sandbox due to container termination"
+        );
+
+        let mut terminated_sandbox = sandbox.as_ref().clone();
+        terminated_sandbox.status = SandboxStatus::Terminated;
+
+        // Determine outcome based on container termination reason
+        terminated_sandbox.outcome = match &container.state {
+            ContainerState::Terminated { reason, .. } => Some(SandboxOutcome::Failure(
+                SandboxFailureReason::ContainerTerminated(*reason),
+            )),
+            _ => Some(SandboxOutcome::Failure(SandboxFailureReason::Unknown)),
+        };
+
+        update
+            .updated_sandboxes
+            .insert(sandbox_key, terminated_sandbox);
 
         Ok(update)
     }
@@ -495,7 +530,6 @@ impl ContainerReconciler {
 
             scheduler_update.extend(container_update);
 
-            // Mark the container itself as Terminated
             let terminated_state = ContainerState::Terminated {
                 reason: FunctionExecutorTerminationReason::ExecutorRemoved,
                 failed_alloc_ids: vec![],
@@ -506,7 +540,7 @@ impl ContainerReconciler {
                 terminated_fc.function_container.state = terminated_state.clone();
 
                 let container_term_update = SchedulerUpdateRequest {
-                    containers: [(container_id.clone(), Box::new(terminated_fc))].into(),
+                    containers: [(container_id.clone(), Box::new(terminated_fc.clone()))].into(),
                     ..Default::default()
                 };
                 scheduler_update.extend(container_term_update.clone());
@@ -514,22 +548,21 @@ impl ContainerReconciler {
                     Box::new(container_term_update),
                     vec![],
                 )))?;
+
+                // Terminate associated sandbox
+                let sandbox_update = self.terminate_sandbox_for_container(
+                    in_memory_state,
+                    &terminated_fc.function_container,
+                )?;
+
+                in_memory_state.update_state(
+                    self.clock,
+                    &RequestPayload::SchedulerUpdate((Box::new(sandbox_update.clone()), vec![])),
+                    "container_reconciler_per_container_sandbox",
+                )?;
+
+                scheduler_update.extend(sandbox_update);
             }
-
-            // Terminate associated sandbox
-            let sandbox_update = self.terminate_sandbox_for_container(
-                in_memory_state,
-                container_id,
-                &terminated_state,
-            )?;
-
-            in_memory_state.update_state(
-                self.clock,
-                &RequestPayload::SchedulerUpdate((Box::new(sandbox_update.clone()), vec![])),
-                "container_reconciler_per_container_sandbox",
-            )?;
-
-            scheduler_update.extend(sandbox_update);
         }
 
         Ok(scheduler_update)

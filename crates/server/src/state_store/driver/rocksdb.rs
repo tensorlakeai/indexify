@@ -495,7 +495,9 @@ impl super::InnerTransaction for RocksDBTransaction {
         let _inc = Increment::inc(&self.db.metrics.driver_commits, attrs);
 
         let mut guard = self.tx.lock().await;
-        let tx = guard.take().expect("Transaction not initialized");
+        let tx = guard
+            .take()
+            .ok_or_else(|| DriverError::TransactionAlreadyCommitted)?;
         let result = tx.commit();
 
         // Count errors
@@ -516,7 +518,9 @@ impl super::InnerTransaction for RocksDBTransaction {
         let cf = self.db.column_family(table);
 
         let guard = self.tx.lock().await;
-        let tx = guard.as_ref().expect("Transaction not initialized");
+        let tx = guard
+            .as_ref()
+            .ok_or_else(|| DriverError::TransactionAlreadyCommitted)?;
         tx.get_for_update_cf(cf, key, true)
             .map_err(Error::into_generic)
     }
@@ -528,7 +532,9 @@ impl super::InnerTransaction for RocksDBTransaction {
         let cf = self.db.column_family(cf);
 
         let guard = self.tx.lock().await;
-        let tx = guard.as_ref().expect("Transaction not initialized");
+        let tx = guard
+            .as_ref()
+            .ok_or_else(|| DriverError::TransactionAlreadyCommitted)?;
         tx.put_cf(cf, key, value).map_err(Error::into_generic)
     }
 
@@ -539,7 +545,9 @@ impl super::InnerTransaction for RocksDBTransaction {
         let cf = self.db.column_family(cf);
 
         let guard = self.tx.lock().await;
-        let tx = guard.as_ref().expect("Transaction not initialized");
+        let tx = guard
+            .as_ref()
+            .ok_or_else(|| DriverError::TransactionAlreadyCommitted)?;
         tx.delete_cf(cf, key).map_err(Error::into_generic)
     }
 
@@ -548,7 +556,9 @@ impl super::InnerTransaction for RocksDBTransaction {
         let _inc = Increment::inc(&self.db.metrics.driver_scans, attrs);
 
         let guard = self.tx.lock().await;
-        let tx = guard.as_ref().expect("Transaction not initialized");
+        let Some(tx) = guard.as_ref() else {
+            return vec![Err(DriverError::TransactionAlreadyCommitted)];
+        };
         let cf = self.db.column_family(cf);
 
         tx.iterator_cf(cf, IteratorMode::Start)

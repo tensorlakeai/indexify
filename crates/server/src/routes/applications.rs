@@ -138,7 +138,7 @@ pub async fn delete_application(
     Ok(())
 }
 
-/// List compute graphs
+/// List applications
 #[utoipa::path(
     get,
     path = "/v1/namespaces/{namespace}/applications",
@@ -158,7 +158,9 @@ pub async fn applications(
 ) -> Result<Json<http_objects_v1::ApplicationsList>, IndexifyAPIError> {
     let cursor = params
         .cursor
-        .map(|c| BASE64_STANDARD.decode(c).unwrap_or_default());
+        .map(|c| BASE64_STANDARD.decode(c))
+        .transpose()
+        .map_err(|e| IndexifyAPIError::bad_request(&format!("Invalid cursor: {}", e)))?;
     let (application, cursor) = state
         .indexify_state
         .reader()

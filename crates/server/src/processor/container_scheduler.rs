@@ -8,11 +8,13 @@ use tracing::{error, info};
 
 use crate::{
     data_model::{
-        Application,
         ApplicationState,
         Container,
         ContainerBuilder,
         ContainerId,
+        ContainerPool,
+        ContainerPoolId,
+        ContainerPoolKey,
         ContainerResources,
         ContainerServerMetadata,
         ContainerState,
@@ -25,10 +27,12 @@ use crate::{
         FunctionResources,
         FunctionURI,
         Sandbox,
+        SandboxId,
     },
     state_store::{
-        in_memory_state::InMemoryState,
         requests::{RequestPayload, SchedulerUpdateRequest},
+        scanner::StateReader,
+        state_machine::IndexifyObjectsColumns,
     },
 };
 
@@ -91,16 +95,23 @@ impl Error {
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct DesiredContainers {
-    pub min_count: Option<u32>,
-    pub max_count: Option<u32>,
+/// Priority for container eviction during vacuum.
+/// Lower values = higher priority to evict.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum EvictionPriority {
+    /// Pool is above buffer level - prefer to evict
+    AboveBuffer = 0,
+    /// Pool is above min but at/below buffer - can evict if needed
+    AboveMin = 1,
+    /// Pool is at min - only evict if requestor is desperate (below min)
+    AtMin = 2,
+    /// Pool is below min - never evict
+    BelowMin = 3,
 }
 
 #[derive(Debug)]
 pub struct ContainerScheduler {
     pub clock: u64,
-    pub desired_containers: imbl::HashMap<FunctionURI, DesiredContainers>,
     // ExecutorId -> ExecutorMetadata
     // This is the metadata that executor is sending us, not the **Desired** state
     // from the perspective of the state store.
@@ -109,43 +120,40 @@ pub struct ContainerScheduler {
     pub function_containers: imbl::HashMap<ContainerId, Box<ContainerServerMetadata>>,
     // ExecutorId -> (FE ID -> List of Function Executors)
     pub executor_states: imbl::HashMap<ExecutorId, Box<ExecutorServerMetadata>>,
+    // Pool key -> Container IDs (for O(1) pool container count lookups during vacuum)
+    pub containers_by_pool: imbl::HashMap<ContainerPoolKey, imbl::HashSet<ContainerId>>,
+    // Container pools configuration (min, max, buffer counts)
+    pub container_pools: imbl::HashMap<ContainerPoolKey, Box<ContainerPool>>,
 }
 
 impl ContainerScheduler {
-    pub fn new(in_memory_state: &InMemoryState) -> Self {
-        let mut desired_containers = imbl::HashMap::new();
-        for application in in_memory_state.applications.values() {
-            for function in application.functions.values() {
-                let fn_uri = FunctionURI {
-                    namespace: application.namespace.clone(),
-                    application: application.name.clone(),
-                    function: function.name.clone(),
-                    version: application.version.clone(),
-                };
-                let dc = DesiredContainers {
-                    max_count: function.max_containers,
-                    min_count: function.min_containers,
-                };
-                desired_containers.insert(fn_uri, dc);
-            }
+    pub async fn new(clock: u64, reader: &StateReader) -> Result<Self> {
+        // Load container pools from DB
+        let all_container_pools: Vec<(String, ContainerPool)> = reader
+            .get_all_rows_from_cf::<ContainerPool>(IndexifyObjectsColumns::ContainerPools)
+            .await?;
+
+        let mut container_pools = imbl::HashMap::new();
+        for (_key, pool) in all_container_pools {
+            let pool_key = ContainerPoolKey::from(&pool);
+            container_pools.insert(pool_key, Box::new(pool));
         }
-        Self {
-            desired_containers,
+
+        Ok(Self {
             executors: imbl::HashMap::new(),
             containers_by_function_uri: imbl::HashMap::new(),
             function_containers: imbl::HashMap::new(),
             executor_states: imbl::HashMap::new(),
-            clock: in_memory_state.clock,
-        }
+            containers_by_pool: imbl::HashMap::new(),
+            container_pools,
+            clock,
+        })
     }
 
     pub fn update(&mut self, state_machine_update_request: &RequestPayload) -> Result<()> {
         match state_machine_update_request {
             RequestPayload::UpsertExecutor(request) => {
                 self.upsert_executor(&request.executor);
-            }
-            RequestPayload::CreateOrUpdateApplication(request) => {
-                self.update_application(&request.application);
             }
             RequestPayload::DeleteApplicationRequest((request, _)) => {
                 self.delete_application(&request.namespace, &request.name);
@@ -156,6 +164,43 @@ impl ContainerScheduler {
             RequestPayload::DeregisterExecutor(request) => {
                 self.deregister_executor(&request.executor_id);
             }
+            RequestPayload::CreateContainerPool(request) => {
+                let pool_key = ContainerPoolKey::from(&request.pool);
+                self.container_pools
+                    .insert(pool_key, Box::new(request.pool.clone()));
+            }
+            RequestPayload::UpdateContainerPool(request) => {
+                let pool_key = ContainerPoolKey::from(&request.pool);
+                self.container_pools
+                    .insert(pool_key, Box::new(request.pool.clone()));
+            }
+            RequestPayload::TombstoneContainerPool(request) => {
+                let pool_key = ContainerPoolKey::new(&request.namespace, &request.pool_id);
+                self.container_pools.remove(&pool_key);
+            }
+            RequestPayload::DeleteContainerPool((request, _)) => {
+                self.delete_container_pool(&request.namespace, &request.pool_id);
+            }
+            RequestPayload::CreateOrUpdateApplication(req) => {
+                // Delete old function pools for this application before inserting new ones
+                let pool_prefix = format!("fn:{}:{}:", req.namespace, req.application.name);
+                let pools_to_remove: Vec<_> = self
+                    .container_pools
+                    .iter()
+                    .filter(|(key, _)| key.pool_id.get().starts_with(&pool_prefix))
+                    .map(|(key, _)| key.clone())
+                    .collect();
+                for key in pools_to_remove {
+                    self.container_pools.remove(&key);
+                }
+
+                // Insert container pools from the request
+                for pool in &req.container_pools {
+                    let pool_key = ContainerPoolKey::from(pool);
+                    self.container_pools
+                        .insert(pool_key, Box::new(pool.clone()));
+                }
+            }
             _ => return Ok(()),
         }
         Ok(())
@@ -164,11 +209,12 @@ impl ContainerScheduler {
     pub fn clone(&self) -> Arc<tokio::sync::RwLock<Self>> {
         Arc::new(tokio::sync::RwLock::new(ContainerScheduler {
             clock: self.clock,
-            desired_containers: self.desired_containers.clone(),
             executors: self.executors.clone(),
             containers_by_function_uri: self.containers_by_function_uri.clone(),
             function_containers: self.function_containers.clone(),
             executor_states: self.executor_states.clone(),
+            containers_by_pool: self.containers_by_pool.clone(),
+            container_pools: self.container_pools.clone(),
         }))
     }
 
@@ -188,44 +234,32 @@ impl ContainerScheduler {
         }
     }
 
-    fn update_application(&mut self, application: &Application) {
-        // TODO: When applications are updated, we need to fire a new
-        // state change to the scheduler so that it asks the container
-        // scheduler to rebalance the clusters if max and min containers
-        // have changed.
-        for function in application.functions.values() {
-            let fn_uri = FunctionURI {
-                namespace: application.namespace.clone(),
-                application: application.name.clone(),
-                function: function.name.clone(),
-                version: application.version.clone(),
-            };
-            let dc = DesiredContainers {
-                max_count: function.max_containers,
-                min_count: function.min_containers,
-            };
-            self.desired_containers.insert(fn_uri, dc);
-        }
-    }
-
     fn delete_application(&mut self, namespace: &str, name: &str) {
-        // Remove from desired_containers
-        let mut desired_containers_to_remove = Vec::new();
-        for (fn_uri, _) in self.desired_containers.iter_mut() {
-            if fn_uri.namespace == namespace && fn_uri.application == name {
-                desired_containers_to_remove.push(fn_uri.clone());
-            }
-        }
-        for fn_uri in desired_containers_to_remove {
-            let _ = self.desired_containers.remove(&fn_uri);
-        }
-
         // Mark existing containers' desired_state as Terminated
         // The actual removal from indices happens when executor reports them as
         // terminated
         for (_, fc) in self.function_containers.iter_mut() {
             if fc.function_container.namespace == namespace &&
                 fc.function_container.application_name == name
+            {
+                fc.desired_state = ContainerState::Terminated {
+                    reason: FunctionExecutorTerminationReason::DesiredStateRemoved,
+                    failed_alloc_ids: vec![],
+                };
+            }
+        }
+    }
+
+    fn delete_container_pool(&mut self, namespace: &str, pool_id: &ContainerPoolId) {
+        // Mark pool containers' desired_state as Terminated
+        // Only marks warm (unclaimed) containers - claimed containers are terminated
+        // when their associated sandbox terminates.
+        // The actual removal from indices happens when executor reports them as
+        // terminated.
+        let pool_key = ContainerPoolKey::new(namespace, pool_id);
+        for (_, fc) in self.function_containers.iter_mut() {
+            if fc.function_container.is_warm_in_pool(&pool_key) &&
+                !matches!(fc.desired_state, ContainerState::Terminated { .. })
             {
                 fc.desired_state = ContainerState::Terminated {
                     reason: FunctionExecutorTerminationReason::DesiredStateRemoved,
@@ -257,6 +291,14 @@ impl ContainerScheduler {
                                     self.containers_by_function_uri.remove(&fn_uri);
                                 }
                             }
+                            // Also clean up from containers_by_pool index
+                            let pool_key = fc.function_container.pool_key();
+                            if let Some(pool_ids) = self.containers_by_pool.get_mut(&pool_key) {
+                                pool_ids.retain(|id| id != container_id);
+                                if pool_ids.is_empty() {
+                                    self.containers_by_pool.remove(&pool_key);
+                                }
+                            }
                         }
                     }
                 }
@@ -276,9 +318,41 @@ impl ContainerScheduler {
                 .entry(fn_uri)
                 .or_default()
                 .insert(container_id.clone());
+
+            // Also update the containers_by_pool index
+            let pool_key = new_function_container.function_container.pool_key();
+            self.containers_by_pool
+                .entry(pool_key)
+                .or_default()
+                .insert(container_id.clone());
         }
 
         for removed_executor_id in &scheduler_update.remove_executors {
+            // Clean up containers for this executor before removing it
+            if let Some(old_state) = self.executor_states.get(removed_executor_id) {
+                for container_id in old_state.function_container_ids.clone() {
+                    if let Some(fc) = self.function_containers.remove(&container_id) {
+                        // Clean up from containers_by_function_uri
+                        let fn_uri = FunctionURI::from(&fc.function_container);
+                        if let Some(container_ids) =
+                            self.containers_by_function_uri.get_mut(&fn_uri)
+                        {
+                            container_ids.retain(|id| id != &container_id);
+                            if container_ids.is_empty() {
+                                self.containers_by_function_uri.remove(&fn_uri);
+                            }
+                        }
+                        // Clean up from containers_by_pool
+                        let pool_key = fc.function_container.pool_key();
+                        if let Some(pool_ids) = self.containers_by_pool.get_mut(&pool_key) {
+                            pool_ids.retain(|id| id != &container_id);
+                            if pool_ids.is_empty() {
+                                self.containers_by_pool.remove(&pool_key);
+                            }
+                        }
+                    }
+                }
+            }
             let _ = self.executor_states.remove(removed_executor_id);
             let _ = self.executors.remove(removed_executor_id);
         }
@@ -309,6 +383,10 @@ impl ContainerScheduler {
             gpu: function.resources.gpu_configs.first().cloned(),
         };
 
+        // Build pool_id for this function container
+        let pool_id =
+            ContainerPoolId::for_function(namespace, application, &function.name, version);
+
         let function_container = ContainerBuilder::default()
             .namespace(namespace.to_string())
             .application_name(application.to_string())
@@ -320,7 +398,10 @@ impl ContainerScheduler {
             .container_type(ContainerType::Function)
             .secret_names(function.secret_names.clone().unwrap_or_default())
             .timeout_secs(function.timeout.0 as u64 / 1000) // Convert ms to secs
+            .pool_id(pool_id.clone())
             .build()?;
+
+        let pool_key = ContainerPoolKey::new(namespace, &pool_id);
 
         self.create_container(
             namespace,
@@ -329,6 +410,7 @@ impl ContainerScheduler {
             &function.resources,
             function_container,
             ContainerType::Function,
+            Some(&pool_key),
         )
     }
 
@@ -348,8 +430,17 @@ impl ContainerScheduler {
                 .unwrap_or_default(),
         };
 
-        // Use sandbox ID as the container ID (1:1 relationship)
+        // Use sandbox ID as the container ID (1:1 relationship for direct sandboxes)
         let container_id = ContainerId::from(&sandbox.id);
+
+        // All containers must have a pool_id for proper index tracking.
+        // If sandbox has an explicit pool_id, use it; otherwise generate a synthetic
+        // one.
+        let pool_id = sandbox
+            .pool_id
+            .clone()
+            .unwrap_or_else(|| ContainerPoolId::for_sandbox(&sandbox.namespace, sandbox.id.get()));
+
         let function_container = ContainerBuilder::default()
             .id(container_id)
             .namespace(sandbox.namespace.clone())
@@ -365,6 +456,8 @@ impl ContainerScheduler {
             .timeout_secs(sandbox.timeout_secs)
             .entrypoint(sandbox.entrypoint.clone().unwrap_or_default())
             .network_policy(sandbox.network_policy.clone())
+            .sandbox_id(Some(sandbox.id.clone()))
+            .pool_id(pool_id)
             .build()?;
 
         self.create_container(
@@ -374,9 +467,11 @@ impl ContainerScheduler {
             &resources,
             function_container,
             ContainerType::Sandbox,
+            None, // Sandboxes don't have a requesting pool for vacuum priority
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn create_container(
         &mut self,
         namespace: &str,
@@ -385,27 +480,37 @@ impl ContainerScheduler {
         resources: &FunctionResources,
         function_container: Container,
         container_type: ContainerType,
+        requesting_pool_key: Option<&ContainerPoolKey>,
     ) -> Result<Option<SchedulerUpdateRequest>> {
         let mut candidates = self.candidate_hosts(namespace, application, function, resources);
         let mut update = SchedulerUpdateRequest::default();
 
         // If no candidates, try vacuuming to free up resources
         if candidates.is_empty() {
-            let function_executors_to_remove = self.vacuum_function_container_candidates(resources);
+            let function_executors_to_remove = self.vacuum_function_container_candidates(
+                resources,
+                requesting_pool_key,
+                namespace,
+                application,
+                function,
+            );
             for fe in function_executors_to_remove {
                 let mut update_fe = fe.clone();
                 update_fe.desired_state = ContainerState::Terminated {
                     reason: FunctionExecutorTerminationReason::DesiredStateRemoved,
                     failed_alloc_ids: Vec::new(),
                 };
-                let Some(executor_server_state) = self.executor_states.get_mut(&fe.executor_id)
-                else {
+                let Some(executor_server_state) = self.executor_states.get(&fe.executor_id) else {
                     continue;
                 };
-                executor_server_state.remove_container(&fe.function_container)?;
+                // Clone the state first, then modify the clone (not in-place).
+                // This ensures update() sees the difference between old and new state
+                // and properly cleans up indices for the removed container.
+                let mut updated_executor_state = executor_server_state.clone();
+                updated_executor_state.remove_container(&fe.function_container)?;
                 update.updated_executor_states.insert(
-                    executor_server_state.executor_id.clone(),
-                    executor_server_state.clone(),
+                    updated_executor_state.executor_id.clone(),
+                    updated_executor_state,
                 );
                 update.containers.insert(
                     update_fe.function_container.id.clone(),
@@ -445,7 +550,54 @@ impl ContainerScheduler {
         Ok(Some(update))
     }
 
-    pub fn candidate_hosts(
+    /// Checks if an executor can run a container based on placement
+    /// constraints.s
+    ///
+    /// For functions: checks tombstone, allowlist, placement constraints, and
+    /// version. For sandboxes: checks tombstone, allowlist, and version.
+    fn executor_matches_constraints(
+        &self,
+        executor: &ExecutorMetadata,
+        namespace: &str,
+        application: &str,
+        function: Option<&Function>,
+    ) -> bool {
+        if executor.tombstoned {
+            return false;
+        }
+
+        if let Some(func) = function {
+            // Function container constraints
+            if !executor.is_function_allowed(namespace, application, func) {
+                return false;
+            }
+            if !func.placement_constraints.matches(&executor.labels) {
+                return false;
+            }
+            // Functions can't run on sandbox-enabled dataplanes
+            if executor
+                .executor_version
+                .eq_ignore_ascii_case(SANDBOX_ENABLED_DATAPLANE_VERSION)
+            {
+                return false;
+            }
+        } else {
+            // Sandbox container constraints
+            if !executor
+                .executor_version
+                .eq_ignore_ascii_case(SANDBOX_ENABLED_DATAPLANE_VERSION)
+            {
+                return false;
+            }
+            if !executor.is_app_allowed(namespace, application) {
+                return false;
+            }
+        }
+
+        true
+    }
+
+    fn candidate_hosts(
         &self,
         namespace: &str,
         application: &str,
@@ -463,39 +615,8 @@ impl ContainerScheduler {
                 continue;
             };
 
-            if executor.tombstoned {
+            if !self.executor_matches_constraints(executor, namespace, application, function) {
                 continue;
-            }
-
-            // Check allowlist based on whether this is a function or sandbox
-            if let Some(func) = function {
-                // Function: check full allowlist including function name
-                if !executor.is_function_allowed(namespace, application, func) {
-                    continue;
-                }
-                // Check placement constraints for functions
-                if !func.placement_constraints.matches(&executor.labels) {
-                    continue;
-                }
-                // Don't place functions on executors that are 2.0.0
-                if executor
-                    .executor_version
-                    .eq_ignore_ascii_case(SANDBOX_ENABLED_DATAPLANE_VERSION)
-                {
-                    continue;
-                }
-            } else {
-                // place sandboxes on executors that are 2.0.0
-                if !executor
-                    .executor_version
-                    .eq_ignore_ascii_case(SANDBOX_ENABLED_DATAPLANE_VERSION)
-                {
-                    continue;
-                }
-                // Sandbox: check allowlist for namespace/app only
-                if !executor.is_app_allowed(namespace, application) {
-                    continue;
-                }
             }
 
             // Check resources
@@ -557,10 +678,53 @@ impl ContainerScheduler {
     pub fn vacuum_function_container_candidates(
         &self,
         fe_resource: &FunctionResources,
+        requesting_pool_key: Option<&ContainerPoolKey>,
+        namespace: &str,
+        application: &str,
+        function: Option<&Function>,
     ) -> Vec<ContainerServerMetadata> {
-        // For each executor in the system
+        // Determine if the requesting pool is below its min (desperate mode)
+        let requesting_pool_desperate = requesting_pool_key
+            .and_then(|key| {
+                self.container_pools.get(key).map(|pool| {
+                    let min = pool.min_containers.unwrap_or(0);
+                    let current = self.pool_container_count(key);
+                    current < min
+                })
+            })
+            .unwrap_or(false);
+
+        // Helper to compute eviction priority for a container given current pool count
+        let compute_priority =
+            |pool_key: &ContainerPoolKey, current_count: u32| -> EvictionPriority {
+                let (min, buffer) = self
+                    .container_pools
+                    .get(pool_key)
+                    .map(|p| {
+                        (
+                            p.min_containers.unwrap_or(0),
+                            p.buffer_containers.unwrap_or(0),
+                        )
+                    })
+                    .unwrap_or((0, 0));
+
+                if current_count <= min {
+                    if current_count < min {
+                        EvictionPriority::BelowMin
+                    } else {
+                        EvictionPriority::AtMin
+                    }
+                } else if current_count > min + buffer {
+                    EvictionPriority::AboveBuffer
+                } else {
+                    EvictionPriority::AboveMin
+                }
+            };
+
+        // For each executor in the system that can run the target container
         for (executor_id, executor) in &self.executors {
-            if executor.tombstoned {
+            // Only vacuum from executors that could actually run the new container
+            if !self.executor_matches_constraints(executor, namespace, application, function) {
                 continue;
             }
             let Some(executor_state) = self.executor_states.get(executor_id) else {
@@ -573,7 +737,10 @@ impl ContainerScheduler {
             // Start with the current free resources on this executor
             let mut available_resources = executor_state.free_resources.clone();
 
-            let mut function_executors_to_remove = Vec::new();
+            // Collect candidates with their initial eviction priority (based on real
+            // counts)
+            let mut candidates: Vec<(EvictionPriority, ContainerServerMetadata)> = Vec::new();
+
             for fe_metadata in function_executors.iter() {
                 // Skip if the FE is already marked for termination
                 let Some(fe_server_metadata) = self.function_containers.get(fe_metadata) else {
@@ -586,29 +753,72 @@ impl ContainerScheduler {
                     continue;
                 }
 
-                if !self.executors.contains_key(executor_id) {
-                    function_executors_to_remove.push(*fe_server_metadata.clone());
-                    continue;
-                };
-
                 if self.fe_can_be_removed(fe_server_metadata) {
-                    let mut simulated_resources = available_resources.clone();
-                    if simulated_resources
-                        .free(&fe_server_metadata.function_container.resources)
-                        .is_err()
-                    {
-                        continue;
-                    }
+                    // Get pool key for this container
+                    let pool_key = fe_server_metadata.function_container.pool_key();
 
-                    function_executors_to_remove.push(*fe_server_metadata.clone());
-                    available_resources = simulated_resources;
+                    // Compute priority using REAL count (not simulated)
+                    let current = self.pool_container_count(&pool_key);
+                    let priority = compute_priority(&pool_key, current);
 
-                    if available_resources
-                        .can_handle_function_resources(fe_resource)
-                        .is_ok()
-                    {
-                        return function_executors_to_remove;
-                    }
+                    candidates.push((priority, *fe_server_metadata.clone()));
+                }
+            }
+
+            // Sort candidates by priority (lowest priority value = highest priority to
+            // evict)
+            candidates.sort_by_key(|(priority, _)| *priority);
+
+            // Track how many containers we've decided to evict from each pool
+            let mut evicted_from_pool: imbl::HashMap<ContainerPoolKey, u32> = imbl::HashMap::new();
+
+            let mut function_executors_to_remove = Vec::new();
+            for (_initial_priority, fe_server_metadata) in candidates {
+                let pool_key = fe_server_metadata.function_container.pool_key();
+
+                // Re-compute priority based on what we've already decided to evict
+                let already_evicted = evicted_from_pool.get(&pool_key).copied().unwrap_or(0);
+                let effective_count = self
+                    .pool_container_count(&pool_key)
+                    .saturating_sub(already_evicted);
+                let priority = compute_priority(&pool_key, effective_count);
+
+                // Skip BelowMin always
+                if priority == EvictionPriority::BelowMin {
+                    continue;
+                }
+
+                // Skip AtMin unless desperate
+                if priority == EvictionPriority::AtMin && !requesting_pool_desperate {
+                    continue;
+                }
+
+                // In desperate mode, don't steal from the requesting pool itself
+                if requesting_pool_desperate
+                    && let Some(req_key) = requesting_pool_key
+                    && pool_key == *req_key {
+                    continue;
+                }
+
+                let mut simulated_resources = available_resources.clone();
+                if simulated_resources
+                    .free(&fe_server_metadata.function_container.resources)
+                    .is_err()
+                {
+                    continue;
+                }
+
+                // Record that we're evicting from this pool
+                evicted_from_pool.insert(pool_key, already_evicted + 1);
+
+                function_executors_to_remove.push(fe_server_metadata);
+                available_resources = simulated_resources;
+
+                if available_resources
+                    .can_handle_function_resources(fe_resource)
+                    .is_ok()
+                {
+                    return function_executors_to_remove;
                 }
             }
         }
@@ -629,26 +839,8 @@ impl ContainerScheduler {
         }
 
         // Check if container has active allocations or is a sandbox
-        if !fe_meta.can_be_removed() {
-            return false;
-        }
-
-        let function_uri = FunctionURI::from(&fe_meta.function_container);
-
-        // Check if function is in desired_containers
-        let Some(desired_containers) = self.desired_containers.get(&function_uri) else {
-            return false;
-        };
-
-        // Check min/max container constraints
-        let num_containers = self
-            .containers_by_function_uri
-            .get(&function_uri)
-            .map_or(0, |containers| containers.len() as u32);
-        let min_count = desired_containers.min_count.unwrap_or(0);
-        let max_count = desired_containers.max_count.unwrap_or(u32::MAX);
-
-        min_count < num_containers && num_containers <= max_count
+        // Buffer reconciler handles maintaining min/buffer counts
+        fe_meta.can_be_removed()
     }
 
     /// Terminate a container by its ID
@@ -670,5 +862,243 @@ impl ContainerScheduler {
         update.containers.insert(container_id.clone(), fc.clone());
 
         Ok(Some(update))
+    }
+
+    // ====================================
+    // Buffer/Pool Helper Methods
+    // ====================================
+
+    /// Get the count of non-terminated containers for a pool.
+    /// Uses the pool index for lookup, then filters terminated containers.
+    /// Complexity: O(m) where m is containers in the pool.
+    pub fn pool_container_count(&self, pool_key: &ContainerPoolKey) -> u32 {
+        self.containers_by_pool
+            .get(pool_key)
+            .map(|ids| {
+                ids.iter()
+                    .filter(|id| {
+                        self.function_containers.get(*id).is_some_and(|meta| {
+                            !matches!(meta.desired_state, ContainerState::Terminated { .. })
+                        })
+                    })
+                    .count() as u32
+            })
+            .unwrap_or(0)
+    }
+
+    /// Count active (with allocations) and idle (without) containers for a
+    /// function
+    pub fn count_active_idle_containers(&self, fn_uri: &FunctionURI) -> (u32, u32) {
+        let mut active = 0;
+        let mut idle = 0;
+
+        if let Some(ids) = self.containers_by_function_uri.get(fn_uri) {
+            for id in ids {
+                if let Some(meta) = self.function_containers.get(id) {
+                    if matches!(meta.desired_state, ContainerState::Terminated { .. }) {
+                        continue;
+                    }
+                    if meta.allocations.is_empty() {
+                        idle += 1;
+                    } else {
+                        active += 1;
+                    }
+                }
+            }
+        }
+
+        (active, idle)
+    }
+
+    /// Count claimed and warm containers for a pool.
+    /// Pool containers have pool_id set. Claimed ones also have sandbox_id set.
+    /// Uses the pool index for O(m) lookup where m is containers in the pool.
+    pub fn count_pool_containers(&self, pool_key: &ContainerPoolKey) -> (u32, u32) {
+        let mut claimed = 0;
+        let mut warm = 0;
+
+        if let Some(container_ids) = self.containers_by_pool.get(pool_key) {
+            for id in container_ids {
+                if let Some(meta) = self.function_containers.get(id)
+                    && !matches!(meta.desired_state, ContainerState::Terminated { .. })
+                {
+                    if meta.function_container.sandbox_id.is_some() {
+                        claimed += 1;
+                    } else {
+                        warm += 1;
+                    }
+                }
+            }
+        }
+
+        (claimed, warm)
+    }
+
+    /// Select idle containers to terminate (for trimming excess)
+    pub fn select_idle_containers(&self, fn_uri: &FunctionURI, count: u32) -> Vec<ContainerId> {
+        let mut result = Vec::new();
+
+        if let Some(ids) = self.containers_by_function_uri.get(fn_uri) {
+            for id in ids {
+                if result.len() >= count as usize {
+                    break;
+                }
+                if let Some(meta) = self.function_containers.get(id)
+                    && meta.allocations.is_empty()
+                    && !matches!(meta.desired_state, ContainerState::Terminated { .. })
+                {
+                    result.push(id.clone());
+                }
+            }
+        }
+
+        result
+    }
+
+    /// Select warm pool containers to terminate.
+    /// Warm containers have pool_id set but sandbox_id is None.
+    /// Uses the pool index for O(m) lookup where m is containers in the pool.
+    pub fn select_warm_pool_containers(
+        &self,
+        pool_key: &ContainerPoolKey,
+        count: u32,
+    ) -> Vec<ContainerId> {
+        let mut result = Vec::new();
+
+        if let Some(container_ids) = self.containers_by_pool.get(pool_key) {
+            for id in container_ids {
+                if result.len() >= count as usize {
+                    break;
+                }
+                if let Some(meta) = self.function_containers.get(id)
+                    && meta.function_container.is_warm_in_pool(pool_key)
+                    && !matches!(meta.desired_state, ContainerState::Terminated { .. })
+                {
+                    result.push(id.clone());
+                }
+            }
+        }
+
+        result
+    }
+
+    /// Create a warm container for a container pool
+    pub fn create_container_for_pool(
+        &mut self,
+        pool: &ContainerPool,
+    ) -> Result<Option<SchedulerUpdateRequest>> {
+        let resources = FunctionResources {
+            cpu_ms_per_sec: pool.resources.cpu_ms_per_sec,
+            memory_mb: pool.resources.memory_mb,
+            ephemeral_disk_mb: pool.resources.ephemeral_disk_mb,
+            gpu_configs: pool
+                .resources
+                .gpu
+                .clone()
+                .map(|g| vec![g])
+                .unwrap_or_default(),
+        };
+
+        let container = ContainerBuilder::default()
+            .namespace(pool.namespace.clone())
+            .application_name(String::new())
+            .function_name(format!("pool:{}", pool.id.get()))
+            .version(String::new())
+            .state(ContainerState::Pending)
+            .resources(pool.resources.clone())
+            .max_concurrency(1u32)
+            .container_type(ContainerType::Sandbox)
+            .image(Some(pool.image.clone()))
+            .secret_names(pool.secret_names.clone())
+            .timeout_secs(pool.timeout_secs)
+            .entrypoint(pool.entrypoint.clone().unwrap_or_default())
+            .network_policy(pool.network_policy.clone())
+            .pool_id(pool.id.clone())
+            .build()?;
+
+        // Build requesting pool key for vacuum priority
+        let pool_key = ContainerPoolKey::new(&pool.namespace, &pool.id);
+
+        self.create_container(
+            &pool.namespace,
+            "",
+            None,
+            &resources,
+            container,
+            ContainerType::Sandbox,
+            Some(&pool_key),
+        )
+    }
+
+    /// Apply a container update to internal state (for iterative creation)
+    pub fn apply_container_update(&mut self, update: &SchedulerUpdateRequest) {
+        // Update function containers index
+        for (id, meta) in &update.containers {
+            self.function_containers.insert(id.clone(), meta.clone());
+            let fn_uri = FunctionURI::from(&meta.function_container);
+            self.containers_by_function_uri
+                .entry(fn_uri)
+                .or_default()
+                .insert(id.clone());
+
+            // Also update containers_by_pool index
+            let pool_key = meta.function_container.pool_key();
+            self.containers_by_pool
+                .entry(pool_key)
+                .or_default()
+                .insert(id.clone());
+        }
+
+        // Update executor states
+        for (id, state) in &update.updated_executor_states {
+            self.executor_states.insert(id.clone(), state.clone());
+        }
+    }
+
+    /// Apply a pool container update to internal state
+    /// (Pool containers are now tracked in function_containers with pool_id
+    /// set)
+    pub fn apply_pool_container_update(&mut self, update: &SchedulerUpdateRequest) {
+        // Pool containers are now regular containers with pool_id set
+        self.apply_container_update(update);
+    }
+
+    /// Claim a warm pool container for a sandbox.
+    /// Finds an unclaimed container (pool_id matches, sandbox_id is None) and
+    /// claims it. Returns the container ID and executor ID if found, along
+    /// with a scheduler update.
+    /// Uses the pool index for O(m) lookup where m is containers in the pool.
+    pub fn claim_pool_container(
+        &mut self,
+        pool_key: &ContainerPoolKey,
+        sandbox_id: &SandboxId,
+    ) -> Option<(ContainerId, ExecutorId, SchedulerUpdateRequest)> {
+        // Find unclaimed warm container using pool index
+        let warm_container = self.containers_by_pool.get(pool_key).and_then(|container_ids| {
+            container_ids.iter().find_map(|id| {
+                self.function_containers.get(id).and_then(|meta| {
+                    // Check if warm (no sandbox_id) and not terminated
+                    if meta.function_container.sandbox_id.is_none() &&
+                        !matches!(meta.desired_state, ContainerState::Terminated { .. })
+                    {
+                        Some((id.clone(), meta.executor_id.clone()))
+                    } else {
+                        None
+                    }
+                })
+            })
+        });
+
+        let (container_id, executor_id) = warm_container?;
+
+        // Claim it by setting sandbox_id
+        let meta = self.function_containers.get_mut(&container_id)?;
+        meta.function_container.sandbox_id = Some(sandbox_id.clone());
+
+        // Create update to persist the claim
+        let mut update = SchedulerUpdateRequest::default();
+        update.containers.insert(container_id.clone(), meta.clone());
+
+        Some((container_id, executor_id, update))
     }
 }

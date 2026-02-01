@@ -52,6 +52,9 @@ pub enum Error {
         #[from]
         source: rocksdb::Error,
     },
+
+    #[error("Transaction already committed")]
+    TransactionAlreadyCommitted,
 }
 
 impl Error {

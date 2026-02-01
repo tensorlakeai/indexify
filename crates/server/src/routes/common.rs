@@ -2,7 +2,7 @@ use tracing::info;
 
 use super::routes_state::RouteState;
 use crate::{
-    data_model::Application,
+    data_model::{Application, ContainerPool},
     http_objects::IndexifyAPIError,
     state_store::requests::{
         CreateOrUpdateApplicationRequest,
@@ -59,15 +59,32 @@ pub async fn validate_and_submit_application(
         .map_err(|e| IndexifyAPIError::bad_request(&e.to_string()))?;
     let name = application.name.clone();
 
+    // Create and validate container pools for all functions
+    let version = application.version.clone();
+    let mut container_pools = Vec::with_capacity(application.functions.len());
+    for function in application.functions.values() {
+        let pool = ContainerPool::from_function(&namespace, &application.name, &version, function);
+        pool.validate().map_err(|e| {
+            IndexifyAPIError::bad_request(&format!(
+                "Invalid pool configuration for function '{}': {}",
+                function.name, e
+            ))
+        })?;
+        container_pools.push(pool);
+    }
+
     info!(
-        "creating application {}, upgrade existing function runs and requests: {}",
-        name, upgrade_requests_to_current_version
+        "creating application {}, upgrade existing function runs and requests: {}, pools: {}",
+        name,
+        upgrade_requests_to_current_version,
+        container_pools.len()
     );
     let request =
         RequestPayload::CreateOrUpdateApplication(Box::new(CreateOrUpdateApplicationRequest {
             namespace,
             application,
             upgrade_requests_to_current_version,
+            container_pools,
         }));
 
     state

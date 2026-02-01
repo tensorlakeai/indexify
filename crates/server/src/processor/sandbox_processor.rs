@@ -3,7 +3,7 @@ use tracing::{info, warn};
 
 use crate::{
     data_model::{
-        ContainerId,
+        ContainerPoolKey,
         Sandbox,
         SandboxFailureReason,
         SandboxKey,
@@ -102,6 +102,41 @@ impl SandboxProcessor {
             return Ok(update);
         }
 
+        // If sandbox has a pool_id, try to claim from pool first
+        if let Some(pool_id) = &sandbox.pool_id {
+            let container_pool_key = ContainerPoolKey::new(&sandbox.namespace, pool_id);
+
+            // Try to claim a warm container from the pool
+            if let Some(claim_update) = self.try_claim_from_pool(
+                in_memory_state,
+                container_scheduler,
+                sandbox,
+                &container_pool_key,
+            )? {
+                return Ok(claim_update);
+            }
+
+            // No warm container available - check if we can create on-demand
+            if let Some(pool) = container_scheduler.container_pools.get(&container_pool_key) {
+                let (claimed, warm) =
+                    container_scheduler.count_pool_containers(&container_pool_key);
+                let current = claimed + warm;
+
+                if let Some(max) = pool.max_containers && current >= max {
+                    warn!(
+                        sandbox_id = %sandbox.id,
+                        pool_id = %pool_id,
+                        current = current,
+                        max = max,
+                        "Pool at capacity, cannot create sandbox"
+                    );
+                    // Pool at capacity - keep sandbox pending
+                    return Ok(update);
+                }
+            }
+            // Fall through to create on-demand
+        }
+
         // Try to create a container for the sandbox using consolidated method
         match container_scheduler.create_container_for_sandbox(sandbox) {
             Ok(Some(container_update)) => {
@@ -110,6 +145,7 @@ impl SandboxProcessor {
                     // Container created successfully, update sandbox status to Running
                     let mut updated_sandbox = sandbox.clone();
                     updated_sandbox.executor_id = Some(fc_metadata.executor_id.clone());
+                    updated_sandbox.container_id = Some(fc_metadata.function_container.id.clone());
                     updated_sandbox.status = SandboxStatus::Running;
 
                     let sandbox_key = SandboxKey::from(&updated_sandbox);
@@ -210,13 +246,11 @@ impl SandboxProcessor {
             return Ok(update);
         };
 
-        if sandbox.status == SandboxStatus::Running {
-            let container_id = ContainerId::from(&sandbox.id);
-            if let Some(container_update) =
-                container_scheduler.terminate_container(&container_id)?
-            {
-                update.extend(container_update);
-            }
+        if sandbox.status == SandboxStatus::Running
+            && let Some(container_id) = &sandbox.container_id
+            && let Some(container_update) = container_scheduler.terminate_container(container_id)?
+        {
+            update.extend(container_update);
         }
 
         let mut terminated_sandbox = sandbox.as_ref().clone();
@@ -226,5 +260,53 @@ impl SandboxProcessor {
             .insert(sandbox_key, terminated_sandbox);
 
         Ok(update)
+    }
+
+    /// Try to claim a warm container from a sandbox pool
+    fn try_claim_from_pool(
+        &self,
+        in_memory_state: &mut InMemoryState,
+        container_scheduler: &mut ContainerScheduler,
+        sandbox: &Sandbox,
+        pool_key: &ContainerPoolKey,
+    ) -> Result<Option<SchedulerUpdateRequest>> {
+        // Try to claim a warm container - returns (container_id, executor_id,
+        // container_update)
+        let Some((container_id, executor_id, container_update)) =
+            container_scheduler.claim_pool_container(pool_key, &sandbox.id)
+        else {
+            return Ok(None); // No warm container available
+        };
+
+        let mut update = SchedulerUpdateRequest::default();
+
+        // Include the container update (sets sandbox_id on the container)
+        update.extend(container_update);
+
+        // Update sandbox status to Running
+        let mut updated_sandbox = sandbox.clone();
+        updated_sandbox.status = SandboxStatus::Running;
+        updated_sandbox.executor_id = Some(executor_id.clone());
+        updated_sandbox.container_id = Some(container_id.clone());
+
+        let sandbox_key = SandboxKey::from(&updated_sandbox);
+        update
+            .updated_sandboxes
+            .insert(sandbox_key.clone(), updated_sandbox.clone());
+
+        info!(
+            sandbox_id = %sandbox.id,
+            namespace = %sandbox.namespace,
+            pool_id = %pool_key.pool_id,
+            container_id = %container_id,
+            "Sandbox claimed warm container from pool"
+        );
+
+        // Apply update to local copies
+        let payload = RequestPayload::SchedulerUpdate((Box::new(update.clone()), vec![]));
+        container_scheduler.update(&payload)?;
+        in_memory_state.update_state(self.clock, &payload, "sandbox_processor")?;
+
+        Ok(Some(update))
     }
 }

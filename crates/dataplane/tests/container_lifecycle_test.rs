@@ -264,6 +264,7 @@ fn create_test_fe_description(id: &str) -> FunctionExecutorDescription {
         allocation_timeout_ms: None,
         sandbox_metadata: None,
         container_type: None,
+        pool_id: None,
     }
 }
 

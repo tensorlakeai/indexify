@@ -5,4 +5,5 @@ pub mod invoke;
 #[cfg(test)]
 mod invoke_test;
 pub mod routes_state;
+pub mod sandbox_pools;
 pub mod sandboxes;

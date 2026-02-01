@@ -438,6 +438,10 @@ pub struct Function {
     pub min_containers: Option<u32>,
     #[serde(default)]
     pub max_containers: Option<u32>,
+    /// Number of idle containers to maintain as a buffer for faster scheduling.
+    /// Buffer + active containers must not exceed max_containers.
+    #[serde(default)]
+    pub buffer_containers: Option<u32>,
 }
 
 impl Function {
@@ -1097,8 +1101,7 @@ impl RequestCtx {
 
         function_call_ids
             .difference(&function_run_ids)
-            .cloned()
-            .cloned()
+            .map(|&id| id.clone())
             .collect::<HashSet<_>>()
     }
 
@@ -1795,6 +1798,15 @@ pub struct Container {
     #[builder(default)]
     #[serde(default)]
     pub network_policy: Option<NetworkPolicy>,
+    /// The sandbox this container is serving (if any).
+    /// For sandbox containers: None when warm, Some when claimed/allocated.
+    #[builder(default)]
+    #[serde(default)]
+    pub sandbox_id: Option<SandboxId>,
+    /// The pool this container belongs to.
+    /// Every container belongs to a pool (function pool, shared sandbox pool,
+    /// or individual sandbox pool).
+    pub pool_id: ContainerPoolId,
     #[builder(default)]
     #[serde(default)]
     created_at_clock: Option<u64>,
@@ -1826,6 +1838,21 @@ impl Container {
         // Only update fields that change after self FE was created.
         // Other FE must represent the same FE.
         self.state = other.state.clone();
+    }
+
+    /// Check if this container belongs to the given pool
+    pub fn belongs_to_pool(&self, pool_key: &ContainerPoolKey) -> bool {
+        self.pool_id == pool_key.pool_id && self.namespace == pool_key.namespace
+    }
+
+    /// Check if this is an unclaimed warm pool container
+    pub fn is_warm_in_pool(&self, pool_key: &ContainerPoolKey) -> bool {
+        self.belongs_to_pool(pool_key) && self.sandbox_id.is_none()
+    }
+
+    /// Get the pool key for this container.
+    pub fn pool_key(&self) -> ContainerPoolKey {
+        ContainerPoolKey::new(&self.namespace, &self.pool_id)
     }
 }
 
@@ -2075,6 +2102,9 @@ pub enum ChangeType {
     TombStoneExecutor(ExecutorRemovedEvent),
     CreateSandbox(CreateSandboxEvent),
     TerminateSandbox(TerminateSandboxEvent),
+    CreateContainerPool(CreateContainerPoolEvent),
+    UpdateContainerPool(UpdateContainerPoolEvent),
+    DeleteContainerPool(DeleteContainerPoolEvent),
 }
 
 impl fmt::Display for ChangeType {
@@ -2124,6 +2154,21 @@ impl fmt::Display for ChangeType {
                 f,
                 "TerminateSandbox, namespace: {}, sandbox_id: {}",
                 ev.namespace, ev.sandbox_id
+            ),
+            ChangeType::CreateContainerPool(ev) => write!(
+                f,
+                "CreateContainerPool, namespace: {}, pool_id: {}",
+                ev.namespace, ev.pool_id
+            ),
+            ChangeType::UpdateContainerPool(ev) => write!(
+                f,
+                "UpdateContainerPool, namespace: {}, pool_id: {}",
+                ev.namespace, ev.pool_id
+            ),
+            ChangeType::DeleteContainerPool(ev) => write!(
+                f,
+                "DeleteContainerPool, namespace: {}, pool_id: {}",
+                ev.namespace, ev.pool_id
             ),
         }
     }
@@ -2404,6 +2449,8 @@ pub enum SandboxFailureReason {
     ContainerStartupFailed,
     /// Container terminated (with reason from executor)
     ContainerTerminated(FunctionExecutorTerminationReason),
+    /// Pool was deleted while sandbox was using it
+    PoolDeleted,
 }
 
 impl Display for SandboxFailureReason {
@@ -2419,6 +2466,7 @@ impl Display for SandboxFailureReason {
             SandboxFailureReason::ContainerTerminated(reason) => {
                 write!(f, "ContainerTerminated({reason})")
             }
+            SandboxFailureReason::PoolDeleted => write!(f, "PoolDeleted"),
         }
     }
 }
@@ -2516,6 +2564,14 @@ pub struct Sandbox {
     #[builder(default)]
     #[serde(default)]
     pub network_policy: Option<NetworkPolicy>,
+    /// If created from a pool, the pool ID
+    #[builder(default)]
+    #[serde(default)]
+    pub pool_id: Option<ContainerPoolId>,
+    /// The container ID serving this sandbox (set when sandbox becomes Running)
+    #[builder(default)]
+    #[serde(default)]
+    pub container_id: Option<ContainerId>,
 }
 
 impl SandboxBuilder {
@@ -2551,6 +2607,273 @@ pub struct CreateSandboxEvent {
 pub struct TerminateSandboxEvent {
     pub namespace: String,
     pub sandbox_id: SandboxId,
+}
+
+/// Event for creating a container pool
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
+pub struct CreateContainerPoolEvent {
+    pub namespace: String,
+    pub pool_id: ContainerPoolId,
+}
+
+/// Event for updating a container pool
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
+pub struct UpdateContainerPoolEvent {
+    pub namespace: String,
+    pub pool_id: ContainerPoolId,
+}
+
+/// Event for deleting a container pool
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
+pub struct DeleteContainerPoolEvent {
+    pub namespace: String,
+    pub pool_id: ContainerPoolId,
+}
+
+// ================================
+// Container Pool Types (Unified)
+// ================================
+
+/// Unique identifier for a container pool.
+/// Pool IDs use prefixes to indicate type:
+/// - `fn:{ns}:{app}:{fn}:{ver}` for function pools
+/// - `sb:{ns}:{sandbox_id}` for individual sandbox pools
+/// - User-provided for shared sandbox pools
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct ContainerPoolId(String);
+
+impl ContainerPoolId {
+    pub fn new(id: impl Into<String>) -> Self {
+        Self(id.into())
+    }
+
+    pub fn get(&self) -> &str {
+        &self.0
+    }
+
+    /// Create pool ID for a function
+    pub fn for_function(namespace: &str, app: &str, function: &str, version: &str) -> Self {
+        Self(format!("fn:{}:{}:{}:{}", namespace, app, function, version))
+    }
+
+    /// Create pool ID for a sandbox (used when sandbox doesn't have an explicit
+    /// pool_id)
+    pub fn for_sandbox(namespace: &str, sandbox_id: &str) -> Self {
+        Self(format!("sandbox:{}:{}", namespace, sandbox_id))
+    }
+
+    /// Returns true if this is a function pool (auto-created for functions)
+    pub fn is_function_pool(&self) -> bool {
+        self.0.starts_with("fn:")
+    }
+}
+
+impl Display for ContainerPoolId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl From<&str> for ContainerPoolId {
+    fn from(s: &str) -> Self {
+        Self(s.to_string())
+    }
+}
+
+impl From<String> for ContainerPoolId {
+    fn from(s: String) -> Self {
+        Self(s)
+    }
+}
+
+impl Default for ContainerPoolId {
+    fn default() -> Self {
+        Self(nanoid!())
+    }
+}
+
+/// Composite key for container pool (namespace + pool_id)
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct ContainerPoolKey {
+    pub namespace: String,
+    pub pool_id: ContainerPoolId,
+}
+
+impl ContainerPoolKey {
+    pub fn new(namespace: &str, pool_id: &ContainerPoolId) -> Self {
+        Self {
+            namespace: namespace.to_string(),
+            pool_id: pool_id.clone(),
+        }
+    }
+
+    pub fn key(&self) -> String {
+        format!("{}|{}", self.namespace, self.pool_id.0)
+    }
+}
+
+impl Display for ContainerPoolKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}|{}", self.namespace, self.pool_id.0)
+    }
+}
+
+impl From<&ContainerPool> for ContainerPoolKey {
+    fn from(pool: &ContainerPool) -> Self {
+        ContainerPoolKey::new(&pool.namespace, &pool.id)
+    }
+}
+
+/// A pool of containers for functions or sandboxes.
+/// Pools define container templates and scaling settings (min/max/buffer).
+#[derive(Debug, Clone, Serialize, Deserialize, Builder)]
+pub struct ContainerPool {
+    pub id: ContainerPoolId,
+    pub namespace: String,
+
+    /// Docker image for containers in this pool
+    pub image: String,
+
+    /// Resource allocation for each container
+    pub resources: ContainerResources,
+
+    /// Optional entrypoint command
+    #[builder(default)]
+    #[serde(default)]
+    pub entrypoint: Option<Vec<String>>,
+
+    /// Network access policy
+    #[builder(default)]
+    #[serde(default)]
+    pub network_policy: Option<NetworkPolicy>,
+
+    /// Secret names to inject
+    #[builder(default)]
+    #[serde(default)]
+    pub secret_names: Vec<String>,
+
+    /// Timeout in seconds for containers from this pool
+    #[builder(default)]
+    #[serde(default)]
+    pub timeout_secs: u64,
+
+    /// Minimum containers to maintain (floor)
+    #[serde(default)]
+    #[builder(default)]
+    pub min_containers: Option<u32>,
+
+    /// Maximum containers allowed (ceiling)
+    #[serde(default)]
+    #[builder(default)]
+    pub max_containers: Option<u32>,
+
+    /// Number of warm (idle/unclaimed) containers to maintain as buffer
+    #[serde(default)]
+    #[builder(default)]
+    pub buffer_containers: Option<u32>,
+
+    /// Timestamp of creation
+    #[builder(default = "self.default_created_at()")]
+    pub created_at: u64,
+
+    #[builder(default)]
+    #[serde(default)]
+    created_at_clock: Option<u64>,
+    #[builder(default)]
+    #[serde(default)]
+    updated_at_clock: Option<u64>,
+}
+
+impl ContainerPoolBuilder {
+    fn default_created_at(&self) -> u64 {
+        get_epoch_time_in_ms()
+    }
+}
+
+impl ContainerPool {
+    /// Default maximum containers per function pool
+    pub const DEFAULT_MAX_CONTAINERS: u32 = 10;
+
+    pub fn key(&self) -> ContainerPoolKey {
+        ContainerPoolKey::from(self)
+    }
+
+    /// Validate pool configuration
+    pub fn validate(&self) -> Result<()> {
+        let min = self.min_containers.unwrap_or(0);
+        let max = self.max_containers.unwrap_or(u32::MAX);
+        let buffer = self.buffer_containers.unwrap_or(0);
+
+        if min > max {
+            anyhow::bail!(
+                "min_containers ({}) cannot exceed max_containers ({})",
+                min,
+                max
+            );
+        }
+        if buffer > max {
+            anyhow::bail!(
+                "buffer_containers ({}) cannot exceed max_containers ({})",
+                buffer,
+                max
+            );
+        }
+        // Function pools don't require an image (they use code payloads)
+        if self.image.is_empty() && !self.id.is_function_pool() {
+            anyhow::bail!("image is required");
+        }
+        if self.resources.cpu_ms_per_sec == 0 {
+            anyhow::bail!("cpu must be greater than 0");
+        }
+        if self.resources.memory_mb == 0 {
+            anyhow::bail!("memory must be greater than 0");
+        }
+        Ok(())
+    }
+
+    /// Create a ContainerPool from a Function.
+    /// Every function gets a pool with sensible defaults.
+    pub fn from_function(
+        namespace: &str,
+        app_name: &str,
+        version: &str,
+        function: &Function,
+    ) -> Self {
+        ContainerPoolBuilder::default()
+            .id(ContainerPoolId::for_function(
+                namespace,
+                app_name,
+                &function.name,
+                version,
+            ))
+            .namespace(namespace.to_string())
+            .image(String::new()) // Function pools don't use images
+            .resources(ContainerResources {
+                cpu_ms_per_sec: function.resources.cpu_ms_per_sec,
+                memory_mb: function.resources.memory_mb,
+                ephemeral_disk_mb: function.resources.ephemeral_disk_mb,
+                gpu: function.resources.gpu_configs.first().cloned(),
+            })
+            .secret_names(function.secret_names.clone().unwrap_or_default())
+            .timeout_secs((function.timeout.0 / 1000) as u64) // Convert ms to secs
+            .min_containers(function.min_containers)
+            .max_containers(Some(
+                function
+                    .max_containers
+                    .unwrap_or(Self::DEFAULT_MAX_CONTAINERS),
+            ))
+            .buffer_containers(function.buffer_containers)
+            .build()
+            .expect("ContainerPool builder should not fail with valid function")
+    }
+
+    /// Prepares the pool for persistence by setting the server clock
+    pub fn prepare_for_persistence(&mut self, clock: u64) {
+        if self.created_at_clock.is_none() {
+            self.created_at_clock = Some(clock);
+        }
+        self.updated_at_clock = Some(clock);
+    }
 }
 
 #[cfg(test)]
@@ -3027,6 +3350,9 @@ mod tests {
         };
         let max_concurrency = 4;
 
+        let pool_id =
+            ContainerPoolId::for_function(&namespace, &application_name, &function_name, &version);
+
         let mut builder = ContainerBuilder::default();
         builder
             .id(id.clone())
@@ -3036,7 +3362,8 @@ mod tests {
             .version(version.clone())
             .state(state.clone())
             .resources(resources.clone())
-            .max_concurrency(max_concurrency);
+            .max_concurrency(max_concurrency)
+            .pool_id(pool_id);
 
         let fe = builder.build().expect("Should build FunctionExecutor");
 
@@ -3107,6 +3434,7 @@ mod tests {
                     gpu: None,
                 })
                 .max_concurrency(2)
+                .pool_id(ContainerPoolId::for_function("ns", "graph", "fn", "1"))
                 .build()
                 .expect("Should build FunctionExecutor"),
         )]);

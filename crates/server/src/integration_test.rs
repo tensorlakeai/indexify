@@ -557,14 +557,6 @@ mod tests {
                 app_uri_containers.len()
             );
 
-            // Check desired_containers for this app
-            let app_desired: Vec<_> = container_scheduler
-                .desired_containers
-                .iter()
-                .filter(|(uri, _)| uri.namespace == TEST_NAMESPACE && uri.application == "graph_A")
-                .collect();
-            tracing::info!("desired_containers for graph_A: {}", app_desired.len());
-
             // Check executor_states
             let executor_id = crate::data_model::ExecutorId::new(TEST_EXECUTOR_ID.to_string());
             if let Some(executor_state) = container_scheduler.executor_states.get(&executor_id) {
@@ -1194,6 +1186,7 @@ mod tests {
                         namespace: app.namespace.clone(),
                         application: app.clone(),
                         upgrade_requests_to_current_version: true,
+                        container_pools: vec![],
                     },
                 )),
             })
@@ -1304,6 +1297,7 @@ mod tests {
             namespace: TEST_NAMESPACE.to_string(),
             application: new_app,
             upgrade_requests_to_current_version: true,
+            container_pools: vec![],
         };
         indexify_state
             .write(StateMachineUpdateRequest {

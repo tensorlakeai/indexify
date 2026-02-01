@@ -116,6 +116,12 @@ impl ResourceProfileHistogram {
         *self.profiles.entry(profile).or_insert(0) += 1;
     }
 
+    pub fn increment_by(&mut self, profile: ResourceProfile, count: u64) {
+        if count > 0 {
+            *self.profiles.entry(profile).or_insert(0) += count;
+        }
+    }
+
     pub fn decrement(&mut self, profile: &ResourceProfile) {
         if let Some(count) = self.profiles.get_mut(profile) {
             *count = count.saturating_sub(1);
@@ -136,6 +142,10 @@ impl ResourceProfileHistogram {
 pub struct PendingResources {
     pub function_runs: ResourceProfileHistogram,
     pub sandboxes: ResourceProfileHistogram,
+    /// Pool deficits: gap between target and current container counts.
+    /// Target = min(max, max(min, active + buffer)).
+    /// Computed by buffer reconciler after container creation attempts.
+    pub pool_deficits: ResourceProfileHistogram,
 }
 
 pub struct DesiredStateFunctionExecutor {
@@ -767,6 +777,11 @@ impl InMemoryState {
                         changed_executors.insert(fc_metadata.executor_id.clone());
                     }
                 }
+
+                // Update pool deficits if provided by buffer reconciler
+                if let Some(deficits) = &req.pool_deficits {
+                    self.pending_resources.pool_deficits = deficits.clone();
+                }
             }
             RequestPayload::UpsertExecutor(req) => {
                 for allocation_output in &req.allocation_outputs {
@@ -826,6 +841,7 @@ impl InMemoryState {
                     );
                 }
             }
+            // Pool operations handled by ContainerScheduler
             _ => {}
         }
 
@@ -1019,9 +1035,6 @@ mod test_helpers {
                 namespaces: imbl::HashMap::new(),
                 applications: imbl::HashMap::new(),
                 application_versions: imbl::OrdMap::new(),
-                //executors: imbl::HashMap::new(),
-                //executor_states: imbl::HashMap::new(),
-                //function_executors_by_fn_uri: imbl::HashMap::new(),
                 allocations_by_executor: imbl::HashMap::new(),
                 request_ctx: imbl::OrdMap::new(),
                 executor_catalog: ExecutorCatalog::default(),

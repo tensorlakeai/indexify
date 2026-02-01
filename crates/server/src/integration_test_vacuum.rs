@@ -142,6 +142,7 @@ mod tests {
             namespace: TEST_NAMESPACE.to_string(),
             application: app.clone(),
             upgrade_requests_to_current_version: true,
+            container_pools: vec![],
         };
         test_srv
             .service

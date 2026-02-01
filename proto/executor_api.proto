@@ -169,10 +169,10 @@ message SandboxMetadata {
     optional NetworkPolicy network_policy = 13;
 }
 
-// This will be container description 
-// and we will extract Function related metadata 
+// This will be container description
+// and we will extract Function related metadata
 // in a FunctionMetadata object
-// secret, application name, ns, would be shared 
+// secret, application name, ns, would be shared
 // metadata across sandbox and function containers
 message FunctionExecutorDescription {
     optional string id = 1;
@@ -191,6 +191,8 @@ message FunctionExecutorDescription {
     optional SandboxMetadata sandbox_metadata = 10;
     // Type of this function executor (function or sandbox).
     optional FunctionExecutorType container_type = 13;
+    // Pool this container belongs to. Every container belongs to a pool.
+    optional string pool_id = 14;
 }
 
 message FunctionExecutorState {

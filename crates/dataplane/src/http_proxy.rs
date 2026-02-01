@@ -248,7 +248,6 @@ impl ProxyHttp for HttpProxy {
             status_code = tracing::field::Empty,
             duration_ms = tracing::field::Empty,
         );
-        let _guard = ctx.span.enter();
 
         // Lookup container address with detailed status
         let container_addr = match self
@@ -258,7 +257,7 @@ impl ProxyHttp for HttpProxy {
         {
             SandboxLookupResult::Running(addr) => addr,
             SandboxLookupResult::NotFound => {
-                warn!("Sandbox not found");
+                ctx.span.in_scope(|| warn!("Sandbox not found"));
                 return send_error_response(
                     session,
                     404,
@@ -269,7 +268,7 @@ impl ProxyHttp for HttpProxy {
                 .await;
             }
             SandboxLookupResult::NotRunning(state) => {
-                warn!(state, "Sandbox not running");
+                ctx.span.in_scope(|| warn!(state, "Sandbox not running"));
                 let msg = format!("Sandbox not running (state: {})", state);
                 return send_error_response(
                     session,
@@ -284,7 +283,7 @@ impl ProxyHttp for HttpProxy {
 
         ctx.span.record("container_addr", &container_addr);
         ctx.container_addr = Some(container_addr);
-        debug!("Routing request to container");
+        ctx.span.in_scope(|| debug!("Routing request to container"));
 
         Ok(false) // Continue processing
     }
@@ -352,9 +351,7 @@ impl ProxyHttp for HttpProxy {
         ctx.span.record("status_code", status_code);
         ctx.span.record("duration_ms", duration_ms);
 
-        let _guard = ctx.span.enter();
-
-        match (e, status_code) {
+        ctx.span.in_scope(|| match (e, status_code) {
             (Some(err), _) => {
                 error!(error = %err, error_type = err.etype().as_str(), "Request failed");
             }
@@ -368,7 +365,7 @@ impl ProxyHttp for HttpProxy {
                 info!("Request completed");
             }
             _ => {}
-        }
+        });
     }
 
     /// Called when connection to upstream fails.

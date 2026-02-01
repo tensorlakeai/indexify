@@ -34,7 +34,10 @@ async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
     let config = match cli.config {
-        Some(path) => DataplaneConfig::from_path(path.to_str().unwrap())?,
+        Some(path) => DataplaneConfig::from_path(
+            path.to_str()
+                .ok_or_else(|| anyhow::anyhow!("Config path contains invalid UTF-8"))?,
+        )?,
         None => {
             let mut config = DataplaneConfig::default();
             config

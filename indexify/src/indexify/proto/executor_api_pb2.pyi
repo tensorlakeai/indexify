@@ -360,6 +360,7 @@ class FunctionExecutorDescription(_message.Message):
         "allocation_timeout_ms",
         "sandbox_metadata",
         "container_type",
+        "pool_id",
     )
     ID_FIELD_NUMBER: _ClassVar[int]
     FUNCTION_FIELD_NUMBER: _ClassVar[int]
@@ -371,6 +372,7 @@ class FunctionExecutorDescription(_message.Message):
     ALLOCATION_TIMEOUT_MS_FIELD_NUMBER: _ClassVar[int]
     SANDBOX_METADATA_FIELD_NUMBER: _ClassVar[int]
     CONTAINER_TYPE_FIELD_NUMBER: _ClassVar[int]
+    POOL_ID_FIELD_NUMBER: _ClassVar[int]
     id: str
     function: FunctionRef
     secret_names: _containers.RepeatedScalarFieldContainer[str]
@@ -381,6 +383,7 @@ class FunctionExecutorDescription(_message.Message):
     allocation_timeout_ms: int
     sandbox_metadata: SandboxMetadata
     container_type: FunctionExecutorType
+    pool_id: str
     def __init__(
         self,
         id: _Optional[str] = ...,
@@ -393,6 +396,7 @@ class FunctionExecutorDescription(_message.Message):
         allocation_timeout_ms: _Optional[int] = ...,
         sandbox_metadata: _Optional[_Union[SandboxMetadata, _Mapping]] = ...,
         container_type: _Optional[_Union[FunctionExecutorType, str]] = ...,
+        pool_id: _Optional[str] = ...,
     ) -> None: ...
 
 class FunctionExecutorState(_message.Message):
