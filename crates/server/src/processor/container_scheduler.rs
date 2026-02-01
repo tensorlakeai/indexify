@@ -185,23 +185,28 @@ impl ContainerScheduler {
                 self.delete_container_pool(&request.namespace, &request.pool_id);
             }
             RequestPayload::CreateOrUpdateApplication(req) => {
-                // Delete old function pools for this application before inserting new ones
-                let pool_prefix = format!("fn:{}:{}:", req.namespace, req.application.name);
-                let pools_to_remove: Vec<_> = self
-                    .container_pools
-                    .iter()
-                    .filter(|(key, _)| key.pool_id.get().starts_with(&pool_prefix))
-                    .map(|(key, _)| key.clone())
-                    .collect();
-                for key in pools_to_remove {
-                    self.container_pools.remove(&key);
-                }
+                // Only update pools if container_pools is non-empty.
+                // Empty container_pools means "no change to pools" (e.g., from
+                // validate_and_upgrade_constraints), not "delete all pools".
+                if !req.container_pools.is_empty() {
+                    // Delete old function pools for this application before inserting new ones
+                    let pool_prefix = format!("fn:{}:{}:", req.namespace, req.application.name);
+                    let pools_to_remove: Vec<_> = self
+                        .container_pools
+                        .iter()
+                        .filter(|(key, _)| key.pool_id.get().starts_with(&pool_prefix))
+                        .map(|(key, _)| key.clone())
+                        .collect();
+                    for key in pools_to_remove {
+                        self.container_pools.remove(&key);
+                    }
 
-                // Insert container pools from the request
-                for pool in &req.container_pools {
-                    let pool_key = ContainerPoolKey::from(pool);
-                    self.container_pools
-                        .insert(pool_key, Box::new(pool.clone()));
+                    // Insert container pools from the request
+                    for pool in &req.container_pools {
+                        let pool_key = ContainerPoolKey::from(pool);
+                        self.container_pools
+                            .insert(pool_key, Box::new(pool.clone()));
+                    }
                 }
             }
             _ => return Ok(()),
@@ -380,59 +385,7 @@ impl ContainerScheduler {
                 .insert(executor_id.clone(), new_executor_server_metadata.clone());
         }
         for (container_id, new_function_container) in &scheduler_update.containers {
-            let fn_uri = FunctionURI::from(&new_function_container.function_container);
-            let pool_key = new_function_container.function_container.pool_key();
-
-            // Check if this container was previously warm (for transition tracking)
-            // A container is warm only if sandbox_id is None AND it's not terminated
-            let was_warm = self
-                .function_containers
-                .get(container_id)
-                .is_some_and(|old| {
-                    old.function_container.sandbox_id.is_none() &&
-                        !matches!(old.desired_state, ContainerState::Terminated { .. })
-                });
-
-            self.function_containers
-                .insert(container_id.clone(), new_function_container.clone());
-
-            // Also update the containers_by_function_uri index
-            self.containers_by_function_uri
-                .entry(fn_uri)
-                .or_default()
-                .insert(container_id.clone());
-
-            // Also update the containers_by_pool index
-            self.containers_by_pool
-                .entry(pool_key.clone())
-                .or_default()
-                .insert(container_id.clone());
-
-            // Update warm_containers_by_pool index based on sandbox_id
-            let is_warm = new_function_container
-                .function_container
-                .sandbox_id
-                .is_none() &&
-                !matches!(
-                    new_function_container.desired_state,
-                    ContainerState::Terminated { .. }
-                );
-
-            if is_warm {
-                // Container is warm - add to warm index
-                self.warm_containers_by_pool
-                    .entry(pool_key)
-                    .or_default()
-                    .insert(container_id.clone());
-            } else if was_warm {
-                // Container was warm but is now claimed/terminated - remove from warm index
-                if let Some(warm_ids) = self.warm_containers_by_pool.get_mut(&pool_key) {
-                    warm_ids.retain(|id| id != container_id);
-                    if warm_ids.is_empty() {
-                        self.warm_containers_by_pool.remove(&pool_key);
-                    }
-                }
-            }
+            self.update_container_indices(container_id, new_function_container);
         }
 
         for removed_executor_id in &scheduler_update.remove_executors {
@@ -1149,49 +1102,67 @@ impl ContainerScheduler {
         )
     }
 
-    /// Apply a container update to internal state (for iterative creation)
-    pub fn apply_container_update(&mut self, update: &SchedulerUpdateRequest) {
-        // Update function containers index
-        for (id, meta) in &update.containers {
-            let pool_key = meta.function_container.pool_key();
+    /// Update container indices for a single container.
+    /// Handles function_containers, containers_by_function_uri,
+    /// containers_by_pool, and warm_containers_by_pool indices.
+    fn update_container_indices(
+        &mut self,
+        container_id: &ContainerId,
+        meta: &ContainerServerMetadata,
+    ) {
+        let pool_key = meta.function_container.pool_key();
 
-            // Check if this container was previously warm (for transition tracking)
-            let was_warm = self.function_containers.get(id).is_some_and(|old| {
+        // Check if this container was previously warm (for transition tracking)
+        // A container is warm only if sandbox_id is None AND it's not terminated
+        let was_warm = self
+            .function_containers
+            .get(container_id)
+            .is_some_and(|old| {
                 old.function_container.sandbox_id.is_none() &&
                     !matches!(old.desired_state, ContainerState::Terminated { .. })
             });
 
-            self.function_containers.insert(id.clone(), meta.clone());
-            let fn_uri = FunctionURI::from(&meta.function_container);
-            self.containers_by_function_uri
-                .entry(fn_uri)
+        self.function_containers
+            .insert(container_id.clone(), Box::new(meta.clone()));
+
+        let fn_uri = FunctionURI::from(&meta.function_container);
+        self.containers_by_function_uri
+            .entry(fn_uri)
+            .or_default()
+            .insert(container_id.clone());
+
+        // Update containers_by_pool index
+        self.containers_by_pool
+            .entry(pool_key.clone())
+            .or_default()
+            .insert(container_id.clone());
+
+        // Update warm_containers_by_pool index based on warm status
+        let is_warm = meta.function_container.sandbox_id.is_none() &&
+            !matches!(meta.desired_state, ContainerState::Terminated { .. });
+
+        if is_warm {
+            // Container is warm - add to warm index
+            self.warm_containers_by_pool
+                .entry(pool_key)
                 .or_default()
-                .insert(id.clone());
-
-            // Also update containers_by_pool index
-            self.containers_by_pool
-                .entry(pool_key.clone())
-                .or_default()
-                .insert(id.clone());
-
-            // Update warm_containers_by_pool index based on warm status
-            let is_warm = meta.function_container.sandbox_id.is_none() &&
-                !matches!(meta.desired_state, ContainerState::Terminated { .. });
-
-            if is_warm {
-                self.warm_containers_by_pool
-                    .entry(pool_key)
-                    .or_default()
-                    .insert(id.clone());
-            } else if was_warm {
-                // Container was warm but is now claimed/terminated - remove from warm index
-                if let Some(warm_ids) = self.warm_containers_by_pool.get_mut(&pool_key) {
-                    warm_ids.retain(|cid| cid != id);
-                    if warm_ids.is_empty() {
-                        self.warm_containers_by_pool.remove(&pool_key);
-                    }
+                .insert(container_id.clone());
+        } else if was_warm {
+            // Container was warm but is now claimed/terminated - remove from warm index
+            if let Some(warm_ids) = self.warm_containers_by_pool.get_mut(&pool_key) {
+                warm_ids.retain(|id| id != container_id);
+                if warm_ids.is_empty() {
+                    self.warm_containers_by_pool.remove(&pool_key);
                 }
             }
+        }
+    }
+
+    /// Apply a container update to internal state (for iterative creation)
+    pub fn apply_container_update(&mut self, update: &SchedulerUpdateRequest) {
+        // Update function containers index
+        for (id, meta) in &update.containers {
+            self.update_container_indices(id, meta);
         }
 
         // Update executor states
