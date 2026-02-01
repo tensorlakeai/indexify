@@ -1000,19 +1000,7 @@ impl ContainerScheduler {
             .unwrap_or(0);
 
         // For claimed, count total non-terminated and subtract warm
-        let total_non_terminated = self
-            .containers_by_pool
-            .get(pool_key)
-            .map(|ids| {
-                ids.iter()
-                    .filter(|id| {
-                        self.function_containers.get(*id).is_some_and(|meta| {
-                            !matches!(meta.desired_state, ContainerState::Terminated { .. })
-                        })
-                    })
-                    .count() as u32
-            })
-            .unwrap_or(0);
+        let total_non_terminated = self.pool_container_count(pool_key);
 
         let claimed = total_non_terminated.saturating_sub(warm);
 
