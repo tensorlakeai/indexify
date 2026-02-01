@@ -122,7 +122,9 @@ impl SandboxProcessor {
                     container_scheduler.count_pool_containers(&container_pool_key);
                 let current = claimed + warm;
 
-                if let Some(max) = pool.max_containers && current >= max {
+                if let Some(max) = pool.max_containers &&
+                    current >= max
+                {
                     warn!(
                         sandbox_id = %sandbox.id,
                         pool_id = %pool_id,
@@ -246,9 +248,9 @@ impl SandboxProcessor {
             return Ok(update);
         };
 
-        if sandbox.status == SandboxStatus::Running
-            && let Some(container_id) = &sandbox.container_id
-            && let Some(container_update) = container_scheduler.terminate_container(container_id)?
+        if sandbox.status == SandboxStatus::Running &&
+            let Some(container_id) = &sandbox.container_id &&
+            let Some(container_update) = container_scheduler.terminate_container(container_id)?
         {
             update.extend(container_update);
         }

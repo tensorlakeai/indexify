@@ -134,8 +134,9 @@ impl ContainerReconciler {
                         );
                         continue;
                     }
-                    if let Some(app_version) = app_version
-                        && !app_version.functions.contains_key(&fe.function_name) {
+                    if let Some(app_version) = app_version &&
+                        !app_version.functions.contains_key(&fe.function_name)
+                    {
                         warn!(
                             container_id = %fe.id,
                             namespace = %fe.namespace,

@@ -935,7 +935,8 @@ pub struct PendingResourcesResponse {
     pub function_runs: ResourceProfileHistogram,
     /// Resource profiles for pending sandboxes
     pub sandboxes: ResourceProfileHistogram,
-    /// Resource profiles for pool deficits (gap between target and current containers)
+    /// Resource profiles for pool deficits (gap between target and current
+    /// containers)
     pub pool_deficits: ResourceProfileHistogram,
 }
 

@@ -1845,11 +1845,6 @@ impl Container {
         self.pool_id == pool_key.pool_id && self.namespace == pool_key.namespace
     }
 
-    /// Check if this is an unclaimed warm pool container
-    pub fn is_warm_in_pool(&self, pool_key: &ContainerPoolKey) -> bool {
-        self.belongs_to_pool(pool_key) && self.sandbox_id.is_none()
-    }
-
     /// Get the pool key for this container.
     pub fn pool_key(&self) -> ContainerPoolKey {
         ContainerPoolKey::new(&self.namespace, &self.pool_id)

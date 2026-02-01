@@ -239,8 +239,9 @@ impl FunctionRunProcessor {
             );
             let pool_key = ContainerPoolKey::new(&function_run.namespace, &pool_id);
 
-            if let Some(pool) = container_scheduler.container_pools.get(&pool_key)
-                && let Some(max) = pool.max_containers {
+            if let Some(pool) = container_scheduler.container_pools.get(&pool_key) &&
+                let Some(max) = pool.max_containers
+            {
                 let fn_uri = FunctionURI {
                     namespace: function_run.namespace.clone(),
                     application: function_run.application.clone(),

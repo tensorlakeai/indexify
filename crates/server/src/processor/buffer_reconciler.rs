@@ -75,8 +75,13 @@ impl BufferReconciler {
                 let (active, idle) = self.count_pool_containers(pool, container_scheduler);
 
                 // Need more idle and not at max
-                if idle < buffer && (active + idle) < max 
-                    && let Ok(Some(u)) = self.create_container_for_pool(pool, in_memory_state, container_scheduler)
+                if idle < buffer &&
+                    (active + idle) < max &&
+                    let Ok(Some(u)) = self.create_container_for_pool(
+                        pool,
+                        in_memory_state,
+                        container_scheduler,
+                    )
                 {
                     self.apply_container_update(pool, &u, container_scheduler);
                     update.extend(u);
@@ -116,11 +121,13 @@ impl BufferReconciler {
         Ok(update)
     }
 
-    /// Compute the deficit for each pool: gap between target and current containers.
-    /// Returns a histogram of resource profiles with counts representing unmet demand.
+    /// Compute the deficit for each pool: gap between target and current
+    /// containers. Returns a histogram of resource profiles with counts
+    /// representing unmet demand.
     ///
     /// Target calculation matches Phase 2/3 logic:
-    /// - target = min(max_containers, max(min_containers, active + buffer_containers))
+    /// - target = min(max_containers, max(min_containers, active +
+    ///   buffer_containers))
     /// - This ensures we have at least `min` total AND at least `buffer` idle,
     ///   but never exceed `max`.
     fn compute_pool_deficits(
