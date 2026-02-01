@@ -272,6 +272,24 @@ impl ContainerScheduler {
                 }
             }
         }
+
+        // Remove function pools for this application
+        let pools_to_remove: Vec<ContainerPoolKey> = self
+            .container_pools
+            .keys()
+            .filter(|key| {
+                key.namespace == namespace &&
+                    key.pool_id.is_function_pool() &&
+                    key.pool_id
+                        .get()
+                        .starts_with(&format!("fn:{}:{}:", namespace, name))
+            })
+            .cloned()
+            .collect();
+
+        for pool_key in pools_to_remove {
+            self.container_pools.remove(&pool_key);
+        }
     }
 
     fn delete_container_pool(&mut self, namespace: &str, pool_id: &ContainerPoolId) {
@@ -1180,14 +1198,6 @@ impl ContainerScheduler {
         for (id, state) in &update.updated_executor_states {
             self.executor_states.insert(id.clone(), state.clone());
         }
-    }
-
-    /// Apply a pool container update to internal state
-    /// (Pool containers are now tracked in function_containers with pool_id
-    /// set)
-    pub fn apply_pool_container_update(&mut self, update: &SchedulerUpdateRequest) {
-        // Pool containers are now regular containers with pool_id set
-        self.apply_container_update(update);
     }
 
     /// Claim a warm pool container for a sandbox.

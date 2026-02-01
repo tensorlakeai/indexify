@@ -274,6 +274,9 @@ pub struct InMemoryState {
     // Sandboxes - SandboxKey -> Sandbox
     pub sandboxes: imbl::OrdMap<SandboxKey, Box<Sandbox>>,
 
+    // Reverse index: ContainerId -> SandboxKey (for containers serving sandboxes)
+    pub sandbox_by_container: imbl::HashMap<ContainerId, SandboxKey>,
+
     // Pending sandboxes waiting for executor allocation
     pub pending_sandboxes: imbl::OrdSet<SandboxKey>,
 
@@ -415,6 +418,7 @@ impl InMemoryState {
             .collect();
 
         let mut sandboxes = imbl::OrdMap::new();
+        let mut sandbox_by_container = imbl::HashMap::new();
         let mut pending_sandboxes = imbl::OrdSet::new();
         for (sandbox_key, sandbox, is_pending) in sandboxes_filtered {
             if is_pending {
@@ -424,6 +428,10 @@ impl InMemoryState {
                     .increment(ResourceProfile::from_container_resources(
                         &sandbox.resources,
                     ));
+            }
+            // Build reverse index for containers serving sandboxes
+            if let Some(container_id) = &sandbox.container_id {
+                sandbox_by_container.insert(container_id.clone(), sandbox_key.clone());
             }
             sandboxes.insert(sandbox_key, sandbox);
         }
@@ -439,6 +447,7 @@ impl InMemoryState {
             allocations_by_executor,
             executor_catalog,
             sandboxes,
+            sandbox_by_container,
             pending_sandboxes,
             pending_resources,
             metrics,
@@ -734,6 +743,12 @@ impl InMemoryState {
 
                 for (sandbox_key, sandbox) in &req.updated_sandboxes {
                     let was_pending = self.pending_sandboxes.contains(sandbox_key);
+                    // Get old container_id before updating (for index cleanup)
+                    let old_container_id = self
+                        .sandboxes
+                        .get(sandbox_key)
+                        .and_then(|s| s.container_id.clone());
+
                     match sandbox.status {
                         SandboxStatus::Pending => {
                             self.sandboxes
@@ -756,12 +771,27 @@ impl InMemoryState {
                                     &ResourceProfile::from_container_resources(&sandbox.resources),
                                 );
                             }
+                            // Update reverse index: container_id -> sandbox_key
+                            // Remove old mapping if container_id changed
+                            if old_container_id.as_ref() != sandbox.container_id.as_ref() &&
+                                let Some(old_id) = &old_container_id
+                            {
+                                self.sandbox_by_container.remove(old_id);
+                            }
+                            if let Some(container_id) = &sandbox.container_id {
+                                self.sandbox_by_container
+                                    .insert(container_id.clone(), sandbox_key.clone());
+                            }
                         }
                         SandboxStatus::Terminated => {
                             if was_pending {
                                 self.pending_resources.sandboxes.decrement(
                                     &ResourceProfile::from_container_resources(&sandbox.resources),
                                 );
+                            }
+                            // Remove from reverse index
+                            if let Some(container_id) = old_container_id {
+                                self.sandbox_by_container.remove(&container_id);
                             }
                             self.sandboxes.remove(sandbox_key);
                             self.pending_sandboxes.remove(sandbox_key);
@@ -926,6 +956,7 @@ impl InMemoryState {
             function_runs: self.function_runs.clone(),
             unallocated_function_runs: self.unallocated_function_runs.clone(),
             sandboxes: self.sandboxes.clone(),
+            sandbox_by_container: self.sandbox_by_container.clone(),
             pending_sandboxes: self.pending_sandboxes.clone(),
             pending_resources: self.pending_resources.clone(),
         }))
@@ -1042,6 +1073,7 @@ mod test_helpers {
                 function_runs: imbl::OrdMap::new(),
                 unallocated_function_runs: imbl::OrdSet::new(),
                 sandboxes: imbl::OrdMap::new(),
+                sandbox_by_container: imbl::HashMap::new(),
                 pending_sandboxes: imbl::OrdSet::new(),
                 pending_resources: PendingResources::default(),
             }

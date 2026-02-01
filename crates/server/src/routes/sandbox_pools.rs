@@ -131,6 +131,48 @@ pub struct ListSandboxPoolsResponse {
     pub pools: Vec<SandboxPoolInfo>,
 }
 
+/// Build a ContainerPool from request parameters
+#[allow(clippy::too_many_arguments)]
+fn build_pool(
+    pool_id: ContainerPoolId,
+    namespace: String,
+    image: String,
+    resources: &ContainerResources,
+    entrypoint: Option<Vec<String>>,
+    secret_names: Vec<String>,
+    timeout_secs: u64,
+    min_containers: Option<u32>,
+    max_containers: Option<u32>,
+    buffer_containers: Option<u32>,
+    created_at: u64,
+) -> Result<ContainerPool, IndexifyAPIError> {
+    ContainerPoolBuilder::default()
+        .id(pool_id)
+        .namespace(namespace)
+        .image(image)
+        .resources(data_model::ContainerResources {
+            cpu_ms_per_sec: (resources.cpus * 1000.0).ceil() as u32,
+            memory_mb: resources.memory_mb,
+            ephemeral_disk_mb: resources.ephemeral_disk_mb,
+            gpu: resources
+                .gpu_configs
+                .first()
+                .map(|g| data_model::GPUResources {
+                    count: g.count,
+                    model: g.model.clone(),
+                }),
+        })
+        .entrypoint(entrypoint)
+        .secret_names(secret_names)
+        .timeout_secs(timeout_secs)
+        .min_containers(min_containers)
+        .max_containers(max_containers)
+        .buffer_containers(buffer_containers)
+        .created_at(created_at)
+        .build()
+        .map_err(|e| IndexifyAPIError::internal_error_str(&e.to_string()))
+}
+
 /// Create a new sandbox pool in a namespace
 #[utoipa::path(
     post,
@@ -162,37 +204,23 @@ pub async fn create_sandbox_pool(
             )));
         }
     }
-    let pool = ContainerPoolBuilder::default()
-        .id(pool_id)
-        .namespace(namespace.clone())
-        .image(request.image)
-        .resources(data_model::ContainerResources {
-            cpu_ms_per_sec: (request.resources.cpus * 1000.0).ceil() as u32,
-            memory_mb: request.resources.memory_mb,
-            ephemeral_disk_mb: request.resources.ephemeral_disk_mb,
-            gpu: request
-                .resources
-                .gpu_configs
-                .first()
-                .map(|g| data_model::GPUResources {
-                    count: g.count,
-                    model: g.model.clone(),
-                }),
-        })
-        .entrypoint(request.entrypoint)
-        .secret_names(request.secret_names)
-        .timeout_secs(request.timeout_secs)
-        .min_containers(request.min_containers)
-        .max_containers(request.max_containers)
-        .buffer_containers(request.buffer_containers)
-        .build()
-        .map_err(|e| IndexifyAPIError::internal_error_str(&e.to_string()))?;
+    let pool = build_pool(
+        pool_id,
+        namespace.clone(),
+        request.image,
+        &request.resources,
+        request.entrypoint,
+        request.secret_names,
+        request.timeout_secs,
+        request.min_containers,
+        request.max_containers,
+        request.buffer_containers,
+        0, // created_at will be set by state machine
+    )?;
 
-    // Validate pool configuration
     pool.validate()
         .map_err(|e| IndexifyAPIError::bad_request(&e.to_string()))?;
 
-    // Write to state store
     let state_request = StateMachineUpdateRequest {
         payload: RequestPayload::CreateContainerPool(StateCreateContainerPoolRequest { pool }),
     };
@@ -282,47 +310,33 @@ pub async fn update_sandbox_pool(
     let pool_id_obj = ContainerPoolId::new(&pool_id);
     let pool_key = ContainerPoolKey::new(&namespace, &pool_id_obj);
 
-    // Check if pool exists
-    let scheduler = state.indexify_state.container_scheduler.read().await;
-    let existing_pool = scheduler
-        .container_pools
-        .get(&pool_key)
-        .ok_or_else(|| IndexifyAPIError::not_found("Sandbox pool not found"))?;
-    let created_at = existing_pool.created_at;
-    drop(scheduler);
+    // Check if pool exists and get created_at timestamp
+    let created_at = {
+        let scheduler = state.indexify_state.container_scheduler.read().await;
+        scheduler
+            .container_pools
+            .get(&pool_key)
+            .ok_or_else(|| IndexifyAPIError::not_found("Sandbox pool not found"))?
+            .created_at
+    };
 
-    let pool = ContainerPoolBuilder::default()
-        .id(pool_id_obj)
-        .namespace(namespace.clone())
-        .image(request.image)
-        .resources(data_model::ContainerResources {
-            cpu_ms_per_sec: (request.resources.cpus * 1000.0).ceil() as u32,
-            memory_mb: request.resources.memory_mb,
-            ephemeral_disk_mb: request.resources.ephemeral_disk_mb,
-            gpu: request
-                .resources
-                .gpu_configs
-                .first()
-                .map(|g| data_model::GPUResources {
-                    count: g.count,
-                    model: g.model.clone(),
-                }),
-        })
-        .entrypoint(request.entrypoint)
-        .secret_names(request.secret_names)
-        .timeout_secs(request.timeout_secs)
-        .min_containers(request.min_containers)
-        .max_containers(request.max_containers)
-        .buffer_containers(request.buffer_containers)
-        .created_at(created_at)
-        .build()
-        .map_err(|e| IndexifyAPIError::internal_error_str(&e.to_string()))?;
+    let pool = build_pool(
+        pool_id_obj,
+        namespace.clone(),
+        request.image,
+        &request.resources,
+        request.entrypoint,
+        request.secret_names,
+        request.timeout_secs,
+        request.min_containers,
+        request.max_containers,
+        request.buffer_containers,
+        created_at,
+    )?;
 
-    // Validate pool configuration
     pool.validate()
         .map_err(|e| IndexifyAPIError::bad_request(&e.to_string()))?;
 
-    // Write to state store
     let state_request = StateMachineUpdateRequest {
         payload: RequestPayload::UpdateContainerPool(StateUpdateContainerPoolRequest {
             pool: pool.clone(),

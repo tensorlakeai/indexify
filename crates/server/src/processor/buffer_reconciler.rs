@@ -65,7 +65,7 @@ impl BufferReconciler {
                     match self.create_container_for_pool(pool, in_memory_state, container_scheduler)
                     {
                         Ok(Some(u)) => {
-                            self.apply_container_update(pool, &u, container_scheduler);
+                            container_scheduler.apply_container_update(&u);
                             update.extend(u);
                         }
                         Ok(None) => {
@@ -95,7 +95,7 @@ impl BufferReconciler {
                     match self.create_container_for_pool(pool, in_memory_state, container_scheduler)
                     {
                         Ok(Some(u)) => {
-                            self.apply_container_update(pool, &u, container_scheduler);
+                            container_scheduler.apply_container_update(&u);
                             update.extend(u);
                             any_created = true;
                         }
@@ -212,20 +212,6 @@ impl BufferReconciler {
         } else {
             // For sandbox pools, create a pool container
             container_scheduler.create_container_for_pool(pool)
-        }
-    }
-
-    /// Apply container update to scheduler
-    fn apply_container_update(
-        &self,
-        pool: &ContainerPool,
-        update: &SchedulerUpdateRequest,
-        container_scheduler: &mut ContainerScheduler,
-    ) {
-        if pool.id.is_function_pool() {
-            container_scheduler.apply_container_update(update);
-        } else {
-            container_scheduler.apply_pool_container_update(update);
         }
     }
 

@@ -149,9 +149,21 @@ impl ContainerReconciler {
                     }
                 }
 
-                let existing_fe =
-                    ContainerServerMetadata::new(executor.id.clone(), fe.clone(), fe.state.clone());
-                executor_server_metadata.add_container(&fe)?;
+                // Restore sandbox_id from reverse index if container is serving a sandbox
+                let mut container = fe.clone();
+                if container.sandbox_id.is_none() &&
+                    let Some(sandbox_key) =
+                        in_memory_state.sandbox_by_container.get(&container.id)
+                {
+                    container.sandbox_id = Some(sandbox_key.sandbox_id());
+                }
+
+                let existing_fe = ContainerServerMetadata::new(
+                    executor.id.clone(),
+                    container.clone(),
+                    container.state.clone(),
+                );
+                executor_server_metadata.add_container(&container)?;
                 update.updated_executor_states.insert(
                     executor_server_metadata.executor_id.clone(),
                     executor_server_metadata.clone(),

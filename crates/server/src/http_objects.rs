@@ -343,6 +343,7 @@ pub struct ApplicationFunction {
     pub max_concurrency: u32,
     pub min_containers: Option<u32>,
     pub max_containers: Option<u32>,
+    pub buffer_containers: Option<u32>,
 }
 
 impl TryFrom<ApplicationFunction> for data_model::Function {
@@ -366,7 +367,7 @@ impl TryFrom<ApplicationFunction> for data_model::Function {
             max_concurrency: val.max_concurrency,
             min_containers: val.min_containers,
             max_containers: val.max_containers,
-            buffer_containers: None,
+            buffer_containers: val.buffer_containers,
         })
     }
 }
@@ -388,6 +389,7 @@ impl From<data_model::Function> for ApplicationFunction {
             max_concurrency: c.max_concurrency,
             max_containers: c.max_containers,
             min_containers: c.min_containers,
+            buffer_containers: c.buffer_containers,
         }
     }
 }
