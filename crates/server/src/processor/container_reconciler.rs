@@ -252,7 +252,7 @@ impl ContainerReconciler {
         // Add orphaned resource updates to main update
         update.extend(orphaned_batch_update.clone());
 
-        // Apply orphaned updates to in_memory_state immediately so subsequent
+        // Apply orphaned updates to both stores immediately so subsequent
         // remove_function_containers sees the updated state and doesn't process
         // the same allocations again
         if !orphaned_batch_update.updated_allocations.is_empty() ||
@@ -260,9 +260,11 @@ impl ContainerReconciler {
             !orphaned_batch_update.updated_function_runs.is_empty() ||
             !orphaned_batch_update.updated_request_states.is_empty()
         {
+            let payload = RequestPayload::SchedulerUpdate((Box::new(orphaned_batch_update), vec![]));
+            container_scheduler.update(&payload)?;
             in_memory_state.update_state(
                 self.clock,
-                &RequestPayload::SchedulerUpdate((Box::new(orphaned_batch_update), vec![])),
+                &payload,
                 "container_reconciler_orphaned",
             )?;
         }
@@ -305,6 +307,7 @@ impl ContainerReconciler {
         // Add container removals to main update
         update.extend(self.remove_function_containers(
             in_memory_state,
+            container_scheduler,
             &mut executor_server_metadata,
             function_containers_to_remove,
         )?);
@@ -467,10 +470,12 @@ impl ContainerReconciler {
     }
 
     /// Removes function executors and handles associated function run cleanup
+    /// Applies incremental updates to both container_scheduler and in_memory_state
     #[tracing::instrument(skip_all, target = "scheduler", fields(executor_id = %executor_server_metadata.executor_id.get(), num_function_executors = function_containers.len()))]
     fn remove_function_containers(
         &self,
         in_memory_state: &mut InMemoryState,
+        container_scheduler: &mut ContainerScheduler,
         executor_server_metadata: &mut ExecutorServerMetadata,
         function_containers: Vec<Container>,
     ) -> Result<SchedulerUpdateRequest> {
@@ -507,9 +512,12 @@ impl ContainerReconciler {
                     failed_alloc_ids,
                 )?;
 
+                // Apply incremental updates to both stores
+                let payload = RequestPayload::SchedulerUpdate((Box::new(container_update.clone()), vec![]));
+                container_scheduler.update(&payload)?;
                 in_memory_state.update_state(
                     self.clock,
-                    &RequestPayload::SchedulerUpdate((Box::new(container_update.clone()), vec![])),
+                    &payload,
                     "container_reconciler_remove_fc",
                 )?;
 
@@ -519,9 +527,12 @@ impl ContainerReconciler {
             // Terminate associated sandbox
             let sandbox_update = self.terminate_sandbox_for_container(in_memory_state, fe)?;
 
+            // Apply incremental updates to both stores
+            let payload = RequestPayload::SchedulerUpdate((Box::new(sandbox_update.clone()), vec![]));
+            container_scheduler.update(&payload)?;
             in_memory_state.update_state(
                 self.clock,
-                &RequestPayload::SchedulerUpdate((Box::new(sandbox_update.clone()), vec![])),
+                &payload,
                 "container_reconciler_remove_fc_sandbox",
             )?;
 
