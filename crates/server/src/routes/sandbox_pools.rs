@@ -2,6 +2,7 @@ use axum::{
     Json,
     extract::{Path, State},
 };
+use nanoid::nanoid;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -21,8 +22,6 @@ use crate::{
 /// Request to create a new sandbox pool
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct CreateSandboxPoolRequest {
-    /// Unique identifier for the pool within the namespace
-    pub pool_id: String,
     /// Docker image for containers in this pool
     pub image: String,
     /// Resource requirements for each container
@@ -37,15 +36,12 @@ pub struct CreateSandboxPoolRequest {
     /// Timeout in seconds for sandboxes from this pool (0 = no timeout)
     #[serde(default)]
     pub timeout_secs: u64,
-    /// Minimum containers to maintain (floor)
-    #[serde(default)]
-    pub min_containers: Option<u32>,
-    /// Maximum containers allowed (ceiling)
+    /// Maximum containers allowed
     #[serde(default)]
     pub max_containers: Option<u32>,
-    /// Number of warm (unclaimed) containers to maintain as buffer
+    /// Number of warm containers to maintain
     #[serde(default)]
-    pub buffer_containers: Option<u32>,
+    pub warm_containers: Option<u32>,
 }
 
 /// Request to update an existing sandbox pool
@@ -65,15 +61,12 @@ pub struct UpdateSandboxPoolRequest {
     /// Timeout in seconds for sandboxes from this pool (0 = no timeout)
     #[serde(default)]
     pub timeout_secs: u64,
-    /// Minimum containers to maintain (floor)
-    #[serde(default)]
-    pub min_containers: Option<u32>,
-    /// Maximum containers allowed (ceiling)
+    /// Maximum containers allowed
     #[serde(default)]
     pub max_containers: Option<u32>,
-    /// Number of warm (unclaimed) containers to maintain as buffer
+    /// Number of warm containers to maintain
     #[serde(default)]
-    pub buffer_containers: Option<u32>,
+    pub warm_containers: Option<u32>,
 }
 
 /// Response after creating a sandbox pool
@@ -133,7 +126,6 @@ fn build_pool(
     entrypoint: Option<Vec<String>>,
     secret_names: Vec<String>,
     timeout_secs: u64,
-    min_containers: Option<u32>,
     max_containers: Option<u32>,
     buffer_containers: Option<u32>,
     created_at: u64,
@@ -157,7 +149,6 @@ fn build_pool(
         .entrypoint(entrypoint)
         .secret_names(secret_names)
         .timeout_secs(timeout_secs)
-        .min_containers(min_containers)
         .max_containers(max_containers)
         .buffer_containers(buffer_containers)
         .created_at(created_at)
@@ -183,30 +174,18 @@ pub async fn create_sandbox_pool(
     State(state): State<RouteState>,
     Json(request): Json<CreateSandboxPoolRequest>,
 ) -> Result<Json<CreateSandboxPoolResponse>, IndexifyAPIError> {
-    let pool_id = ContainerPoolId::new(&request.pool_id);
-    let pool_key = ContainerPoolKey::new(&namespace, &pool_id);
+    let pool_id = ContainerPoolId::new(nanoid!());
 
-    // Check if pool already exists
-    {
-        let scheduler = state.indexify_state.container_scheduler.read().await;
-        if scheduler.container_pools.contains_key(&pool_key) {
-            return Err(IndexifyAPIError::conflict(&format!(
-                "Sandbox pool '{}' already exists in namespace '{}'",
-                request.pool_id, namespace
-            )));
-        }
-    }
     let pool = build_pool(
-        pool_id,
+        pool_id.clone(),
         namespace.clone(),
         request.image,
         &request.resources,
         request.entrypoint,
         request.secret_names,
         request.timeout_secs,
-        request.min_containers,
         request.max_containers,
-        request.buffer_containers,
+        request.warm_containers,
         0, // created_at will be set by state machine
     )?;
 
@@ -224,7 +203,7 @@ pub async fn create_sandbox_pool(
         .map_err(IndexifyAPIError::internal_error)?;
 
     Ok(Json(CreateSandboxPoolResponse {
-        pool_id: request.pool_id,
+        pool_id: pool_id.get().to_string(),
         namespace,
     }))
 }
@@ -320,9 +299,8 @@ pub async fn update_sandbox_pool(
         request.entrypoint,
         request.secret_names,
         request.timeout_secs,
-        request.min_containers,
         request.max_containers,
-        request.buffer_containers,
+        request.warm_containers,
         created_at,
     )?;
 

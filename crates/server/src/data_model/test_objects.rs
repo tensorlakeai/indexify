@@ -287,7 +287,7 @@ pub mod tests {
                 ..Default::default()
             },
             max_concurrency: 1,
-            buffer_containers: Some(buffer),
+            warm_containers: Some(buffer),
             ..Default::default()
         }
     }

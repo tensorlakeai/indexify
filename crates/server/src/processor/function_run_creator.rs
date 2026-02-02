@@ -150,10 +150,9 @@ impl FunctionRunCreator {
                 fc.clone(),
             );
         }
-        container_scheduler.update(&RequestPayload::SchedulerUpdate((
-            Box::new(scheduler_update.clone()),
-            vec![],
-        )))?;
+        let payload = RequestPayload::SchedulerUpdate((Box::new(scheduler_update.clone()), vec![]));
+        container_scheduler.update(&payload)?;
+        in_memory_state.update_state(self.clock, &payload, "function_run_creator")?;
 
         let Some(mut request_ctx) = in_memory_state
             .request_ctx

@@ -441,7 +441,7 @@ pub struct Function {
     /// Number of idle containers to maintain as a buffer for faster scheduling.
     /// Buffer + active containers must not exceed max_containers.
     #[serde(default)]
-    pub buffer_containers: Option<u32>,
+    pub warm_containers: Option<u32>,
 }
 
 impl Function {
@@ -2890,7 +2890,7 @@ impl ContainerPool {
                     .max_containers
                     .unwrap_or(Self::DEFAULT_MAX_CONTAINERS),
             ))
-            .buffer_containers(function.buffer_containers)
+            .buffer_containers(function.warm_containers)
             .build()
             .expect("ContainerPool builder should not fail with valid function")
     }

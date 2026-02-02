@@ -264,17 +264,17 @@ impl ProcessManager {
             });
         }
 
-        if let Some(mut stdin) = child.stdin.take() {
-            if let Some(mut rx) = stdin_rx {
-                tokio::spawn(async move {
-                    while let Some(data) = rx.recv().await {
-                        if stdin.write_all(&data).await.is_err() {
-                            break;
-                        }
-                        let _ = stdin.flush().await;
+        if let Some(mut stdin) = child.stdin.take() &&
+            let Some(mut rx) = stdin_rx
+        {
+            tokio::spawn(async move {
+                while let Some(data) = rx.recv().await {
+                    if stdin.write_all(&data).await.is_err() {
+                        break;
                     }
-                });
-            }
+                    let _ = stdin.flush().await;
+                }
+            });
         }
 
         let managed = ManagedProcess {
@@ -413,7 +413,7 @@ impl ProcessManager {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct FileManager;
 
 impl FileManager {

@@ -1,10 +1,11 @@
 use std::sync::Arc;
 
 use anyhow::{Result, anyhow};
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 
 use crate::{
     data_model::{
+        Allocation,
         Container,
         ContainerId,
         ContainerServerMetadata,
@@ -17,6 +18,7 @@ use crate::{
         FunctionRunOutcome,
         FunctionRunStatus,
         RunningFunctionRunStatus,
+        Sandbox,
         SandboxFailureReason,
         SandboxKey,
         SandboxOutcome,
@@ -48,7 +50,7 @@ impl ContainerReconciler {
 
     /// Reconciles function executor state between executor and server
     #[tracing::instrument(skip(self, in_memory_state, container_scheduler, executor))]
-    async fn reconcile_function_executors(
+    async fn reconcile_function_containers(
         &self,
         in_memory_state: &mut InMemoryState,
         container_scheduler: &mut ContainerScheduler,
@@ -60,8 +62,13 @@ impl ContainerReconciler {
             .get(&executor.id)
             .cloned()
         else {
+            error!(
+                "ExecutorServerMetadata not found for executor: {:?}, but should have been created by reconcile_executor_state",
+                executor.id
+            );
             return Ok(update);
         };
+
         let mut function_containers_to_remove = Vec::new();
 
         let containers_only_in_executor = executor
@@ -92,6 +99,7 @@ impl ContainerReconciler {
                 function_containers_to_remove.push(function_container.function_container.clone());
             }
         }
+        let mut containers_adopted = false;
         for fe in containers_only_in_executor {
             // Skip terminated containers
             if matches!(fe.state, ContainerState::Terminated { .. }) {
@@ -128,20 +136,26 @@ impl ContainerReconciler {
             let existing_fe =
                 ContainerServerMetadata::new(executor.id.clone(), fe.clone(), fe.state.clone());
             executor_server_metadata.force_add_container(&fe);
-
-            update.updated_executor_states.insert(
-                executor_server_metadata.executor_id.clone(),
-                executor_server_metadata.clone(),
-            );
             update.containers.insert(
                 existing_fe.function_container.id.clone(),
                 Box::new(existing_fe.clone()),
             );
+            containers_adopted = true;
         }
+
+        // Update executor metadata once after adopting all containers
+        if containers_adopted {
+            update.updated_executor_states.insert(
+                executor_server_metadata.executor_id.clone(),
+                executor_server_metadata.clone(),
+            );
+        }
+
         container_scheduler.update(&RequestPayload::SchedulerUpdate((
             Box::new(update.clone()),
             vec![],
         )))?;
+
         for (executor_c_id, executor_c) in &executor.containers {
             // If the Executor FE is also in the server's tracked FE lets sync them.
             if let Some(server_c) = container_scheduler.function_containers.get(executor_c_id) {
@@ -153,7 +167,7 @@ impl ContainerReconciler {
                     continue;
                 }
 
-                // If the server's FE state is terminated we don't need to do anything heres
+                // If the server's FE state is terminated we don't need to do anything here
                 if matches!(server_c.desired_state, ContainerState::Terminated { .. }) {
                     continue;
                 }
@@ -173,17 +187,17 @@ impl ContainerReconciler {
             vec![],
         )))?;
 
+        // Add container removals to main update
         update.extend(self.remove_function_containers(
             in_memory_state,
+            container_scheduler,
             &mut executor_server_metadata,
             function_containers_to_remove,
         )?);
 
-        // Apply update to container_scheduler so removed containers are no longer
-        // visible for subsequent allocate_function_runs call
+        // Apply all updates atomically to both container_scheduler and in_memory_state
         let payload = RequestPayload::SchedulerUpdate((Box::new(update.clone()), vec![]));
         container_scheduler.update(&payload)?;
-
         in_memory_state.update_state(self.clock, &payload, "container_reconciler")?;
 
         Ok(update)
@@ -333,11 +347,116 @@ impl ContainerReconciler {
         Ok(update)
     }
 
+    /// Handles orphaned containers on first executor heartbeat after server
+    /// restart. Detects allocations/sandboxes for containers that no longer
+    /// exist on the executor.
+    #[tracing::instrument(skip_all, target = "scheduler", fields(executor_id = %executor.id.get()))]
+    fn handle_orphaned_containers_on_first_heartbeat(
+        &self,
+        in_memory_state: &mut InMemoryState,
+        container_scheduler: &mut ContainerScheduler,
+        executor: &ExecutorMetadata,
+    ) -> Result<SchedulerUpdateRequest> {
+        let mut total_update = SchedulerUpdateRequest::default();
+
+        // Find allocations with missing containers
+        let orphaned_allocs: Vec<Box<Allocation>> = in_memory_state
+            .allocations_by_executor
+            .get(&executor.id)
+            .map(|allocations_by_container| {
+                allocations_by_container
+                    .iter()
+                    .filter(|(container_id, _)| {
+                        !executor.containers.contains_key(container_id) &&
+                            !container_scheduler
+                                .function_containers
+                                .contains_key(container_id)
+                    })
+                    .flat_map(|(_, allocs)| allocs.values().cloned())
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        // Handle orphaned allocations - group by container to avoid duplicates
+        for alloc in orphaned_allocs {
+            let container_update = self.handle_allocations_for_container_termination(
+                in_memory_state,
+                &alloc.target.executor_id,
+                &alloc.target.function_executor_id,
+                FunctionExecutorTerminationReason::Unknown,
+                &[],
+            )?;
+
+            let payload =
+                RequestPayload::SchedulerUpdate((Box::new(container_update.clone()), vec![]));
+            container_scheduler.update(&payload)?;
+            in_memory_state.update_state(
+                self.clock,
+                &payload,
+                "container_reconciler_orphaned_alloc",
+            )?;
+
+            total_update.extend(container_update);
+        }
+
+        // Find and handle running sandboxes with missing containers
+        let orphaned_sandboxes: Vec<Box<Sandbox>> = in_memory_state
+            .sandboxes_by_executor
+            .get(&executor.id)
+            .map(|sandbox_keys| {
+                sandbox_keys
+                    .iter()
+                    .filter_map(|sandbox_key| in_memory_state.sandboxes.get(sandbox_key).cloned())
+                    .filter(|sandbox| {
+                        sandbox.status == SandboxStatus::Running &&
+                            sandbox.container_id.as_ref().is_some_and(|container_id| {
+                                !executor.containers.contains_key(container_id) &&
+                                    !container_scheduler
+                                        .function_containers
+                                        .contains_key(container_id)
+                            })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        for sandbox in orphaned_sandboxes {
+            let mut updated_sandbox = sandbox.as_ref().clone();
+            updated_sandbox.status = SandboxStatus::Terminated;
+            updated_sandbox.outcome = Some(SandboxOutcome::Failure(
+                SandboxFailureReason::ContainerTerminated(
+                    FunctionExecutorTerminationReason::Unknown,
+                ),
+            ));
+
+            let mut sandbox_update = SchedulerUpdateRequest::default();
+            sandbox_update
+                .updated_sandboxes
+                .insert(SandboxKey::from_sandbox(&updated_sandbox), updated_sandbox);
+
+            let payload =
+                RequestPayload::SchedulerUpdate((Box::new(sandbox_update.clone()), vec![]));
+            container_scheduler.update(&payload)?;
+            in_memory_state.update_state(
+                self.clock,
+                &payload,
+                "container_reconciler_orphaned_sandbox",
+            )?;
+
+            total_update.extend(sandbox_update);
+        }
+
+        Ok(total_update)
+    }
+
     /// Removes function executors and handles associated function run cleanup
+    /// Applies incremental updates to both container_scheduler and
+    /// in_memory_state
     #[tracing::instrument(skip_all, target = "scheduler", fields(executor_id = %executor_server_metadata.executor_id.get(), num_function_executors = function_containers.len()))]
     fn remove_function_containers(
         &self,
         in_memory_state: &mut InMemoryState,
+        container_scheduler: &mut ContainerScheduler,
         executor_server_metadata: &mut ExecutorServerMetadata,
         function_containers: Vec<Container>,
     ) -> Result<SchedulerUpdateRequest> {
@@ -374,9 +493,13 @@ impl ContainerReconciler {
                     failed_alloc_ids,
                 )?;
 
+                // Apply incremental updates to both stores
+                let payload =
+                    RequestPayload::SchedulerUpdate((Box::new(container_update.clone()), vec![]));
+                container_scheduler.update(&payload)?;
                 in_memory_state.update_state(
                     self.clock,
-                    &RequestPayload::SchedulerUpdate((Box::new(container_update.clone()), vec![])),
+                    &payload,
                     "container_reconciler_remove_fc",
                 )?;
 
@@ -386,9 +509,13 @@ impl ContainerReconciler {
             // Terminate associated sandbox
             let sandbox_update = self.terminate_sandbox_for_container(in_memory_state, fe)?;
 
+            // Apply incremental updates to both stores
+            let payload =
+                RequestPayload::SchedulerUpdate((Box::new(sandbox_update.clone()), vec![]));
+            container_scheduler.update(&payload)?;
             in_memory_state.update_state(
                 self.clock,
-                &RequestPayload::SchedulerUpdate((Box::new(sandbox_update.clone()), vec![])),
+                &payload,
                 "container_reconciler_remove_fc_sandbox",
             )?;
 
@@ -499,9 +626,12 @@ impl ContainerReconciler {
                 &[],
             )?;
 
+            let payload =
+                RequestPayload::SchedulerUpdate((Box::new(container_update.clone()), vec![]));
+            container_scheduler.update(&payload)?;
             in_memory_state.update_state(
                 self.clock,
-                &RequestPayload::SchedulerUpdate((Box::new(container_update.clone()), vec![])),
+                &payload,
                 "container_reconciler_per_container",
             )?;
 
@@ -532,9 +662,12 @@ impl ContainerReconciler {
                     &terminated_fc.function_container,
                 )?;
 
+                let payload =
+                    RequestPayload::SchedulerUpdate((Box::new(sandbox_update.clone()), vec![]));
+                container_scheduler.update(&payload)?;
                 in_memory_state.update_state(
                     self.clock,
-                    &RequestPayload::SchedulerUpdate((Box::new(sandbox_update.clone()), vec![])),
+                    &payload,
                     "container_reconciler_per_container_sandbox",
                 )?;
 
@@ -567,12 +700,14 @@ impl ContainerReconciler {
         let sandbox_update = self.terminate_sandboxes_for_executor(in_memory_state, executor_id)?;
         update.extend(sandbox_update.clone());
 
-        // Apply sandbox updates to in_memory_state so terminate_sandbox_for_container
+        // Apply sandbox updates to both stores so terminate_sandbox_for_container
         // sees the updated status and skips already-terminated sandboxes
         if !sandbox_update.updated_sandboxes.is_empty() {
+            let payload = RequestPayload::SchedulerUpdate((Box::new(sandbox_update), vec![]));
+            container_scheduler.update(&payload)?;
             in_memory_state.update_state(
                 self.clock,
-                &RequestPayload::SchedulerUpdate((Box::new(sandbox_update), vec![])),
+                &payload,
                 "container_reconciler_sandbox_termination",
             )?;
         }
@@ -583,19 +718,6 @@ impl ContainerReconciler {
             container_scheduler,
             executor_id,
         )?);
-
-        in_memory_state.update_state(
-            self.clock,
-            &RequestPayload::SchedulerUpdate((Box::new(update.clone()), vec![])),
-            "container_reconciler",
-        )?;
-
-        // Apply the update to container_scheduler immediately so the executor
-        // is removed before subsequent allocate_function_runs calls
-        container_scheduler.update(&RequestPayload::SchedulerUpdate((
-            Box::new(update.clone()),
-            vec![],
-        )))?;
 
         Ok(update)
     }
@@ -655,10 +777,11 @@ impl ContainerReconciler {
         tracing::debug!(?executor, "reconciling executor state for executor",);
 
         // Create ExecutorServerMetadata if it doesn't exist
-        if !container_scheduler
+        let is_first_heartbeat = !container_scheduler
             .executor_states
-            .contains_key(executor_id)
-        {
+            .contains_key(executor_id);
+
+        if is_first_heartbeat {
             info!(
                 executor_id = %executor_id,
                 "creating executor server metadata"
@@ -682,9 +805,18 @@ impl ContainerReconciler {
 
         // Reconcile function executors
         update.extend(
-            self.reconcile_function_executors(in_memory_state, container_scheduler, &executor)
+            self.reconcile_function_containers(in_memory_state, container_scheduler, &executor)
                 .await?,
         );
+
+        // On first heartbeat after server restart, check for orphaned containers
+        if is_first_heartbeat {
+            update.extend(self.handle_orphaned_containers_on_first_heartbeat(
+                in_memory_state,
+                container_scheduler,
+                &executor,
+            )?);
+        }
 
         Ok(update)
     }
