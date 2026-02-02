@@ -643,9 +643,11 @@ impl ContainerReconciler {
                 &[],
             )?;
 
+            let payload = RequestPayload::SchedulerUpdate((Box::new(container_update.clone()), vec![]));
+            container_scheduler.update(&payload)?;
             in_memory_state.update_state(
                 self.clock,
-                &RequestPayload::SchedulerUpdate((Box::new(container_update.clone()), vec![])),
+                &payload,
                 "container_reconciler_per_container",
             )?;
 
@@ -676,9 +678,11 @@ impl ContainerReconciler {
                     &terminated_fc.function_container,
                 )?;
 
+                let payload = RequestPayload::SchedulerUpdate((Box::new(sandbox_update.clone()), vec![]));
+                container_scheduler.update(&payload)?;
                 in_memory_state.update_state(
                     self.clock,
-                    &RequestPayload::SchedulerUpdate((Box::new(sandbox_update.clone()), vec![])),
+                    &payload,
                     "container_reconciler_per_container_sandbox",
                 )?;
 
@@ -711,12 +715,14 @@ impl ContainerReconciler {
         let sandbox_update = self.terminate_sandboxes_for_executor(in_memory_state, executor_id)?;
         update.extend(sandbox_update.clone());
 
-        // Apply sandbox updates to in_memory_state so terminate_sandbox_for_container
+        // Apply sandbox updates to both stores so terminate_sandbox_for_container
         // sees the updated status and skips already-terminated sandboxes
         if !sandbox_update.updated_sandboxes.is_empty() {
+            let payload = RequestPayload::SchedulerUpdate((Box::new(sandbox_update), vec![]));
+            container_scheduler.update(&payload)?;
             in_memory_state.update_state(
                 self.clock,
-                &RequestPayload::SchedulerUpdate((Box::new(sandbox_update), vec![])),
+                &payload,
                 "container_reconciler_sandbox_termination",
             )?;
         }
