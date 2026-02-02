@@ -43,10 +43,6 @@ jobs:
             image: indexify-dataplane
     environment: ${{ inputs.environment }}
     runs-on: namespace-profile-indexify-builder
-    permissions:
-      id-token: write
-      contents: read
-      packages: read
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -113,12 +109,6 @@ jobs:
           echo "$TAGS_JOINED" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
-      - name: Debug Docker config
-        run: |
-          cat ~/.docker/config.json || true
-          docker buildx ls
-          docker pull us-central1-docker.pkg.dev/tensorlake-registry/images/indexify-server:9254192ff6e3af99e271a0d2785bdaaddf10abd2
-
       - name: Build and push
         uses: docker/build-push-action@v6
         if: steps.docker-tags.outputs.tags != ''
@@ -127,5 +117,8 @@ jobs:
           push: true
           context: .
           file: ${{ matrix.dockerfile }}
+          outputs: type=image,push=true,image-manifest=true,oci-mediatypes=true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
           tags: |
             ${{ steps.docker-tags.outputs.tags }}
