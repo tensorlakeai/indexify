@@ -344,6 +344,11 @@ impl ContainerReconciler {
         for alloc in allocs {
             let mut updated_alloc = alloc.as_ref().clone();
 
+            // Idempotency: Skip allocations that have already been processed (outcome is not Unknown)
+            if updated_alloc.outcome != FunctionRunOutcome::Unknown {
+                continue;
+            }
+
             let Some(function_run) = in_memory_state
                 .function_runs
                 .get(&FunctionRunKey::from(alloc.as_ref()))
