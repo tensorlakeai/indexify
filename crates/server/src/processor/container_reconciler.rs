@@ -77,7 +77,11 @@ impl ContainerReconciler {
             in_memory_state.allocations_by_executor.get(&executor.id)
         {
             for container_id in allocations_by_container.keys() {
-                if !executor.containers.contains_key(container_id) {
+                if !executor.containers.contains_key(container_id) &&
+                    !executor_server_metadata
+                        .function_container_ids
+                        .contains(container_id)
+                {
                     orphaned_containers.insert(container_id.clone());
                 }
             }
@@ -89,7 +93,10 @@ impl ContainerReconciler {
                 if let Some(sandbox) = in_memory_state.sandboxes.get(sandbox_key) &&
                     sandbox.status == SandboxStatus::Running &&
                     let Some(ref container_id) = sandbox.container_id &&
-                    !executor.containers.contains_key(container_id)
+                    !executor.containers.contains_key(container_id) &&
+                    !executor_server_metadata
+                        .function_container_ids
+                        .contains(container_id)
                 {
                     orphaned_containers.insert(container_id.clone());
                 }
@@ -260,13 +267,10 @@ impl ContainerReconciler {
             !orphaned_batch_update.updated_function_runs.is_empty() ||
             !orphaned_batch_update.updated_request_states.is_empty()
         {
-            let payload = RequestPayload::SchedulerUpdate((Box::new(orphaned_batch_update), vec![]));
+            let payload =
+                RequestPayload::SchedulerUpdate((Box::new(orphaned_batch_update), vec![]));
             container_scheduler.update(&payload)?;
-            in_memory_state.update_state(
-                self.clock,
-                &payload,
-                "container_reconciler_orphaned",
-            )?;
+            in_memory_state.update_state(self.clock, &payload, "container_reconciler_orphaned")?;
         }
 
         for (executor_c_id, executor_c) in &executor.containers {
@@ -347,7 +351,8 @@ impl ContainerReconciler {
         for alloc in allocs {
             let mut updated_alloc = alloc.as_ref().clone();
 
-            // Idempotency: Skip allocations that have already been processed (outcome is not Unknown)
+            // Idempotency: Skip allocations that have already been processed (outcome is
+            // not Unknown)
             if updated_alloc.outcome != FunctionRunOutcome::Unknown {
                 continue;
             }
@@ -470,7 +475,8 @@ impl ContainerReconciler {
     }
 
     /// Removes function executors and handles associated function run cleanup
-    /// Applies incremental updates to both container_scheduler and in_memory_state
+    /// Applies incremental updates to both container_scheduler and
+    /// in_memory_state
     #[tracing::instrument(skip_all, target = "scheduler", fields(executor_id = %executor_server_metadata.executor_id.get(), num_function_executors = function_containers.len()))]
     fn remove_function_containers(
         &self,
@@ -513,7 +519,8 @@ impl ContainerReconciler {
                 )?;
 
                 // Apply incremental updates to both stores
-                let payload = RequestPayload::SchedulerUpdate((Box::new(container_update.clone()), vec![]));
+                let payload =
+                    RequestPayload::SchedulerUpdate((Box::new(container_update.clone()), vec![]));
                 container_scheduler.update(&payload)?;
                 in_memory_state.update_state(
                     self.clock,
@@ -528,7 +535,8 @@ impl ContainerReconciler {
             let sandbox_update = self.terminate_sandbox_for_container(in_memory_state, fe)?;
 
             // Apply incremental updates to both stores
-            let payload = RequestPayload::SchedulerUpdate((Box::new(sandbox_update.clone()), vec![]));
+            let payload =
+                RequestPayload::SchedulerUpdate((Box::new(sandbox_update.clone()), vec![]));
             container_scheduler.update(&payload)?;
             in_memory_state.update_state(
                 self.clock,
@@ -643,7 +651,8 @@ impl ContainerReconciler {
                 &[],
             )?;
 
-            let payload = RequestPayload::SchedulerUpdate((Box::new(container_update.clone()), vec![]));
+            let payload =
+                RequestPayload::SchedulerUpdate((Box::new(container_update.clone()), vec![]));
             container_scheduler.update(&payload)?;
             in_memory_state.update_state(
                 self.clock,
@@ -678,7 +687,8 @@ impl ContainerReconciler {
                     &terminated_fc.function_container,
                 )?;
 
-                let payload = RequestPayload::SchedulerUpdate((Box::new(sandbox_update.clone()), vec![]));
+                let payload =
+                    RequestPayload::SchedulerUpdate((Box::new(sandbox_update.clone()), vec![]));
                 container_scheduler.update(&payload)?;
                 in_memory_state.update_state(
                     self.clock,
