@@ -2511,13 +2511,6 @@ impl SandboxKey {
     pub fn from_sandbox(sandbox: &Sandbox) -> Self {
         Self::new(&sandbox.namespace, sandbox.id.get())
     }
-
-    /// Extract the sandbox_id part from the key
-    pub fn sandbox_id(&self) -> SandboxId {
-        // Key format: "namespace|sandbox_id"
-        let parts: Vec<&str> = self.0.splitn(2, '|').collect();
-        SandboxId::new(parts.get(1).unwrap_or(&"").to_string())
-    }
 }
 
 impl Display for SandboxKey {
