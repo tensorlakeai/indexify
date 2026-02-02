@@ -30,7 +30,7 @@ axum = { version = "0.8.8", features = ["multipart", "macros", "tokio"] }
 axum-server = "0.8.0"
 tower-http = { version = "0.6.8", default-features = false, features = ["cors", "trace"] }
 hyper = { version = "1.8.1", features = ["client", "http1"] }
-tonic = { version = "0.14.2", features = ["transport", "tls-ring", "tls-native-roots"] }
+tonic = { version = "0.14.3", features = ["transport", "tls-ring", "tls-native-roots"] }
 tonic-prost = "0.14.3"
 tonic-reflection = "0.14.3"
 tonic-types = "0.14.3"
