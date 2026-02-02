@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::{Result, anyhow};
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 
 use crate::{
     data_model::{
@@ -55,11 +55,17 @@ impl ContainerReconciler {
         executor: &ExecutorMetadata,
     ) -> Result<SchedulerUpdateRequest> {
         let mut update = SchedulerUpdateRequest::default();
-        let mut executor_server_metadata = container_scheduler
+        let Some(mut executor_server_metadata) = container_scheduler
             .executor_states
             .get(&executor.id)
             .cloned()
-            .expect("ExecutorServerMetadata must exist - created by reconcile_executor_state");
+        else {
+            error!(
+                "ExecutorServerMetadata not found for executor: {:?}, but should have been created by reconcile_executor_state",
+                executor.id
+            );
+            return Ok(update);
+        };
         let mut function_containers_to_remove = Vec::new();
 
         let containers_only_in_executor = executor
