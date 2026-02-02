@@ -283,8 +283,6 @@ impl FunctionRunProcessor {
             let Some(create_update) =
                 try_create_container(in_memory_state, container_scheduler, function_run)?
         {
-            // Apply update to both stores so the new container is visible
-            // for subsequent find_available_container call
             let payload =
                 RequestPayload::SchedulerUpdate((Box::new(create_update.clone()), vec![]));
             container_scheduler.update(&payload)?;

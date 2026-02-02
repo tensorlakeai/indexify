@@ -274,10 +274,10 @@ pub struct InMemoryState {
     // Sandboxes - SandboxKey -> Sandbox
     pub sandboxes: imbl::OrdMap<SandboxKey, Box<Sandbox>>,
 
-    // Reverse index: ContainerId -> SandboxKey (for containers serving sandboxes)
+    // Reverse index: ContainerId -> SandboxKey
     pub sandbox_by_container: imbl::HashMap<ContainerId, SandboxKey>,
 
-    // Reverse index: ExecutorId -> Set<SandboxKey> (for sandboxes running on an executor)
+    // Reverse index: ExecutorId -> Set<SandboxKey>
     pub sandboxes_by_executor: imbl::HashMap<ExecutorId, imbl::HashSet<SandboxKey>>,
 
     // Pending sandboxes waiting for executor allocation
@@ -786,9 +786,7 @@ impl InMemoryState {
                                     &ResourceProfile::from_container_resources(&sandbox.resources),
                                 );
 
-                                // Add to reverse indices (sandboxes don't switch container/executor
-                                // IDs, so no old values to remove
-                                // on Pending → Running transition)
+                                // Add to reverse indices
                                 if let Some(container_id) = &sandbox.container_id {
                                     self.sandbox_by_container
                                         .insert(container_id.clone(), sandbox_key.clone());

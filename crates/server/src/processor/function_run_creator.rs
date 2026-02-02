@@ -111,8 +111,6 @@ impl FunctionRunCreator {
             pending_function_calls,
             application_version,
         )?);
-        // Apply to in_memory_state so subsequent allocate_function_runs sees the new
-        // function runs
         in_memory_state.update_state(
             self.clock,
             &RequestPayload::SchedulerUpdate((Box::new(scheduler_update.clone()), vec![])),
@@ -152,8 +150,6 @@ impl FunctionRunCreator {
                 fc.clone(),
             );
         }
-        // Apply immediately to both stores so subsequent logic sees the updated
-        // container
         let payload = RequestPayload::SchedulerUpdate((Box::new(scheduler_update.clone()), vec![]));
         container_scheduler.update(&payload)?;
         in_memory_state.update_state(self.clock, &payload, "function_run_creator")?;
@@ -260,7 +256,6 @@ impl FunctionRunCreator {
         );
         scheduler_update.add_function_run(function_run.clone(), &mut request_ctx);
 
-        // Apply to in_memory_state so subsequent operations see the retry status
         in_memory_state.update_state(
             self.clock,
             &RequestPayload::SchedulerUpdate((Box::new(scheduler_update.clone()), vec![])),
@@ -322,8 +317,6 @@ impl FunctionRunCreator {
             pending_function_calls,
             &application_version,
         )?);
-        // Apply to in_memory_state so subsequent allocate_function_runs sees the new
-        // function runs
         in_memory_state.update_state(
             self.clock,
             &RequestPayload::SchedulerUpdate((Box::new(scheduler_update.clone()), vec![])),

@@ -719,10 +719,6 @@ impl ContainerReconciler {
             executor_id,
         )?);
 
-        // Return update to state machine for final application to both stores
-        // Note: sandbox_update was already applied to in_memory_state (line 681-687)
-        // and remove_all_function_executors_for_executor applied incremental updates
-        // The state machine will apply the full update to both stores (idempotent)
         Ok(update)
     }
 
@@ -814,8 +810,6 @@ impl ContainerReconciler {
         );
 
         // On first heartbeat after server restart, check for orphaned containers
-        // (containers that had allocations/sandboxes but are no longer reported by
-        // executor)
         if is_first_heartbeat {
             update.extend(self.handle_orphaned_containers_on_first_heartbeat(
                 in_memory_state,
