@@ -66,6 +66,35 @@ impl ContainerReconciler {
             );
             return Ok(update);
         };
+
+        // Identify orphaned containers FIRST before building function_containers_to_remove
+        // to avoid processing the same containers multiple times
+        let mut orphaned_containers = std::collections::HashSet::new();
+
+        // Add containers with allocations
+        if let Some(allocations_by_container) =
+            in_memory_state.allocations_by_executor.get(&executor.id)
+        {
+            for container_id in allocations_by_container.keys() {
+                if !executor.containers.contains_key(container_id) {
+                    orphaned_containers.insert(container_id.clone());
+                }
+            }
+        }
+
+        // Add containers with sandboxes
+        if let Some(sandbox_keys) = in_memory_state.sandboxes_by_executor.get(&executor.id) {
+            for sandbox_key in sandbox_keys {
+                if let Some(sandbox) = in_memory_state.sandboxes.get(sandbox_key) &&
+                    sandbox.status == SandboxStatus::Running &&
+                    let Some(ref container_id) = sandbox.container_id &&
+                    !executor.containers.contains_key(container_id)
+                {
+                    orphaned_containers.insert(container_id.clone());
+                }
+            }
+        }
+
         let mut function_containers_to_remove = Vec::new();
 
         let containers_only_in_executor = executor
@@ -84,6 +113,11 @@ impl ContainerReconciler {
             .filter(|fe_id| !executor.containers.contains_key(fe_id))
             .collect::<Vec<_>>();
         for container_id in containers_only_in_server {
+            // Skip orphaned containers - they'll be handled by orphaned logic
+            if orphaned_containers.contains(container_id) {
+                continue;
+            }
+
             let Some(function_container) =
                 container_scheduler.function_containers.get(container_id)
             else {
@@ -155,35 +189,7 @@ impl ContainerReconciler {
             vec![],
         )))?;
 
-        // Handle orphaned containers: containers that the executor no longer reports
-        // but have allocations or sandboxes. This can happen after server restart if
-        // a container died while the server was down.
-        let mut orphaned_containers = std::collections::HashSet::new();
-
-        // Add containers with allocations
-        if let Some(allocations_by_container) =
-            in_memory_state.allocations_by_executor.get(&executor.id)
-        {
-            for container_id in allocations_by_container.keys() {
-                if !executor.containers.contains_key(container_id) {
-                    orphaned_containers.insert(container_id.clone());
-                }
-            }
-        }
-
-        // Add containers with sandboxes
-        if let Some(sandbox_keys) = in_memory_state.sandboxes_by_executor.get(&executor.id) {
-            for sandbox_key in sandbox_keys {
-                if let Some(sandbox) = in_memory_state.sandboxes.get(sandbox_key) &&
-                    sandbox.status == SandboxStatus::Running &&
-                    let Some(ref container_id) = sandbox.container_id &&
-                    !executor.containers.contains_key(container_id)
-                {
-                    orphaned_containers.insert(container_id.clone());
-                }
-            }
-        }
-
+        // Process orphaned containers (identified earlier in the function)
         // Collect all orphaned resource updates for batch processing
         let mut orphaned_batch_update = SchedulerUpdateRequest::default();
 
@@ -287,8 +293,9 @@ impl ContainerReconciler {
             }
         }
 
-        // Filter out containers that were already processed as orphaned
-        // to avoid duplicate allocation processing
+        // Safety check: filter out any orphaned containers that may have been added
+        // from the executor.containers loop (shouldn't happen since orphaned containers
+        // are NOT in executor.containers, but kept as defensive programming)
         let function_containers_to_remove: Vec<_> = function_containers_to_remove
             .into_iter()
             .filter(|container| !orphaned_containers.contains(&container.id))
