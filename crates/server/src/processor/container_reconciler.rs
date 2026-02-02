@@ -5,6 +5,7 @@ use tracing::{error, info, warn};
 
 use crate::{
     data_model::{
+        Allocation,
         Container,
         ContainerId,
         ContainerServerMetadata,
@@ -17,6 +18,7 @@ use crate::{
         FunctionRunOutcome,
         FunctionRunStatus,
         RunningFunctionRunStatus,
+        Sandbox,
         SandboxFailureReason,
         SandboxKey,
         SandboxOutcome,
@@ -66,42 +68,6 @@ impl ContainerReconciler {
             );
             return Ok(update);
         };
-
-        // Identify orphaned containers FIRST before building
-        // function_containers_to_remove to avoid processing the same containers
-        // multiple times
-        let mut orphaned_containers = std::collections::HashSet::new();
-
-        // Add containers with allocations
-        if let Some(allocations_by_container) =
-            in_memory_state.allocations_by_executor.get(&executor.id)
-        {
-            for container_id in allocations_by_container.keys() {
-                if !executor.containers.contains_key(container_id) &&
-                    !executor_server_metadata
-                        .function_container_ids
-                        .contains(container_id)
-                {
-                    orphaned_containers.insert(container_id.clone());
-                }
-            }
-        }
-
-        // Add containers with sandboxes
-        if let Some(sandbox_keys) = in_memory_state.sandboxes_by_executor.get(&executor.id) {
-            for sandbox_key in sandbox_keys {
-                if let Some(sandbox) = in_memory_state.sandboxes.get(sandbox_key) &&
-                    sandbox.status == SandboxStatus::Running &&
-                    let Some(ref container_id) = sandbox.container_id &&
-                    !executor.containers.contains_key(container_id) &&
-                    !executor_server_metadata
-                        .function_container_ids
-                        .contains(container_id)
-                {
-                    orphaned_containers.insert(container_id.clone());
-                }
-            }
-        }
 
         let mut function_containers_to_remove = Vec::new();
 
@@ -474,6 +440,108 @@ impl ContainerReconciler {
         Ok(update)
     }
 
+    /// Handles orphaned containers on first executor heartbeat after server
+    /// restart. Detects allocations/sandboxes for containers that no longer
+    /// exist on the executor.
+    #[tracing::instrument(skip_all, target = "scheduler", fields(executor_id = %executor.id.get()))]
+    fn handle_orphaned_containers_on_first_heartbeat(
+        &self,
+        in_memory_state: &mut InMemoryState,
+        container_scheduler: &mut ContainerScheduler,
+        executor: &ExecutorMetadata,
+    ) -> Result<SchedulerUpdateRequest> {
+        let mut total_update = SchedulerUpdateRequest::default();
+
+        // Find allocations with missing containers
+        let orphaned_allocs: Vec<Box<Allocation>> = in_memory_state
+            .allocations_by_executor
+            .get(&executor.id)
+            .map(|allocations_by_container| {
+                allocations_by_container
+                    .iter()
+                    .filter(|(container_id, _)| {
+                        !executor.containers.contains_key(container_id) &&
+                            !container_scheduler
+                                .function_containers
+                                .contains_key(container_id)
+                    })
+                    .flat_map(|(_, allocs)| allocs.values().cloned())
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        // Handle orphaned allocations - group by container to avoid duplicates
+        for alloc in orphaned_allocs {
+            let container_update = self.handle_allocations_for_container_termination(
+                in_memory_state,
+                &alloc.target.executor_id,
+                &alloc.target.function_executor_id,
+                FunctionExecutorTerminationReason::Unknown,
+                &[],
+            )?;
+
+            let payload =
+                RequestPayload::SchedulerUpdate((Box::new(container_update.clone()), vec![]));
+            container_scheduler.update(&payload)?;
+            in_memory_state.update_state(
+                self.clock,
+                &payload,
+                "container_reconciler_orphaned_alloc",
+            )?;
+
+            total_update.extend(container_update);
+        }
+
+        // Find and handle running sandboxes with missing containers
+        let orphaned_sandboxes: Vec<Box<Sandbox>> = in_memory_state
+            .sandboxes_by_executor
+            .get(&executor.id)
+            .map(|sandbox_keys| {
+                sandbox_keys
+                    .iter()
+                    .filter_map(|sandbox_key| in_memory_state.sandboxes.get(sandbox_key).cloned())
+                    .filter(|sandbox| {
+                        sandbox.status == SandboxStatus::Running &&
+                            sandbox.container_id.as_ref().is_some_and(|container_id| {
+                                !executor.containers.contains_key(container_id) &&
+                                    !container_scheduler
+                                        .function_containers
+                                        .contains_key(container_id)
+                            })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        for sandbox in orphaned_sandboxes {
+            let mut updated_sandbox = sandbox.as_ref().clone();
+            updated_sandbox.status = SandboxStatus::Terminated;
+            updated_sandbox.outcome = Some(SandboxOutcome::Failure(
+                SandboxFailureReason::ContainerTerminated(
+                    FunctionExecutorTerminationReason::Unknown,
+                ),
+            ));
+
+            let mut sandbox_update = SchedulerUpdateRequest::default();
+            sandbox_update
+                .updated_sandboxes
+                .insert(SandboxKey::from_sandbox(&updated_sandbox), updated_sandbox);
+
+            let payload =
+                RequestPayload::SchedulerUpdate((Box::new(sandbox_update.clone()), vec![]));
+            container_scheduler.update(&payload)?;
+            in_memory_state.update_state(
+                self.clock,
+                &payload,
+                "container_reconciler_orphaned_sandbox",
+            )?;
+
+            total_update.extend(sandbox_update);
+        }
+
+        Ok(total_update)
+    }
+
     /// Removes function executors and handles associated function run cleanup
     /// Applies incremental updates to both container_scheduler and
     /// in_memory_state
@@ -806,10 +874,11 @@ impl ContainerReconciler {
         tracing::debug!(?executor, "reconciling executor state for executor",);
 
         // Create ExecutorServerMetadata if it doesn't exist
-        if !container_scheduler
+        let is_first_heartbeat = !container_scheduler
             .executor_states
-            .contains_key(executor_id)
-        {
+            .contains_key(executor_id);
+
+        if is_first_heartbeat {
             info!(
                 executor_id = %executor_id,
                 "creating executor server metadata"
@@ -836,6 +905,17 @@ impl ContainerReconciler {
             self.reconcile_function_containers(in_memory_state, container_scheduler, &executor)
                 .await?,
         );
+
+        // On first heartbeat after server restart, check for orphaned containers
+        // (containers that had allocations/sandboxes but are no longer reported by
+        // executor)
+        if is_first_heartbeat {
+            update.extend(self.handle_orphaned_containers_on_first_heartbeat(
+                in_memory_state,
+                container_scheduler,
+                &executor,
+            )?);
+        }
 
         Ok(update)
     }
