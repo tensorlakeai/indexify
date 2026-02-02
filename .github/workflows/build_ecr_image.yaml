@@ -43,6 +43,10 @@ jobs:
             image: indexify-dataplane
     environment: ${{ inputs.environment }}
     runs-on: namespace-profile-indexify-builder
+    permissions:
+      id-token: write
+      contents: read
+      packages: read
     steps:
       - name: Checkout
         uses: actions/checkout@v6
