@@ -187,7 +187,7 @@ impl ContainerReconciler {
         // Collect all orphaned resource updates for batch processing
         let mut orphaned_batch_update = SchedulerUpdateRequest::default();
 
-        for container_id in orphaned_containers {
+        for container_id in &orphaned_containers {
             // Handle allocations for this orphaned container
             let alloc_count = in_memory_state
                 .allocations_by_executor
@@ -242,8 +242,23 @@ impl ContainerReconciler {
             }
         }
 
-        // Add orphaned resource updates to main update (will be applied at end)
-        update.extend(orphaned_batch_update);
+        // Add orphaned resource updates to main update
+        update.extend(orphaned_batch_update.clone());
+
+        // Apply orphaned updates to in_memory_state immediately so subsequent
+        // remove_function_containers sees the updated state and doesn't process
+        // the same allocations again
+        if !orphaned_batch_update.updated_allocations.is_empty() ||
+            !orphaned_batch_update.updated_sandboxes.is_empty() ||
+            !orphaned_batch_update.updated_function_runs.is_empty() ||
+            !orphaned_batch_update.updated_request_states.is_empty()
+        {
+            in_memory_state.update_state(
+                self.clock,
+                &RequestPayload::SchedulerUpdate((Box::new(orphaned_batch_update), vec![])),
+                "container_reconciler_orphaned",
+            )?;
+        }
 
         for (executor_c_id, executor_c) in &executor.containers {
             // If the Executor FE is also in the server's tracked FE lets sync them.
@@ -271,6 +286,13 @@ impl ContainerReconciler {
                 }
             }
         }
+
+        // Filter out containers that were already processed as orphaned
+        // to avoid duplicate allocation processing
+        let function_containers_to_remove: Vec<_> = function_containers_to_remove
+            .into_iter()
+            .filter(|container| !orphaned_containers.contains(&container.id))
+            .collect();
 
         // Add container removals to main update
         update.extend(self.remove_function_containers(
