@@ -812,8 +812,8 @@ impl InMemoryState {
                                 self.sandbox_by_container.remove(&container_id);
                             }
                             // Remove from reverse index: executor_id
-                            if let Some(executor_id) = old_executor_id
-                                && let Some(sandboxes) =
+                            if let Some(executor_id) = old_executor_id &&
+                                let Some(sandboxes) =
                                     self.sandboxes_by_executor.get_mut(&executor_id)
                             {
                                 sandboxes.remove(sandbox_key);

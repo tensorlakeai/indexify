@@ -168,10 +168,10 @@ impl ContainerReconciler {
         // Add containers with sandboxes
         if let Some(sandbox_keys) = in_memory_state.sandboxes_by_executor.get(&executor.id) {
             for sandbox_key in sandbox_keys {
-                if let Some(sandbox) = in_memory_state.sandboxes.get(sandbox_key)
-                    && sandbox.status == SandboxStatus::Running
-                    && let Some(ref container_id) = sandbox.container_id
-                    && !executor.containers.contains_key(container_id)
+                if let Some(sandbox) = in_memory_state.sandboxes.get(sandbox_key) &&
+                    sandbox.status == SandboxStatus::Running &&
+                    let Some(ref container_id) = sandbox.container_id &&
+                    !executor.containers.contains_key(container_id)
                 {
                     orphaned_containers.insert(container_id.clone());
                 }
@@ -210,9 +210,9 @@ impl ContainerReconciler {
             }
 
             // Handle sandbox for this orphaned container
-            if let Some(sandbox_key) = in_memory_state.sandbox_by_container.get(&container_id)
-                && let Some(sandbox) = in_memory_state.sandboxes.get(sandbox_key)
-                && sandbox.status == SandboxStatus::Running
+            if let Some(sandbox_key) = in_memory_state.sandbox_by_container.get(&container_id) &&
+                let Some(sandbox) = in_memory_state.sandboxes.get(sandbox_key) &&
+                sandbox.status == SandboxStatus::Running
             {
                 info!(
                     sandbox_id = %sandbox.id,
