@@ -264,8 +264,8 @@ impl ProcessManager {
             });
         }
 
-        if let Some(mut stdin) = child.stdin.take()
-            && let Some(mut rx) = stdin_rx
+        if let Some(mut stdin) = child.stdin.take() &&
+            let Some(mut rx) = stdin_rx
         {
             tokio::spawn(async move {
                 while let Some(data) = rx.recv().await {
