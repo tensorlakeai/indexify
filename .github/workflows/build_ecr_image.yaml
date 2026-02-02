@@ -26,6 +26,11 @@ permissions:
   id-token: write
   contents: read
 
+env:
+  GCP_REGION: us-central1
+  GCP_PROJECT: tensorlake-registry
+  GCP_REPOSITORY_PREFIX: images
+
 jobs:
   build-and-push:
     name: Build ${{ matrix.image }}
@@ -70,14 +75,14 @@ jobs:
         id: images
         run: |
           echo "image_tag=${{ github.sha }}" >> $GITHUB_OUTPUT
-          echo "ecr_image_uri=${{ steps.login-ecr.outputs.registry }}/tensorlake/document-ai:${{ github.sha }}" >> $GITHUB_OUTPUT
+          echo "ecr_image_uri=${{ steps.login-ecr.outputs.registry }}/${{ matrix.image }}:${{ github.sha }}" >> $GITHUB_OUTPUT
 
           if [ "${{ inputs.environment }}" == "dev" ]; then
             GCP_REPOSITORY="${{ env.GCP_REPOSITORY_PREFIX }}-dev"
           else
             GCP_REPOSITORY="${{ env.GCP_REPOSITORY_PREFIX }}"
           fi
-          GCP_IMAGE_URI="${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT }}/${GCP_REPOSITORY}/${{ env.GCP_IMAGE }}:${{ github.sha }}"
+          GCP_IMAGE_URI="${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT }}/${GCP_REPOSITORY}/${{ matrix.image }}:${{ github.sha }}"
           echo "gcp_image_uri=$GCP_IMAGE_URI" >> $GITHUB_OUTPUT
 
       - name: Prepare tags for Docker build and push
