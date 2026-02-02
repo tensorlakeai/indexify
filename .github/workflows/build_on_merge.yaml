@@ -26,7 +26,7 @@ jobs:
           "$GITHUB_OUTPUT"
 
   build_dev_ecr:
-    uses: ./.github/workflows/build_ecr_image.yaml
+    uses: ./.github/workflows/build_internal_images.yaml
     with:
       environment: dev
       version: ${{ needs.extract-version.outputs.version }}
@@ -35,7 +35,7 @@ jobs:
       - extract-version
 
   build_prod_ecr:
-    uses: ./.github/workflows/build_ecr_image.yaml
+    uses: ./.github/workflows/build_internal_images.yaml
     with:
       environment: prod
       version: ${{ needs.extract-version.outputs.version }}
