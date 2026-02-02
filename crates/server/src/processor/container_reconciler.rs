@@ -121,25 +121,12 @@ impl ContainerReconciler {
             info!(
                 executor_id = %executor.id,
                 container_id = %fe.id,
-                container_cpu_ms = %fe.resources.cpu_ms_per_sec,
-                container_memory_mb = %fe.resources.memory_mb,
-                free_cpu_before = %executor_server_metadata.free_resources.cpu_ms_per_sec,
-                free_mem_before = %executor_server_metadata.free_resources.memory_bytes,
-                "force_add_container: adopting untracked container from executor"
+                "adopting untracked container from executor"
             );
 
             let existing_fe =
                 ContainerServerMetadata::new(executor.id.clone(), fe.clone(), fe.state.clone());
             executor_server_metadata.force_add_container(&fe);
-
-            info!(
-                executor_id = %executor.id,
-                container_id = %fe.id,
-                free_cpu_after = %executor_server_metadata.free_resources.cpu_ms_per_sec,
-                free_mem_after = %executor_server_metadata.free_resources.memory_bytes,
-                num_containers = %executor_server_metadata.function_container_ids.len(),
-                "force_add_container: container adopted"
-            );
 
             update.updated_executor_states.insert(
                 executor_server_metadata.executor_id.clone(),
@@ -673,9 +660,7 @@ impl ContainerReconciler {
         {
             info!(
                 executor_id = %executor_id,
-                host_cpu_ms = %executor.host_resources.cpu_ms_per_sec,
-                host_memory_bytes = %executor.host_resources.memory_bytes,
-                "Creating new ExecutorServerMetadata with full host resources as free"
+                "creating executor server metadata"
             );
             let executor_server_metadata = ExecutorServerMetadata {
                 executor_id: executor_id.clone(),
@@ -692,18 +677,6 @@ impl ContainerReconciler {
                     vec![],
                 )),
             )?;
-        } else {
-            let existing = container_scheduler
-                .executor_states
-                .get(executor_id)
-                .unwrap();
-            info!(
-                executor_id = %executor_id,
-                free_cpu_ms = %existing.free_resources.cpu_ms_per_sec,
-                free_memory_bytes = %existing.free_resources.memory_bytes,
-                num_containers = %existing.function_container_ids.len(),
-                "Using existing ExecutorServerMetadata"
-            );
         }
 
         // Reconcile function executors
