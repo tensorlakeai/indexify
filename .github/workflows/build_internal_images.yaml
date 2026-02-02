@@ -1,6 +1,6 @@
-name: Build ECR images
+name: Build Internal images (ECR and GCP)
 
-run-name: Build and push to ECR ${{ inputs.environment }}
+run-name: Build and push to ${{ inputs.environment }} (ECR and GCP)
 
 on:
   workflow_dispatch:
