@@ -192,7 +192,7 @@ impl ContainerReconciler {
             let alloc_count = in_memory_state
                 .allocations_by_executor
                 .get(&executor.id)
-                .and_then(|allocs| allocs.get(&container_id))
+                .and_then(|allocs| allocs.get(container_id))
                 .map(|a| a.len())
                 .unwrap_or(0);
 
@@ -207,7 +207,7 @@ impl ContainerReconciler {
                 let orphan_update = self.handle_allocations_for_container_termination(
                     in_memory_state,
                     &executor.id,
-                    &container_id,
+                    container_id,
                     FunctionExecutorTerminationReason::Unknown,
                     &[],
                 )?;
@@ -216,7 +216,7 @@ impl ContainerReconciler {
             }
 
             // Handle sandbox for this orphaned container
-            if let Some(sandbox_key) = in_memory_state.sandbox_by_container.get(&container_id) &&
+            if let Some(sandbox_key) = in_memory_state.sandbox_by_container.get(container_id) &&
                 let Some(sandbox) = in_memory_state.sandboxes.get(sandbox_key) &&
                 sandbox.status == SandboxStatus::Running
             {
