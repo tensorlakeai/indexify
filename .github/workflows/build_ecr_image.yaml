@@ -121,6 +121,5 @@ jobs:
           push: true
           context: .
           file: ${{ matrix.dockerfile }}
-          outputs: type=image,push=true,image-manifest=true,oci-mediatypes=true
           tags: |
             ${{ steps.docker-tags.outputs.tags }}
