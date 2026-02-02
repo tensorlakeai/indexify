@@ -141,6 +141,12 @@ impl FunctionRunCreator {
             .get_mut(&alloc_finished_event.allocation.target.function_executor_id)
         {
             fc.allocations.remove(&alloc_finished_event.allocation.id);
+            tracing::info!(
+                allocation_id = %alloc_finished_event.allocation.id,
+                container_id = %alloc_finished_event.allocation.target.function_executor_id,
+                remaining_allocations = fc.allocations.len(),
+                "Removed allocation from container"
+            );
             scheduler_update.containers.insert(
                 alloc_finished_event
                     .allocation
@@ -148,6 +154,12 @@ impl FunctionRunCreator {
                     .function_executor_id
                     .clone(),
                 fc.clone(),
+            );
+        } else {
+            tracing::warn!(
+                allocation_id = %alloc_finished_event.allocation.id,
+                container_id = %alloc_finished_event.allocation.target.function_executor_id,
+                "Container not found when trying to remove allocation - allocation will leak!"
             );
         }
         container_scheduler.update(&RequestPayload::SchedulerUpdate((

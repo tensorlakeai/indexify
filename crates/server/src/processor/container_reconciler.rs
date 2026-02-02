@@ -94,85 +94,61 @@ impl ContainerReconciler {
             }
         }
         for fe in containers_only_in_executor {
-            if !matches!(fe.state, ContainerState::Terminated { .. }) &&
-                executor_server_metadata
-                    .free_resources
-                    .can_handle_fe_resources(&fe.resources)
-                    .is_ok()
-            {
-                if fe.container_type == ContainerType::Sandbox {
-                    // Check if the sandbox this container serves is terminated
-                    // if the container is just a warm pool container we will simply try to add
-                    // it to the executor_server_metadata and continue.
-                    if let Some(sandbox_id) = &fe.sandbox_id {
-                        let reader = self.indexify_state.reader();
-                        if let Ok(Some(sandbox)) =
-                            reader.get_sandbox(&fe.namespace, sandbox_id.get()).await &&
-                            sandbox.status == SandboxStatus::Terminated
-                        {
-                            warn!(
-                                container_id = %fe.id,
-                                sandbox_id = %sandbox_id,
-                                namespace = %fe.namespace,
-                                "Ignoring container from executor - associated sandbox is terminated"
-                            );
-                            continue;
-                        }
-                    }
-                } else if fe.container_type == ContainerType::Function {
-                    // check if application version and function still exist
-                    let app_version_key =
-                        format!("{}|{}|{}", fe.namespace, fe.application_name, fe.version);
-                    let app_version = in_memory_state.application_versions.get(&app_version_key);
-                    if app_version.is_none() {
-                        warn!(
-                            container_id = %fe.id,
-                            namespace = %fe.namespace,
-                            app = %fe.application_name,
-                            version = %fe.version,
-                            "Ignoring container from executor - application version no longer exists"
-                        );
-                        continue;
-                    }
-                    if let Some(app_version) = app_version &&
-                        !app_version.functions.contains_key(&fe.function_name)
-                    {
-                        warn!(
-                            container_id = %fe.id,
-                            namespace = %fe.namespace,
-                            app = %fe.application_name,
-                            version = %fe.version,
-                            function = %fe.function_name,
-                            "Ignoring container from executor - function no longer exists in application version"
-                        );
-                        continue;
-                    }
-                }
-
-                // Restore sandbox_id from reverse index if container is serving a sandbox
-                let mut container = fe.clone();
-                if container.sandbox_id.is_none() &&
-                    let Some(sandbox_key) =
-                        in_memory_state.sandbox_by_container.get(&container.id)
-                {
-                    container.sandbox_id = Some(sandbox_key.sandbox_id());
-                }
-
-                let existing_fe = ContainerServerMetadata::new(
-                    executor.id.clone(),
-                    container.clone(),
-                    container.state.clone(),
-                );
-                executor_server_metadata.add_container(&container)?;
-                update.updated_executor_states.insert(
-                    executor_server_metadata.executor_id.clone(),
-                    executor_server_metadata.clone(),
-                );
-                update.containers.insert(
-                    existing_fe.function_container.id.clone(),
-                    Box::new(existing_fe.clone()),
-                );
+            // Skip terminated containers
+            if matches!(fe.state, ContainerState::Terminated { .. }) {
+                continue;
             }
+
+            if fe.container_type == ContainerType::Sandbox {
+                // For sandbox containers, container ID == sandbox ID
+                let reader = self.indexify_state.reader();
+                if let Ok(Some(sandbox)) = reader.get_sandbox(&fe.namespace, fe.id.get()).await &&
+                    sandbox.status == SandboxStatus::Terminated
+                {
+                    warn!(
+                        container_id = %fe.id,
+                        namespace = %fe.namespace,
+                        "Ignoring container from executor - associated sandbox is terminated"
+                    );
+                    continue;
+                }
+            }
+
+            // Always track containers that exist on the executor, regardless of whether
+            // our resource accounting shows enough free resources. The container is already
+            // running and consuming resources - our tracking should reflect reality.
+            // This may result in free_resources going negative, indicating overcommit.
+            info!(
+                executor_id = %executor.id,
+                container_id = %fe.id,
+                container_cpu_ms = %fe.resources.cpu_ms_per_sec,
+                container_memory_mb = %fe.resources.memory_mb,
+                free_cpu_before = %executor_server_metadata.free_resources.cpu_ms_per_sec,
+                free_mem_before = %executor_server_metadata.free_resources.memory_bytes,
+                "force_add_container: adopting untracked container from executor"
+            );
+
+            let existing_fe =
+                ContainerServerMetadata::new(executor.id.clone(), fe.clone(), fe.state.clone());
+            executor_server_metadata.force_add_container(&fe);
+
+            info!(
+                executor_id = %executor.id,
+                container_id = %fe.id,
+                free_cpu_after = %executor_server_metadata.free_resources.cpu_ms_per_sec,
+                free_mem_after = %executor_server_metadata.free_resources.memory_bytes,
+                num_containers = %executor_server_metadata.function_container_ids.len(),
+                "force_add_container: container adopted"
+            );
+
+            update.updated_executor_states.insert(
+                executor_server_metadata.executor_id.clone(),
+                executor_server_metadata.clone(),
+            );
+            update.containers.insert(
+                existing_fe.function_container.id.clone(),
+                Box::new(existing_fe.clone()),
+            );
         }
         container_scheduler.update(&RequestPayload::SchedulerUpdate((
             Box::new(update.clone()),
@@ -695,6 +671,12 @@ impl ContainerReconciler {
             .executor_states
             .contains_key(executor_id)
         {
+            info!(
+                executor_id = %executor_id,
+                host_cpu_ms = %executor.host_resources.cpu_ms_per_sec,
+                host_memory_bytes = %executor.host_resources.memory_bytes,
+                "Creating new ExecutorServerMetadata with full host resources as free"
+            );
             let executor_server_metadata = ExecutorServerMetadata {
                 executor_id: executor_id.clone(),
                 function_container_ids: std::collections::HashSet::new(),
@@ -710,6 +692,18 @@ impl ContainerReconciler {
                     vec![],
                 )),
             )?;
+        } else {
+            let existing = container_scheduler
+                .executor_states
+                .get(executor_id)
+                .unwrap();
+            info!(
+                executor_id = %executor_id,
+                free_cpu_ms = %existing.free_resources.cpu_ms_per_sec,
+                free_memory_bytes = %existing.free_resources.memory_bytes,
+                num_containers = %existing.function_container_ids.len(),
+                "Using existing ExecutorServerMetadata"
+            );
         }
 
         // Reconcile function executors

@@ -554,6 +554,11 @@ impl ContainerScheduler {
         let mut update = SchedulerUpdateRequest::default();
 
         // If no candidates, try vacuuming to free up resources
+        // NOTE: We only mark containers for termination here, we do NOT free their
+        // resources. Resources are only freed when the executor confirms the
+        // container is actually terminated (via the reconciler). This prevents
+        // overcommit where we schedule new containers before old ones have
+        // actually stopped.
         if candidates.is_empty() {
             let function_executors_to_remove = self.vacuum_function_container_candidates(
                 resources,
@@ -568,18 +573,13 @@ impl ContainerScheduler {
                     reason: FunctionExecutorTerminationReason::DesiredStateRemoved,
                     failed_alloc_ids: Vec::new(),
                 };
-                let Some(executor_server_state) = self.executor_states.get(&fe.executor_id) else {
-                    continue;
-                };
-                // Clone the state first, then modify the clone (not in-place).
-                // This ensures update() sees the difference between old and new state
-                // and properly cleans up indices for the removed container.
-                let mut updated_executor_state = executor_server_state.clone();
-                updated_executor_state.remove_container(&fe.function_container)?;
-                update.updated_executor_states.insert(
-                    updated_executor_state.executor_id.clone(),
-                    updated_executor_state,
+                info!(
+                    executor_id = %fe.executor_id,
+                    container_id = %fe.function_container.id,
+                    "vacuum: marking container for termination (NOT freeing resources yet)"
                 );
+                // Don't call remove_container here - that would free resources immediately.
+                // Resources should only be freed when executor confirms termination.
                 update.containers.insert(
                     update_fe.function_container.id.clone(),
                     Box::new(update_fe.clone()),
@@ -587,7 +587,8 @@ impl ContainerScheduler {
             }
         }
 
-        // Apply vacuum updates
+        // Apply vacuum updates (just marks containers for termination, doesn't free
+        // resources)
         self.update(&RequestPayload::SchedulerUpdate((
             Box::new(update.clone()),
             vec![],
@@ -674,7 +675,25 @@ impl ContainerScheduler {
     ) -> Vec<ExecutorServerMetadata> {
         let mut candidates = Vec::new();
 
+        info!(
+            namespace = %namespace,
+            application = %application,
+            function_name = ?function.map(|f| &f.name),
+            requested_cpu_ms = %resources.cpu_ms_per_sec,
+            requested_memory_mb = %resources.memory_mb,
+            num_executor_states = %self.executor_states.len(),
+            "candidate_hosts: searching for executors"
+        );
+
         for (_, executor_state) in &self.executor_states {
+            info!(
+                executor_id = %executor_state.executor_id,
+                free_cpu_ms = %executor_state.free_resources.cpu_ms_per_sec,
+                free_memory_bytes = %executor_state.free_resources.memory_bytes,
+                num_containers = %executor_state.function_container_ids.len(),
+                "candidate_hosts: checking executor"
+            );
+
             let Some(executor) = self.executors.get(&executor_state.executor_id) else {
                 error!(
                     executor_id = executor_state.executor_id.get(),
@@ -688,14 +707,29 @@ impl ContainerScheduler {
             }
 
             // Check resources
-            if executor_state
+            let resource_check = executor_state
                 .free_resources
-                .can_handle_function_resources(resources)
-                .is_ok()
-            {
+                .can_handle_function_resources(resources);
+
+            if resource_check.is_ok() {
+                info!(
+                    executor_id = %executor_state.executor_id,
+                    "candidate_hosts: executor ACCEPTED as candidate"
+                );
                 candidates.push(*executor_state.clone());
+            } else {
+                info!(
+                    executor_id = %executor_state.executor_id,
+                    error = ?resource_check.err(),
+                    "candidate_hosts: executor REJECTED - insufficient resources"
+                );
             }
         }
+
+        info!(
+            num_candidates = %candidates.len(),
+            "candidate_hosts: search complete"
+        );
 
         candidates
     }
@@ -713,14 +747,30 @@ impl ContainerScheduler {
             ));
         };
 
+        let cpu_before = executor_server_metadata.free_resources.cpu_ms_per_sec;
+        let mem_before = executor_server_metadata.free_resources.memory_bytes;
+
         info!(
             executor_id = executor_id.get(),
             container_id = function_container.id.get(),
             container_type = ?container_type,
+            container_cpu_ms = %function_container.resources.cpu_ms_per_sec,
+            container_memory_mb = %function_container.resources.memory_mb,
+            free_cpu_before = %cpu_before,
+            free_mem_before = %mem_before,
             "registering container"
         );
 
         executor_server_metadata.add_container(&function_container)?;
+
+        info!(
+            executor_id = executor_id.get(),
+            container_id = function_container.id.get(),
+            free_cpu_after = %executor_server_metadata.free_resources.cpu_ms_per_sec,
+            free_mem_after = %executor_server_metadata.free_resources.memory_bytes,
+            num_containers = %executor_server_metadata.function_container_ids.len(),
+            "container registered, resources consumed"
+        );
 
         let fe_server_metadata = ContainerServerMetadata {
             executor_id: executor_id.clone(),
