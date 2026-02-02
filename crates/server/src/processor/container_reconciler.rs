@@ -677,18 +677,6 @@ impl ContainerReconciler {
                     vec![],
                 )),
             )?;
-        } else {
-            let existing = container_scheduler
-                .executor_states
-                .get(executor_id)
-                .unwrap();
-            info!(
-                executor_id = %executor_id,
-                free_cpu_ms = %existing.free_resources.cpu_ms_per_sec,
-                free_memory_bytes = %existing.free_resources.memory_bytes,
-                num_containers = %existing.function_container_ids.len(),
-                "Using existing ExecutorServerMetadata"
-            );
         }
 
         // Reconcile function executors

@@ -576,7 +576,7 @@ impl ContainerScheduler {
                 info!(
                     executor_id = %fe.executor_id,
                     container_id = %fe.function_container.id,
-                    "vacuum: marking container for termination (NOT freeing resources yet)"
+                    "vacuum: marking container for termination"
                 );
                 // Don't call remove_container here - that would free resources immediately.
                 // Resources should only be freed when executor confirms termination.
@@ -675,25 +675,7 @@ impl ContainerScheduler {
     ) -> Vec<ExecutorServerMetadata> {
         let mut candidates = Vec::new();
 
-        info!(
-            namespace = %namespace,
-            application = %application,
-            function_name = ?function.map(|f| &f.name),
-            requested_cpu_ms = %resources.cpu_ms_per_sec,
-            requested_memory_mb = %resources.memory_mb,
-            num_executor_states = %self.executor_states.len(),
-            "candidate_hosts: searching for executors"
-        );
-
         for (_, executor_state) in &self.executor_states {
-            info!(
-                executor_id = %executor_state.executor_id,
-                free_cpu_ms = %executor_state.free_resources.cpu_ms_per_sec,
-                free_memory_bytes = %executor_state.free_resources.memory_bytes,
-                num_containers = %executor_state.function_container_ids.len(),
-                "candidate_hosts: checking executor"
-            );
-
             let Some(executor) = self.executors.get(&executor_state.executor_id) else {
                 error!(
                     executor_id = executor_state.executor_id.get(),
@@ -712,24 +694,9 @@ impl ContainerScheduler {
                 .can_handle_function_resources(resources);
 
             if resource_check.is_ok() {
-                info!(
-                    executor_id = %executor_state.executor_id,
-                    "candidate_hosts: executor ACCEPTED as candidate"
-                );
                 candidates.push(*executor_state.clone());
-            } else {
-                info!(
-                    executor_id = %executor_state.executor_id,
-                    error = ?resource_check.err(),
-                    "candidate_hosts: executor REJECTED - insufficient resources"
-                );
             }
         }
-
-        info!(
-            num_candidates = %candidates.len(),
-            "candidate_hosts: search complete"
-        );
 
         candidates
     }
@@ -747,30 +714,14 @@ impl ContainerScheduler {
             ));
         };
 
-        let cpu_before = executor_server_metadata.free_resources.cpu_ms_per_sec;
-        let mem_before = executor_server_metadata.free_resources.memory_bytes;
-
         info!(
             executor_id = executor_id.get(),
             container_id = function_container.id.get(),
             container_type = ?container_type,
-            container_cpu_ms = %function_container.resources.cpu_ms_per_sec,
-            container_memory_mb = %function_container.resources.memory_mb,
-            free_cpu_before = %cpu_before,
-            free_mem_before = %mem_before,
             "registering container"
         );
 
         executor_server_metadata.add_container(&function_container)?;
-
-        info!(
-            executor_id = executor_id.get(),
-            container_id = function_container.id.get(),
-            free_cpu_after = %executor_server_metadata.free_resources.cpu_ms_per_sec,
-            free_mem_after = %executor_server_metadata.free_resources.memory_bytes,
-            num_containers = %executor_server_metadata.function_container_ids.len(),
-            "container registered, resources consumed"
-        );
 
         let fe_server_metadata = ContainerServerMetadata {
             executor_id: executor_id.clone(),
