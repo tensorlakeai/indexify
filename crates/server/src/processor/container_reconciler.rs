@@ -9,7 +9,6 @@ use crate::{
         ContainerId,
         ContainerServerMetadata,
         ContainerState,
-        ContainerType,
         ExecutorId,
         ExecutorMetadata,
         ExecutorServerMetadata,
@@ -99,14 +98,16 @@ impl ContainerReconciler {
                 continue;
             }
 
-            if fe.container_type == ContainerType::Sandbox {
-                // For sandbox containers, container ID == sandbox ID
+            // If this container is associated with a sandbox, check if the sandbox is
+            // terminated
+            if let Some(sandbox_id) = &fe.sandbox_id {
                 let reader = self.indexify_state.reader();
-                if let Ok(Some(sandbox)) = reader.get_sandbox(&fe.namespace, fe.id.get()).await &&
+                if let Ok(Some(sandbox)) = reader.get_sandbox(&fe.namespace, sandbox_id.get()).await &&
                     sandbox.status == SandboxStatus::Terminated
                 {
-                    warn!(
+                    info!(
                         container_id = %fe.id,
+                        sandbox_id = %sandbox_id,
                         namespace = %fe.namespace,
                         "Ignoring container from executor - associated sandbox is terminated"
                     );
