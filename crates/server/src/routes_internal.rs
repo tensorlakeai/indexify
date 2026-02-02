@@ -231,11 +231,15 @@ async fn create_namespace(
                 "blob storage region is required",
             ));
         };
-        if let Err(e) = state.blob_storage.create_new_blob_store(
-            &namespace.name,
-            blob_storage_bucket,
-            namespace.blob_storage_region.clone(),
-        ) {
+        if let Err(e) = state
+            .blob_storage
+            .create_new_blob_store(
+                &namespace.name,
+                blob_storage_bucket,
+                namespace.blob_storage_region.clone(),
+            )
+            .await
+        {
             error!("failed to create blob storage bucket: {:?}", e);
             return Err(IndexifyAPIError::internal_error(e));
         }

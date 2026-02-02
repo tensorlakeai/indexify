@@ -70,6 +70,7 @@ rust-embed.workspace = true
 omniqueue.workspace = true
 proto-api.workspace = true
 tempfile.workspace = true
+blob_store = { path = "../blob_store", features = ["aws", "gcp", "azure"] }
 
 [dev-dependencies]
 tempfile.workspace = true

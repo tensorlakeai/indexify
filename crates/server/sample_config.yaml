@@ -2,6 +2,28 @@ env: local
 state_store_path: indexify_storage/state/
 listen_addr: 0.0.0.0:8900
 
+# Blob storage configuration
+# Supports local filesystem, AWS S3, Google Cloud Storage, and Azure Blob Storage
+#
+# Local filesystem (default):
+# blob_storage:
+#   path: file://./indexify_storage/blobs
+#
+# AWS S3:
+# blob_storage:
+#   path: s3://my-bucket/prefix
+#   region: us-west-2
+#
+# Google Cloud Storage:
+# blob_storage:
+#   path: gs://my-bucket/prefix
+#   gcp_project_id: my-project-id  # Optional, can use GOOGLE_APPLICATION_CREDENTIALS
+#
+# Azure Blob Storage:
+# blob_storage:
+#   path: azure://my-container/prefix
+#   azure_storage_account: myaccount  # Optional, can use AZURE_STORAGE_ACCOUNT env var
+
 telemetry:
   enable_metrics: false
   # Shared OTLP endpoint for both traces and metrics
