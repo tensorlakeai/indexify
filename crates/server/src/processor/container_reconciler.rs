@@ -151,8 +151,6 @@ impl ContainerReconciler {
             );
         }
 
-        // Apply container adoptions to scheduler so subsequent logic sees adopted
-        // containers
         container_scheduler.update(&RequestPayload::SchedulerUpdate((
             Box::new(update.clone()),
             vec![],
@@ -184,6 +182,10 @@ impl ContainerReconciler {
                 }
             }
         }
+        container_scheduler.update(&RequestPayload::SchedulerUpdate((
+            Box::new(update.clone()),
+            vec![],
+        )))?;
 
         // Add container removals to main update
         update.extend(self.remove_function_containers(
