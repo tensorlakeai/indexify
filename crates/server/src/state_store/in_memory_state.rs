@@ -800,10 +800,14 @@ impl InMemoryState {
                 }
 
                 for fc_metadata in req.containers.values() {
+                    // Notify executor when:
+                    // 1. Container is Pending (new container being created)
+                    // 2. Container desired_state is Terminated (container needs to be stopped)
                     if matches!(
                         fc_metadata.function_container.state,
                         ContainerState::Pending
-                    ) {
+                    ) || matches!(fc_metadata.desired_state, ContainerState::Terminated { .. })
+                    {
                         changed_executors.insert(fc_metadata.executor_id.clone());
                     }
                 }

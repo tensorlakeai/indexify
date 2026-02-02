@@ -554,6 +554,11 @@ impl ContainerScheduler {
         let mut update = SchedulerUpdateRequest::default();
 
         // If no candidates, try vacuuming to free up resources
+        // NOTE: We only mark containers for termination here, we do NOT free their
+        // resources. Resources are only freed when the executor confirms the
+        // container is actually terminated (via the reconciler). This prevents
+        // overcommit where we schedule new containers before old ones have
+        // actually stopped.
         if candidates.is_empty() {
             let function_executors_to_remove = self.vacuum_function_container_candidates(
                 resources,
@@ -568,18 +573,13 @@ impl ContainerScheduler {
                     reason: FunctionExecutorTerminationReason::DesiredStateRemoved,
                     failed_alloc_ids: Vec::new(),
                 };
-                let Some(executor_server_state) = self.executor_states.get(&fe.executor_id) else {
-                    continue;
-                };
-                // Clone the state first, then modify the clone (not in-place).
-                // This ensures update() sees the difference between old and new state
-                // and properly cleans up indices for the removed container.
-                let mut updated_executor_state = executor_server_state.clone();
-                updated_executor_state.remove_container(&fe.function_container)?;
-                update.updated_executor_states.insert(
-                    updated_executor_state.executor_id.clone(),
-                    updated_executor_state,
+                info!(
+                    executor_id = %fe.executor_id,
+                    container_id = %fe.function_container.id,
+                    "vacuum: marking container for termination"
                 );
+                // Don't call remove_container here - that would free resources immediately.
+                // Resources should only be freed when executor confirms termination.
                 update.containers.insert(
                     update_fe.function_container.id.clone(),
                     Box::new(update_fe.clone()),
@@ -587,7 +587,8 @@ impl ContainerScheduler {
             }
         }
 
-        // Apply vacuum updates
+        // Apply vacuum updates (just marks containers for termination, doesn't free
+        // resources)
         self.update(&RequestPayload::SchedulerUpdate((
             Box::new(update.clone()),
             vec![],
@@ -688,11 +689,11 @@ impl ContainerScheduler {
             }
 
             // Check resources
-            if executor_state
+            let resource_check = executor_state
                 .free_resources
-                .can_handle_function_resources(resources)
-                .is_ok()
-            {
+                .can_handle_function_resources(resources);
+
+            if resource_check.is_ok() {
                 candidates.push(*executor_state.clone());
             }
         }

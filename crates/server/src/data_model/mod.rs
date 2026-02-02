@@ -1489,6 +1489,24 @@ impl HostResources {
         Ok(())
     }
 
+    /// Force-consume resources without checking availability.
+    /// Uses saturating subtraction to prevent underflow.
+    /// Used when reconciling containers that already exist on the executor.
+    pub fn force_consume_fe_resources(&mut self, request: &ContainerResources) {
+        self.cpu_ms_per_sec = self.cpu_ms_per_sec.saturating_sub(request.cpu_ms_per_sec);
+        self.memory_bytes = self
+            .memory_bytes
+            .saturating_sub(request.memory_mb * 1024 * 1024);
+        self.disk_bytes = self
+            .disk_bytes
+            .saturating_sub(request.ephemeral_disk_mb * 1024 * 1024);
+        if let Some(requested_gpu) = &request.gpu &&
+            let Some(available_gpu) = &mut self.gpu
+        {
+            available_gpu.count = available_gpu.count.saturating_sub(requested_gpu.count);
+        }
+    }
+
     pub fn consume_function_resources(
         &mut self,
         request: &FunctionResources,
@@ -1878,6 +1896,21 @@ impl ExecutorServerMetadata {
             .insert(container.id.clone(), container.resources.clone());
         self.free_resources
             .consume_fe_resources(&container.resources)
+    }
+
+    /// Force-add a container without checking resource availability.
+    /// Used when reconciling containers that already exist on the executor.
+    /// Uses saturating subtraction to prevent underflow if resources are
+    /// overcommitted.
+    pub fn force_add_container(&mut self, container: &Container) {
+        self.function_container_ids.insert(container.id.clone());
+        if self.resource_claims.contains_key(&container.id) {
+            return;
+        }
+        self.resource_claims
+            .insert(container.id.clone(), container.resources.clone());
+        self.free_resources
+            .force_consume_fe_resources(&container.resources);
     }
 }
 
@@ -2477,13 +2510,6 @@ impl SandboxKey {
 
     pub fn from_sandbox(sandbox: &Sandbox) -> Self {
         Self::new(&sandbox.namespace, sandbox.id.get())
-    }
-
-    /// Extract the sandbox_id part from the key
-    pub fn sandbox_id(&self) -> SandboxId {
-        // Key format: "namespace|sandbox_id"
-        let parts: Vec<&str> = self.0.splitn(2, '|').collect();
-        SandboxId::new(parts.get(1).unwrap_or(&"").to_string())
     }
 }
 
