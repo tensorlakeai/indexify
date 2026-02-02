@@ -122,7 +122,5 @@ jobs:
           context: .
           file: ${{ matrix.dockerfile }}
           outputs: type=image,push=true,image-manifest=true,oci-mediatypes=true
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
           tags: |
             ${{ steps.docker-tags.outputs.tags }}
