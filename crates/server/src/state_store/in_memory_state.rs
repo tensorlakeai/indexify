@@ -277,6 +277,9 @@ pub struct InMemoryState {
     // Reverse index: ContainerId -> SandboxKey (for containers serving sandboxes)
     pub sandbox_by_container: imbl::HashMap<ContainerId, SandboxKey>,
 
+    // Reverse index: ExecutorId -> Set<SandboxKey> (for sandboxes running on an executor)
+    pub sandboxes_by_executor: imbl::HashMap<ExecutorId, imbl::HashSet<SandboxKey>>,
+
     // Pending sandboxes waiting for executor allocation
     pub pending_sandboxes: imbl::OrdSet<SandboxKey>,
 
@@ -419,6 +422,7 @@ impl InMemoryState {
 
         let mut sandboxes = imbl::OrdMap::new();
         let mut sandbox_by_container = imbl::HashMap::new();
+        let mut sandboxes_by_executor = imbl::HashMap::new();
         let mut pending_sandboxes = imbl::OrdSet::new();
         for (sandbox_key, sandbox, is_pending) in sandboxes_filtered {
             if is_pending {
@@ -432,6 +436,13 @@ impl InMemoryState {
             // Build reverse index for containers serving sandboxes
             if let Some(container_id) = &sandbox.container_id {
                 sandbox_by_container.insert(container_id.clone(), sandbox_key.clone());
+            }
+            // Build reverse index for sandboxes by executor
+            if let Some(executor_id) = &sandbox.executor_id {
+                sandboxes_by_executor
+                    .entry(executor_id.clone())
+                    .or_insert_with(imbl::HashSet::new)
+                    .insert(sandbox_key.clone());
             }
             sandboxes.insert(sandbox_key, sandbox);
         }
@@ -448,6 +459,7 @@ impl InMemoryState {
             executor_catalog,
             sandboxes,
             sandbox_by_container,
+            sandboxes_by_executor,
             pending_sandboxes,
             pending_resources,
             metrics,
@@ -743,11 +755,12 @@ impl InMemoryState {
 
                 for (sandbox_key, sandbox) in &req.updated_sandboxes {
                     let was_pending = self.pending_sandboxes.contains(sandbox_key);
-                    // Get old container_id before updating (for index cleanup)
-                    let old_container_id = self
+                    // Get old state before updating (for index cleanup)
+                    let (old_container_id, old_executor_id) = self
                         .sandboxes
                         .get(sandbox_key)
-                        .and_then(|s| s.container_id.clone());
+                        .map(|s| (s.container_id.clone(), s.executor_id.clone()))
+                        .unwrap_or((None, None));
 
                     match sandbox.status {
                         SandboxStatus::Pending => {
@@ -764,23 +777,28 @@ impl InMemoryState {
                         SandboxStatus::Running => {
                             self.sandboxes
                                 .insert(sandbox_key.clone(), Box::new(sandbox.clone()));
+
                             if was_pending {
+                                // Pending → Running transition: remove from pending and add to
+                                // indices
                                 self.pending_sandboxes.remove(sandbox_key);
-                                // Remove from pending resources
                                 self.pending_resources.sandboxes.decrement(
                                     &ResourceProfile::from_container_resources(&sandbox.resources),
                                 );
-                            }
-                            // Update reverse index: container_id -> sandbox_key
-                            // Remove old mapping if container_id changed
-                            if old_container_id.as_ref() != sandbox.container_id.as_ref() &&
-                                let Some(old_id) = &old_container_id
-                            {
-                                self.sandbox_by_container.remove(old_id);
-                            }
-                            if let Some(container_id) = &sandbox.container_id {
-                                self.sandbox_by_container
-                                    .insert(container_id.clone(), sandbox_key.clone());
+
+                                // Add to reverse indices (sandboxes don't switch container/executor
+                                // IDs, so no old values to remove
+                                // on Pending → Running transition)
+                                if let Some(container_id) = &sandbox.container_id {
+                                    self.sandbox_by_container
+                                        .insert(container_id.clone(), sandbox_key.clone());
+                                }
+                                if let Some(executor_id) = &sandbox.executor_id {
+                                    self.sandboxes_by_executor
+                                        .entry(executor_id.clone())
+                                        .or_default()
+                                        .insert(sandbox_key.clone());
+                                }
                             }
                         }
                         SandboxStatus::Terminated => {
@@ -789,9 +807,19 @@ impl InMemoryState {
                                     &ResourceProfile::from_container_resources(&sandbox.resources),
                                 );
                             }
-                            // Remove from reverse index
+                            // Remove from reverse index: container_id
                             if let Some(container_id) = old_container_id {
                                 self.sandbox_by_container.remove(&container_id);
+                            }
+                            // Remove from reverse index: executor_id
+                            if let Some(executor_id) = old_executor_id
+                                && let Some(sandboxes) =
+                                    self.sandboxes_by_executor.get_mut(&executor_id)
+                            {
+                                sandboxes.remove(sandbox_key);
+                                if sandboxes.is_empty() {
+                                    self.sandboxes_by_executor.remove(&executor_id);
+                                }
                             }
                             self.sandboxes.remove(sandbox_key);
                             self.pending_sandboxes.remove(sandbox_key);
@@ -961,6 +989,7 @@ impl InMemoryState {
             unallocated_function_runs: self.unallocated_function_runs.clone(),
             sandboxes: self.sandboxes.clone(),
             sandbox_by_container: self.sandbox_by_container.clone(),
+            sandboxes_by_executor: self.sandboxes_by_executor.clone(),
             pending_sandboxes: self.pending_sandboxes.clone(),
             pending_resources: self.pending_resources.clone(),
         }))
@@ -1078,6 +1107,7 @@ mod test_helpers {
                 unallocated_function_runs: imbl::OrdSet::new(),
                 sandboxes: imbl::OrdMap::new(),
                 sandbox_by_container: imbl::HashMap::new(),
+                sandboxes_by_executor: imbl::HashMap::new(),
                 pending_sandboxes: imbl::OrdSet::new(),
                 pending_resources: PendingResources::default(),
             }
