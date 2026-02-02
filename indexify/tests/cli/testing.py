@@ -91,6 +91,6 @@ def executor_pid() -> int:
     return os.getppid()
 
 
-def function_executor_id() -> str:
+def function_executor_id() -> int:
     # PIDs are good for Subprocess Function Executors.
     return os.getpid()
