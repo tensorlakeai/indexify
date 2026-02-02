@@ -14,14 +14,14 @@ from testing import function_executor_id
 
 @application()
 @function()
-def test_function_1(sleep_secs: float) -> str:
+def test_function_1(sleep_secs: float) -> int:
     time.sleep(sleep_secs)
     return function_executor_id()
 
 
 @application()
 @function()
-def test_function_2(sleep_secs: float) -> str:
+def test_function_2(sleep_secs: float) -> int:
     time.sleep(sleep_secs)
     return function_executor_id()
 
@@ -49,7 +49,7 @@ class TestServerFunctionExecutorScaling(unittest.TestCase):
             )
             requests.append(request)
 
-        fe_ids: Set[str] = set()
+        fe_ids: Set[int] = set()
         for request in requests:
             request: Request
             fe_ids.add(request.output())
@@ -73,7 +73,7 @@ class TestServerFunctionExecutorScaling(unittest.TestCase):
             )
             requests.append(request)
 
-        fe_ids: Set[str] = set()
+        fe_ids: Set[int] = set()
         for request in requests:
             fe_ids.add(request.output())
 
