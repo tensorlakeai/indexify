@@ -67,8 +67,9 @@ impl ContainerReconciler {
             return Ok(update);
         };
 
-        // Identify orphaned containers FIRST before building function_containers_to_remove
-        // to avoid processing the same containers multiple times
+        // Identify orphaned containers FIRST before building
+        // function_containers_to_remove to avoid processing the same containers
+        // multiple times
         let mut orphaned_containers = std::collections::HashSet::new();
 
         // Add containers with allocations
