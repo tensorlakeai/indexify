@@ -87,11 +87,6 @@ impl ContainerReconciler {
             .filter(|fe_id| !executor.containers.contains_key(fe_id))
             .collect::<Vec<_>>();
         for container_id in containers_only_in_server {
-            // Skip orphaned containers - they'll be handled by orphaned logic
-            if orphaned_containers.contains(container_id) {
-                continue;
-            }
-
             let Some(function_container) =
                 container_scheduler.function_containers.get(container_id)
             else {
@@ -163,82 +158,6 @@ impl ContainerReconciler {
             vec![],
         )))?;
 
-        // Process orphaned containers (identified earlier in the function)
-        // Collect all orphaned resource updates for batch processing
-        let mut orphaned_batch_update = SchedulerUpdateRequest::default();
-
-        for container_id in &orphaned_containers {
-            // Handle allocations for this orphaned container
-            let alloc_count = in_memory_state
-                .allocations_by_executor
-                .get(&executor.id)
-                .and_then(|allocs| allocs.get(container_id))
-                .map(|a| a.len())
-                .unwrap_or(0);
-
-            if alloc_count > 0 {
-                info!(
-                    executor_id = %executor.id,
-                    container_id = %container_id,
-                    allocation_count = alloc_count,
-                    "Handling orphaned allocations for missing container"
-                );
-
-                let orphan_update = self.handle_allocations_for_container_termination(
-                    in_memory_state,
-                    &executor.id,
-                    container_id,
-                    FunctionExecutorTerminationReason::Unknown,
-                    &[],
-                )?;
-
-                orphaned_batch_update.extend(orphan_update);
-            }
-
-            // Handle sandbox for this orphaned container
-            if let Some(sandbox_key) = in_memory_state.sandbox_by_container.get(container_id) &&
-                let Some(sandbox) = in_memory_state.sandboxes.get(sandbox_key) &&
-                sandbox.status == SandboxStatus::Running
-            {
-                info!(
-                    sandbox_id = %sandbox.id,
-                    namespace = %sandbox.namespace,
-                    container_id = %container_id,
-                    executor_id = %executor.id,
-                    "terminating orphaned sandbox - container no longer exists"
-                );
-
-                let mut terminated_sandbox = sandbox.as_ref().clone();
-                terminated_sandbox.status = SandboxStatus::Terminated;
-                terminated_sandbox.outcome = Some(SandboxOutcome::Failure(
-                    SandboxFailureReason::ContainerTerminated(
-                        FunctionExecutorTerminationReason::Unknown,
-                    ),
-                ));
-
-                orphaned_batch_update
-                    .updated_sandboxes
-                    .insert(sandbox_key.clone(), terminated_sandbox);
-            }
-        }
-
-        // Add orphaned resource updates to main update
-        update.extend(orphaned_batch_update.clone());
-
-        // Apply orphaned updates to both stores immediately so subsequent
-        // remove_function_containers sees the updated state and doesn't process
-        // the same allocations again
-        if !orphaned_batch_update.updated_allocations.is_empty() ||
-            !orphaned_batch_update.updated_sandboxes.is_empty() ||
-            !orphaned_batch_update.updated_function_runs.is_empty() ||
-            !orphaned_batch_update.updated_request_states.is_empty()
-        {
-            let payload =
-                RequestPayload::SchedulerUpdate((Box::new(orphaned_batch_update), vec![]));
-            container_scheduler.update(&payload)?;
-            in_memory_state.update_state(self.clock, &payload, "container_reconciler_orphaned")?;
-        }
-
         for (executor_c_id, executor_c) in &executor.containers {
             // If the Executor FE is also in the server's tracked FE lets sync them.
             if let Some(server_c) = container_scheduler.function_containers.get(executor_c_id) {
@@ -265,14 +184,6 @@ impl ContainerReconciler {
                 }
             }
         }
-
-        // Safety check: filter out any orphaned containers that may have been added
-        // from the executor.containers loop (shouldn't happen since orphaned containers
-        // are NOT in executor.containers, but kept as defensive programming)
-        let function_containers_to_remove: Vec<_> = function_containers_to_remove
-            .into_iter()
-            .filter(|container| !orphaned_containers.contains(&container.id))
-            .collect();
 
         // Add container removals to main update
         update.extend(self.remove_function_containers(
