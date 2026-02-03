@@ -60,7 +60,7 @@ sha2 = "0.10.9"
 base64 = "0.22.1"
 nanoid = "0.4.0"
 uuid = { version = "1.20.0", features = ["v4"] }
-bytes = { version = "1.10.1", features = ["serde"] }
+bytes = { version = "1.11.1", features = ["serde"] }
 priority-queue = "2.6.0"
 imbl = "7.0.0"
 rand = "0.9.2"
