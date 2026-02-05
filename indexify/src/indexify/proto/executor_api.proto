@@ -167,7 +167,7 @@ message SandboxMetadata {
     optional string image = 10;
     // Network access control policy for sandbox containers.
     optional NetworkPolicy network_policy = 13;
-    // The sandbox this container is serving
+    // The sandbox this container is serving (if any).
     // Unset for warm pool containers, set when claimed by a sandbox.
     optional string sandbox_id = 14;
 }
