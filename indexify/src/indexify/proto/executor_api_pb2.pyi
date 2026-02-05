@@ -331,21 +331,24 @@ class NetworkPolicy(_message.Message):
     ) -> None: ...
 
 class SandboxMetadata(_message.Message):
-    __slots__ = ("timeout_secs", "entrypoint", "image", "network_policy")
+    __slots__ = ("timeout_secs", "entrypoint", "image", "network_policy", "sandbox_id")
     TIMEOUT_SECS_FIELD_NUMBER: _ClassVar[int]
     ENTRYPOINT_FIELD_NUMBER: _ClassVar[int]
     IMAGE_FIELD_NUMBER: _ClassVar[int]
     NETWORK_POLICY_FIELD_NUMBER: _ClassVar[int]
+    SANDBOX_ID_FIELD_NUMBER: _ClassVar[int]
     timeout_secs: int
     entrypoint: _containers.RepeatedScalarFieldContainer[str]
     image: str
     network_policy: NetworkPolicy
+    sandbox_id: str
     def __init__(
         self,
         timeout_secs: _Optional[int] = ...,
         entrypoint: _Optional[_Iterable[str]] = ...,
         image: _Optional[str] = ...,
         network_policy: _Optional[_Union[NetworkPolicy, _Mapping]] = ...,
+        sandbox_id: _Optional[str] = ...,
     ) -> None: ...
 
 class FunctionExecutorDescription(_message.Message):
