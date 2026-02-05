@@ -96,8 +96,6 @@ jobs:
           context: .
           file: ${{ matrix.dockerfile }}
           outputs: type=image,push=true,image-manifest=true,oci-mediatypes=true
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
           tags: |
             ${{ steps.login-ecr.outputs.registry }}/${{ matrix.image }}:${{ github.sha }}
             ${{ steps.login-ecr.outputs.registry }}/${{ matrix.image }}:${{ inputs.version }}
