@@ -9,6 +9,7 @@ on:
         description: 'Environment to post the image to'
         required: true
         type: string
+        default: dev
       version:
         description: 'Version tag to apply to image'
         required: true
