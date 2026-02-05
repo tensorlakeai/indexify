@@ -71,47 +71,19 @@ jobs:
       - name: Login to Google Artifact Registry
         run: gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev
 
-      - name: Set image tag outputs
-        id: images
+      - name: Set GCP registry name output
+        id: gcp-registry
         run: |
-          echo "image_tag=${{ github.sha }}" >> $GITHUB_OUTPUT
-          echo "ecr_image_uri=${{ steps.login-ecr.outputs.registry }}/${{ matrix.image }}:${{ github.sha }}" >> $GITHUB_OUTPUT
-
           if [ "${{ inputs.environment }}" == "dev" ]; then
             GCP_REPOSITORY="${{ env.GCP_REPOSITORY_PREFIX }}-dev"
           else
             GCP_REPOSITORY="${{ env.GCP_REPOSITORY_PREFIX }}"
           fi
-          GCP_IMAGE_URI="${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT }}/${GCP_REPOSITORY}/${{ matrix.image }}:${{ github.sha }}"
-          echo "gcp_image_uri=$GCP_IMAGE_URI" >> $GITHUB_OUTPUT
-
-      - name: Prepare tags for Docker build and push
-        id: docker-tags
-        shell: bash
-        env:
-          ECR_IMAGE: ${{ steps.images.outputs.ecr_image_uri }}
-          GCP_IMAGE: ${{ steps.images.outputs.gcp_image_uri }}
-        run: |
-          TAGS=()
-
-          # Check if ECR tag exists
-          if ! docker manifest inspect "${ECR_IMAGE}" > /dev/null 2>&1; then
-            TAGS+=("${ECR_IMAGE}")
-          fi
-
-          # Check if GCP tag exists
-          if ! gcloud artifacts docker images list "${GCP_IMAGE%:*}" --include-tags | grep -q -w "${GCP_IMAGE##*:}"; then
-            TAGS+=("${GCP_IMAGE}")
-          fi
-
-          TAGS_JOINED=$(printf "%s\n" "${TAGS[@]}")
-          echo "tags<<EOF" >> $GITHUB_OUTPUT
-          echo "$TAGS_JOINED" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+          GCP_REGISTRY="${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT }}/${GCP_REPOSITORY}"
+          echo "name=${GCP_REGISTRY}" >> $GITHUB_OUTPUT
 
       - name: Build and push
         uses: docker/build-push-action@v6
-        if: steps.docker-tags.outputs.tags != ''
         with:
           platforms: linux/amd64,linux/arm64
           push: true
@@ -121,4 +93,9 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           tags: |
-            ${{ steps.docker-tags.outputs.tags }}
+            ${{ steps.login-ecr.outputs.registry }}/${{ matrix.image }}:${{ github.sha }}
+            ${{ steps.login-ecr.outputs.registry }}/${{ matrix.image }}:${{ inputs.version }}
+            ${{ steps.login-ecr.outputs.registry }}/${{ matrix.image }}:latest
+            ${{ steps.gcp-registry.outputs.name }}/${{ matrix.image }}:${{ github.sha }}
+            ${{ steps.gcp-registry.outputs.name }}/${{ matrix.image }}:${{ inputs.version }}
+            ${{ steps.gcp-registry.outputs.name }}/${{ matrix.image }}:latest
