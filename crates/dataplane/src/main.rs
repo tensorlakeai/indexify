@@ -58,11 +58,10 @@ async fn main() -> anyhow::Result<()> {
     start_dataplane(config).await
 }
 
-#[instrument(skip(config), fields(env = config.env, instance_id = config.instance_id()))]
+#[instrument(skip(config), fields(env = config.env, instance_id = config.instance_id(), executor_id = %config.executor_id))]
 async fn start_dataplane(config: DataplaneConfig) -> anyhow::Result<()> {
     info!(
         server_addr = %config.server_addr,
-        executor_id = %config.executor_id,
         tls_enabled = config.tls.enabled,
         http_proxy_listen = %config.http_proxy.socket_addr(),
         http_proxy_advertise = %config.http_proxy.get_advertise_address(),

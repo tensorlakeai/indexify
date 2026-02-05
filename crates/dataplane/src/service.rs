@@ -22,6 +22,7 @@ use sha2::{Digest, Sha256};
 use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
 use tonic::transport::{Channel, ClientTlsConfig, Endpoint};
+use tracing::Instrument;
 
 use crate::{
     config::{DataplaneConfig, DriverConfig},
@@ -70,6 +71,7 @@ impl Service {
             image_resolver,
             metrics.clone(),
             state_file,
+            config.executor_id.clone(),
         ));
 
         Ok(Self {
@@ -83,7 +85,12 @@ impl Service {
 
     pub async fn run(self) -> Result<()> {
         let executor_id = self.config.executor_id.clone();
-        tracing::info!(%executor_id, "Starting dataplane service");
+        tracing::info!("Starting dataplane service");
+
+        // Capture the current span (from start_dataplane's #[instrument]) which
+        // contains executor_id. We'll propagate it to all spawned tasks so every
+        // log line includes executor_id.
+        let span = tracing::Span::current();
 
         // Recover containers from previous run
         let recovered = self.container_manager.recover().await;
@@ -102,6 +109,7 @@ impl Service {
         let stream_notify = Arc::new(Notify::new());
 
         let heartbeat_handle = tokio::spawn({
+            let span = span.clone();
             let channel = self.channel.clone();
             let executor_id = executor_id.clone();
             let heartbeat_healthy = heartbeat_healthy.clone();
@@ -127,9 +135,11 @@ impl Service {
                 )
                 .await
             }
+            .instrument(span)
         });
 
         let stream_handle = tokio::spawn({
+            let span = span.clone();
             let channel = self.channel.clone();
             let executor_id = executor_id.clone();
             let heartbeat_healthy = heartbeat_healthy.clone();
@@ -149,37 +159,50 @@ impl Service {
                 )
                 .await
             }
+            .instrument(span)
         });
 
         let health_check_handle = tokio::spawn({
+            let span = span.clone();
             let container_manager = self.container_manager.clone();
             let cancel_token = cancel_token.clone();
             async move {
                 container_manager.run_health_checks(cancel_token).await;
             }
+            .instrument(span)
         });
 
         // Metrics update loop for resource availability
         let metrics_update_handle = tokio::spawn({
+            let span = span.clone();
             let metrics = self.metrics.clone();
             let cancel_token = cancel_token.clone();
             async move {
                 run_metrics_update_loop(metrics, cancel_token).await;
             }
+            .instrument(span)
         });
 
         // HTTP proxy server for header-based routing to sandbox containers
         let http_proxy_handle = tokio::spawn({
+            let span = span.clone();
             let cancel_token = cancel_token.clone();
             let http_proxy_config = self.config.http_proxy.clone();
             let container_manager = self.container_manager.clone();
+            let executor_id = executor_id.clone();
             async move {
-                if let Err(e) =
-                    run_http_proxy(http_proxy_config, container_manager, cancel_token).await
+                if let Err(e) = run_http_proxy(
+                    http_proxy_config,
+                    container_manager,
+                    executor_id,
+                    cancel_token,
+                )
+                .await
                 {
                     tracing::error!(error = %e, "HTTP proxy server error");
                 }
             }
+            .instrument(span)
         });
 
         tokio::select! {

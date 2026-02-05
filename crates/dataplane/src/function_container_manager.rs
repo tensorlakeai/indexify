@@ -13,6 +13,7 @@ use proto_api::executor_api_pb::{
 };
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
+use tracing::Instrument;
 
 use crate::{
     daemon_client::DaemonClient,
@@ -198,6 +199,7 @@ pub struct FunctionContainerManager {
     containers: Arc<RwLock<HashMap<String, ManagedContainer>>>,
     metrics: Arc<DataplaneMetrics>,
     state_file: Arc<StateFile>,
+    executor_id: String,
 }
 
 impl FunctionContainerManager {
@@ -206,6 +208,7 @@ impl FunctionContainerManager {
         image_resolver: Arc<dyn ImageResolver>,
         metrics: Arc<DataplaneMetrics>,
         state_file: Arc<StateFile>,
+        executor_id: String,
     ) -> Self {
         Self {
             driver,
@@ -213,6 +216,7 @@ impl FunctionContainerManager {
             containers: Arc::new(RwLock::new(HashMap::new())),
             metrics,
             state_file,
+            executor_id,
         }
     }
 
@@ -489,6 +493,7 @@ impl FunctionContainerManager {
                 let metrics = self.metrics.clone();
                 let state_file = self.state_file.clone();
                 let desc_clone = desc.clone();
+                let executor_id = self.executor_id.clone();
 
                 tokio::spawn(async move {
                     let result =
@@ -584,7 +589,7 @@ impl FunctionContainerManager {
                             }
                         }
                     }
-                });
+                }.instrument(tracing::info_span!("container_lifecycle", %executor_id)));
             }
         }
 
@@ -681,78 +686,82 @@ impl FunctionContainerManager {
         let metrics = self.metrics.clone();
         let container_id = id.clone();
         let container_type_owned = container_type.to_string();
+        let executor_id = self.executor_id.clone();
 
-        tokio::spawn(async move {
-            tokio::time::sleep(KILL_GRACE_PERIOD).await;
+        tokio::spawn(
+            async move {
+                tokio::time::sleep(KILL_GRACE_PERIOD).await;
 
-            let mut containers = containers_ref.write().await;
-            if let Some(container) = containers.get_mut(&container_id) &&
-                let ContainerState::Stopping { handle, reason, .. } = &container.state
-            {
-                let handle = handle.clone();
-                let termination_reason = *reason;
-                let info = container.info();
-                let run_duration_ms = container
-                    .started_at
-                    .map(|s| s.elapsed().as_millis())
-                    .unwrap_or(0);
+                let mut containers = containers_ref.write().await;
+                if let Some(container) = containers.get_mut(&container_id) &&
+                    let ContainerState::Stopping { handle, reason, .. } = &container.state
+                {
+                    let handle = handle.clone();
+                    let termination_reason = *reason;
+                    let info = container.info();
+                    let run_duration_ms = container
+                        .started_at
+                        .map(|s| s.elapsed().as_millis())
+                        .unwrap_or(0);
 
-                tracing::info!(
-                    container_id = %info.container_id,
-                    namespace = %info.namespace,
-                    app = %info.app,
-                    fn_name = %info.fn_name,
-                    app_version = %info.app_version,
-                    container_type = %container_type_owned,
-                    run_duration_ms = %run_duration_ms,
-                    event = "container_killing",
-                    "Killing container after grace period"
-                );
-
-                // Clean up network rules before killing container
-                if let Err(e) = network_rules::remove_rules(&handle.id, &handle.container_ip) {
-                    tracing::warn!(
-                        container_id = %info.container_id,
-                        error = %e,
-                        "Failed to remove network rules"
-                    );
-                }
-
-                if let Err(e) = driver.kill(&handle).await {
-                    tracing::warn!(
+                    tracing::info!(
                         container_id = %info.container_id,
                         namespace = %info.namespace,
                         app = %info.app,
                         fn_name = %info.fn_name,
                         app_version = %info.app_version,
-                        error = %e,
-                        "Failed to kill container"
+                        container_type = %container_type_owned,
+                        run_duration_ms = %run_duration_ms,
+                        event = "container_killing",
+                        "Killing container after grace period"
                     );
+
+                    // Clean up network rules before killing container
+                    if let Err(e) = network_rules::remove_rules(&handle.id, &handle.container_ip) {
+                        tracing::warn!(
+                            container_id = %info.container_id,
+                            error = %e,
+                            "Failed to remove network rules"
+                        );
+                    }
+
+                    if let Err(e) = driver.kill(&handle).await {
+                        tracing::warn!(
+                            container_id = %info.container_id,
+                            namespace = %info.namespace,
+                            app = %info.app,
+                            fn_name = %info.fn_name,
+                            app_version = %info.app_version,
+                            error = %e,
+                            "Failed to kill container"
+                        );
+                    }
+
+                    metrics
+                        .counters
+                        .record_container_terminated(&container_type_owned, "grace_period_kill");
+
+                    tracing::info!(
+                        container_id = %info.container_id,
+                        namespace = %info.namespace,
+                        app = %info.app,
+                        fn_name = %info.fn_name,
+                        app_version = %info.app_version,
+                        container_type = %container_type_owned,
+                        run_duration_ms = %run_duration_ms,
+                        event = "container_terminated",
+                        "Container terminated"
+                    );
+
+                    container.state = ContainerState::Terminated {
+                        reason: termination_reason,
+                    };
+
+                    update_container_counts(&containers, &metrics).await;
                 }
-
-                metrics
-                    .counters
-                    .record_container_terminated(&container_type_owned, "grace_period_kill");
-
-                tracing::info!(
-                    container_id = %info.container_id,
-                    namespace = %info.namespace,
-                    app = %info.app,
-                    fn_name = %info.fn_name,
-                    app_version = %info.app_version,
-                    container_type = %container_type_owned,
-                    run_duration_ms = %run_duration_ms,
-                    event = "container_terminated",
-                    "Container terminated"
-                );
-
-                container.state = ContainerState::Terminated {
-                    reason: termination_reason,
-                };
-
-                update_container_counts(&containers, &metrics).await;
             }
-        });
+            .instrument(tracing::info_span!("container_stop", %executor_id)),
+        );
     }
 
     /// Run the health check loop. Call this from a spawned task.
@@ -1384,7 +1393,13 @@ mod tests {
         let metrics = create_test_metrics();
         let state_file = create_test_state_file().await;
 
-        let manager = FunctionContainerManager::new(driver, resolver, metrics, state_file);
+        let manager = FunctionContainerManager::new(
+            driver,
+            resolver,
+            metrics,
+            state_file,
+            "test-executor".to_string(),
+        );
         let states = manager.get_states().await;
 
         assert!(states.is_empty());
@@ -1396,7 +1411,13 @@ mod tests {
         let resolver = Arc::new(DefaultImageResolver::new());
         let metrics = create_test_metrics();
         let state_file = create_test_state_file().await;
-        let manager = FunctionContainerManager::new(driver.clone(), resolver, metrics, state_file);
+        let manager = FunctionContainerManager::new(
+            driver.clone(),
+            resolver,
+            metrics,
+            state_file,
+            "test-executor".to_string(),
+        );
 
         // Sync with one desired FE
         let desired = vec![create_test_fe_description("fe-123")];
@@ -1429,7 +1450,13 @@ mod tests {
         let resolver = Arc::new(DefaultImageResolver::new());
         let metrics = create_test_metrics();
         let state_file = create_test_state_file().await;
-        let manager = FunctionContainerManager::new(driver.clone(), resolver, metrics, state_file);
+        let manager = FunctionContainerManager::new(
+            driver.clone(),
+            resolver,
+            metrics,
+            state_file,
+            "test-executor".to_string(),
+        );
 
         // First sync with one FE
         let desired = vec![create_test_fe_description("fe-123")];
@@ -1452,7 +1479,13 @@ mod tests {
         let resolver = Arc::new(DefaultImageResolver::new());
         let metrics = create_test_metrics();
         let state_file = create_test_state_file().await;
-        let manager = FunctionContainerManager::new(driver.clone(), resolver, metrics, state_file);
+        let manager = FunctionContainerManager::new(
+            driver.clone(),
+            resolver,
+            metrics,
+            state_file,
+            "test-executor".to_string(),
+        );
 
         // Sync with one FE
         let desired = vec![create_test_fe_description("fe-123")];
@@ -1473,7 +1506,13 @@ mod tests {
         let resolver = Arc::new(DefaultImageResolver::new());
         let metrics = create_test_metrics();
         let state_file = create_test_state_file().await;
-        let manager = FunctionContainerManager::new(driver.clone(), resolver, metrics, state_file);
+        let manager = FunctionContainerManager::new(
+            driver.clone(),
+            resolver,
+            metrics,
+            state_file,
+            "test-executor".to_string(),
+        );
 
         // Sync with FE that has no ID
         let mut desc = create_test_fe_description("fe-123");
@@ -1611,7 +1650,13 @@ mod tests {
         let resolver = Arc::new(DefaultImageResolver::new());
         let metrics = create_test_metrics();
         let state_file = create_test_state_file().await;
-        let manager = FunctionContainerManager::new(driver.clone(), resolver, metrics, state_file);
+        let manager = FunctionContainerManager::new(
+            driver.clone(),
+            resolver,
+            metrics,
+            state_file,
+            "test-executor".to_string(),
+        );
 
         // Insert a container that started 10 seconds ago with a 5 second timeout
         // (already timed out)
@@ -1664,7 +1709,13 @@ mod tests {
         let resolver = Arc::new(DefaultImageResolver::new());
         let metrics = create_test_metrics();
         let state_file = create_test_state_file().await;
-        let manager = FunctionContainerManager::new(driver.clone(), resolver, metrics, state_file);
+        let manager = FunctionContainerManager::new(
+            driver.clone(),
+            resolver,
+            metrics,
+            state_file,
+            "test-executor".to_string(),
+        );
 
         // Insert a container that just started with a 600 second timeout
         {
@@ -1701,7 +1752,13 @@ mod tests {
         let resolver = Arc::new(DefaultImageResolver::new());
         let metrics = create_test_metrics();
         let state_file = create_test_state_file().await;
-        let manager = FunctionContainerManager::new(driver.clone(), resolver, metrics, state_file);
+        let manager = FunctionContainerManager::new(
+            driver.clone(),
+            resolver,
+            metrics,
+            state_file,
+            "test-executor".to_string(),
+        );
 
         // Insert a container with no timeout that started a long time ago
         {

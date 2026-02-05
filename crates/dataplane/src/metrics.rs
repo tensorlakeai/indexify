@@ -62,6 +62,7 @@ pub fn init_provider(config: &TelemetryConfig, instance_id: &str, executor_id: &
     opentelemetry::global::set_meter_provider(provider);
 
     tracing::info!(
+        executor_id = executor_id,
         endpoint = ?config.endpoint,
         interval_secs = config.metrics_interval.as_secs(),
         "Metrics provider initialized"

@@ -596,14 +596,14 @@ impl ContainerReconciler {
 
         // Get container IDs from executor state if available, otherwise from
         // allocations
-        let container_ids: Vec<_> = if let Some(executor_meta) =
+        let container_ids = if let Some(executor_meta) =
             container_scheduler.executor_states.get(executor_id)
         {
             executor_meta
                 .function_container_ids
                 .iter()
                 .cloned()
-                .collect()
+                .collect::<Vec<ContainerId>>()
         } else {
             warn!(
                 "executor not found in container_scheduler, deriving containers from allocations"

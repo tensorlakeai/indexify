@@ -110,16 +110,19 @@ pub struct ProxyContext {
 pub struct HttpProxy {
     container_manager: Arc<FunctionContainerManager>,
     upstream_config: UpstreamConfig,
+    executor_id: String,
 }
 
 impl HttpProxy {
     pub fn new(
         container_manager: Arc<FunctionContainerManager>,
         upstream_config: UpstreamConfig,
+        executor_id: String,
     ) -> Self {
         Self {
             container_manager,
             upstream_config,
+            executor_id,
         }
     }
 }
@@ -216,7 +219,7 @@ impl ProxyHttp for HttpProxy {
         {
             Some(id) => id,
             None => {
-                debug!(%method, %path, "Missing {HEADER_SANDBOX_ID} header");
+                debug!(executor_id = %self.executor_id, %method, %path, "Missing {HEADER_SANDBOX_ID} header");
                 return send_error_response(
                     session,
                     400,
@@ -240,6 +243,7 @@ impl ProxyHttp for HttpProxy {
         // Create span with all common fields for this request
         ctx.span = tracing::info_span!(
             "proxy_request",
+            executor_id = %self.executor_id,
             sandbox_id,
             port,
             %method,
@@ -451,6 +455,7 @@ impl ProxyHttp for HttpProxy {
 pub async fn run_http_proxy(
     config: HttpProxyConfig,
     container_manager: Arc<FunctionContainerManager>,
+    executor_id: String,
     cancel_token: CancellationToken,
 ) -> anyhow::Result<()> {
     let addr = config.socket_addr();
@@ -461,7 +466,7 @@ pub async fn run_http_proxy(
         "Starting HTTP proxy server"
     );
 
-    let proxy = HttpProxy::new(container_manager, config.upstream.clone());
+    let proxy = HttpProxy::new(container_manager, config.upstream.clone(), executor_id);
 
     let mut server = Server::new(None)?;
     server.bootstrap();
