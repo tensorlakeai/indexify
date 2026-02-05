@@ -492,12 +492,21 @@ impl FunctionContainerManager {
                     "Creating new container"
                 );
 
+                // If the container already has a sandbox_id in its initial
+                // description, it was created specifically for a sandbox (not
+                // claimed from a warm pool). Start the timeout countdown now.
+                let sandbox_claimed_at = desc
+                    .sandbox_metadata
+                    .as_ref()
+                    .and_then(|m| m.sandbox_id.as_ref())
+                    .map(|_| Instant::now());
+
                 let container = ManagedContainer {
                     description: desc.clone(),
                     state: ContainerState::Pending,
                     created_at: Instant::now(),
                     started_at: None,
-                    sandbox_claimed_at: None,
+                    sandbox_claimed_at,
                 };
                 containers.insert(id.clone(), container);
 

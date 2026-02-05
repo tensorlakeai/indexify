@@ -2,7 +2,7 @@ use anyhow::Result;
 use tracing::warn;
 
 use crate::{
-    data_model::{ApplicationState, ContainerPool, ContainerPoolKey},
+    data_model::{ApplicationState, ContainerPool, ContainerPoolKey, ContainerState},
     processor::container_scheduler::ContainerScheduler,
     state_store::{
         in_memory_state::{InMemoryState, ResourceProfile, ResourceProfileHistogram},
@@ -95,9 +95,19 @@ impl BufferReconciler {
                     match self.create_container_for_pool(pool, in_memory_state, container_scheduler)
                     {
                         Ok(Some(u)) => {
+                            // Only count as progress if a container was actually
+                            // placed on an executor (not just a vacuum update).
+                            // create_container returns Ok(Some(update)) even when
+                            // no host has resources — treating that as progress
+                            // causes an infinite loop.
+                            let placed = u.containers.values().any(|c| {
+                                !matches!(c.desired_state, ContainerState::Terminated { .. })
+                            });
                             container_scheduler.apply_container_update(&u);
                             update.extend(u);
-                            any_created = true;
+                            if placed {
+                                any_created = true;
+                            }
                         }
                         Ok(None) => {
                             // No resources available, continue to next pool
