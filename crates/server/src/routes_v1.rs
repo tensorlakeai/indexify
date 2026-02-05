@@ -12,6 +12,7 @@ use base64::prelude::*;
 use download::download_request_error;
 use invoke::invoke_application_with_object_v1;
 use sandbox_pools::{
+    create_pool_sandbox,
     create_sandbox_pool,
     delete_sandbox_pool,
     get_sandbox_pool,
@@ -90,6 +91,7 @@ use crate::{
             sandbox_pools::get_sandbox_pool,
             sandbox_pools::update_sandbox_pool,
             sandbox_pools::delete_sandbox_pool,
+            sandbox_pools::create_pool_sandbox,
         ),
         components(
             schemas(
@@ -119,6 +121,7 @@ use crate::{
                 sandbox_pools::CreateSandboxPoolResponse,
                 sandbox_pools::SandboxPoolInfo,
                 sandbox_pools::ListSandboxPoolsResponse,
+                sandbox_pools::CreatePoolSandboxResponse,
             )
         ),
         tags(
@@ -235,6 +238,10 @@ fn v1_namespace_routes(route_state: RouteState) -> Router {
         .route(
             "/sandbox-pools/{pool_id}",
             delete(delete_sandbox_pool).with_state(route_state.clone()),
+        )
+        .route(
+            "/sandbox-pools/{pool_id}/sandboxes",
+            post(create_pool_sandbox).with_state(route_state.clone()),
         );
 
     Router::new()

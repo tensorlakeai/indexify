@@ -1619,6 +1619,8 @@ impl fmt::Display for ContainerId {
 #[derive(
     Debug, Clone, Serialize, Deserialize, PartialEq, Default, strum::AsRefStr, Display, Eq, Hash,
 )]
+#[strum(serialize_all = "camelCase")]
+#[serde(rename_all = "camelCase")]
 pub enum ContainerState {
     #[default]
     Unknown,

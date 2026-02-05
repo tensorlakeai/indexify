@@ -107,6 +107,8 @@ struct ManagedContainer {
     created_at: Instant,
     /// When the container started running (set when state becomes Running)
     started_at: Option<Instant>,
+    /// When a sandbox claimed this container
+    sandbox_claimed_at: Option<Instant>,
 }
 
 impl ManagedContainer {
@@ -149,9 +151,10 @@ impl ManagedContainer {
             return false; // Not running, can't timeout
         }
 
-        if let Some(started_at) = self.started_at {
-            let elapsed = started_at.elapsed();
-            elapsed.as_secs() >= timeout_secs
+        // Timeout only applies once a sandbox has claimed this container.
+        // Warm pool containers (sandbox_claimed_at = None) never time out.
+        if let Some(claimed_at) = self.sandbox_claimed_at {
+            claimed_at.elapsed().as_secs() >= timeout_secs
         } else {
             false
         }
@@ -267,6 +270,11 @@ impl FunctionContainerManager {
                                 "Recovered container from state file"
                             );
 
+                            let sandbox_claimed_at = description
+                                .sandbox_metadata
+                                .as_ref()
+                                .and_then(|m| m.sandbox_id.as_ref())
+                                .map(|_| Instant::now());
                             let container = ManagedContainer {
                                 description,
                                 state: ContainerState::Running {
@@ -275,6 +283,7 @@ impl FunctionContainerManager {
                                 },
                                 created_at: Instant::now(),
                                 started_at: Some(Instant::now()),
+                                sandbox_claimed_at,
                             };
 
                             let mut containers = self.containers.write().await;
@@ -399,12 +408,17 @@ impl FunctionContainerManager {
                 continue;
             };
             let info = container.info();
+            let elapsed = container
+                .sandbox_claimed_at
+                .map(|s| s.elapsed().as_secs())
+                .unwrap_or(0);
             tracing::warn!(
                 container_id = %info.container_id,
                 namespace = %info.namespace,
                 app = %info.app,
                 fn_name = %info.fn_name,
                 timeout_secs = timeout_secs,
+                elapsed_secs = elapsed,
                 "Sandbox container timed out, terminating"
             );
             self.initiate_stop(
@@ -483,6 +497,7 @@ impl FunctionContainerManager {
                     state: ContainerState::Pending,
                     created_at: Instant::now(),
                     started_at: None,
+                    sandbox_claimed_at: None,
                 };
                 containers.insert(id.clone(), container);
 
@@ -590,6 +605,30 @@ impl FunctionContainerManager {
                         }
                     }
                 }.instrument(tracing::info_span!("container_lifecycle", %executor_id)));
+            } else if let Some(container) = containers.get_mut(&id) {
+                // Container already exists — check if sandbox_id changed (warm → claimed)
+                let old_sandbox_id = container
+                    .description
+                    .sandbox_metadata
+                    .as_ref()
+                    .and_then(|m| m.sandbox_id.as_ref());
+                let new_sandbox_id = desc
+                    .sandbox_metadata
+                    .as_ref()
+                    .and_then(|m| m.sandbox_id.as_ref());
+
+                if let (None, Some(new_id)) = (old_sandbox_id, new_sandbox_id) {
+                    let info = ContainerInfo::from_description(&desc);
+                    tracing::info!(
+                        container_id = %info.container_id,
+                        sandbox_id = %new_id,
+                        "Warm container claimed by sandbox, starting timeout"
+                    );
+                    container.sandbox_claimed_at = Some(Instant::now());
+                }
+
+                // Always update the description to reflect server's desired state
+                container.description = desc;
             }
         }
 
@@ -808,7 +847,7 @@ impl FunctionContainerManager {
             };
             let info = container.info();
             let elapsed = container
-                .started_at
+                .sandbox_claimed_at
                 .map(|s| s.elapsed().as_secs())
                 .unwrap_or(0);
             tracing::warn!(
@@ -1328,6 +1367,7 @@ mod tests {
             timeout_secs: None,
             entrypoint: vec![],
             network_policy: None,
+            sandbox_id: None,
         });
         let image = resolver.resolve_image(&desc);
 
@@ -1342,6 +1382,7 @@ mod tests {
             state: ContainerState::Pending,
             created_at: Instant::now(),
             started_at: None,
+            sandbox_claimed_at: None,
         };
 
         let proto_state = container.to_proto_state();
@@ -1361,6 +1402,7 @@ mod tests {
             },
             created_at: Instant::now(),
             started_at: None,
+            sandbox_claimed_at: None,
         };
 
         let proto_state = container.to_proto_state();
@@ -1535,6 +1577,7 @@ mod tests {
             timeout_secs: Some(timeout_secs),
             entrypoint: vec![],
             network_policy: None,
+            sandbox_id: None,
         });
         desc
     }
@@ -1562,6 +1605,7 @@ mod tests {
             state: ContainerState::Pending,
             created_at: Instant::now(),
             started_at: Some(Instant::now() - Duration::from_secs(1000)),
+            sandbox_claimed_at: Some(Instant::now() - Duration::from_secs(1000)),
         };
 
         assert!(!container.is_timed_out());
@@ -1575,6 +1619,7 @@ mod tests {
             state: ContainerState::Pending,
             created_at: Instant::now(),
             started_at: Some(Instant::now() - Duration::from_secs(100)),
+            sandbox_claimed_at: Some(Instant::now() - Duration::from_secs(100)),
         };
 
         assert!(!container.is_timed_out());
@@ -1590,6 +1635,7 @@ mod tests {
             },
             created_at: Instant::now(),
             started_at: None,
+            sandbox_claimed_at: None,
         };
 
         assert!(!container.is_timed_out());
@@ -1604,7 +1650,8 @@ mod tests {
                 daemon_client: create_mock_daemon_client(),
             },
             created_at: Instant::now(),
-            started_at: Some(Instant::now()), // Just started
+            started_at: Some(Instant::now()),         // Just started
+            sandbox_claimed_at: Some(Instant::now()), // Just claimed
         };
 
         assert!(!container.is_timed_out());
@@ -1619,8 +1666,9 @@ mod tests {
                 daemon_client: create_mock_daemon_client(),
             },
             created_at: Instant::now(),
-            // Started 15 seconds ago, so 10 second timeout is exceeded
-            started_at: Some(Instant::now() - Duration::from_secs(15)),
+            started_at: Some(Instant::now() - Duration::from_secs(20)),
+            // Claimed 15 seconds ago, so 10 second timeout is exceeded
+            sandbox_claimed_at: Some(Instant::now() - Duration::from_secs(15)),
         };
 
         assert!(container.is_timed_out());
@@ -1635,8 +1683,9 @@ mod tests {
                 daemon_client: create_mock_daemon_client(),
             },
             created_at: Instant::now(),
-            // Started exactly 10 seconds ago - should be timed out (>= comparison)
-            started_at: Some(Instant::now() - Duration::from_secs(10)),
+            started_at: Some(Instant::now() - Duration::from_secs(15)),
+            // Claimed exactly 10 seconds ago - should be timed out (>= comparison)
+            sandbox_claimed_at: Some(Instant::now() - Duration::from_secs(10)),
         };
 
         assert!(container.is_timed_out());
@@ -1658,7 +1707,7 @@ mod tests {
             "test-executor".to_string(),
         );
 
-        // Insert a container that started 10 seconds ago with a 5 second timeout
+        // Insert a container that was claimed 10 seconds ago with a 5 second timeout
         // (already timed out)
         {
             let mut containers = manager.containers.write().await;
@@ -1669,8 +1718,9 @@ mod tests {
                     daemon_client: create_mock_daemon_client(),
                 },
                 created_at: Instant::now(),
-                // Set started_at to 10 seconds ago - well past the 5 second timeout
-                started_at: Some(Instant::now() - Duration::from_secs(10)),
+                started_at: Some(Instant::now() - Duration::from_secs(15)),
+                // Set sandbox_claimed_at to 10 seconds ago - well past the 5 second timeout
+                sandbox_claimed_at: Some(Instant::now() - Duration::from_secs(10)),
             };
             containers.insert("fe-timeout-test".to_string(), container);
         }
@@ -1728,6 +1778,7 @@ mod tests {
                 },
                 created_at: Instant::now(),
                 started_at: Some(Instant::now()), // Just started
+                sandbox_claimed_at: Some(Instant::now()), // Just claimed
             };
             containers.insert("fe-not-expired".to_string(), container);
         }
@@ -1772,6 +1823,7 @@ mod tests {
                 created_at: Instant::now(),
                 // Started 1 hour ago, but has no timeout so shouldn't be stopped
                 started_at: Some(Instant::now() - Duration::from_secs(3600)),
+                sandbox_claimed_at: None,
             };
             containers.insert("fe-no-timeout".to_string(), container);
         }
@@ -1786,6 +1838,97 @@ mod tests {
             assert!(
                 matches!(container.state, ContainerState::Running { .. }),
                 "Container with no timeout should still be running"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_warm_container_does_not_time_out() {
+        // A warm pool container (no sandbox_id, no sandbox_claimed_at)
+        // should NOT time out even when started_at has elapsed past the timeout.
+        let container = ManagedContainer {
+            description: create_test_fe_description_with_timeout("fe-warm", 10), // 10 sec timeout
+            state: ContainerState::Running {
+                handle: create_mock_handle("test-container"),
+                daemon_client: create_mock_daemon_client(),
+            },
+            created_at: Instant::now(),
+            // Started 100 seconds ago — well past timeout
+            started_at: Some(Instant::now() - Duration::from_secs(100)),
+            // But never claimed by a sandbox
+            sandbox_claimed_at: None,
+        };
+
+        assert!(
+            !container.is_timed_out(),
+            "Warm container without sandbox_claimed_at should not time out"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_sync_sets_sandbox_claimed_at_on_claim() {
+        // When sync() sees sandbox_id transition from None to Some on an
+        // existing container, it should set sandbox_claimed_at.
+        let driver = Arc::new(MockProcessDriver::new());
+        let resolver = Arc::new(DefaultImageResolver::new());
+        let metrics = create_test_metrics();
+        let state_file = create_test_state_file().await;
+        let manager = FunctionContainerManager::new(
+            driver.clone(),
+            resolver,
+            metrics,
+            state_file,
+            "test-executor".to_string(),
+        );
+
+        // Insert a warm container (no sandbox_id)
+        {
+            let mut containers = manager.containers.write().await;
+            let container = ManagedContainer {
+                description: create_test_fe_description_with_timeout("fe-warm-claim", 60),
+                state: ContainerState::Running {
+                    handle: create_mock_handle("test-container"),
+                    daemon_client: create_mock_daemon_client(),
+                },
+                created_at: Instant::now(),
+                started_at: Some(Instant::now()),
+                sandbox_claimed_at: None,
+            };
+            containers.insert("fe-warm-claim".to_string(), container);
+        }
+
+        // Verify sandbox_claimed_at is None
+        {
+            let containers = manager.containers.read().await;
+            let container = containers.get("fe-warm-claim").unwrap();
+            assert!(
+                container.sandbox_claimed_at.is_none(),
+                "sandbox_claimed_at should be None before claim"
+            );
+        }
+
+        // Sync with a description that has sandbox_id set (simulates server claiming)
+        let mut desc = create_test_fe_description_with_timeout("fe-warm-claim", 60);
+        desc.sandbox_metadata.as_mut().unwrap().sandbox_id = Some("sandbox-abc".to_string());
+        manager.sync(vec![desc]).await;
+
+        // Verify sandbox_claimed_at is now set
+        {
+            let containers = manager.containers.read().await;
+            let container = containers.get("fe-warm-claim").unwrap();
+            assert!(
+                container.sandbox_claimed_at.is_some(),
+                "sandbox_claimed_at should be set after sandbox_id transition"
+            );
+            assert_eq!(
+                container
+                    .description
+                    .sandbox_metadata
+                    .as_ref()
+                    .unwrap()
+                    .sandbox_id,
+                Some("sandbox-abc".to_string()),
+                "Description should have updated sandbox_id"
             );
         }
     }
