@@ -10,6 +10,7 @@ use crate::{
         ContainerId,
         ContainerServerMetadata,
         ContainerState,
+        ContainerType,
         ExecutorId,
         ExecutorMetadata,
         ExecutorServerMetadata,
@@ -123,10 +124,12 @@ impl ContainerReconciler {
                 None => true,
             };
 
-            // Check 3: Application version and function must exist
-            let app_fn_exists = in_memory_state
-                .application_version(&fe.namespace, &fe.application_name, &fe.version)
-                .is_some_and(|av| av.functions.contains_key(&fe.function_name));
+            // Check 3: Application version and function must exist (only for function
+            // containers)
+            let app_fn_exists = fe.container_type == ContainerType::Sandbox ||
+                in_memory_state
+                    .application_version(&fe.namespace, &fe.application_name, &fe.version)
+                    .is_some_and(|av| av.functions.contains_key(&fe.function_name));
 
             if !pool_exists || !sandbox_valid || !app_fn_exists {
                 info!(
