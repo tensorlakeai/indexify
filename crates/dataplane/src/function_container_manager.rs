@@ -622,6 +622,7 @@ impl FunctionContainerManager {
                     tracing::info!(
                         container_id = %info.container_id,
                         sandbox_id = %new_id,
+                        executor_id = %self.executor_id,
                         "Warm container claimed by sandbox, starting timeout"
                     );
                     container.sandbox_claimed_at = Some(Instant::now());
