@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use tracing::{error, info, warn};
 
 use crate::{
@@ -34,7 +34,7 @@ use crate::{
 
 pub struct ContainerReconciler {
     clock: u64,
-    indexify_state: Arc<IndexifyState>,
+    _indexify_state: Arc<IndexifyState>,
 }
 
 /// Reconciles container state between executors and the server.
@@ -44,7 +44,7 @@ impl ContainerReconciler {
     pub fn new(clock: u64, indexify_state: Arc<IndexifyState>) -> Self {
         Self {
             clock,
-            indexify_state,
+            _indexify_state: indexify_state,
         }
     }
 
@@ -106,27 +106,57 @@ impl ContainerReconciler {
                 continue;
             }
 
-            // If this container is associated with a sandbox, check if the sandbox is
-            // terminated
-            if let Some(sandbox_id) = &fe.sandbox_id {
-                let reader = self.indexify_state.reader();
-                if let Ok(Some(sandbox)) = reader.get_sandbox(&fe.namespace, sandbox_id.get()).await &&
-                    sandbox.status == SandboxStatus::Terminated
-                {
-                    info!(
-                        container_id = %fe.id,
-                        sandbox_id = %sandbox_id,
-                        namespace = %fe.namespace,
-                        "Ignoring container from executor - associated sandbox is terminated"
-                    );
-                    continue;
+            // Check 1: Pool must exist
+            let pool_exists = container_scheduler
+                .container_pools
+                .contains_key(&fe.pool_key());
+
+            // Check 2: If sandbox assigned, it must be Running
+            let sandbox_valid = match &fe.sandbox_id {
+                Some(sandbox_id) => {
+                    let sandbox_key = SandboxKey::new(&fe.namespace, sandbox_id.get());
+                    in_memory_state
+                        .sandboxes
+                        .get(&sandbox_key)
+                        .is_some_and(|s| s.status == SandboxStatus::Running)
                 }
+                None => true,
+            };
+
+            // Check 3: Application version and function must exist
+            let app_fn_exists = in_memory_state
+                .application_version(&fe.namespace, &fe.application_name, &fe.version)
+                .is_some_and(|av| av.functions.contains_key(&fe.function_name));
+
+            if !pool_exists || !sandbox_valid || !app_fn_exists {
+                info!(
+                    executor_id = %executor.id,
+                    container_id = %fe.id,
+                    pool_exists,
+                    sandbox_valid,
+                    app_fn_exists,
+                    "rejecting untracked container from executor — purpose no longer exists"
+                );
+                let terminated = ContainerServerMetadata::new(
+                    executor.id.clone(),
+                    fe.clone(),
+                    ContainerState::Terminated {
+                        reason: FunctionExecutorTerminationReason::DesiredStateRemoved,
+                        failed_alloc_ids: vec![],
+                    },
+                );
+                executor_server_metadata.force_add_container(&fe);
+                update
+                    .containers
+                    .insert(fe.id.clone(), Box::new(terminated));
+                containers_adopted = true;
+                continue;
             }
 
-            // Always track containers that exist on the executor, regardless of whether
-            // our resource accounting shows enough free resources. The container is already
-            // running and consuming resources - our tracking should reflect reality.
-            // This may result in free_resources going negative, indicating overcommit.
+            // Adopt the container — it passed all validation checks.
+            // Track it regardless of whether our resource accounting shows enough
+            // free resources. The container is already running and consuming
+            // resources — our tracking should reflect reality.
             info!(
                 executor_id = %executor.id,
                 container_id = %fe.id,
@@ -768,12 +798,13 @@ impl ContainerReconciler {
         executor_id: &ExecutorId,
     ) -> Result<SchedulerUpdateRequest> {
         let mut update = SchedulerUpdateRequest::default();
-        let executor = container_scheduler
-            .executors
-            .get(executor_id)
-            .ok_or(anyhow!("executor not found"))?
-            .clone();
-
+        let Some(executor) = container_scheduler.executors.get(executor_id).cloned() else {
+            error!(
+                executor_id = %executor_id,
+                "trying to reconcile executor state for a non-existent executor"
+            );
+            return Ok(update);
+        };
         tracing::debug!(?executor, "reconciling executor state for executor",);
 
         // Create ExecutorServerMetadata if it doesn't exist

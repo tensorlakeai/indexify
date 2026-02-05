@@ -264,10 +264,26 @@ impl ExecutorManager {
         //    different to prevent doing duplicate work.
         let should_update = {
             let runtime_data_read = self.runtime_data.read().await;
-            runtime_data_read
+            let hash_changed = runtime_data_read
                 .get(&executor.id)
                 .map(|data| data.should_update(executor.state_hash.clone(), executor.clock))
-                .unwrap_or(true)
+                .unwrap_or(true);
+            drop(runtime_data_read);
+
+            if hash_changed {
+                true
+            } else {
+                // Force update if executor is not in the container scheduler.
+                // This handles the case where a stale TombStoneExecutor removed
+                // the executor after it re-registered.
+                !self
+                    .indexify_state
+                    .container_scheduler
+                    .read()
+                    .await
+                    .executors
+                    .contains_key(&executor.id)
+            }
         };
 
         if should_update {
