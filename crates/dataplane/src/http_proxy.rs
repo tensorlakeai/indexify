@@ -291,7 +291,7 @@ impl ProxyHttp for HttpProxy {
     /// Select container as upstream.
     async fn upstream_peer(
         &self,
-        _session: &mut Session,
+        session: &mut Session,
         ctx: &mut Self::CTX,
     ) -> Result<Box<HttpPeer>> {
         let addr = ctx
@@ -306,7 +306,10 @@ impl ProxyHttp for HttpProxy {
         peer.options = create_peer_options(&self.upstream_config);
         // Prefer HTTP/2 (h2c) but allow HTTP/1.1 fallback for WebSockets and legacy
         // services
-        peer.options.set_http_version(2, 1);
+        if session.get_header_bytes("x-h2") == b"true" {
+            // default is 1, 1
+            peer.options.set_http_version(2, 2);
+        }
         Ok(Box::new(peer))
     }
 
