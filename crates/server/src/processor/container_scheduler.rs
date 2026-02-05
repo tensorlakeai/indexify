@@ -247,8 +247,10 @@ impl ContainerScheduler {
                 free_resources: executor_metadata.host_resources.clone(),
                 resource_claims: std::collections::HashMap::new(),
             };
-            self.executor_states
-                .insert(executor_metadata.id.clone(), Box::new(executor_server_metadata));
+            self.executor_states.insert(
+                executor_metadata.id.clone(),
+                Box::new(executor_server_metadata),
+            );
         }
     }
 

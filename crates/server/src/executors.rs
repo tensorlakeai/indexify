@@ -1147,4 +1147,208 @@ mod tests {
 
         Ok(())
     }
+
+    /// Tests that a newly registered executor can immediately receive desired
+    /// state without waiting for async reconciliation.
+    ///
+    /// This test verifies the fix for the race condition where:
+    /// 1. Executor is added to `executors` (sync path via UpsertExecutor)
+    /// 2. Executor is NOT yet in `executor_states` (async path via
+    ///    reconcile_executor_state)
+    /// 3. Calling `desired_state()` would return None, leaving executor stuck
+    ///
+    /// After the fix, `executor_states` entry is created synchronously
+    /// alongside `executors`, so `desired_state()` should return Some
+    /// immediately.
+    #[tokio::test]
+    async fn test_new_executor_desired_state_before_reconciliation() -> Result<()> {
+        let test_srv = testing::TestService::new().await?;
+        let indexify_state = test_srv.service.indexify_state.clone();
+        let executor_manager = test_srv.service.executor_manager.clone();
+
+        let executor = ExecutorMetadataBuilder::default()
+            .id(ExecutorId::new("test-executor-race".to_string()))
+            .executor_version("1.0".to_string())
+            .function_allowlist(None)
+            .addr("".to_string())
+            .labels(Default::default())
+            .containers(Default::default())
+            .host_resources(Default::default())
+            .state(Default::default())
+            .tombstoned(false)
+            .state_hash("state_hash".to_string())
+            .clock(0)
+            .build()
+            .unwrap();
+
+        // Step 1: Heartbeat and write UpsertExecutor (this adds to `executors`
+        // synchronously)
+        heartbeat_and_upsert_executor(&test_srv, executor.clone()).await?;
+
+        // Step 2: DO NOT process state changes yet - this simulates the race window
+        // where executor is in `executors` but reconciliation hasn't run yet
+
+        // Step 3: Verify executor is in `executors`
+        {
+            let container_scheduler = indexify_state.container_scheduler.read().await;
+            assert!(
+                container_scheduler.executors.contains_key(&executor.id),
+                "Executor should be in executors after UpsertExecutor"
+            );
+        }
+
+        // Step 4: With the fix, executor_states should ALSO have an entry now
+        // (created synchronously in upsert_executor)
+        {
+            let container_scheduler = indexify_state.container_scheduler.read().await;
+            assert!(
+                container_scheduler
+                    .executor_states
+                    .contains_key(&executor.id),
+                "Executor should be in executor_states immediately after UpsertExecutor (fix for race condition)"
+            );
+        }
+
+        // Step 5: Verify desired_state returns Some (not None)
+        // This would have returned None before the fix
+        let desired_state = executor_manager
+            .desired_state(&executor.id, HashSet::new())
+            .await;
+        assert!(
+            desired_state.is_some(),
+            "desired_state should return Some for newly registered executor (not stuck waiting for reconciliation)"
+        );
+
+        Ok(())
+    }
+
+    /// Tests that the executor_states entry is properly initialized with empty
+    /// function_container_ids and correct host resources.
+    #[tokio::test]
+    async fn test_executor_states_initialization() -> Result<()> {
+        let test_srv = testing::TestService::new().await?;
+        let indexify_state = test_srv.service.indexify_state.clone();
+
+        let host_resources = crate::data_model::HostResources {
+            cpu_ms_per_sec: 8 * 1000,
+            memory_bytes: 16_000_000_000,
+            disk_bytes: 100_000_000_000,
+            gpu: None,
+        };
+
+        let executor = ExecutorMetadataBuilder::default()
+            .id(ExecutorId::new("test-executor-init".to_string()))
+            .executor_version("1.0".to_string())
+            .function_allowlist(None)
+            .addr("".to_string())
+            .labels(Default::default())
+            .containers(Default::default())
+            .host_resources(host_resources.clone())
+            .state(Default::default())
+            .tombstoned(false)
+            .state_hash("state_hash".to_string())
+            .clock(0)
+            .build()
+            .unwrap();
+
+        // Register the executor
+        heartbeat_and_upsert_executor(&test_srv, executor.clone()).await?;
+
+        // Verify executor_states was initialized correctly
+        {
+            let container_scheduler = indexify_state.container_scheduler.read().await;
+            let executor_state = container_scheduler
+                .executor_states
+                .get(&executor.id)
+                .expect("executor_states entry should exist");
+
+            assert_eq!(
+                executor_state.executor_id, executor.id,
+                "executor_id should match"
+            );
+            assert!(
+                executor_state.function_container_ids.is_empty(),
+                "function_container_ids should be empty initially"
+            );
+            assert_eq!(
+                executor_state.free_resources, host_resources,
+                "free_resources should match host_resources"
+            );
+            assert!(
+                executor_state.resource_claims.is_empty(),
+                "resource_claims should be empty initially"
+            );
+        }
+
+        Ok(())
+    }
+
+    /// Tests that reconciliation still works correctly after executor_states
+    /// is created synchronously - i.e., the reconciler doesn't break when
+    /// the entry already exists.
+    #[tokio::test]
+    async fn test_reconciliation_after_sync_executor_states_creation() -> Result<()> {
+        let test_srv = testing::TestService::new().await?;
+        let indexify_state = test_srv.service.indexify_state.clone();
+        let executor_manager = test_srv.service.executor_manager.clone();
+
+        let executor = ExecutorMetadataBuilder::default()
+            .id(ExecutorId::new("test-executor-reconcile".to_string()))
+            .executor_version("1.0".to_string())
+            .function_allowlist(None)
+            .addr("".to_string())
+            .labels(Default::default())
+            .containers(Default::default())
+            .host_resources(Default::default())
+            .state(Default::default())
+            .tombstoned(false)
+            .state_hash("state_hash".to_string())
+            .clock(0)
+            .build()
+            .unwrap();
+
+        // Step 1: Register executor (creates executor_states entry synchronously)
+        heartbeat_and_upsert_executor(&test_srv, executor.clone()).await?;
+
+        // Step 2: Verify executor_states exists before reconciliation
+        {
+            let container_scheduler = indexify_state.container_scheduler.read().await;
+            assert!(
+                container_scheduler
+                    .executor_states
+                    .contains_key(&executor.id),
+                "executor_states should exist before reconciliation"
+            );
+        }
+
+        // Step 3: Process state changes (runs reconciliation)
+        // This should NOT fail even though executor_states already exists
+        test_srv.process_all_state_changes().await?;
+
+        // Step 4: Verify executor is still properly registered after reconciliation
+        {
+            let container_scheduler = indexify_state.container_scheduler.read().await;
+            assert!(
+                container_scheduler.executors.contains_key(&executor.id),
+                "Executor should still be in executors after reconciliation"
+            );
+            assert!(
+                container_scheduler
+                    .executor_states
+                    .contains_key(&executor.id),
+                "Executor should still be in executor_states after reconciliation"
+            );
+        }
+
+        // Step 5: Verify desired_state still works after reconciliation
+        let desired_state = executor_manager
+            .desired_state(&executor.id, HashSet::new())
+            .await;
+        assert!(
+            desired_state.is_some(),
+            "desired_state should return Some after reconciliation"
+        );
+
+        Ok(())
+    }
 }

@@ -780,7 +780,10 @@ impl ContainerReconciler {
         // container_scheduler.upsert_executor() to eliminate the race condition
         // where executors could be stuck waiting for reconciliation.
         // If it somehow doesn't exist (shouldn't happen), create it here as fallback.
-        if !container_scheduler.executor_states.contains_key(executor_id) {
+        if !container_scheduler
+            .executor_states
+            .contains_key(executor_id)
+        {
             warn!(
                 executor_id = %executor_id,
                 "executor_states entry missing, creating as fallback"
