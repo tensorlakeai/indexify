@@ -829,10 +829,12 @@ impl InMemoryState {
                     // Notify executor when:
                     // 1. Container is Pending (new container being created)
                     // 2. Container desired_state is Terminated (container needs to be stopped)
+                    // 3. Container has a sandbox_id (claimed by a sandbox)
                     if matches!(
                         fc_metadata.function_container.state,
                         ContainerState::Pending
-                    ) || matches!(fc_metadata.desired_state, ContainerState::Terminated { .. })
+                    ) || matches!(fc_metadata.desired_state, ContainerState::Terminated { .. }) ||
+                        fc_metadata.function_container.sandbox_id.is_some()
                     {
                         changed_executors.insert(fc_metadata.executor_id.clone());
                     }
