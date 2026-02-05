@@ -9,6 +9,11 @@ on:
         description: 'Environment to post the image to'
         required: true
         type: string
+     version:
+        description: 'Version tag to apply to image'
+        required: true
+        type: string
+        default: latest
 
   workflow_call:
     inputs:
