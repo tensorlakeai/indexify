@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use crate::{
-    data_model::{self, ContainerPoolId, Sandbox, SandboxBuilder, SandboxId, SandboxStatus},
+    data_model::{self, Sandbox, SandboxBuilder, SandboxId, SandboxStatus},
     http_objects::{ContainerResources, ContainerResourcesInfo, IndexifyAPIError},
     routes::routes_state::RouteState,
     state_store::requests::{
@@ -62,12 +62,6 @@ pub struct CreateSandboxRequest {
     /// Network access control settings (optional).
     #[serde(default)]
     pub network: Option<NetworkAccessControl>,
-    /// Optional pool ID to claim a warm container from.
-    /// If provided, the sandbox will attempt to use a pre-warmed container from
-    /// the pool. If not provided, a new container will be created
-    /// on-demand.
-    #[serde(default)]
-    pub pool_id: Option<String>,
 }
 
 /// Response after creating a sandbox
@@ -214,7 +208,6 @@ pub async fn create_sandbox(
             allow_out: n.allow_out,
             deny_out: n.deny_out,
         }))
-        .pool_id(request.pool_id.map(ContainerPoolId::new))
         .build()
         .map_err(|e| IndexifyAPIError::internal_error_str(&e.to_string()))?;
 

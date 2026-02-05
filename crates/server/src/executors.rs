@@ -698,6 +698,7 @@ impl ExecutorManager {
                     },
                     entrypoint: desired_state_fe.entrypoint.clone(),
                     network_policy: network_policy_pb,
+                    sandbox_id: fe.sandbox_id.as_ref().map(|s| s.get().to_string()),
                 })
             } else {
                 None
