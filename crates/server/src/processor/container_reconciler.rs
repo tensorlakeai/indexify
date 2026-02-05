@@ -776,15 +776,14 @@ impl ContainerReconciler {
 
         tracing::debug!(?executor, "reconciling executor state for executor",);
 
-        // Create ExecutorServerMetadata if it doesn't exist
-        let is_first_heartbeat = !container_scheduler
-            .executor_states
-            .contains_key(executor_id);
-
-        if is_first_heartbeat {
-            info!(
+        // Note: ExecutorServerMetadata is now created synchronously in
+        // container_scheduler.upsert_executor() to eliminate the race condition
+        // where executors could be stuck waiting for reconciliation.
+        // If it somehow doesn't exist (shouldn't happen), create it here as fallback.
+        if !container_scheduler.executor_states.contains_key(executor_id) {
+            warn!(
                 executor_id = %executor_id,
-                "creating executor server metadata"
+                "executor_states entry missing, creating as fallback"
             );
             let executor_server_metadata = ExecutorServerMetadata {
                 executor_id: executor_id.clone(),
@@ -809,14 +808,14 @@ impl ContainerReconciler {
                 .await?,
         );
 
-        // On first heartbeat after server restart, check for orphaned containers
-        if is_first_heartbeat {
-            update.extend(self.handle_orphaned_containers_on_first_heartbeat(
-                in_memory_state,
-                container_scheduler,
-                &executor,
-            )?);
-        }
+        // Check for orphaned containers (allocations/sandboxes assigned to containers
+        // that no longer exist on the executor). This handles server restart scenarios
+        // and is idempotent, so safe to run on every reconciliation.
+        update.extend(self.handle_orphaned_containers_on_first_heartbeat(
+            in_memory_state,
+            container_scheduler,
+            &executor,
+        )?);
 
         Ok(update)
     }

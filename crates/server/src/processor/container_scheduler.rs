@@ -235,6 +235,21 @@ impl ContainerScheduler {
             executor_metadata.id.clone(),
             executor_metadata.clone().into(),
         );
+
+        // Create executor_states entry if it doesn't exist.
+        // This ensures executors can receive desired state immediately after
+        // registration, without waiting for async reconciliation.
+        // The reconciliation will update this entry with adopted containers.
+        if !self.executor_states.contains_key(&executor_metadata.id) {
+            let executor_server_metadata = ExecutorServerMetadata {
+                executor_id: executor_metadata.id.clone(),
+                function_container_ids: std::collections::HashSet::new(),
+                free_resources: executor_metadata.host_resources.clone(),
+                resource_claims: std::collections::HashMap::new(),
+            };
+            self.executor_states
+                .insert(executor_metadata.id.clone(), Box::new(executor_server_metadata));
+        }
     }
 
     fn deregister_executor(&mut self, executor_id: &ExecutorId) {
