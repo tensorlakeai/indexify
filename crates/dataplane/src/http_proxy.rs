@@ -26,7 +26,7 @@ use async_trait::async_trait;
 use pingora::{
     http::Method,
     prelude::*,
-    protocols::TcpKeepalive,
+    protocols::{ALPN, TcpKeepalive},
     services::listening::Service,
     upstreams::peer::PeerOptions,
 };
@@ -307,6 +307,8 @@ impl ProxyHttp for HttpProxy {
         // Prefer HTTP/2 (h2c) but allow HTTP/1.1 fallback for WebSockets and legacy
         // services
         if session.get_header_bytes("x-h2") == b"true" {
+            info!("Using HTTP/2");
+            peer.options.alpn = ALPN::H2;
             // default is 1, 1
             peer.options.set_http_version(2, 2);
         }
