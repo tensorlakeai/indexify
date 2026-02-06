@@ -18,6 +18,7 @@
 //! 4. Proxy forwards request to container, stripping routing headers
 
 use std::{
+    os::fd::RawFd,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -28,9 +29,9 @@ use pingora::{
     prelude::*,
     protocols::TcpKeepalive,
     services::listening::Service,
-    upstreams::peer::{PeerOptions, ALPN},
+    upstreams::peer::{ALPN, Peer, PeerOptions},
 };
-use pingora_core::apps::HttpServerOptions;
+use pingora_core::{apps::HttpServerOptions, protocols::Digest};
 use pingora_http::{RequestHeader, ResponseHeader};
 use pingora_proxy::{FailToProxy, HttpProxy as PingoraHttpProxy, ProxyHttp, Session};
 use serde::Serialize;
@@ -326,12 +327,63 @@ impl ProxyHttp for HttpProxy {
         if ctx.is_grpc {
             // gRPC requires HTTP/2 - no fallback allowed
             peer.options.alpn = ALPN::H2;
+            ctx.span.in_scope(|| {
+                debug!(
+                    upstream_addr = %addr,
+                    is_grpc = true,
+                    alpn = "H2",
+                    tls = false,
+                    "Configuring upstream peer for gRPC (HTTP/2 required)"
+                );
+            });
         } else {
             // Regular HTTP: prefer H2, fallback to H1 (for WebSockets, etc.)
             peer.options.set_http_version(2, 1);
+            ctx.span.in_scope(|| {
+                debug!(
+                    upstream_addr = %addr,
+                    is_grpc = false,
+                    http_version = "H2 preferred, H1 fallback",
+                    tls = false,
+                    "Configuring upstream peer for HTTP"
+                );
+            });
         }
 
         Ok(Box::new(peer))
+    }
+
+    /// Called when successfully connected to upstream.
+    /// Logs connection details for debugging.
+    async fn connected_to_upstream(
+        &self,
+        _session: &mut Session,
+        reused: bool,
+        peer: &HttpPeer,
+        _fd: RawFd,
+        digest: Option<&Digest>,
+        ctx: &mut Self::CTX,
+    ) -> Result<()>
+    where
+        Self::CTX: Send + Sync,
+    {
+        ctx.span.in_scope(|| {
+            let timing_info = digest
+                .and_then(|d| d.timing_digest.first())
+                .and_then(|t| t.as_ref())
+                .map(|t| format!("established_ts={:?}", t.established_ts))
+                .unwrap_or_else(|| "no timing".to_string());
+
+            info!(
+                peer_addr = %peer.address(),
+                peer_tls = peer.is_tls(),
+                connection_reused = reused,
+                is_grpc = ctx.is_grpc,
+                timing = %timing_info,
+                "Successfully connected to upstream"
+            );
+        });
+        Ok(())
     }
 
     /// Remove routing headers before forwarding to container.
@@ -358,7 +410,25 @@ impl ProxyHttp for HttpProxy {
     where
         Self::CTX: Send + Sync,
     {
-        ctx.status_code = Some(upstream_response.status.as_u16());
+        let status = upstream_response.status.as_u16();
+        ctx.status_code = Some(status);
+
+        // Log response details for debugging
+        ctx.span.in_scope(|| {
+            let headers: Vec<_> = upstream_response
+                .headers
+                .iter()
+                .map(|(k, v)| format!("{}: {}", k.as_str(), v.to_str().unwrap_or("<binary>")))
+                .collect();
+
+            debug!(
+                upstream_status = status,
+                upstream_headers = ?headers,
+                is_grpc = ctx.is_grpc,
+                "Received upstream response headers"
+            );
+        });
+
         add_cors_headers(upstream_response, get_origin(session).as_deref());
         Ok(())
     }
@@ -396,15 +466,32 @@ impl ProxyHttp for HttpProxy {
     fn fail_to_connect(
         &self,
         _session: &mut Session,
-        _peer: &HttpPeer,
+        peer: &HttpPeer,
         ctx: &mut Self::CTX,
         e: Box<Error>,
     ) -> Box<Error> {
         let duration_ms = ctx.request_start.elapsed().as_millis() as u64;
         ctx.span.record("duration_ms", duration_ms);
 
+        // Collect cause chain for detailed logging
+        let mut cause_chain = Vec::new();
+        let mut current: &dyn std::error::Error = e.as_ref();
+        while let Some(source) = current.source() {
+            cause_chain.push(format!("{}", source));
+            current = source;
+        }
+
         let _guard = ctx.span.enter();
-        error!(error = %e, error_type = e.etype().as_str(), "Failed to connect to container");
+        error!(
+            error = %e,
+            error_debug = ?e,
+            error_type = e.etype().as_str(),
+            cause_chain = ?cause_chain,
+            peer_addr = %peer.address(),
+            peer_tls = peer.is_tls(),
+            is_grpc = ctx.is_grpc,
+            "Failed to connect to container - detailed diagnostics"
+        );
 
         e
     }
@@ -419,6 +506,18 @@ impl ProxyHttp for HttpProxy {
         Self::CTX: Send + Sync,
     {
         let error_type = e.etype();
+
+        // Collect detailed error information for logging
+        let error_detail = format!("{}", e);
+        let error_debug = format!("{:?}", e);
+
+        // Walk the error cause chain
+        let mut cause_chain = Vec::new();
+        let mut current: &dyn std::error::Error = e;
+        while let Some(source) = current.source() {
+            cause_chain.push(format!("{}", source));
+            current = source;
+        }
 
         // Determine status, message, and code based on error type
         let (status, message, code) = match error_type {
@@ -453,6 +552,20 @@ impl ProxyHttp for HttpProxy {
                 error_code::PROXY_ERROR,
             ),
         };
+
+        // Log detailed error information
+        ctx.span.in_scope(|| {
+            error!(
+                error_type = error_type.as_str(),
+                error_display = %error_detail,
+                error_debug = %error_debug,
+                cause_chain = ?cause_chain,
+                is_grpc = ctx.is_grpc,
+                container_addr = ctx.container_addr.as_deref().unwrap_or("unknown"),
+                response_status = status,
+                "Proxy error - detailed diagnostics"
+            );
+        });
 
         // Disable keepalive to ensure clean connection close
         session.set_keepalive(None);
