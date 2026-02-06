@@ -31,7 +31,10 @@ use pingora::{
     services::listening::Service,
     upstreams::peer::{ALPN, Peer, PeerOptions},
 };
-use pingora_core::{apps::HttpServerOptions, protocols::Digest, protocols::http::HttpTask};
+use pingora_core::{
+    apps::HttpServerOptions,
+    protocols::{Digest, http::HttpTask},
+};
 use pingora_http::{HMap, RequestHeader, ResponseHeader};
 use pingora_proxy::{FailToProxy, HttpProxy as PingoraHttpProxy, ProxyHttp, Session};
 use serde::Serialize;
@@ -108,12 +111,14 @@ pub struct ProxyContext {
     /// Whether this request is gRPC (requires HTTP/2)
     is_grpc: bool,
     /// Whether upstream response was a gRPC trailers-only response
-    /// (grpc-status in initial headers, meaning the stream will close immediately).
-    /// In this case, an H2 RST_STREAM(NO_ERROR) is expected and not a proxy error.
+    /// (grpc-status in initial headers, meaning the stream will close
+    /// immediately). In this case, an H2 RST_STREAM(NO_ERROR) is expected
+    /// and not a proxy error.
     grpc_trailers_only: bool,
     /// Saved gRPC trailer headers (grpc-status, grpc-message) extracted from a
-    /// trailers-only response. These are removed from the initial response headers
-    /// and re-sent as proper HTTP/2 trailers so gRPC clients handle them correctly.
+    /// trailers-only response. These are removed from the initial response
+    /// headers and re-sent as proper HTTP/2 trailers so gRPC clients handle
+    /// them correctly.
     grpc_trailers: Option<Box<HMap>>,
 }
 
@@ -643,8 +648,8 @@ impl ProxyHttp for HttpProxy {
         session.set_keepalive(None);
 
         // Only send error response if upstream response headers haven't been sent yet.
-        // If they have (status_code was already set in upstream_response_filter), writing
-        // new headers/body would corrupt the in-flight response.
+        // If they have (status_code was already set in upstream_response_filter),
+        // writing new headers/body would corrupt the in-flight response.
         if ctx.status_code.is_none() {
             ctx.status_code = Some(status);
             let origin = get_origin(session);
