@@ -19,6 +19,7 @@ fn main() {
     println!("cargo:rerun-if-changed=../container-daemon/src/");
     println!("cargo:rerun-if-changed=../container-daemon/Cargo.toml");
     println!("cargo:rerun-if-env-changed=RUN_DOCKER_TESTS");
+    println!("cargo:rerun-if-env-changed=DAEMON_STATIC");
 
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
     let target_dir = out_dir.join("daemon-binary");
@@ -34,17 +35,14 @@ fn main() {
         .map(|v| v == "1" || v.to_lowercase() == "true")
         .unwrap_or(false);
 
+    // When DAEMON_STATIC=1 (set in Dockerfile), build with musl for a static
+    // binary that works in any container regardless of the base image's libc.
+    let daemon_static = env::var("DAEMON_STATIC")
+        .map(|v| v == "1" || v.to_lowercase() == "true")
+        .unwrap_or(false);
+
     let host_is_macos = host_target.contains("apple") || host_target.contains("darwin");
     let need_linux_binary = run_docker_tests && host_is_macos;
-
-    // The daemon binary is bind-mounted into arbitrary containers, so on Linux
-    // it must be statically linked (musl) to avoid glibc/dynamic-linker mismatches.
-    let host_is_linux = host_target.contains("linux");
-    let musl_target = if host_target.contains("aarch64") {
-        "aarch64-unknown-linux-musl"
-    } else {
-        "x86_64-unknown-linux-musl"
-    };
 
     let (target, daemon_binary_path) = if need_linux_binary {
         // macOS host with RUN_DOCKER_TESTS=1: cross-compile via Docker
@@ -61,8 +59,13 @@ fn main() {
                 build_for_host(&target_dir, &host_target)
             }
         }
-    } else if host_is_linux {
-        // Linux host: build with musl for a static binary that works in any container
+    } else if daemon_static {
+        // Static build requested (e.g. Docker image build) — use musl
+        let musl_target = if host_target.contains("aarch64") {
+            "aarch64-unknown-linux-musl"
+        } else {
+            "x86_64-unknown-linux-musl"
+        };
         build_for_host(&target_dir, musl_target)
     } else {
         build_for_host(&target_dir, &host_target)

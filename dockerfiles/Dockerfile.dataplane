@@ -18,9 +18,9 @@ COPY proto proto
 COPY crates crates
 
 # Add musl target for static linking of the embedded container-daemon, then build.
-# Must happen after COPY so rust-toolchain.toml is active.
+# DAEMON_STATIC=1 tells build.rs to use musl so the daemon binary works in any container.
 RUN rustup target add x86_64-unknown-linux-musl aarch64-unknown-linux-musl && \
-    cargo build --release --bin indexify-dataplane
+    DAEMON_STATIC=1 cargo build --release --bin indexify-dataplane
 
 FROM ubuntu:24.04 AS runner
 
