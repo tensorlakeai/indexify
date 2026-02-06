@@ -31,8 +31,8 @@ use pingora::{
     services::listening::Service,
     upstreams::peer::{ALPN, Peer, PeerOptions},
 };
-use pingora_core::{apps::HttpServerOptions, protocols::Digest};
-use pingora_http::{RequestHeader, ResponseHeader};
+use pingora_core::{apps::HttpServerOptions, protocols::Digest, protocols::http::HttpTask};
+use pingora_http::{HMap, RequestHeader, ResponseHeader};
 use pingora_proxy::{FailToProxy, HttpProxy as PingoraHttpProxy, ProxyHttp, Session};
 use serde::Serialize;
 use tokio_util::sync::CancellationToken;
@@ -111,6 +111,10 @@ pub struct ProxyContext {
     /// (grpc-status in initial headers, meaning the stream will close immediately).
     /// In this case, an H2 RST_STREAM(NO_ERROR) is expected and not a proxy error.
     grpc_trailers_only: bool,
+    /// Saved gRPC trailer headers (grpc-status, grpc-message) extracted from a
+    /// trailers-only response. These are removed from the initial response headers
+    /// and re-sent as proper HTTP/2 trailers so gRPC clients handle them correctly.
+    grpc_trailers: Option<Box<HMap>>,
 }
 
 /// HTTP proxy with header-based routing to sandbox containers.
@@ -211,6 +215,7 @@ impl ProxyHttp for HttpProxy {
             status_code: None,
             is_grpc: false,
             grpc_trailers_only: false,
+            grpc_trailers: None,
         }
     }
 
@@ -437,26 +442,30 @@ impl ProxyHttp for HttpProxy {
         // Detect gRPC trailers-only responses: when grpc-status appears in the
         // initial response headers (not trailing headers), the server is signaling
         // an immediate result with no body. The H2 stream will be closed right after
-        // these headers, which Pingora sees as a ReadError. We must not treat that
-        // as a proxy failure or send a JSON error body (which would corrupt the
-        // gRPC framing for the downstream client).
+        // these headers, which Pingora sees as a ReadError.
+        //
+        // gRPC clients expect grpc-status in HTTP/2 *trailers* (a trailing HEADERS
+        // frame with END_STREAM), not in the initial response headers. If we leave
+        // them in the initial headers, clients report "server closed the stream
+        // without sending trailers". So we extract them here and re-send them as
+        // proper HTTP/2 trailers in fail_to_proxy.
         if ctx.is_grpc && upstream_response.headers.contains_key("grpc-status") {
             ctx.grpc_trailers_only = true;
-            ctx.span.in_scope(|| {
-                debug!(
-                    grpc_status = upstream_response
-                        .headers
-                        .get("grpc-status")
-                        .and_then(|v| v.to_str().ok())
-                        .unwrap_or("?"),
-                    grpc_message = upstream_response
-                        .headers
-                        .get("grpc-message")
-                        .and_then(|v| v.to_str().ok())
-                        .unwrap_or(""),
-                    "Detected gRPC trailers-only response"
-                );
-            });
+
+            let mut trailers = HMap::new();
+            if let Some(val) = upstream_response.remove_header("grpc-status") {
+                ctx.span.in_scope(|| {
+                    debug!(
+                        grpc_status = val.to_str().unwrap_or("?"),
+                        "Detected gRPC trailers-only response, moving grpc-status to trailers"
+                    );
+                });
+                trailers.insert("grpc-status", val);
+            }
+            if let Some(val) = upstream_response.remove_header("grpc-message") {
+                trailers.insert("grpc-message", val);
+            }
+            ctx.grpc_trailers = Some(Box::new(trailers));
         }
 
         add_cors_headers(upstream_response, get_origin(session).as_deref());
@@ -551,13 +560,16 @@ impl ProxyHttp for HttpProxy {
                 );
             });
 
-            // Write an empty body with end_of_stream=true to properly close the
-            // downstream H2 stream. Without this, Pingora sends RST_STREAM(CANCEL)
-            // which causes the client to discard the grpc-status/grpc-message that
-            // were already delivered in the response headers.
-            let _ = session
-                .write_response_body(Some(bytes::Bytes::new()), true)
-                .await;
+            // Send the saved grpc-status/grpc-message as proper HTTP/2 trailers.
+            // We removed these from the initial response headers in
+            // upstream_response_filter so they wouldn't be sent as regular headers
+            // (which gRPC clients ignore). Sending them as trailers (a trailing
+            // HEADERS frame with END_STREAM) is what the gRPC protocol requires.
+            if let Some(trailers) = ctx.grpc_trailers.take() {
+                let _ = session
+                    .write_response_tasks(vec![HttpTask::Trailer(Some(trailers))])
+                    .await;
+            }
 
             return FailToProxy {
                 error_code: 200,
