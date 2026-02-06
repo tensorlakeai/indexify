@@ -339,90 +339,113 @@ impl ContainerScheduler {
     }
 
     fn update_scheduler_update(&mut self, scheduler_update: &SchedulerUpdateRequest) {
+        // Containers confirmed terminated during the merge — must be removed
+        // from all indices after processing rather than re-inserted by
+        // update_container_indices.
+        let mut dropped_containers: Vec<ContainerId> = Vec::new();
+
         for (executor_id, new_executor_server_metadata) in &scheduler_update.updated_executor_states
         {
-            // Get the old state to find removed containers
+            // Merge with existing state rather than replacing. The update was
+            // built from a clone that may be stale — concurrent writes (executor
+            // heartbeats, other state changes) could have added containers to
+            // the real executor state between clone and write. A naive replace
+            // would drop those containers.
+            let mut merged = (**new_executor_server_metadata).clone();
             if let Some(old_state) = self.executor_states.get(executor_id) {
-                // Find containers that were removed (in old but not in new)
                 for container_id in &old_state.function_container_ids {
-                    if !new_executor_server_metadata
-                        .function_container_ids
-                        .contains(container_id)
-                    {
-                        // This container was removed - clean up from indices
-                        if let Some(fc) = self.function_containers.remove(container_id) {
-                            let fn_uri = FunctionURI::from(&fc.function_container);
-                            if let Some(container_ids) =
-                                self.containers_by_function_uri.get_mut(&fn_uri)
+                    if !merged.function_container_ids.contains(container_id) {
+                        // Container is in old state but not in the update.
+                        // Only drop it if explicitly terminated in this update.
+                        let being_terminated = scheduler_update
+                            .containers
+                            .get(container_id)
+                            .is_some_and(|c| {
+                                matches!(c.desired_state, ContainerState::Terminated { .. })
+                            });
+                        if !being_terminated {
+                            merged.function_container_ids.insert(container_id.clone());
+                            // Preserve the resource claim so free_resources stays
+                            // accurate. Without this, the scheduler would think
+                            // the executor has more free resources than it does.
+                            if let Some(claim) = old_state.resource_claims.get(container_id) &&
+                                !merged.resource_claims.contains_key(container_id)
                             {
-                                container_ids.retain(|id| id != container_id);
-                                if container_ids.is_empty() {
-                                    self.containers_by_function_uri.remove(&fn_uri);
-                                }
+                                merged
+                                    .resource_claims
+                                    .insert(container_id.clone(), claim.clone());
+                                merged.free_resources.force_consume_fe_resources(claim);
                             }
-                            // Also clean up from containers_by_pool index
-                            let pool_key = fc.function_container.pool_key();
-                            if let Some(pool_ids) = self.containers_by_pool.get_mut(&pool_key) {
-                                pool_ids.retain(|id| id != container_id);
-                                if pool_ids.is_empty() {
-                                    self.containers_by_pool.remove(&pool_key);
-                                }
-                            }
-                            // Also clean up from warm_containers_by_pool index
-                            if let Some(warm_ids) = self.warm_containers_by_pool.get_mut(&pool_key)
-                            {
-                                warm_ids.retain(|id| id != container_id);
-                                if warm_ids.is_empty() {
-                                    self.warm_containers_by_pool.remove(&pool_key);
-                                }
-                            }
+                        } else {
+                            dropped_containers.push(container_id.clone());
                         }
                     }
                 }
             }
 
             self.executor_states
-                .insert(executor_id.clone(), new_executor_server_metadata.clone());
+                .insert(executor_id.clone(), Box::new(merged));
         }
+
         for (container_id, new_function_container) in &scheduler_update.containers {
+            // Skip containers that were dropped during the merge — they are
+            // terminated signals from remove_function_containers. Calling
+            // update_container_indices would re-insert them as orphaned
+            // terminated entries that no executor owns and no cleanup path
+            // would ever reach.
+            if dropped_containers.contains(container_id) {
+                continue;
+            }
             self.update_container_indices(container_id, new_function_container);
+        }
+
+        // Clean up dropped containers from all indices
+        for container_id in &dropped_containers {
+            self.remove_container_from_indices(container_id);
         }
 
         for removed_executor_id in &scheduler_update.remove_executors {
             // Clean up containers for this executor before removing it
             if let Some(old_state) = self.executor_states.get(removed_executor_id) {
                 for container_id in old_state.function_container_ids.clone() {
-                    if let Some(fc) = self.function_containers.remove(&container_id) {
-                        // Clean up from containers_by_function_uri
-                        let fn_uri = FunctionURI::from(&fc.function_container);
-                        if let Some(container_ids) =
-                            self.containers_by_function_uri.get_mut(&fn_uri)
-                        {
-                            container_ids.retain(|id| id != &container_id);
-                            if container_ids.is_empty() {
-                                self.containers_by_function_uri.remove(&fn_uri);
-                            }
-                        }
-                        // Clean up from containers_by_pool
-                        let pool_key = fc.function_container.pool_key();
-                        if let Some(pool_ids) = self.containers_by_pool.get_mut(&pool_key) {
-                            pool_ids.retain(|id| id != &container_id);
-                            if pool_ids.is_empty() {
-                                self.containers_by_pool.remove(&pool_key);
-                            }
-                        }
-                        // Clean up from warm_containers_by_pool
-                        if let Some(warm_ids) = self.warm_containers_by_pool.get_mut(&pool_key) {
-                            warm_ids.retain(|id| id != &container_id);
-                            if warm_ids.is_empty() {
-                                self.warm_containers_by_pool.remove(&pool_key);
-                            }
-                        }
-                    }
+                    self.remove_container_from_indices(&container_id);
                 }
             }
+            // Remove executor server metadata (scheduler's view of the
+            // executor's containers) but keep the executor in `self.executors`.
+            // The executor metadata is already tombstoned (via deregister_executor).
+            // If the executor reconnects, upsert_executor refreshes the entry
+            // (clears tombstoned), and the reconciler adopts whatever containers
+            // the executor reports — starting from an empty executor_states.
             let _ = self.executor_states.remove(removed_executor_id);
-            let _ = self.executors.remove(removed_executor_id);
+        }
+    }
+
+    /// Remove a container from all indices: function_containers,
+    /// containers_by_function_uri, containers_by_pool, and
+    /// warm_containers_by_pool.
+    fn remove_container_from_indices(&mut self, container_id: &ContainerId) {
+        if let Some(fc) = self.function_containers.remove(container_id) {
+            let fn_uri = FunctionURI::from(&fc.function_container);
+            if let Some(container_ids) = self.containers_by_function_uri.get_mut(&fn_uri) {
+                container_ids.retain(|id| id != container_id);
+                if container_ids.is_empty() {
+                    self.containers_by_function_uri.remove(&fn_uri);
+                }
+            }
+            let pool_key = fc.function_container.pool_key();
+            if let Some(pool_ids) = self.containers_by_pool.get_mut(&pool_key) {
+                pool_ids.retain(|id| id != container_id);
+                if pool_ids.is_empty() {
+                    self.containers_by_pool.remove(&pool_key);
+                }
+            }
+            if let Some(warm_ids) = self.warm_containers_by_pool.get_mut(&pool_key) {
+                warm_ids.retain(|id| id != container_id);
+                if warm_ids.is_empty() {
+                    self.warm_containers_by_pool.remove(&pool_key);
+                }
+            }
         }
     }
 

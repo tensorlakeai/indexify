@@ -556,6 +556,25 @@ impl ContainerReconciler {
         }
 
         for fc in function_containers {
+            // Mark container as terminated in the update so the scheduler's
+            // executor state merge logic knows to drop it rather than preserve
+            // it from the old state. Use the container's actual termination
+            // reason if available.
+            let desired_state = match &fc.state {
+                ContainerState::Terminated { .. } => fc.state.clone(),
+                _ => ContainerState::Terminated {
+                    reason: FunctionExecutorTerminationReason::DesiredStateRemoved,
+                    failed_alloc_ids: vec![],
+                },
+            };
+            let terminated_meta = ContainerServerMetadata::new(
+                executor_server_metadata.executor_id.clone(),
+                fc.clone(),
+                desired_state,
+            );
+            update
+                .containers
+                .insert(fc.id.clone(), Box::new(terminated_meta));
             executor_server_metadata.remove_container(&fc)?;
         }
         update.updated_executor_states.insert(

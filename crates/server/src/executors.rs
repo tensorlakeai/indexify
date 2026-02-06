@@ -1121,17 +1121,28 @@ mod tests {
             executor_manager.process_lapsed_executors().await?;
             test_srv.process_all_state_changes().await?;
 
-            // Ensure that no executor has been removed
-            let executors = indexify_state
-                .container_scheduler
-                .read()
-                .await
-                .executors
-                .clone();
+            let cs = indexify_state.container_scheduler.read().await;
+            // Executor metadata is preserved (tombstoned) so resources remain
+            // visible for adoption when the executor reconnects.
             assert_eq!(
-                2,
-                executors.len(),
-                "Expected 2 executors, but found: {executors:?}"
+                3,
+                cs.executors.len(),
+                "Expected 3 executors (1 tombstoned), but found: {:?}",
+                cs.executors
+            );
+            assert!(
+                cs.executors
+                    .get(&ExecutorId::new("test-executor-3".to_string()))
+                    .unwrap()
+                    .tombstoned,
+                "executor-3 should be tombstoned"
+            );
+            // Server metadata should be removed — scheduler has no
+            // containers or resource claims for this executor.
+            assert!(
+                !cs.executor_states
+                    .contains_key(&ExecutorId::new("test-executor-3".to_string())),
+                "executor-3 server metadata should be removed"
             );
         }
 
@@ -1148,17 +1159,22 @@ mod tests {
             test_srv.process_all_state_changes().await?;
         }
 
-        // Ensure that the executor has been removed
+        // All executors tombstoned, server metadata removed
         {
-            let executors = indexify_state
-                .container_scheduler
-                .read()
-                .await
-                .executors
-                .clone();
+            let cs = indexify_state.container_scheduler.read().await;
+            assert_eq!(
+                3,
+                cs.executors.len(),
+                "Expected 3 tombstoned executors, but found: {:?}",
+                cs.executors
+            );
             assert!(
-                executors.is_empty(),
-                "Expected no executors, but found: {executors:?}"
+                cs.executors.values().all(|e| e.tombstoned),
+                "All executors should be tombstoned"
+            );
+            assert!(
+                cs.executor_states.is_empty(),
+                "All executor server metadata should be removed"
             );
         }
 

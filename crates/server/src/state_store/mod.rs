@@ -309,7 +309,7 @@ impl IndexifyState {
                 .write()
                 .await
                 .update(&request.payload)
-                .map_err(|e| anyhow!("error updating container scheduler: {e:?}"))?
+                .map_err(|e| anyhow!("error updating container scheduler: {e:?}"))?;
         }
 
         if let RequestPayload::SchedulerUpdate((request, _)) = &request.payload {

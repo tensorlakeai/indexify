@@ -4,6 +4,7 @@ use tracing::{info, warn};
 use crate::{
     data_model::{
         ContainerPoolKey,
+        ContainerState,
         Sandbox,
         SandboxFailureReason,
         SandboxKey,
@@ -142,8 +143,13 @@ impl SandboxProcessor {
         // Try to create a container for the sandbox using consolidated method
         match container_scheduler.create_container_for_sandbox(sandbox) {
             Ok(Some(container_update)) => {
-                // Check if a container was actually created (has function_containers)
-                if let Some(fc_metadata) = container_update.containers.values().next() {
+                // Find the newly placed container, skipping any vacuum-marked
+                // containers that have Terminated desired state.
+                if let Some(fc_metadata) = container_update
+                    .containers
+                    .values()
+                    .find(|c| !matches!(c.desired_state, ContainerState::Terminated { .. }))
+                {
                     // Container created successfully, update sandbox status to Running
                     let mut updated_sandbox = sandbox.clone();
                     updated_sandbox.executor_id = Some(fc_metadata.executor_id.clone());
