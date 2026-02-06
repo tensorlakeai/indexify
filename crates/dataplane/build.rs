@@ -37,8 +37,17 @@ fn main() {
     let host_is_macos = host_target.contains("apple") || host_target.contains("darwin");
     let need_linux_binary = run_docker_tests && host_is_macos;
 
+    // The daemon binary is bind-mounted into arbitrary containers, so on Linux
+    // it must be statically linked (musl) to avoid glibc/dynamic-linker mismatches.
+    let host_is_linux = host_target.contains("linux");
+    let musl_target = if host_target.contains("aarch64") {
+        "aarch64-unknown-linux-musl"
+    } else {
+        "x86_64-unknown-linux-musl"
+    };
+
     let (target, daemon_binary_path) = if need_linux_binary {
-        // Always build for x86_64-unknown-linux-musl for Docker compatibility
+        // macOS host with RUN_DOCKER_TESTS=1: cross-compile via Docker
         let linux_target = "x86_64-unknown-linux-musl";
 
         match build_with_docker(&target_dir, linux_target) {
@@ -52,6 +61,9 @@ fn main() {
                 build_for_host(&target_dir, &host_target)
             }
         }
+    } else if host_is_linux {
+        // Linux host: build with musl for a static binary that works in any container
+        build_for_host(&target_dir, musl_target)
     } else {
         build_for_host(&target_dir, &host_target)
     };

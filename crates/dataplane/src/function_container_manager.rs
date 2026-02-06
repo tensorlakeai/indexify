@@ -201,11 +201,63 @@ impl ImageResolver for DefaultImageResolver {
     }
 }
 
+/// Container storage with a secondary index for O(1) sandbox_id lookups.
+///
+/// The primary map is keyed by container_id (nanoid). Pool containers have a
+/// container_id that differs from the sandbox_id they serve, so a secondary
+/// index maps sandbox_id -> container_id for fast proxy routing.
+struct ContainerStore {
+    map: HashMap<String, ManagedContainer>,
+    /// sandbox_id -> container_id for containers that have been claimed by a
+    /// sandbox.
+    sandbox_index: HashMap<String, String>,
+}
+
+impl ContainerStore {
+    fn new() -> Self {
+        Self {
+            map: HashMap::new(),
+            sandbox_index: HashMap::new(),
+        }
+    }
+
+    /// Look up a container by sandbox_id (O(1) via secondary index).
+    fn get_by_sandbox_id(&self, sandbox_id: &str) -> Option<&ManagedContainer> {
+        self.sandbox_index
+            .get(sandbox_id)
+            .and_then(|cid| self.map.get(cid))
+    }
+
+    /// Update the sandbox index when a container gains a sandbox_id.
+    fn index_sandbox(&mut self, sandbox_id: String, container_id: String) {
+        self.sandbox_index.insert(sandbox_id, container_id);
+    }
+
+    /// Remove a sandbox_id from the index.
+    fn unindex_sandbox(&mut self, sandbox_id: &str) {
+        self.sandbox_index.remove(sandbox_id);
+    }
+}
+
+impl std::ops::Deref for ContainerStore {
+    type Target = HashMap<String, ManagedContainer>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.map
+    }
+}
+
+impl std::ops::DerefMut for ContainerStore {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.map
+    }
+}
+
 /// Manages function executor containers.
 pub struct FunctionContainerManager {
     driver: Arc<dyn ProcessDriver>,
     image_resolver: Arc<dyn ImageResolver>,
-    containers: Arc<RwLock<HashMap<String, ManagedContainer>>>,
+    containers: Arc<RwLock<ContainerStore>>,
     metrics: Arc<DataplaneMetrics>,
     state_file: Arc<StateFile>,
     executor_id: String,
@@ -222,7 +274,7 @@ impl FunctionContainerManager {
         Self {
             driver,
             image_resolver,
-            containers: Arc::new(RwLock::new(HashMap::new())),
+            containers: Arc::new(RwLock::new(ContainerStore::new())),
             metrics,
             state_file,
             executor_id,
@@ -278,11 +330,12 @@ impl FunctionContainerManager {
                                 "Recovered container from state file"
                             );
 
-                            let sandbox_claimed_at = description
+                            let sandbox_id_for_index = description
                                 .sandbox_metadata
                                 .as_ref()
-                                .and_then(|m| m.sandbox_id.as_ref())
-                                .map(|_| Instant::now());
+                                .and_then(|m| m.sandbox_id.clone());
+                            let sandbox_claimed_at =
+                                sandbox_id_for_index.as_ref().map(|_| Instant::now());
                             let container = ManagedContainer {
                                 description,
                                 state: ContainerState::Running {
@@ -296,6 +349,9 @@ impl FunctionContainerManager {
 
                             let mut containers = self.containers.write().await;
                             containers.insert(entry.container_id.clone(), container);
+                            if let Some(sid) = sandbox_id_for_index {
+                                containers.index_sandbox(sid, entry.container_id.clone());
+                            }
                             recovered += 1;
                         }
                         Err(e) => {
@@ -463,7 +519,16 @@ impl FunctionContainerManager {
                                 "Failed to remove container from state file"
                             );
                         }
-                        containers.remove(&id);
+                        if let Some(removed) = containers.remove(&id) {
+                            if let Some(sid) = removed
+                                .description
+                                .sandbox_metadata
+                                .as_ref()
+                                .and_then(|m| m.sandbox_id.as_ref())
+                            {
+                                containers.unindex_sandbox(sid);
+                            }
+                        }
                     }
                     ContainerState::Stopping { .. } => {
                         // Already stopping, let it continue
@@ -520,6 +585,13 @@ impl FunctionContainerManager {
                     sandbox_claimed_at,
                 };
                 containers.insert(id.clone(), container);
+                if let Some(sid) = desc
+                    .sandbox_metadata
+                    .as_ref()
+                    .and_then(|m| m.sandbox_id.clone())
+                {
+                    containers.index_sandbox(sid, id.clone());
+                }
 
                 // Spawn container creation with daemon integration
                 let driver = self.driver.clone();
@@ -627,31 +699,41 @@ impl FunctionContainerManager {
                         }
                     }
                 }.instrument(tracing::info_span!("container_lifecycle", %executor_id)));
-            } else if let Some(container) = containers.get_mut(&id) {
+            } else {
                 // Container already exists — check if sandbox_id changed (warm → claimed)
-                let old_sandbox_id = container
-                    .description
-                    .sandbox_metadata
-                    .as_ref()
-                    .and_then(|m| m.sandbox_id.as_ref());
+                let old_sandbox_id = containers
+                    .get(&id)
+                    .and_then(|c| c.description.sandbox_metadata.as_ref())
+                    .and_then(|m| m.sandbox_id.clone());
                 let new_sandbox_id = desc
                     .sandbox_metadata
                     .as_ref()
-                    .and_then(|m| m.sandbox_id.as_ref());
+                    .and_then(|m| m.sandbox_id.clone());
 
-                if let (None, Some(new_id)) = (old_sandbox_id, new_sandbox_id) {
-                    let info = ContainerInfo::from_description(&desc);
-                    tracing::info!(
-                        container_id = %info.container_id,
-                        sandbox_id = %new_id,
-                        executor_id = %self.executor_id,
-                        "Warm container claimed by sandbox, starting timeout"
-                    );
-                    container.sandbox_claimed_at = Some(Instant::now());
+                if let Some(container) = containers.get_mut(&id) {
+                    if old_sandbox_id.is_none() && new_sandbox_id.is_some() {
+                        let info = ContainerInfo::from_description(&desc);
+                        tracing::info!(
+                            container_id = %info.container_id,
+                            sandbox_id = ?new_sandbox_id,
+                            executor_id = %self.executor_id,
+                            "Warm container claimed by sandbox, starting timeout"
+                        );
+                        container.sandbox_claimed_at = Some(Instant::now());
+                    }
+                    // Always update the description to reflect server's desired state
+                    container.description = desc;
                 }
 
-                // Always update the description to reflect server's desired state
-                container.description = desc;
+                // Update sandbox index
+                if old_sandbox_id != new_sandbox_id {
+                    if let Some(ref old_sid) = old_sandbox_id {
+                        containers.unindex_sandbox(old_sid);
+                    }
+                    if let Some(new_sid) = new_sandbox_id {
+                        containers.index_sandbox(new_sid, id);
+                    }
+                }
             }
         }
 
@@ -1038,7 +1120,14 @@ impl FunctionContainerManager {
     pub async fn lookup_sandbox(&self, sandbox_id: &str, port: u16) -> SandboxLookupResult {
         let containers = self.containers.read().await;
 
-        let Some(container) = containers.get(sandbox_id) else {
+        // Direct lookup by container_id (works for direct sandbox containers
+        // where container_id == sandbox_id), then O(1) index lookup for pool
+        // containers whose container_id is a nanoid different from sandbox_id.
+        let container = containers
+            .get(sandbox_id)
+            .or_else(|| containers.get_by_sandbox_id(sandbox_id));
+
+        let Some(container) = container else {
             return SandboxLookupResult::NotFound;
         };
 
@@ -1963,5 +2052,67 @@ mod tests {
                 "Description should have updated sandbox_id"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn test_lookup_sandbox_pool_container() {
+        // Pool containers have container_id (nanoid) != sandbox_id.
+        // lookup_sandbox must find them via the sandbox_metadata fallback scan.
+        let driver = Arc::new(MockProcessDriver::new());
+        let resolver = Arc::new(DefaultImageResolver::new());
+        let metrics = create_test_metrics();
+        let state_file = create_test_state_file().await;
+        let manager = FunctionContainerManager::new(
+            driver.clone(),
+            resolver,
+            metrics,
+            state_file,
+            "test-executor".to_string(),
+        );
+
+        // Insert a running pool container with a nanoid container_id and a
+        // sandbox_id that differs from the container_id.
+        let mut desc = create_test_fe_description_with_timeout("pool-nanoid-123", 60);
+        desc.sandbox_metadata.as_mut().unwrap().sandbox_id = Some("sandbox-xyz".to_string());
+
+        {
+            let mut containers = manager.containers.write().await;
+            containers.insert(
+                "pool-nanoid-123".to_string(),
+                ManagedContainer {
+                    description: desc,
+                    state: ContainerState::Running {
+                        handle: create_mock_handle("test-container"),
+                        daemon_client: create_mock_daemon_client(),
+                    },
+                    created_at: Instant::now(),
+                    started_at: Some(Instant::now()),
+                    sandbox_claimed_at: Some(Instant::now()),
+                },
+            );
+            containers.index_sandbox("sandbox-xyz".to_string(), "pool-nanoid-123".to_string());
+        }
+
+        // Direct lookup by container_id should work
+        let result = manager.lookup_sandbox("pool-nanoid-123", 8080).await;
+        assert!(
+            matches!(result, SandboxLookupResult::Running(_)),
+            "Direct lookup by container_id should find the container"
+        );
+
+        // Lookup by sandbox_id (different from container_id) should also work
+        // via the secondary index
+        let result = manager.lookup_sandbox("sandbox-xyz", 8080).await;
+        assert!(
+            matches!(result, SandboxLookupResult::Running(_)),
+            "Index lookup by sandbox_id should find the pool container"
+        );
+
+        // Lookup with unknown sandbox_id should return NotFound
+        let result = manager.lookup_sandbox("unknown-id", 8080).await;
+        assert!(
+            matches!(result, SandboxLookupResult::NotFound),
+            "Unknown sandbox_id should return NotFound"
+        );
     }
 }
