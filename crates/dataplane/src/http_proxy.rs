@@ -28,7 +28,7 @@ use pingora::{
     prelude::*,
     protocols::TcpKeepalive,
     services::listening::Service,
-    upstreams::peer::PeerOptions,
+    upstreams::peer::{PeerOptions, ALPN},
 };
 use pingora_core::apps::HttpServerOptions;
 use pingora_http::{RequestHeader, ResponseHeader};
@@ -104,6 +104,8 @@ pub struct ProxyContext {
     request_start: Instant,
     /// Response status code (set after upstream response)
     status_code: Option<u16>,
+    /// Whether this request is gRPC (requires HTTP/2)
+    is_grpc: bool,
 }
 
 /// HTTP proxy with header-based routing to sandbox containers.
@@ -158,6 +160,17 @@ fn get_origin(session: &Session) -> Option<String> {
         .map(|s| s.to_string())
 }
 
+/// Check if request is gRPC based on content-type header.
+fn is_grpc_request(session: &Session) -> bool {
+    session
+        .req_header()
+        .headers
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .map(|ct| ct.starts_with("application/grpc"))
+        .unwrap_or(false)
+}
+
 async fn send_error_response(
     session: &mut Session,
     status: u16,
@@ -191,6 +204,7 @@ impl ProxyHttp for HttpProxy {
             container_addr: None,
             request_start: Instant::now(),
             status_code: None,
+            is_grpc: false,
         }
     }
 
@@ -200,6 +214,9 @@ impl ProxyHttp for HttpProxy {
         let method = &req.method;
         let path = req.uri.path().to_string();
         let origin = get_origin(session);
+
+        // Detect gRPC requests by content-type header
+        ctx.is_grpc = is_grpc_request(session);
 
         // Handle CORS preflight requests (OPTIONS)
         if method == Method::OPTIONS {
@@ -303,14 +320,17 @@ impl ProxyHttp for HttpProxy {
             .as_ref()
             .ok_or_else(|| Error::explain(ErrorType::HTTPStatus(500), "No container address"))?;
 
-        // Connect to container with HTTP/2 preferred, HTTP/1.1 fallback
-        // This supports gRPC (requires HTTP/2), regular HTTP, and WebSockets (HTTP/1.1
-        // upgrade)
         let mut peer = HttpPeer::new(addr, false, String::new());
         peer.options = create_peer_options(&self.upstream_config);
-        // Prefer HTTP/2 (h2c) but allow HTTP/1.1 fallback for WebSockets and legacy
-        // services
-        peer.options.set_http_version(2, 1);
+
+        if ctx.is_grpc {
+            // gRPC requires HTTP/2 - no fallback allowed
+            peer.options.alpn = ALPN::H2;
+        } else {
+            // Regular HTTP: prefer H2, fallback to H1 (for WebSockets, etc.)
+            peer.options.set_http_version(2, 1);
+        }
+
         Ok(Box::new(peer))
     }
 
