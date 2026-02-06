@@ -49,6 +49,7 @@ struct ContainerInfo<'a> {
     app: &'a str,
     fn_name: &'a str,
     app_version: &'a str,
+    sandbox_id: Option<&'a str>,
 }
 
 impl<'a> ContainerInfo<'a> {
@@ -66,6 +67,10 @@ impl<'a> ContainerInfo<'a> {
                 )
             })
             .unwrap_or(("", "", "", ""));
+        let sandbox_id = desc
+            .sandbox_metadata
+            .as_ref()
+            .and_then(|m| m.sandbox_id.as_deref());
 
         Self {
             container_id,
@@ -73,6 +78,7 @@ impl<'a> ContainerInfo<'a> {
             app,
             fn_name,
             app_version,
+            sandbox_id,
         }
     }
 }
@@ -263,10 +269,12 @@ impl FunctionContainerManager {
                                 }
                             };
 
+                            let recovered_info = ContainerInfo::from_description(&description);
                             tracing::info!(
                                 container_id = %entry.container_id,
                                 handle_id = %entry.handle_id,
                                 daemon_addr = %entry.daemon_addr,
+                                sandbox_id = ?recovered_info.sandbox_id,
                                 "Recovered container from state file"
                             );
 
@@ -417,6 +425,7 @@ impl FunctionContainerManager {
                 namespace = %info.namespace,
                 app = %info.app,
                 fn_name = %info.fn_name,
+                sandbox_id = ?info.sandbox_id,
                 timeout_secs = timeout_secs,
                 elapsed_secs = elapsed,
                 "Sandbox container timed out, terminating"
@@ -444,6 +453,7 @@ impl FunctionContainerManager {
                             app = %info.app,
                             fn_name = %info.fn_name,
                             app_version = %info.app_version,
+                            sandbox_id = ?info.sandbox_id,
                             "Removed terminated container from memory"
                         );
                         if let Err(e) = self.state_file.remove(&id).await {
@@ -487,6 +497,7 @@ impl FunctionContainerManager {
                     app = %info.app,
                     fn_name = %info.fn_name,
                     app_version = %info.app_version,
+                    sandbox_id = ?info.sandbox_id,
                     container_type = %container_type,
                     event = "container_creating",
                     "Creating new container"
@@ -541,6 +552,7 @@ impl FunctionContainerManager {
                                     app = %info.app,
                                     fn_name = %info.fn_name,
                                     app_version = %info.app_version,
+                                    sandbox_id = ?info.sandbox_id,
                                     container_id = %handle.id,
                                     http_addr = ?handle.http_addr,
                                     container_type = %container_type,
@@ -597,6 +609,7 @@ impl FunctionContainerManager {
                                     app = %info.app,
                                     fn_name = %info.fn_name,
                                     app_version = %info.app_version,
+                                    sandbox_id = ?info.sandbox_id,
                                     container_type = %container_type,
                                     startup_duration_ms = %startup_duration_ms,
                                     error = %e,
@@ -682,6 +695,7 @@ impl FunctionContainerManager {
                 app = %info.app,
                 fn_name = %info.fn_name,
                 app_version = %info.app_version,
+                sandbox_id = ?info.sandbox_id,
                 container_type = %container_type,
                 event = "container_stopping",
                 "Signaling container to stop via daemon"
@@ -759,6 +773,7 @@ impl FunctionContainerManager {
                         app = %info.app,
                         fn_name = %info.fn_name,
                         app_version = %info.app_version,
+                        sandbox_id = ?info.sandbox_id,
                         container_type = %container_type_owned,
                         run_duration_ms = %run_duration_ms,
                         event = "container_killing",
@@ -781,6 +796,7 @@ impl FunctionContainerManager {
                             app = %info.app,
                             fn_name = %info.fn_name,
                             app_version = %info.app_version,
+                            sandbox_id = ?info.sandbox_id,
                             error = %e,
                             "Failed to kill container"
                         );
@@ -796,6 +812,7 @@ impl FunctionContainerManager {
                         app = %info.app,
                         fn_name = %info.fn_name,
                         app_version = %info.app_version,
+                        sandbox_id = ?info.sandbox_id,
                         container_type = %container_type_owned,
                         run_duration_ms = %run_duration_ms,
                         event = "container_terminated",
@@ -865,6 +882,7 @@ impl FunctionContainerManager {
                 namespace = %info.namespace,
                 app = %info.app,
                 fn_name = %info.fn_name,
+                sandbox_id = ?info.sandbox_id,
                 timeout_secs = timeout_secs,
                 elapsed_secs = elapsed,
                 "Sandbox container timed out, terminating"
@@ -914,6 +932,7 @@ impl FunctionContainerManager {
                                 app = %info.app,
                                 fn_name = %info.fn_name,
                                 app_version = %info.app_version,
+                                sandbox_id = ?info.sandbox_id,
                                 reason = ?reason,
                                 "Container stopped"
                             );
@@ -937,6 +956,7 @@ impl FunctionContainerManager {
                                                     app = %info.app,
                                                     fn_name = %info.fn_name,
                                                     app_version = %info.app_version,
+                                                    sandbox_id = ?info.sandbox_id,
                                                     "Daemon is unhealthy, terminating container"
                                                 );
                                                 // Clean up network rules before killing
@@ -973,6 +993,7 @@ impl FunctionContainerManager {
                                     app = %info.app,
                                     fn_name = %info.fn_name,
                                     app_version = %info.app_version,
+                                    sandbox_id = ?info.sandbox_id,
                                     exit_code = ?exit_status.as_ref().and_then(|s| s.exit_code),
                                     oom_killed = ?exit_status.as_ref().map(|s| s.oom_killed),
                                     reason = ?reason,
@@ -987,6 +1008,7 @@ impl FunctionContainerManager {
                                     app = %info.app,
                                     fn_name = %info.fn_name,
                                     app_version = %info.app_version,
+                                    sandbox_id = ?info.sandbox_id,
                                     error = %e,
                                     "Failed to check container status"
                                 );

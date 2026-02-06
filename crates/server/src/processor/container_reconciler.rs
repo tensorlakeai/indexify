@@ -135,6 +135,7 @@ impl ContainerReconciler {
                 info!(
                     executor_id = %executor.id,
                     container_id = %fe.id,
+                    sandbox_id = ?fe.sandbox_id,
                     pool_exists,
                     sandbox_valid,
                     app_fn_exists,
@@ -163,6 +164,7 @@ impl ContainerReconciler {
             info!(
                 executor_id = %executor.id,
                 container_id = %fe.id,
+                sandbox_id = ?fe.sandbox_id,
                 "adopting untracked container from executor"
             );
 
@@ -508,6 +510,7 @@ impl ContainerReconciler {
                 app = fe.application_name,
                 fn_name = fe.function_name,
                 fn_executor_id = fe.id.get(),
+                sandbox_id = ?fe.sandbox_id,
                 fe_state = ?fe.state,
                 "removing function container from executor",
             );

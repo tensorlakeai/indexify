@@ -599,6 +599,7 @@ impl ContainerScheduler {
                 info!(
                     executor_id = %fe.executor_id,
                     container_id = %fe.function_container.id,
+                    sandbox_id = ?fe.function_container.sandbox_id,
                     "vacuum: marking container for termination"
                 );
                 // Don't call remove_container here - that would free resources immediately.
@@ -740,6 +741,7 @@ impl ContainerScheduler {
         info!(
             executor_id = executor_id.get(),
             container_id = function_container.id.get(),
+            sandbox_id = ?function_container.sandbox_id,
             container_type = ?container_type,
             "registering container"
         );
