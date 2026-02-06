@@ -107,6 +107,10 @@ pub struct ProxyContext {
     status_code: Option<u16>,
     /// Whether this request is gRPC (requires HTTP/2)
     is_grpc: bool,
+    /// Whether upstream response was a gRPC trailers-only response
+    /// (grpc-status in initial headers, meaning the stream will close immediately).
+    /// In this case, an H2 RST_STREAM(NO_ERROR) is expected and not a proxy error.
+    grpc_trailers_only: bool,
 }
 
 /// HTTP proxy with header-based routing to sandbox containers.
@@ -206,6 +210,7 @@ impl ProxyHttp for HttpProxy {
             request_start: Instant::now(),
             status_code: None,
             is_grpc: false,
+            grpc_trailers_only: false,
         }
     }
 
@@ -429,6 +434,31 @@ impl ProxyHttp for HttpProxy {
             );
         });
 
+        // Detect gRPC trailers-only responses: when grpc-status appears in the
+        // initial response headers (not trailing headers), the server is signaling
+        // an immediate result with no body. The H2 stream will be closed right after
+        // these headers, which Pingora sees as a ReadError. We must not treat that
+        // as a proxy failure or send a JSON error body (which would corrupt the
+        // gRPC framing for the downstream client).
+        if ctx.is_grpc && upstream_response.headers.contains_key("grpc-status") {
+            ctx.grpc_trailers_only = true;
+            ctx.span.in_scope(|| {
+                debug!(
+                    grpc_status = upstream_response
+                        .headers
+                        .get("grpc-status")
+                        .and_then(|v| v.to_str().ok())
+                        .unwrap_or("?"),
+                    grpc_message = upstream_response
+                        .headers
+                        .get("grpc-message")
+                        .and_then(|v| v.to_str().ok())
+                        .unwrap_or(""),
+                    "Detected gRPC trailers-only response"
+                );
+            });
+        }
+
         add_cors_headers(upstream_response, get_origin(session).as_deref());
         Ok(())
     }
@@ -505,6 +535,29 @@ impl ProxyHttp for HttpProxy {
     where
         Self::CTX: Send + Sync,
     {
+        // gRPC trailers-only responses: the upstream already sent grpc-status in the
+        // initial response headers and then closed the H2 stream. Pingora sees this
+        // stream close as a ReadError, but it is completely expected. The downstream
+        // client already has all the information it needs from the headers.
+        // Critically, we must NOT send a JSON error body here — the response headers
+        // (with content-type: application/grpc) have already been forwarded downstream,
+        // so any body we write would be interpreted as a gRPC length-prefixed frame,
+        // producing a confusing "message larger than max" error on the client.
+        if ctx.grpc_trailers_only {
+            ctx.span.in_scope(|| {
+                debug!(
+                    error = %e,
+                    "gRPC trailers-only response completed (stream close is expected)"
+                );
+            });
+
+            session.set_keepalive(None);
+            return FailToProxy {
+                error_code: 200,
+                can_reuse_downstream: false,
+            };
+        }
+
         let error_type = e.etype();
 
         // Collect detailed error information for logging
@@ -570,12 +623,14 @@ impl ProxyHttp for HttpProxy {
         // Disable keepalive to ensure clean connection close
         session.set_keepalive(None);
 
-        ctx.status_code = Some(status);
-
-        let origin = get_origin(session);
-
-        // Best effort - if this fails, Pingora will still return the status code
-        let _ = send_error_response(session, status, message, code, origin.as_deref()).await;
+        // Only send error response if upstream response headers haven't been sent yet.
+        // If they have (status_code was already set in upstream_response_filter), writing
+        // new headers/body would corrupt the in-flight response.
+        if ctx.status_code.is_none() {
+            ctx.status_code = Some(status);
+            let origin = get_origin(session);
+            let _ = send_error_response(session, status, message, code, origin.as_deref()).await;
+        }
 
         FailToProxy {
             error_code: status,
