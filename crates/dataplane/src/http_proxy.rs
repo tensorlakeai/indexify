@@ -551,10 +551,17 @@ impl ProxyHttp for HttpProxy {
                 );
             });
 
-            session.set_keepalive(None);
+            // Write an empty body with end_of_stream=true to properly close the
+            // downstream H2 stream. Without this, Pingora sends RST_STREAM(CANCEL)
+            // which causes the client to discard the grpc-status/grpc-message that
+            // were already delivered in the response headers.
+            let _ = session
+                .write_response_body(Some(bytes::Bytes::new()), true)
+                .await;
+
             return FailToProxy {
                 error_code: 200,
-                can_reuse_downstream: false,
+                can_reuse_downstream: true,
             };
         }
 
