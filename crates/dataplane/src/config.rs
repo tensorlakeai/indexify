@@ -278,6 +278,9 @@ pub struct DataplaneConfig {
     /// Empty list means accept all functions (default).
     #[serde(default)]
     pub function_allowlist: Vec<String>,
+    /// Labels to advertise to the server.
+    #[serde(default)]
+    pub labels: std::collections::HashMap<String, String>,
 }
 
 /// Configuration for function executor mode (subprocess-based).
@@ -328,6 +331,7 @@ impl Default for DataplaneConfig {
             daemon_binary_extract_path: None,
             function_executor: FunctionExecutorConfig::default(),
             function_allowlist: Vec::new(),
+            labels: std::collections::HashMap::new(),
         }
     }
 }

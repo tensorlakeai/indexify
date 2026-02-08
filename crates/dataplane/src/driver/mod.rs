@@ -4,7 +4,7 @@ mod fork_exec;
 use anyhow::Result;
 use async_trait::async_trait;
 pub use docker::DockerDriver;
-pub use fork_exec::{ForkExecDriver, allocate_ephemeral_port};
+pub use fork_exec::ForkExecDriver;
 
 /// Container port for the daemon gRPC server (internal API).
 pub const DAEMON_GRPC_PORT: u16 = 9500;

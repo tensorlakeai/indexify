@@ -3,7 +3,10 @@
 //! Downloads and caches application code blobs from the blob store,
 //! using atomic file operations for thread-safe shared access.
 
-use std::{path::PathBuf, sync::Arc};
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use anyhow::{Context, Result};
 use bytes::Bytes;
@@ -121,7 +124,7 @@ impl CodeCache {
 }
 
 /// Write data to cache path atomically using a temp file and rename.
-async fn write_cache_atomically(cache_dir: &PathBuf, target: &PathBuf, data: &[u8]) -> Result<()> {
+async fn write_cache_atomically(cache_dir: &Path, target: &Path, data: &[u8]) -> Result<()> {
     // Ensure parent directories exist
     if let Some(parent) = target.parent() {
         tokio::fs::create_dir_all(parent)

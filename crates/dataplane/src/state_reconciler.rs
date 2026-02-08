@@ -17,13 +17,13 @@ use proto_api::executor_api_pb::{
 use tokio::sync::{Notify, mpsc};
 use tokio_util::sync::CancellationToken;
 use tonic::transport::Channel;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 use crate::{
     blob_ops::BlobStore,
     code_cache::CodeCache,
     driver::ProcessDriver,
-    function_container_manager::FunctionContainerManager,
+    function_container_manager::{FunctionContainerManager, ImageResolver},
     function_executor::{
         controller::{FEControllerHandle, FunctionExecutorController},
         events::{CompletedAllocation, FECommand},
@@ -39,6 +39,8 @@ pub struct StateReconciler {
     container_manager: Arc<FunctionContainerManager>,
     /// Process driver for spawning FE subprocesses.
     driver: Arc<dyn ProcessDriver>,
+    /// Image resolver for resolving container images.
+    image_resolver: Arc<dyn ImageResolver>,
     /// Channel for collecting allocation results from all FE controllers.
     result_tx: mpsc::UnboundedSender<CompletedAllocation>,
     /// Cancellation token for all controllers.
@@ -61,9 +63,11 @@ pub struct StateReconciler {
 }
 
 impl StateReconciler {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         container_manager: Arc<FunctionContainerManager>,
         driver: Arc<dyn ProcessDriver>,
+        image_resolver: Arc<dyn ImageResolver>,
         result_tx: mpsc::UnboundedSender<CompletedAllocation>,
         cancel_token: CancellationToken,
         server_channel: Channel,
@@ -77,6 +81,7 @@ impl StateReconciler {
             fe_controllers: HashMap::new(),
             container_manager,
             driver,
+            image_resolver,
             result_tx,
             cancel_token,
             server_channel,
@@ -145,6 +150,7 @@ impl StateReconciler {
                 let handle = FunctionExecutorController::spawn(
                     description.clone(),
                     self.driver.clone(),
+                    self.image_resolver.clone(),
                     self.result_tx.clone(),
                     self.cancel_token.child_token(),
                     self.server_channel.clone(),
@@ -168,15 +174,6 @@ impl StateReconciler {
     pub fn add_allocation(&self, fe_id: &str, allocation: proto_api::executor_api_pb::Allocation) {
         if let Some(handle) = self.fe_controllers.get(fe_id) {
             let _ = handle.command_tx.send(FECommand::AddAllocation(allocation));
-        }
-    }
-
-    /// Remove an allocation from a FE controller.
-    pub fn remove_allocation(&self, fe_id: &str, allocation_id: &str) {
-        if let Some(handle) = self.fe_controllers.get(fe_id) {
-            let _ = handle
-                .command_tx
-                .send(FECommand::RemoveAllocation(allocation_id.to_string()));
         }
     }
 
@@ -208,7 +205,7 @@ impl StateReconciler {
     pub async fn get_all_fe_states(&self) -> Vec<FunctionExecutorState> {
         let mut states = self.container_manager.get_states().await;
 
-        for (_, handle) in &self.fe_controllers {
+        for handle in self.fe_controllers.values() {
             let state = handle.state_rx.borrow().clone();
             states.push(state);
         }

@@ -40,6 +40,12 @@ struct WatcherRegistryInner {
     watchers: HashMap<String, WatcherEntry>,
 }
 
+impl Default for WatcherRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl WatcherRegistry {
     pub fn new() -> Self {
         Self {
@@ -95,34 +101,6 @@ impl WatcherRegistry {
         rx
     }
 
-    /// Unregister a function call watcher.
-    ///
-    /// Removes all senders for this watch key that are closed (receiver
-    /// dropped). If no senders remain, the watch entry is removed entirely.
-    pub async fn unregister_watcher(
-        &self,
-        namespace: &str,
-        request_id: &str,
-        function_call_id: &str,
-    ) {
-        let key = watch_key(namespace, request_id, function_call_id);
-        let mut inner = self.inner.lock().await;
-
-        if let Some(entry) = inner.watchers.get_mut(&key) {
-            // Remove closed senders
-            entry.result_senders.retain(|tx| !tx.is_closed());
-            if entry.result_senders.is_empty() {
-                inner.watchers.remove(&key);
-                debug!(
-                    namespace = %namespace,
-                    request_id = %request_id,
-                    function_call_id = %function_call_id,
-                    "Unregistered function call watcher (no more listeners)"
-                );
-            }
-        }
-    }
-
     /// Route function call results to registered watchers.
     ///
     /// Filters non-terminal results and results without return values
@@ -155,7 +133,7 @@ impl WatcherRegistry {
                     if tx.is_closed() {
                         return false;
                     }
-                    if let Err(e) = tx.send(result.clone()) {
+                    if tx.send(result.clone()).is_err() {
                         warn!(
                             function_call_id = %function_call_id,
                             "Failed to deliver function call result to watcher"

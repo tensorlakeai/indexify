@@ -8,7 +8,6 @@ use std::{
 };
 
 use anyhow::{Context, Result};
-use indexify_dataplane::validation;
 use prost::Message;
 use proto_api::executor_api_pb::{
     DesiredExecutorState,
@@ -31,13 +30,14 @@ use crate::{
     code_cache::CodeCache,
     config::{DataplaneConfig, DriverConfig},
     driver::{DockerDriver, ForkExecDriver, ProcessDriver},
-    function_container_manager::{DefaultImageResolver, FunctionContainerManager},
+    function_container_manager::{DefaultImageResolver, FunctionContainerManager, ImageResolver},
     http_proxy::run_http_proxy,
     metrics::DataplaneMetrics,
     resources::{probe_free_resources, probe_host_resources},
     state_file::StateFile,
     state_reconciler::StateReconciler,
     state_reporter::StateReporter,
+    validation,
 };
 
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
@@ -73,7 +73,7 @@ impl Service {
             },
         };
 
-        let image_resolver = Arc::new(DefaultImageResolver::new());
+        let image_resolver: Arc<dyn ImageResolver> = Arc::new(DefaultImageResolver::new());
         let metrics = Arc::new(DataplaneMetrics::new());
         let state_file = Arc::new(
             StateFile::new(&config.state_file)
@@ -82,7 +82,7 @@ impl Service {
         );
         let container_manager = Arc::new(FunctionContainerManager::new(
             driver.clone(),
-            image_resolver,
+            image_resolver.clone(),
             metrics.clone(),
             state_file,
             config.executor_id.clone(),
@@ -121,6 +121,7 @@ impl Service {
         let state_reconciler = Arc::new(Mutex::new(StateReconciler::new(
             container_manager.clone(),
             driver.clone(),
+            image_resolver,
             result_tx,
             cancel_token,
             channel.clone(),
@@ -194,6 +195,7 @@ impl Service {
             let metrics = self.metrics.clone();
             let http_proxy_address = self.config.http_proxy.get_advertise_address();
             let server_addr = self.config.server_addr.clone();
+            let labels = self.config.labels.clone();
             async move {
                 run_heartbeat_loop(
                     channel,
@@ -208,6 +210,7 @@ impl Service {
                     metrics,
                     http_proxy_address,
                     server_addr,
+                    labels,
                 )
                 .await
             }
@@ -352,6 +355,7 @@ async fn run_heartbeat_loop(
     metrics: Arc<DataplaneMetrics>,
     proxy_address: String,
     server_addr: String,
+    labels: std::collections::HashMap<String, String>,
 ) {
     let mut client = ExecutorApiClient::new(channel);
     let mut retry_interval = HEARTBEAT_MIN_RETRY_INTERVAL;
@@ -384,6 +388,7 @@ async fn run_heartbeat_loop(
             function_executor_states,
             function_call_watches,
             proxy_address: Some(proxy_address.clone()),
+            labels: labels.clone(),
             ..Default::default()
         };
 

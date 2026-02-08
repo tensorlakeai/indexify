@@ -68,6 +68,7 @@ const SERVER_RPC_MAX_DELAY: Duration = Duration::from_secs(15);
 /// This is the "Running" phase — it occupies a concurrency slot. Preparation
 /// (presigning blobs) and finalization (completing uploads) are handled by the
 /// controller outside the slot.
+#[allow(clippy::too_many_arguments)]
 pub async fn execute_allocation(
     mut client: FunctionExecutorGrpcClient,
     allocation: ServerAllocation,
@@ -129,6 +130,7 @@ pub async fn execute_allocation(
     let mut pending_state_write_ops: HashMap<String, StateWriteOpInfo> = HashMap::new();
     let mut output_blob_handles: Vec<MultipartUploadHandle> = Vec::new();
     let mut deadline = Instant::now() + timeout;
+    #[allow(unused_assignments)] // Set to None here, assigned in the loop, read after the loop
     let mut final_result: Option<function_executor_pb::AllocationResult> = None;
     let mut watcher_tasks = WatcherTaskGuard {
         handles: Vec::new(),
@@ -581,7 +583,6 @@ pub async fn execute_allocation(
                 convert_fe_result_to_server(&allocation, fe_result, execution_duration_ms);
             AllocationOutcome::Completed {
                 result: server_result,
-                execution_duration_ms,
                 fe_result: final_result,
                 output_blob_handles,
             }
@@ -677,6 +678,30 @@ fn convert_fe_result_to_server(
         .and_then(|b| b.chunks.first())
         .and_then(|c| c.uri.clone());
 
+    // Get the request error blob URI from the FE result
+    let request_error_blob_uri = fe_result
+        .uploaded_request_error_blob
+        .as_ref()
+        .and_then(|b| b.chunks.first())
+        .and_then(|c| c.uri.clone());
+
+    // Convert request_error (SerializedObjectInsideBLOB → DataPayload)
+    let request_error = fe_result.request_error_output.as_ref().map(|so| {
+        let manifest = so.manifest.as_ref();
+        executor_api_pb::DataPayload {
+            uri: request_error_blob_uri,
+            encoding: manifest.and_then(|m| m.encoding),
+            encoding_version: manifest.and_then(|m| m.encoding_version),
+            content_type: manifest.and_then(|m| m.content_type.clone()),
+            metadata_size: manifest.and_then(|m| m.metadata_size),
+            offset: so.offset,
+            size: manifest.and_then(|m| m.size),
+            sha256_hash: manifest.and_then(|m| m.sha256_hash.clone()),
+            source_function_call_id: manifest.and_then(|m| m.source_function_call_id.clone()),
+            id: None,
+        }
+    });
+
     // Convert return value (value or execution plan updates)
     let return_value = match &fe_result.outputs {
         Some(function_executor_pb::allocation_result::Outputs::Value(so)) => {
@@ -714,7 +739,7 @@ fn convert_fe_result_to_server(
         outcome_code: Some(outcome_code.into()),
         failure_reason: failure_reason.map(|r| r.into()),
         return_value,
-        request_error: None, // TODO: Convert from fe_result.request_error_output
+        request_error,
         execution_duration_ms: Some(execution_duration_ms),
     }
 }
@@ -778,7 +803,7 @@ fn convert_execution_plan_updates(
     executor_api_pb::ExecutionPlanUpdates {
         updates,
         root_function_call_id: fe_updates.root_function_call_id.clone(),
-        start_at: fe_updates.start_at.clone(),
+        start_at: fe_updates.start_at,
     }
 }
 
@@ -1226,16 +1251,14 @@ fn set_state_op_result_status(update: &mut AllocationUpdate, code: i32) {
 fn set_state_op_read_blob(update: &mut AllocationUpdate, blob: function_executor_pb::Blob) {
     if let Some(function_executor_pb::allocation_update::Update::RequestStateOperationResult(
         ref mut result,
-    )) = update.update
-    {
-        if let Some(
+    )) = update.update &&
+        let Some(
             function_executor_pb::allocation_request_state_operation_result::Result::PrepareRead(
                 ref mut read_result,
             ),
         ) = result.result
-        {
-            read_result.blob = Some(blob);
-        }
+    {
+        read_result.blob = Some(blob);
     }
 }
 
@@ -1243,16 +1266,14 @@ fn set_state_op_read_blob(update: &mut AllocationUpdate, blob: function_executor
 fn set_state_op_write_blob(update: &mut AllocationUpdate, blob: function_executor_pb::Blob) {
     if let Some(function_executor_pb::allocation_update::Update::RequestStateOperationResult(
         ref mut result,
-    )) = update.update
-    {
-        if let Some(
+    )) = update.update &&
+        let Some(
             function_executor_pb::allocation_request_state_operation_result::Result::PrepareWrite(
                 ref mut write_result,
             ),
         ) = result.result
-        {
-            write_result.blob = Some(blob);
-        }
+    {
+        write_result.blob = Some(blob);
     }
 }
 

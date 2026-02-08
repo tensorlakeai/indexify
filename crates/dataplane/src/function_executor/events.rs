@@ -6,13 +6,11 @@ use proto_api::executor_api_pb::{
     FunctionExecutorTerminationReason,
 };
 
-use super::fe_client::FunctionExecutorGrpcClient;
 use crate::blob_ops::MultipartUploadHandle;
 
 /// Events from background tasks → FEController event loop.
+#[allow(clippy::large_enum_variant)]
 pub enum FEEvent {
-    /// FE subprocess was created and client is connected (or creation failed).
-    FunctionExecutorCreated(anyhow::Result<FunctionExecutorGrpcClient>),
     /// FE subprocess terminated (health check failure, process died, etc.).
     FunctionExecutorTerminated {
         fe_id: String,
@@ -38,19 +36,16 @@ pub enum FEEvent {
 }
 
 /// Commands from StateReconciler → FEController.
+#[allow(clippy::large_enum_variant)]
 pub enum FECommand {
     /// Add a new allocation to this FE.
     AddAllocation(ServerAllocation),
-    /// Remove an allocation (cancelled by server).
-    RemoveAllocation(String),
     /// Shut down this FE gracefully.
     Shutdown,
 }
 
 /// Prepared allocation ready for execution on the FE.
 pub struct PreparedAllocation {
-    /// The original server allocation.
-    pub allocation: ServerAllocation,
     /// FE-format function inputs (with presigned URLs, blob handles).
     pub inputs: proto_api::function_executor_pb::FunctionInputs,
     /// Handle for the request error blob multipart upload (if created).
@@ -59,11 +54,11 @@ pub struct PreparedAllocation {
 
 /// Outcome of executing an allocation.
 #[derive(Debug)]
+#[allow(clippy::large_enum_variant)]
 pub enum AllocationOutcome {
     /// Allocation completed (success or function error).
     Completed {
         result: ServerAllocationResult,
-        execution_duration_ms: u64,
         /// FE result containing uploaded blob info for finalization.
         fe_result: Option<proto_api::function_executor_pb::AllocationResult>,
         /// Output blob handles accumulated during execution.

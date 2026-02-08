@@ -153,16 +153,6 @@ impl FunctionExecutorGrpcClient {
             .into_inner();
         Ok(response)
     }
-
-    /// Create a mock client for testing (connects to invalid address).
-    #[cfg(test)]
-    pub fn new_for_testing() -> Self {
-        use tonic::transport::Endpoint;
-        let channel = Endpoint::from_static("http://[::1]:1").connect_lazy();
-        Self {
-            client: FunctionExecutorClient::new(channel),
-        }
-    }
 }
 
 #[cfg(test)]

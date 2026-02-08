@@ -17,7 +17,6 @@ mod resources;
 pub mod state_file;
 pub mod state_reconciler;
 pub mod state_reporter;
-pub mod validation;
 
 // Re-export key types for convenience
 pub use daemon_client::DaemonClient;

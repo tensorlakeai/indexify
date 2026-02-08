@@ -4,16 +4,12 @@
 //! download for function executor allocations. Supports both S3 and local
 //! filesystem backends.
 
-use std::{
-    path::{Path, PathBuf},
-    sync::Arc,
-    time::Duration,
-};
+use std::{path::PathBuf, time::Duration};
 
 use anyhow::{Context, Result, anyhow};
 use aws_sdk_s3::{Client as S3Client, presigning::PresigningConfig};
 use bytes::Bytes;
-use tracing::{debug, warn};
+use tracing::debug;
 
 /// Maximum presigned URL expiration (7 days, S3 limit).
 const MAX_PRESIGN_EXPIRATION: Duration = Duration::from_secs(7 * 24 * 60 * 60);
@@ -61,20 +57,6 @@ impl BlobStore {
     /// Create a new S3-backed blob store.
     pub async fn new_s3() -> Result<Self> {
         let config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
-        let client = S3Client::new(&config);
-        Ok(Self {
-            inner: BlobStoreInner::S3 { client },
-        })
-    }
-
-    /// Create a new S3-backed blob store with a custom endpoint (for testing
-    /// with localstack).
-    pub async fn new_s3_with_endpoint(endpoint: &str, region: &str) -> Result<Self> {
-        let config = aws_config::defaults(aws_config::BehaviorVersion::latest())
-            .endpoint_url(endpoint)
-            .region(aws_config::Region::new(region.to_string()))
-            .load()
-            .await;
         let client = S3Client::new(&config);
         Ok(Self {
             inner: BlobStoreInner::S3 { client },

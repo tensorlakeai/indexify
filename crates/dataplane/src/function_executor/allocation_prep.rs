@@ -88,7 +88,6 @@ pub async fn prepare_allocation(
     };
 
     Ok(PreparedAllocation {
-        allocation: allocation.clone(),
         inputs,
         request_error_blob_handle,
     })

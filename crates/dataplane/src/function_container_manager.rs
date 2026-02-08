@@ -169,11 +169,23 @@ impl ManagedContainer {
 
 /// Resolves container images for function executors.
 pub trait ImageResolver: Send + Sync {
-    fn resolve_image(&self, description: &FunctionExecutorDescription) -> anyhow::Result<String>;
+    fn sandbox_image_for_pool(&self, namespace: &str, pool_id: &str) -> anyhow::Result<String>;
+    fn sandbox_image(&self, namespace: &str, sandbox_id: &str) -> anyhow::Result<String>;
+    fn function_image(
+        &self,
+        namespace: &str,
+        app: &str,
+        function: &str,
+        version: &str,
+    ) -> anyhow::Result<String>;
 }
 
-/// Default image resolver that extracts the image from
-/// FunctionExecutorDescription. Returns an error if no image is specified.
+/// Default image resolver that returns errors for all methods.
+///
+/// The calling code in `FunctionContainerManager` first checks
+/// `sandbox_metadata.image` from the server's description (primary source for
+/// sandbox containers), and only falls back to the resolver if not set.
+/// Custom main functions can inject their own `ImageResolver` with real logic.
 pub struct DefaultImageResolver;
 
 impl DefaultImageResolver {
@@ -189,15 +201,24 @@ impl Default for DefaultImageResolver {
 }
 
 impl ImageResolver for DefaultImageResolver {
-    fn resolve_image(&self, description: &FunctionExecutorDescription) -> anyhow::Result<String> {
-        // Use image from sandbox_metadata if provided
-        if let Some(ref sandbox_metadata) = description.sandbox_metadata &&
-            let Some(ref image) = sandbox_metadata.image
-        {
-            return Ok(image.clone());
-        }
-        // No image specified - return error
-        anyhow::bail!("No image specified in sandbox metadata")
+    fn sandbox_image_for_pool(&self, _namespace: &str, _pool_id: &str) -> anyhow::Result<String> {
+        anyhow::bail!(
+            "No image configured — override ImageResolver or set sandbox_metadata.image on the description"
+        )
+    }
+
+    fn sandbox_image(&self, _namespace: &str, _sandbox_id: &str) -> anyhow::Result<String> {
+        anyhow::bail!("No image configured — override ImageResolver")
+    }
+
+    fn function_image(
+        &self,
+        _namespace: &str,
+        _app: &str,
+        _function: &str,
+        _version: &str,
+    ) -> anyhow::Result<String> {
+        anyhow::bail!("No image configured — override ImageResolver")
     }
 }
 
@@ -1160,7 +1181,19 @@ async fn start_container_with_daemon(
     desc: &FunctionExecutorDescription,
 ) -> anyhow::Result<(ProcessHandle, DaemonClient)> {
     let info = ContainerInfo::from_description(desc);
-    let image = image_resolver.resolve_image(desc)?;
+
+    // Prefer image from sandbox_metadata (server-provided)
+    let image = if let Some(ref meta) = desc.sandbox_metadata &&
+        let Some(ref img) = meta.image
+    {
+        img.clone()
+    } else if let Some(ref pool_id) = desc.pool_id {
+        image_resolver.sandbox_image_for_pool(info.namespace, pool_id)?
+    } else if let Some(sid) = info.sandbox_id {
+        image_resolver.sandbox_image(info.namespace, sid)?
+    } else {
+        anyhow::bail!("Cannot determine image: no sandbox_metadata.image, pool_id, or sandbox_id")
+    };
 
     // Extract resource limits from the function executor description
     let resources = desc.resources.as_ref().map(|r| {
@@ -1467,33 +1500,32 @@ mod tests {
     #[test]
     fn test_default_image_resolver_no_image() {
         let resolver = DefaultImageResolver::new();
-        let desc = create_test_fe_description("fe-123");
-        let result = resolver.resolve_image(&desc);
-
+        let result = resolver.sandbox_image_for_pool("ns", "pool-1");
         assert!(result.is_err());
         assert!(
             result
                 .unwrap_err()
                 .to_string()
-                .contains("No image specified")
+                .contains("No image configured")
         );
-    }
 
-    #[test]
-    fn test_image_resolver_with_image() {
-        let resolver = DefaultImageResolver::new();
-        let mut desc = create_test_fe_description("fe-123");
-        desc.sandbox_metadata = Some(SandboxMetadata {
-            image: Some("custom-sandbox:latest".to_string()),
-            timeout_secs: None,
-            entrypoint: vec![],
-            network_policy: None,
-            sandbox_id: None,
-        });
-        let image = resolver.resolve_image(&desc);
+        let result = resolver.sandbox_image("ns", "sb-1");
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("No image configured")
+        );
 
-        assert!(image.is_ok());
-        assert_eq!(image.unwrap(), "custom-sandbox:latest");
+        let result = resolver.function_image("ns", "app", "fn", "v1");
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("No image configured")
+        );
     }
 
     #[test]

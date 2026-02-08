@@ -18,7 +18,7 @@ pub mod container_daemon_pb {
     tonic::include_proto!("container_daemon_pb");
 }
 
-#[allow(non_camel_case_types)]
+#[allow(non_camel_case_types, clippy::large_enum_variant)]
 pub mod function_executor_pb {
     tonic::include_proto!("function_executor_service");
 }

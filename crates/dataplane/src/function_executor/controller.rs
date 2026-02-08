@@ -47,6 +47,7 @@ use crate::{
     blob_ops::BlobStore,
     code_cache::CodeCache,
     driver::{ProcessConfig, ProcessDriver, ProcessHandle, ProcessType},
+    function_container_manager::ImageResolver,
 };
 
 /// Timeout for connecting to the FE after spawning the process.
@@ -58,8 +59,6 @@ pub struct FEControllerHandle {
     pub command_tx: mpsc::UnboundedSender<FECommand>,
     /// Read current FE state for heartbeat reporting.
     pub state_rx: watch::Receiver<FunctionExecutorState>,
-    /// Join handle for the controller task.
-    pub join_handle: tokio::task::JoinHandle<()>,
 }
 
 /// State of an allocation tracked by the controller.
@@ -78,7 +77,6 @@ struct AllocationInfo {
 
 #[derive(Debug, Clone, PartialEq)]
 enum AllocationState {
-    Pending,
     Preparing,
     Runnable,
     Running,
@@ -118,6 +116,8 @@ pub struct FunctionExecutorController {
     // Configuration
     executor_id: String,
     fe_binary_path: String,
+    // Image resolver for resolving container images
+    image_resolver: Arc<dyn ImageResolver>,
     // Watcher registry for function call result routing
     watcher_registry: WatcherRegistry,
     // Token to cancel the health checker when the process is killed
@@ -127,9 +127,11 @@ pub struct FunctionExecutorController {
 impl FunctionExecutorController {
     /// Spawn a new controller as a tokio task. Returns a handle for
     /// communication.
+    #[allow(clippy::too_many_arguments)]
     pub fn spawn(
         description: FunctionExecutorDescription,
         driver: Arc<dyn ProcessDriver>,
+        image_resolver: Arc<dyn ImageResolver>,
         result_tx: mpsc::UnboundedSender<CompletedAllocation>,
         cancel_token: CancellationToken,
         server_channel: Channel,
@@ -174,11 +176,12 @@ impl FunctionExecutorController {
             code_cache,
             executor_id,
             fe_binary_path,
+            image_resolver,
             watcher_registry,
             fe_process_cancel_token: None,
         };
 
-        let join_handle = tokio::spawn(
+        tokio::spawn(
             async move {
                 controller.run().await;
             }
@@ -188,7 +191,6 @@ impl FunctionExecutorController {
         FEControllerHandle {
             command_tx,
             state_rx,
-            join_handle,
         }
     }
 
@@ -265,7 +267,6 @@ impl FunctionExecutorController {
                 Some(cmd) = self.command_rx.recv() => {
                     match cmd {
                         FECommand::AddAllocation(alloc) => self.handle_add_allocation(alloc),
-                        FECommand::RemoveAllocation(id) => self.handle_remove_allocation(&id),
                         FECommand::Shutdown => {
                             self.shutdown().await;
                             break;
@@ -285,18 +286,35 @@ impl FunctionExecutorController {
     /// Start the FE subprocess using the driver.
     async fn start_fe_process(&mut self) -> Result<()> {
         let fe_id = self.description.id.clone().unwrap_or_default();
+        let func_ref = self.description.function.as_ref();
+        let namespace = func_ref.and_then(|f| f.namespace.as_deref()).unwrap_or("");
+        let app = func_ref
+            .and_then(|f| f.application_name.as_deref())
+            .unwrap_or("");
+        let function = func_ref
+            .and_then(|f| f.function_name.as_deref())
+            .unwrap_or("");
+        let version = func_ref
+            .and_then(|f| f.application_version.as_deref())
+            .unwrap_or("");
+
+        // Resolve image (used by Docker driver, ignored by ForkExec)
+        let image = self
+            .image_resolver
+            .function_image(namespace, app, function, version)
+            .ok();
 
         // Build environment variables
-        let mut env = vec![];
-        // Pass executor ID and FE ID as env vars (FE may need them)
-        env.push(("INDEXIFY_EXECUTOR_ID".to_string(), self.executor_id.clone()));
-        env.push(("INDEXIFY_FE_ID".to_string(), fe_id.clone()));
+        let env = vec![
+            ("INDEXIFY_EXECUTOR_ID".to_string(), self.executor_id.clone()),
+            ("INDEXIFY_FE_ID".to_string(), fe_id.clone()),
+        ];
 
         let config =
             ProcessConfig {
                 id: fe_id.clone(),
                 process_type: ProcessType::Function,
-                image: None, // ForkExec mode, no image needed
+                image,
                 command: self.fe_binary_path.clone(),
                 args: vec![
                     format!("--executor-id={}", self.executor_id),
@@ -455,51 +473,51 @@ impl FunctionExecutorController {
 
     fn handle_add_allocation(&mut self, allocation: ServerAllocation) {
         // If we're terminated/terminating, don't accept new allocations
-        if let Some(status) = self.state_tx.borrow().status {
-            if status == FunctionExecutorStatus::Terminated as i32 {
-                warn!(
-                    allocation_id = ?allocation.allocation_id,
-                    "Rejecting allocation, FE is terminated"
-                );
+        if let Some(status) = self.state_tx.borrow().status &&
+            status == FunctionExecutorStatus::Terminated as i32
+        {
+            warn!(
+                allocation_id = ?allocation.allocation_id,
+                "Rejecting allocation, FE is terminated"
+            );
 
-                let term_reason = self
-                    .state_tx
-                    .borrow()
-                    .termination_reason
-                    .and_then(|r| FunctionExecutorTerminationReason::try_from(r).ok());
+            let term_reason = self
+                .state_tx
+                .borrow()
+                .termination_reason
+                .and_then(|r| FunctionExecutorTerminationReason::try_from(r).ok());
 
-                let failure_reason = match term_reason {
-                    Some(FunctionExecutorTerminationReason::StartupFailedFunctionTimeout) => {
-                        proto_api::executor_api_pb::AllocationFailureReason::StartupFailedFunctionTimeout
-                    }
-                    Some(FunctionExecutorTerminationReason::StartupFailedInternalError) => {
-                        proto_api::executor_api_pb::AllocationFailureReason::StartupFailedInternalError
-                    }
-                    Some(FunctionExecutorTerminationReason::StartupFailedFunctionError) => {
-                        proto_api::executor_api_pb::AllocationFailureReason::StartupFailedFunctionError
-                    }
-                    _ => proto_api::executor_api_pb::AllocationFailureReason::FunctionExecutorTerminated,
-                };
-
-                // We should probably report failure for this allocation immediately
-                if let Some(alloc_id) = allocation.allocation_id {
-                    let result = proto_api::executor_api_pb::AllocationResult {
-                        function: allocation.function.clone(),
-                        allocation_id: Some(alloc_id),
-                        function_call_id: allocation.function_call_id.clone(),
-                        request_id: allocation.request_id.clone(),
-                        outcome_code: Some(
-                            proto_api::executor_api_pb::AllocationOutcomeCode::Failure.into(),
-                        ),
-                        failure_reason: Some(failure_reason.into()),
-                        return_value: None,
-                        request_error: None,
-                        execution_duration_ms: None,
-                    };
-                    let _ = self.result_tx.send(CompletedAllocation { result });
+            let failure_reason = match term_reason {
+                Some(FunctionExecutorTerminationReason::StartupFailedFunctionTimeout) => {
+                    proto_api::executor_api_pb::AllocationFailureReason::StartupFailedFunctionTimeout
                 }
-                return;
+                Some(FunctionExecutorTerminationReason::StartupFailedInternalError) => {
+                    proto_api::executor_api_pb::AllocationFailureReason::StartupFailedInternalError
+                }
+                Some(FunctionExecutorTerminationReason::StartupFailedFunctionError) => {
+                    proto_api::executor_api_pb::AllocationFailureReason::StartupFailedFunctionError
+                }
+                _ => proto_api::executor_api_pb::AllocationFailureReason::FunctionExecutorTerminated,
+            };
+
+            // We should probably report failure for this allocation immediately
+            if let Some(alloc_id) = allocation.allocation_id {
+                let result = proto_api::executor_api_pb::AllocationResult {
+                    function: allocation.function.clone(),
+                    allocation_id: Some(alloc_id),
+                    function_call_id: allocation.function_call_id.clone(),
+                    request_id: allocation.request_id.clone(),
+                    outcome_code: Some(
+                        proto_api::executor_api_pb::AllocationOutcomeCode::Failure.into(),
+                    ),
+                    failure_reason: Some(failure_reason.into()),
+                    return_value: None,
+                    request_error: None,
+                    execution_duration_ms: None,
+                };
+                let _ = self.result_tx.send(CompletedAllocation { result });
             }
+            return;
         }
 
         let alloc_id = allocation.allocation_id.clone().unwrap_or_default();
@@ -531,14 +549,6 @@ impl FunctionExecutorController {
                 result,
             });
         });
-    }
-
-    fn handle_remove_allocation(&mut self, allocation_id: &str) {
-        if let Some(info) = self.allocations.get(allocation_id) {
-            info.cancel_token.cancel();
-        }
-        // Remove from runnable queue if not yet started
-        self.runnable_queue.retain(|id| id != allocation_id);
     }
 
     fn handle_schedule_execution(&mut self) {
@@ -646,9 +656,6 @@ impl FunctionExecutorController {
             } => {
                 self.handle_finalization_finished(&allocation_id, is_success);
             }
-            FEEvent::FunctionExecutorCreated(_) => {
-                // Not used in current flow
-            }
         }
         false // don't exit
     }
@@ -720,7 +727,6 @@ impl FunctionExecutorController {
         match outcome {
             AllocationOutcome::Completed {
                 result,
-                execution_duration_ms: _,
                 fe_result,
                 output_blob_handles,
             } => {
@@ -738,35 +744,29 @@ impl FunctionExecutorController {
 
                 // Check if we are terminated. If so, use the termination reason to determine
                 // allocation failure reason.
-                if let Some(status) = self.state_tx.borrow().status {
-                    if status == FunctionExecutorStatus::Terminated as i32 {
-                        if let Some(term_reason_i32) = self.state_tx.borrow().termination_reason {
-                            if let Ok(term_reason) =
-                                FunctionExecutorTerminationReason::try_from(term_reason_i32)
-                            {
-                                failure_reason = match term_reason {
-                                    FunctionExecutorTerminationReason::Unhealthy => {
-                                        // Treat grey failures (process crash/unresponsive) as FunctionError
-                                        // to prevent service abuse by functions that crash the executor.
-                                        proto_api::executor_api_pb::AllocationFailureReason::FunctionError
-                                    }
-                                    FunctionExecutorTerminationReason::InternalError => {
-                                        // If we know it's an internal error (e.g. platform issue), report it as such.
-                                        // But if we are just terminated, we might default to InternalError elsewhere.
-                                        // Here we map explicit InternalError.
-                                        proto_api::executor_api_pb::AllocationFailureReason::InternalError
-                                    }
-                                    FunctionExecutorTerminationReason::FunctionTimeout => {
-                                        proto_api::executor_api_pb::AllocationFailureReason::FunctionTimeout
-                                    }
-                                    FunctionExecutorTerminationReason::Oom => {
-                                        proto_api::executor_api_pb::AllocationFailureReason::Oom
-                                    }
-                                    _ => proto_api::executor_api_pb::AllocationFailureReason::FunctionExecutorTerminated,
-                                };
-                            }
+                if let Some(status) = self.state_tx.borrow().status &&
+                    status == FunctionExecutorStatus::Terminated as i32 &&
+                    let Some(term_reason_i32) = self.state_tx.borrow().termination_reason &&
+                    let Ok(term_reason) =
+                        FunctionExecutorTerminationReason::try_from(term_reason_i32)
+                {
+                    failure_reason = match term_reason {
+                        FunctionExecutorTerminationReason::Unhealthy => {
+                            // Treat grey failures (process crash/unresponsive) as FunctionError
+                            // to prevent service abuse by functions that crash the executor.
+                            proto_api::executor_api_pb::AllocationFailureReason::FunctionError
                         }
-                    }
+                        FunctionExecutorTerminationReason::InternalError => {
+                            proto_api::executor_api_pb::AllocationFailureReason::InternalError
+                        }
+                        FunctionExecutorTerminationReason::FunctionTimeout => {
+                            proto_api::executor_api_pb::AllocationFailureReason::FunctionTimeout
+                        }
+                        FunctionExecutorTerminationReason::Oom => {
+                            proto_api::executor_api_pb::AllocationFailureReason::Oom
+                        }
+                        _ => proto_api::executor_api_pb::AllocationFailureReason::FunctionExecutorTerminated,
+                    };
                 }
 
                 let result = ServerAllocationResult {
@@ -932,11 +932,11 @@ impl FunctionExecutorController {
         // For allocations in Runnable, drain them through finalization now.
         let runnable_ids: Vec<String> = self.runnable_queue.drain(..).collect();
         for alloc_id in &runnable_ids {
-            if let Some(info) = self.allocations.get_mut(alloc_id) {
-                if info.state == AllocationState::Runnable {
-                    info.server_result = Some(make_fe_terminated_result(&info.allocation));
-                    // start_finalization needs &mut self, so we do it below
-                }
+            if let Some(info) = self.allocations.get_mut(alloc_id) &&
+                info.state == AllocationState::Runnable
+            {
+                info.server_result = Some(make_fe_terminated_result(&info.allocation));
+                // start_finalization needs &mut self, so we do it below
             }
         }
         for alloc_id in runnable_ids {
