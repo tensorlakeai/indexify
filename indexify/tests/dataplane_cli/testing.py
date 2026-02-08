@@ -1,4 +1,5 @@
 import os
+import signal
 import shutil
 import subprocess
 import tempfile
@@ -36,6 +37,10 @@ class DataplaneProcessContextManager:
                 "port": 8095, # Default, can be overridden
                 "listen_addr": "0.0.0.0"
             },
+            "monitoring": {
+                "port": find_free_port(),
+                "listen_addr": "0.0.0.0"
+            },
             "labels": self._labels
         }
         
@@ -55,7 +60,8 @@ class DataplaneProcessContextManager:
     def __enter__(self) -> subprocess.Popen:
         self._generate_config()
         
-        args = ["/Users/diptanuc/Src/indexify/target/debug/indexify-dataplane", "--config", self._config_path]
+        dataplane_bin = os.environ.get("DATAPLANE_BIN", "indexify-dataplane")
+        args = [dataplane_bin, "--config", self._config_path]
         args.extend(self._extra_args)
         
         kwargs = {}
@@ -67,16 +73,25 @@ class DataplaneProcessContextManager:
             kwargs["stdout"] = subprocess.DEVNULL
             kwargs["stderr"] = subprocess.DEVNULL
             
-        self._process = subprocess.Popen(args, **kwargs)
+        self._process = subprocess.Popen(args, start_new_session=True, **kwargs)
         return self._process
 
     def __exit__(self, exc_type, exc_value, traceback):
         if self._process:
-            self._process.terminate()
+            # Kill the entire process group (dataplane + forked function
+            # executors) so no orphans are left holding file descriptors.
+            pgid = os.getpgid(self._process.pid)
+            try:
+                os.killpg(pgid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
             try:
                 self._process.wait(timeout=5)
             except subprocess.TimeoutExpired:
-                self._process.kill()
+                try:
+                    os.killpg(pgid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
                 self._process.wait()
                 
         if self._temp_dir:
@@ -84,6 +99,13 @@ class DataplaneProcessContextManager:
                 shutil.rmtree(self._temp_dir)
             except Exception as e:
                 print(f"Warning: Failed to clean up temp directory {self._temp_dir}: {e}")
+
+def find_free_port() -> int:
+    """Return a free TCP port by briefly binding to port 0."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("", 0))
+        return s.getsockname()[1]
+
 
 def wait_dataplane_startup(port: int):
     """Wait for Dataplane HTTP proxy port to be open."""

@@ -12,6 +12,7 @@ pub mod function_container_manager;
 pub mod function_executor;
 pub mod http_proxy;
 pub mod metrics;
+pub mod monitoring;
 pub mod network_rules;
 mod resources;
 pub mod state_file;

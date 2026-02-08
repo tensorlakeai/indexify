@@ -604,11 +604,27 @@ async fn call_function_with_retry(
     client: &mut ExecutorApiClient<Channel>,
     request: proto_api::executor_api_pb::FunctionCallRequest,
 ) -> Result<(), tonic::Status> {
+    let counters = crate::metrics::DataplaneCounters::new();
+    let histograms = crate::metrics::DataplaneHistograms::new();
+
+    // Record message size
+    let msg_size = prost::Message::encoded_len(&request);
+    histograms
+        .function_call_message_size_mb
+        .record(msg_size as f64 / (1024.0 * 1024.0), &[]);
+
+    counters.call_function_rpcs.add(1, &[]);
     let mut delay = SERVER_RPC_INITIAL_DELAY;
 
     for attempt in 0..=SERVER_RPC_MAX_RETRIES {
+        let rpc_start = std::time::Instant::now();
         match client.call_function(request.clone()).await {
-            Ok(_) => return Ok(()),
+            Ok(_) => {
+                histograms
+                    .call_function_rpc_latency_seconds
+                    .record(rpc_start.elapsed().as_secs_f64(), &[]);
+                return Ok(());
+            }
             Err(status) => {
                 let retryable = matches!(
                     status.code(),
@@ -618,6 +634,10 @@ async fn call_function_with_retry(
                 );
 
                 if !retryable || attempt == SERVER_RPC_MAX_RETRIES {
+                    counters.call_function_rpc_errors.add(1, &[]);
+                    histograms
+                        .call_function_rpc_latency_seconds
+                        .record(rpc_start.elapsed().as_secs_f64(), &[]);
                     return Err(status);
                 }
 

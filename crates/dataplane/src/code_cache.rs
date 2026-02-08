@@ -46,6 +46,9 @@ impl CodeCache {
         code_uri: &str,
         expected_sha256: Option<&str>,
     ) -> Result<Bytes> {
+        let counters = crate::metrics::DataplaneCounters::new();
+        let histograms = crate::metrics::DataplaneHistograms::new();
+
         let cache_path = self
             .cache_dir
             .join("application_cache")
@@ -63,6 +66,7 @@ impl CodeCache {
                         app_version = %app_version,
                         "Application code loaded from cache"
                     );
+                    counters.application_downloads_from_cache.add(1, &[]);
                     return Ok(Bytes::from(data));
                 }
                 Err(e) => {
@@ -76,6 +80,8 @@ impl CodeCache {
         }
 
         // Cache miss — download from blob store
+        counters.application_downloads.add(1, &[]);
+        let download_start = std::time::Instant::now();
         info!(
             namespace = %namespace,
             app_name = %app_name,
@@ -84,11 +90,21 @@ impl CodeCache {
             "Downloading application code"
         );
 
-        let data = self
-            .blob_store
-            .get(code_uri)
-            .await
-            .context("Failed to download application code")?;
+        let data = match self.blob_store.get(code_uri).await {
+            Ok(data) => {
+                histograms
+                    .application_download_latency_seconds
+                    .record(download_start.elapsed().as_secs_f64(), &[]);
+                data
+            }
+            Err(e) => {
+                histograms
+                    .application_download_latency_seconds
+                    .record(download_start.elapsed().as_secs_f64(), &[]);
+                counters.application_download_errors.add(1, &[]);
+                return Err(e).context("Failed to download application code");
+            }
+        };
 
         // Verify SHA256 if expected hash provided
         if let Some(expected) = expected_sha256 {

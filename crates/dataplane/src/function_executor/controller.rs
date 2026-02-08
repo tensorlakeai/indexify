@@ -11,7 +11,7 @@
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     sync::Arc,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use anyhow::Result;
@@ -196,19 +196,43 @@ impl FunctionExecutorController {
 
     /// Main control loop.
     async fn run(&mut self) {
+        let metrics = crate::metrics::DataplaneCounters::new();
+        let histograms = crate::metrics::DataplaneHistograms::new();
+        let up_down = crate::metrics::DataplaneUpDownCounters::new();
+
+        let create_start = Instant::now();
+        metrics.function_executor_creates.add(1, &[]);
+        up_down.function_executors_count.add(1, &[]);
+
         // Phase 1: Start the FE process
         info!(fe_id = ?self.description.id, "Starting function executor");
+        let start_process_time = Instant::now();
         if let Err(e) = self.start_fe_process().await {
             error!(error = %e, "Failed to start function executor process");
+            metrics.function_executor_create_errors.add(1, &[]);
+            metrics.function_executor_create_server_errors.add(1, &[]);
+            histograms
+                .function_executor_create_server_latency_seconds
+                .record(start_process_time.elapsed().as_secs_f64(), &[]);
+            histograms
+                .function_executor_create_latency_seconds
+                .record(create_start.elapsed().as_secs_f64(), &[]);
+            up_down.function_executors_count.add(-1, &[]);
             self.transition_to_terminated(
                 FunctionExecutorTerminationReason::StartupFailedInternalError,
             );
             return;
         }
+        histograms
+            .function_executor_create_server_latency_seconds
+            .record(start_process_time.elapsed().as_secs_f64(), &[]);
 
         // Phase 2: Connect to FE and initialize
         match self.connect_and_initialize().await {
             Ok(client) => {
+                histograms
+                    .function_executor_create_latency_seconds
+                    .record(create_start.elapsed().as_secs_f64(), &[]);
                 self.client = Some(client.clone());
                 self.update_state(FunctionExecutorStatus::Running, None);
 
@@ -229,6 +253,11 @@ impl FunctionExecutorController {
             }
             Err(e) => {
                 info!(error = %e, "Failed to connect/initialize function executor");
+                metrics.function_executor_create_errors.add(1, &[]);
+                histograms
+                    .function_executor_create_latency_seconds
+                    .record(create_start.elapsed().as_secs_f64(), &[]);
+                up_down.function_executors_count.add(-1, &[]);
                 // Kill the process since we can't use it
                 if let Some(handle) = &self.handle {
                     let _ = self.driver.kill(handle).await;
@@ -350,8 +379,54 @@ impl FunctionExecutorController {
 
         info!(addr = %addr, "Connecting to function executor");
 
-        let mut client =
-            FunctionExecutorGrpcClient::connect_with_retry(addr, FE_READY_TIMEOUT).await?;
+        // Retry connecting to the FE with process liveness checks.
+        // If the FE process dies (e.g. port binding failure), we fail
+        // immediately instead of waiting the full FE_READY_TIMEOUT.
+        let mut client = {
+            let deadline = tokio::time::Instant::now() + FE_READY_TIMEOUT;
+            let poll_interval = Duration::from_millis(100);
+            let mut last_err = None;
+
+            loop {
+                if tokio::time::Instant::now() >= deadline {
+                    anyhow::bail!(
+                        "Timeout connecting to function executor at {} after {:?}: {}",
+                        addr,
+                        FE_READY_TIMEOUT,
+                        last_err
+                            .as_ref()
+                            .map(|e: &anyhow::Error| e.to_string())
+                            .unwrap_or_default()
+                    );
+                }
+
+                match FunctionExecutorGrpcClient::connect(addr).await {
+                    Ok(c) => break c,
+                    Err(e) => {
+                        last_err = Some(e);
+                    }
+                }
+
+                // Check if the FE process is still alive before retrying.
+                // This catches crashes like port binding failures immediately.
+                if let Some(h) = &self.handle &&
+                    !self.driver.alive(h).await.unwrap_or(false)
+                {
+                    let exit_status = self.driver.get_exit_status(h).await.ok().flatten();
+                    anyhow::bail!(
+                        "Function executor process died before accepting connections \
+                         (exit_status={:?}): {}",
+                        exit_status,
+                        last_err
+                            .as_ref()
+                            .map(|e: &anyhow::Error| e.to_string())
+                            .unwrap_or_default()
+                    );
+                }
+
+                tokio::time::sleep(poll_interval).await;
+            }
+        };
 
         // Get info to verify connectivity
         let info = client.get_info().await?;
@@ -472,6 +547,10 @@ impl FunctionExecutorController {
     }
 
     fn handle_add_allocation(&mut self, allocation: ServerAllocation) {
+        let counters = crate::metrics::DataplaneCounters::new();
+        let up_down = crate::metrics::DataplaneUpDownCounters::new();
+        counters.allocations_fetched.add(1, &[]);
+
         // If we're terminated/terminating, don't accept new allocations
         if let Some(status) = self.state_tx.borrow().status &&
             status == FunctionExecutorStatus::Terminated as i32
@@ -537,13 +616,27 @@ impl FunctionExecutorController {
         };
 
         self.allocations.insert(alloc_id.clone(), info);
+        counters.allocation_preparations.add(1, &[]);
+        up_down.allocations_getting_prepared.add(1, &[]);
 
         // Spawn prep task (does NOT occupy a concurrency slot)
         let event_tx = self.event_tx.clone();
         let blob_store = self.blob_store.clone();
         let alloc_id_clone = alloc_id.clone();
         tokio::spawn(async move {
+            let prep_start = Instant::now();
             let result = allocation_prep::prepare_allocation(&allocation, &blob_store).await;
+            let histograms = crate::metrics::DataplaneHistograms::new();
+            let up_down = crate::metrics::DataplaneUpDownCounters::new();
+            histograms
+                .allocation_preparation_latency_seconds
+                .record(prep_start.elapsed().as_secs_f64(), &[]);
+            up_down.allocations_getting_prepared.add(-1, &[]);
+            if result.is_err() {
+                crate::metrics::DataplaneCounters::new()
+                    .allocation_preparation_errors
+                    .add(1, &[]);
+            }
             let _ = event_tx.send(FEEvent::AllocationPreparationFinished {
                 allocation_id: alloc_id_clone,
                 result,
@@ -598,6 +691,11 @@ impl FunctionExecutorController {
             info.state = AllocationState::Running;
             self.running_set.insert(alloc_id.clone());
 
+            let counters = crate::metrics::DataplaneCounters::new();
+            let up_down = crate::metrics::DataplaneUpDownCounters::new();
+            counters.allocation_runs.add(1, &[]);
+            up_down.allocation_runs_in_progress.add(1, &[]);
+
             let allocation = info.allocation.clone();
             let cancel_token = info.cancel_token.clone();
             let event_tx = self.event_tx.clone();
@@ -610,6 +708,7 @@ impl FunctionExecutorController {
             );
 
             tokio::spawn(async move {
+                let run_start = Instant::now();
                 let result = super::allocation_runner::execute_allocation(
                     client,
                     allocation,
@@ -621,6 +720,13 @@ impl FunctionExecutorController {
                     watcher_registry,
                 )
                 .await;
+
+                let histograms = crate::metrics::DataplaneHistograms::new();
+                let up_down = crate::metrics::DataplaneUpDownCounters::new();
+                histograms
+                    .allocation_run_latency_seconds
+                    .record(run_start.elapsed().as_secs_f64(), &[]);
+                up_down.allocation_runs_in_progress.add(-1, &[]);
 
                 let _ = event_tx.send(FEEvent::AllocationExecutionFinished {
                     allocation_id: alloc_id_clone,
@@ -843,6 +949,11 @@ impl FunctionExecutorController {
 
         info.state = AllocationState::Finalizing;
 
+        let counters = crate::metrics::DataplaneCounters::new();
+        let up_down = crate::metrics::DataplaneUpDownCounters::new();
+        counters.allocation_finalizations.add(1, &[]);
+        up_down.allocations_finalizing.add(1, &[]);
+
         // Take finalization context (may be None if prep never completed)
         let ctx = info.finalization_ctx.take().unwrap_or(FinalizationContext {
             request_error_blob_handle: None,
@@ -855,6 +966,7 @@ impl FunctionExecutorController {
         let alloc_id = allocation_id.to_string();
 
         tokio::spawn(async move {
+            let finalization_start = Instant::now();
             let is_success = allocation_finalize::finalize_allocation(
                 &alloc_id,
                 ctx.fe_result.as_ref(),
@@ -864,6 +976,18 @@ impl FunctionExecutorController {
             )
             .await
             .is_ok();
+
+            let histograms = crate::metrics::DataplaneHistograms::new();
+            let up_down = crate::metrics::DataplaneUpDownCounters::new();
+            histograms
+                .allocation_finalization_latency_seconds
+                .record(finalization_start.elapsed().as_secs_f64(), &[]);
+            up_down.allocations_finalizing.add(-1, &[]);
+            if !is_success {
+                crate::metrics::DataplaneCounters::new()
+                    .allocation_finalization_errors
+                    .add(1, &[]);
+            }
 
             let _ = event_tx.send(FEEvent::AllocationFinalizationFinished {
                 allocation_id: alloc_id,
@@ -956,6 +1080,12 @@ impl FunctionExecutorController {
 
     async fn shutdown(&mut self) {
         info!("Shutting down function executor controller");
+        let counters = crate::metrics::DataplaneCounters::new();
+        let histograms = crate::metrics::DataplaneHistograms::new();
+        let up_down = crate::metrics::DataplaneUpDownCounters::new();
+        counters.function_executor_destroys.add(1, &[]);
+        let destroy_start = Instant::now();
+
         // Cancel all allocations
         for info in self.allocations.values() {
             info.cancel_token.cancel();
@@ -970,6 +1100,10 @@ impl FunctionExecutorController {
         if let Some(handle) = &self.handle {
             let _ = self.driver.kill(handle).await;
         }
+        histograms
+            .function_executor_destroy_latency_seconds
+            .record(destroy_start.elapsed().as_secs_f64(), &[]);
+        up_down.function_executors_count.add(-1, &[]);
         self.transition_to_terminated(FunctionExecutorTerminationReason::FunctionCancelled);
     }
 

@@ -27,6 +27,9 @@ use tracing::debug;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Interval for polling FE availability.
+/// Used by integration tests (separate crate, so not detected by dead_code
+/// lint).
+#[allow(dead_code)]
 const POLL_INTERVAL: Duration = Duration::from_millis(100);
 
 /// Client for communicating with a function executor subprocess.
@@ -54,6 +57,9 @@ impl FunctionExecutorGrpcClient {
     }
 
     /// Try to connect to the FE, retrying until timeout.
+    /// Used by integration tests (separate crate, so not detected by dead_code
+    /// lint).
+    #[allow(dead_code)]
     pub async fn connect_with_retry(addr: &str, timeout: Duration) -> Result<Self> {
         let deadline = tokio::time::Instant::now() + timeout;
 

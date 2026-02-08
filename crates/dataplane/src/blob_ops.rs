@@ -11,6 +11,8 @@ use aws_sdk_s3::{Client as S3Client, presigning::PresigningConfig};
 use bytes::Bytes;
 use tracing::debug;
 
+use crate::metrics::{DataplaneCounters, DataplaneHistograms};
+
 /// Maximum presigned URL expiration (7 days, S3 limit).
 const MAX_PRESIGN_EXPIRATION: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 
@@ -81,6 +83,21 @@ impl BlobStore {
 
     /// Get metadata (size) for a blob.
     pub async fn get_metadata(&self, uri: &str) -> Result<BlobMetadata> {
+        let counters = DataplaneCounters::new();
+        let histograms = DataplaneHistograms::new();
+        counters.blob_store_get_metadata_requests.add(1, &[]);
+        let start = std::time::Instant::now();
+        let result = self.get_metadata_inner(uri).await;
+        histograms
+            .blob_store_get_metadata_latency_seconds
+            .record(start.elapsed().as_secs_f64(), &[]);
+        if result.is_err() {
+            counters.blob_store_get_metadata_errors.add(1, &[]);
+        }
+        result
+    }
+
+    async fn get_metadata_inner(&self, uri: &str) -> Result<BlobMetadata> {
         match &self.inner {
             BlobStoreInner::S3 { client } => {
                 let (bucket, key) = parse_s3_uri(uri)?;
@@ -111,6 +128,21 @@ impl BlobStore {
     /// For S3 URIs, returns a presigned HTTPS URL.
     /// For file:// URIs, returns the URI unchanged.
     pub async fn presign_get_uri(&self, uri: &str) -> Result<String> {
+        let counters = DataplaneCounters::new();
+        let histograms = DataplaneHistograms::new();
+        counters.blob_store_presign_uri_requests.add(1, &[]);
+        let start = std::time::Instant::now();
+        let result = self.presign_get_uri_inner(uri).await;
+        histograms
+            .blob_store_presign_uri_latency_seconds
+            .record(start.elapsed().as_secs_f64(), &[]);
+        if result.is_err() {
+            counters.blob_store_presign_uri_errors.add(1, &[]);
+        }
+        result
+    }
+
+    async fn presign_get_uri_inner(&self, uri: &str) -> Result<String> {
         match &self.inner {
             BlobStoreInner::S3 { client } => {
                 let (bucket, key) = parse_s3_uri(uri)?;
@@ -165,6 +197,25 @@ impl BlobStore {
 
     /// Create a multipart upload session.
     pub async fn create_multipart_upload(&self, uri: &str) -> Result<MultipartUploadHandle> {
+        let counters = DataplaneCounters::new();
+        let histograms = DataplaneHistograms::new();
+        counters
+            .blob_store_create_multipart_upload_requests
+            .add(1, &[]);
+        let start = std::time::Instant::now();
+        let result = self.create_multipart_upload_inner(uri).await;
+        histograms
+            .blob_store_create_multipart_upload_latency_seconds
+            .record(start.elapsed().as_secs_f64(), &[]);
+        if result.is_err() {
+            counters
+                .blob_store_create_multipart_upload_errors
+                .add(1, &[]);
+        }
+        result
+    }
+
+    async fn create_multipart_upload_inner(&self, uri: &str) -> Result<MultipartUploadHandle> {
         match &self.inner {
             BlobStoreInner::S3 { client } => {
                 let (bucket, key) = parse_s3_uri(uri)?;
@@ -242,6 +293,32 @@ impl BlobStore {
         upload_id: &str,
         parts_etags: &[String],
     ) -> Result<()> {
+        let counters = DataplaneCounters::new();
+        let histograms = DataplaneHistograms::new();
+        counters
+            .blob_store_complete_multipart_upload_requests
+            .add(1, &[]);
+        let start = std::time::Instant::now();
+        let result = self
+            .complete_multipart_upload_inner(uri, upload_id, parts_etags)
+            .await;
+        histograms
+            .blob_store_complete_multipart_upload_latency_seconds
+            .record(start.elapsed().as_secs_f64(), &[]);
+        if result.is_err() {
+            counters
+                .blob_store_complete_multipart_upload_errors
+                .add(1, &[]);
+        }
+        result
+    }
+
+    async fn complete_multipart_upload_inner(
+        &self,
+        uri: &str,
+        upload_id: &str,
+        parts_etags: &[String],
+    ) -> Result<()> {
         match &self.inner {
             BlobStoreInner::S3 { client } => {
                 let (bucket, key) = parse_s3_uri(uri)?;
@@ -283,6 +360,25 @@ impl BlobStore {
 
     /// Abort a multipart upload, cleaning up resources.
     pub async fn abort_multipart_upload(&self, uri: &str, upload_id: &str) -> Result<()> {
+        let counters = DataplaneCounters::new();
+        let histograms = DataplaneHistograms::new();
+        counters
+            .blob_store_abort_multipart_upload_requests
+            .add(1, &[]);
+        let start = std::time::Instant::now();
+        let result = self.abort_multipart_upload_inner(uri, upload_id).await;
+        histograms
+            .blob_store_abort_multipart_upload_latency_seconds
+            .record(start.elapsed().as_secs_f64(), &[]);
+        if result.is_err() {
+            counters
+                .blob_store_abort_multipart_upload_errors
+                .add(1, &[]);
+        }
+        result
+    }
+
+    async fn abort_multipart_upload_inner(&self, uri: &str, upload_id: &str) -> Result<()> {
         match &self.inner {
             BlobStoreInner::S3 { client } => {
                 let (bucket, key) = parse_s3_uri(uri)?;

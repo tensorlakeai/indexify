@@ -13,6 +13,7 @@ mod function_container_manager;
 mod function_executor;
 mod http_proxy;
 mod metrics;
+mod monitoring;
 mod network_rules;
 mod otel_tracing;
 mod resources;

@@ -33,6 +33,7 @@ use crate::{
     function_container_manager::{DefaultImageResolver, FunctionContainerManager, ImageResolver},
     http_proxy::run_http_proxy,
     metrics::DataplaneMetrics,
+    monitoring::{MonitoringState, run_monitoring_server},
     resources::{probe_free_resources, probe_host_resources},
     state_file::StateFile,
     state_reconciler::StateReconciler,
@@ -58,6 +59,7 @@ pub struct Service {
     metrics: Arc<DataplaneMetrics>,
     state_reconciler: Arc<Mutex<StateReconciler>>,
     state_reporter: Arc<StateReporter>,
+    monitoring_state: Arc<MonitoringState>,
 }
 
 impl Service {
@@ -144,6 +146,10 @@ impl Service {
             );
         }
 
+        // Monitoring state is created here, heartbeat_healthy will be shared
+        // with the heartbeat loop
+        let monitoring_state = Arc::new(MonitoringState::new(Arc::new(AtomicBool::new(false))));
+
         Ok(Self {
             config,
             channel,
@@ -153,6 +159,7 @@ impl Service {
             metrics,
             state_reconciler,
             state_reporter,
+            monitoring_state,
         })
     }
 
@@ -178,7 +185,7 @@ impl Service {
         }
 
         let cancel_token = CancellationToken::new();
-        let heartbeat_healthy = Arc::new(AtomicBool::new(false));
+        let heartbeat_healthy = self.monitoring_state.heartbeat_healthy.clone();
         let stream_notify = Arc::new(Notify::new());
 
         let heartbeat_handle = tokio::spawn({
@@ -196,6 +203,7 @@ impl Service {
             let http_proxy_address = self.config.http_proxy.get_advertise_address();
             let server_addr = self.config.server_addr.clone();
             let labels = self.config.labels.clone();
+            let monitoring_state = self.monitoring_state.clone();
             async move {
                 run_heartbeat_loop(
                     channel,
@@ -211,6 +219,7 @@ impl Service {
                     http_proxy_address,
                     server_addr,
                     labels,
+                    monitoring_state,
                 )
                 .await
             }
@@ -226,6 +235,7 @@ impl Service {
             let state_reconciler = self.state_reconciler.clone();
             let cancel_token = cancel_token.clone();
             let metrics = self.metrics.clone();
+            let monitoring_state = self.monitoring_state.clone();
             async move {
                 run_desired_stream_loop(
                     channel,
@@ -235,6 +245,7 @@ impl Service {
                     stream_notify,
                     cancel_token,
                     metrics,
+                    monitoring_state,
                 )
                 .await
             }
@@ -284,6 +295,18 @@ impl Service {
             .instrument(span)
         });
 
+        // HTTP monitoring server for startup/health probes and state inspection
+        let monitoring_handle = tokio::spawn({
+            let span = span.clone();
+            let cancel_token = cancel_token.clone();
+            let monitoring_state = self.monitoring_state.clone();
+            let monitoring_addr = self.config.monitoring.socket_addr();
+            async move {
+                run_monitoring_server(&monitoring_addr, monitoring_state, cancel_token).await;
+            }
+            .instrument(span)
+        });
+
         tokio::select! {
             signal_name = wait_for_shutdown_signal() => {
                 tracing::info!(signal = signal_name, "Shutdown signal received");
@@ -313,6 +336,11 @@ impl Service {
             result = http_proxy_handle => {
                 if let Err(e) = result {
                     tracing::error!(error = %e, "HTTP proxy server task panicked");
+                }
+            }
+            result = monitoring_handle => {
+                if let Err(e) = result {
+                    tracing::error!(error = %e, "Monitoring server task panicked");
                 }
             }
         }
@@ -356,6 +384,7 @@ async fn run_heartbeat_loop(
     proxy_address: String,
     server_addr: String,
     labels: std::collections::HashMap<String, String>,
+    monitoring_state: Arc<MonitoringState>,
 ) {
     let mut client = ExecutorApiClient::new(channel);
     let mut retry_interval = HEARTBEAT_MIN_RETRY_INTERVAL;
@@ -428,13 +457,39 @@ async fn run_heartbeat_loop(
             }),
         };
 
+        // Record state report metrics
+        let report_start = std::time::Instant::now();
+        let request_size = prost::Message::encoded_len(&request);
+        metrics.counters.state_report_rpcs.add(1, &[]);
+        metrics
+            .histograms
+            .state_report_message_size_mb
+            .record(request_size as f64 / (1024.0 * 1024.0), &[]);
+
+        // Store reported state for monitoring endpoint
+        *monitoring_state.last_reported_state.lock().await = Some(format!("{:#?}", request));
+
+        if has_remaining {
+            metrics
+                .counters
+                .state_report_message_fragmentations
+                .add(1, &[]);
+        }
+
         match client.report_executor_state(request).await {
             Ok(_) => {
+                metrics
+                    .histograms
+                    .state_report_rpc_latency_seconds
+                    .record(report_start.elapsed().as_secs_f64(), &[]);
                 metrics.counters.record_heartbeat(true);
                 retry_interval = HEARTBEAT_MIN_RETRY_INTERVAL; // Reset backoff on success
 
                 // Remove successfully reported results from the buffer
                 state_reporter.remove_reported_results(&reported_ids).await;
+
+                // Mark monitoring as ready after first successful heartbeat
+                monitoring_state.ready.store(true, Ordering::SeqCst);
 
                 let was_healthy = heartbeat_healthy.swap(true, Ordering::SeqCst);
                 if !was_healthy {
@@ -476,6 +531,11 @@ async fn run_heartbeat_loop(
             Err(e) => {
                 // Results NOT removed from buffer — will be retried in next heartbeat
                 metrics.counters.record_heartbeat(false);
+                metrics.counters.state_report_rpc_errors.add(1, &[]);
+                metrics
+                    .histograms
+                    .state_report_rpc_latency_seconds
+                    .record(report_start.elapsed().as_secs_f64(), &[]);
                 tracing::warn!(
                     error = %e,
                     %server_addr,
@@ -500,6 +560,7 @@ async fn run_heartbeat_loop(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn run_desired_stream_loop(
     channel: Channel,
     executor_id: String,
@@ -508,6 +569,7 @@ async fn run_desired_stream_loop(
     stream_notify: Arc<Notify>,
     cancel_token: CancellationToken,
     metrics: Arc<DataplaneMetrics>,
+    monitoring_state: Arc<MonitoringState>,
 ) {
     loop {
         if cancel_token.is_cancelled() {
@@ -535,6 +597,7 @@ async fn run_desired_stream_loop(
             &heartbeat_healthy,
             &cancel_token,
             &metrics,
+            &monitoring_state,
         )
         .await
         {
@@ -560,6 +623,7 @@ async fn run_desired_stream(
     heartbeat_healthy: &AtomicBool,
     cancel_token: &CancellationToken,
     metrics: &DataplaneMetrics,
+    monitoring_state: &MonitoringState,
 ) -> Result<()> {
     let mut client = ExecutorApiClient::new(channel.clone());
 
@@ -600,7 +664,7 @@ async fn run_desired_stream(
 
         match message {
             Ok(Ok(Some(state))) => {
-                handle_desired_state(state, state_reconciler, metrics).await;
+                handle_desired_state(state, state_reconciler, metrics, monitoring_state).await;
             }
             Ok(Ok(None)) => {
                 metrics
@@ -631,16 +695,22 @@ async fn handle_desired_state(
     state: DesiredExecutorState,
     state_reconciler: &Arc<Mutex<StateReconciler>>,
     metrics: &DataplaneMetrics,
+    monitoring_state: &MonitoringState,
 ) {
+    let reconcile_start = std::time::Instant::now();
     let num_fes = state.function_executors.len();
     let num_allocs = state.allocations.len();
     let num_fc_results = state.function_call_results.len();
     let clock = state.clock.unwrap_or(0);
 
+    // Store desired state for monitoring endpoint
+    *monitoring_state.last_desired_state.lock().await = Some(format!("{:#?}", state));
+
     // Record metrics for desired state received
     metrics
         .counters
         .record_desired_state(num_fes as u64, num_allocs as u64);
+    metrics.counters.state_reconciliations.add(1, &[]);
 
     tracing::info!(
         clock,
@@ -654,7 +724,13 @@ async fn handle_desired_state(
     // Matches Python executor's state_reconciler.py _reconcile_state().
     for attempt in 0..RECONCILIATION_RETRIES {
         match try_reconcile(&state, state_reconciler).await {
-            Ok(()) => return,
+            Ok(()) => {
+                metrics
+                    .histograms
+                    .state_reconciliation_latency_seconds
+                    .record(reconcile_start.elapsed().as_secs_f64(), &[]);
+                return;
+            }
             Err(e) => {
                 tracing::warn!(
                     attempt = attempt + 1,
@@ -668,6 +744,11 @@ async fn handle_desired_state(
             }
         }
     }
+    metrics.counters.state_reconciliation_errors.add(1, &[]);
+    metrics
+        .histograms
+        .state_reconciliation_latency_seconds
+        .record(reconcile_start.elapsed().as_secs_f64(), &[]);
     tracing::error!("Reconciliation failed after all retry attempts");
 }
 

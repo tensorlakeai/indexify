@@ -12,17 +12,18 @@ tests_exit_code=0
 run_test_suite() {
   local test_files=$1
   local test_suite_name=$2
-  local test_suite_exit_code=0
 
-  # Run each test file one by one sequentially. Set $tests_exit_code to non zero
-  # value if any of the test commands return non zero status code. Don't
-  # stop if a test command fails.
   for test_file in $test_files; do
-    echo "Running $test_file for $test_suite_name test suite"
+    echo ""
+    echo "========================================"
+    echo "Running: $test_file ($test_suite_name)"
+    echo "========================================"
     python3 $test_file
     local test_file_exit_code=$?
     if [ $test_file_exit_code -ne 0 ]; then
-      echo "One or more tests failed in $test_file for $test_suite_name test suite." | tee -a $summary_file
+      echo "FAILED: $test_file ($test_suite_name)" | tee -a $summary_file
+    else
+      echo "PASSED: $test_file ($test_suite_name)"
     fi
     tests_exit_code=$((tests_exit_code || test_file_exit_code))
   done
@@ -34,26 +35,72 @@ cd "$(dirname "$0")"
 summary_file=".run_tests_summary.txt"
 rm -f $summary_file
 
-# Indexify tests, excluding timed based tests that can fail if the executor is busy.
-# Exclude CLI tests as they test the Python executor specifically (using indexify-cli).
-# But include new Dataplane CLI tests.
-indexify_test_files=$(find . -name 'test_*.py' -not -path "./cli/*")
-dataplane_cli_tests=$(find ./dataplane_cli -name 'test_*.py')
-run_test_suite "$indexify_test_files $dataplane_cli_tests" "Indexify"
+# --- Phase 1: Self-contained dataplane_cli tests (no external dataplane needed) ---
+echo ""
+echo "############################################"
+echo "# Phase 1: dataplane_cli tests             #"
+echo "############################################"
+dataplane_cli_tests=$(find ./dataplane_cli -name 'test_*.py' | sort)
+run_test_suite "$dataplane_cli_tests" "Dataplane CLI"
 
-# If you want to skip the Tensorlake SDK tests,
-# you can set TENSORLAKE_SDK_SKIP_TESTS=true in your environment.
+# --- Start background dataplane for Phase 2 + Phase 3 ---
+echo ""
+echo "############################################"
+echo "# Starting background dataplane            #"
+echo "############################################"
+
+DATAPLANE_BIN="/Users/diptanuc/Src/indexify/target/debug/indexify-dataplane"
+DATAPLANE_PID=""
+
+if [ -x "$DATAPLANE_BIN" ]; then
+  $DATAPLANE_BIN &
+  DATAPLANE_PID=$!
+  echo "Started background dataplane with PID: $DATAPLANE_PID"
+  # Wait for it to connect to the server.
+  sleep 5
+else
+  echo "WARNING: indexify-dataplane binary not found at $DATAPLANE_BIN"
+  echo "Executor and features tests may hang without a running dataplane."
+fi
+
+# --- Phase 2: executor + features tests ---
+echo ""
+echo "############################################"
+echo "# Phase 2: executor + features tests       #"
+echo "############################################"
+# Exclude test_http_handlers.py — it tests old CLI executor HTTP endpoints
+# (localhost:7000/monitoring/metrics) that don't exist in the dataplane.
+executor_tests=$(find ./executor -name 'test_*.py' -not -name 'test_http_handlers.py' | sort)
+features_tests=$(find ./features -name 'test_*.py' | sort)
+run_test_suite "$executor_tests $features_tests" "Indexify"
+
+# --- Phase 3: Tensorlake SDK tests (same dataplane keeps running) ---
 if [[ -z "${TENSORLAKE_SDK_SKIP_TESTS}" ]]; then
-  # Tensorlake SDK tests verify user visible functionality end-to-end.
-  tensorlake_sdk_test_files=$(find ../../tensorlake/tests/applications -name 'test_*.py')
+  echo ""
+  echo "############################################"
+  echo "# Phase 3: Tensorlake SDK tests            #"
+  echo "############################################"
+  tensorlake_sdk_test_files=$(find ../../tensorlake/tests/applications -name 'test_*.py' | sort)
   run_test_suite "$tensorlake_sdk_test_files" "Tensorlake SDK"
 fi
 
-if [ $tests_exit_code -eq 0 ]; then
-  echo "All tests passed!" >> $summary_file
-else
-  echo "One or more tests failed. Please check output log for details." >> $summary_file
+# Stop the background dataplane.
+if [ -n "$DATAPLANE_PID" ]; then
+  echo "Stopping background dataplane (PID: $DATAPLANE_PID)"
+  kill $DATAPLANE_PID 2>/dev/null
+  wait $DATAPLANE_PID 2>/dev/null
+  # Also kill any orphaned function executors.
+  pkill -f function-executor 2>/dev/null
 fi
 
+echo ""
+echo "========================================"
+echo "SUMMARY"
+echo "========================================"
+if [ $tests_exit_code -eq 0 ]; then
+  echo "All tests passed!" | tee -a $summary_file
+else
+  echo "One or more tests failed. Please check output log for details." | tee -a $summary_file
+fi
 cat $summary_file
 exit $tests_exit_code
