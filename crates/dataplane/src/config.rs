@@ -269,6 +269,39 @@ pub struct DataplaneConfig {
     /// Defaults to /tmp/indexify-container-daemon.
     #[serde(default)]
     pub daemon_binary_extract_path: Option<String>,
+    /// Function executor configuration.
+    #[serde(default)]
+    pub function_executor: FunctionExecutorConfig,
+}
+
+/// Configuration for function executor mode (subprocess-based).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FunctionExecutorConfig {
+    /// Path to cache application code. Defaults to /tmp/indexify_code_cache.
+    #[serde(default = "default_code_cache_path")]
+    pub code_cache_path: String,
+    /// Blob store URL (e.g., "s3://bucket" or "file:///path").
+    /// If not set, uses local filesystem.
+    #[serde(default)]
+    pub blob_store_url: Option<String>,
+    /// Path to the function-executor binary.
+    /// If not set, searches PATH.
+    #[serde(default)]
+    pub fe_binary_path: Option<String>,
+}
+
+fn default_code_cache_path() -> String {
+    "/tmp/indexify_code_cache".to_string()
+}
+
+impl Default for FunctionExecutorConfig {
+    fn default() -> Self {
+        Self {
+            code_cache_path: default_code_cache_path(),
+            blob_store_url: None,
+            fe_binary_path: None,
+        }
+    }
 }
 
 fn default_executor_id() -> String {
@@ -287,6 +320,7 @@ impl Default for DataplaneConfig {
             state_file: "./dataplane-state.json".to_string(),
             http_proxy: HttpProxyConfig::default(),
             daemon_binary_extract_path: None,
+            function_executor: FunctionExecutorConfig::default(),
         }
     }
 }

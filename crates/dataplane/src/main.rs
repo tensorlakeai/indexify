@@ -3,11 +3,14 @@ use std::path::PathBuf;
 use anyhow::Context;
 use clap::Parser;
 
+mod blob_ops;
+mod code_cache;
 mod config;
 mod daemon_binary;
 mod daemon_client;
 mod driver;
 mod function_container_manager;
+mod function_executor;
 mod http_proxy;
 mod metrics;
 mod network_rules;
@@ -15,6 +18,8 @@ mod otel_tracing;
 mod resources;
 mod service;
 mod state_file;
+mod state_reconciler;
+mod state_reporter;
 
 use config::DataplaneConfig;
 use otel_tracing::setup_tracing;

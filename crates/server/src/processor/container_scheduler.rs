@@ -667,13 +667,13 @@ impl ContainerScheduler {
             if !func.placement_constraints.matches(&executor.labels) {
                 return false;
             }
-            // Functions can't run on sandbox-enabled dataplanes
-            if executor
-                .executor_version
-                .eq_ignore_ascii_case(SANDBOX_ENABLED_DATAPLANE_VERSION)
-            {
-                return false;
-            }
+            // // Functions can't run on sandbox-enabled dataplanes
+            // if executor
+            //     .executor_version
+            //     .eq_ignore_ascii_case(SANDBOX_ENABLED_DATAPLANE_VERSION)
+            // {
+            //     return false;
+            // }
         } else {
             // Sandbox container constraints
             if !executor

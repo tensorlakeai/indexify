@@ -1210,6 +1210,7 @@ async fn start_container_with_daemon(
 
     let config = ProcessConfig {
         id: info.container_id.to_string(),
+        process_type: crate::driver::ProcessType::Sandbox,
         image: Some(image),
         command,
         args,

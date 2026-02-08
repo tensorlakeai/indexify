@@ -4,13 +4,23 @@ mod fork_exec;
 use anyhow::Result;
 use async_trait::async_trait;
 pub use docker::DockerDriver;
-pub use fork_exec::ForkExecDriver;
+pub use fork_exec::{ForkExecDriver, allocate_ephemeral_port};
 
 /// Container port for the daemon gRPC server (internal API).
 pub const DAEMON_GRPC_PORT: u16 = 9500;
 
 /// Container port for the daemon HTTP server (user-facing Sandbox API).
 pub const DAEMON_HTTP_PORT: u16 = 9501;
+
+/// Determines the binary launched by the driver.
+#[derive(Debug, Clone, Default)]
+pub enum ProcessType {
+    /// Sandbox: launches container-daemon binary as PID 1 (current behavior).
+    #[default]
+    Sandbox,
+    /// Function executor: launches function-executor binary as a subprocess.
+    Function,
+}
 
 /// Resource limits for a process/container.
 #[derive(Debug, Clone, Default)]
@@ -26,6 +36,8 @@ pub struct ProcessConfig {
     /// Unique identifier for this container (used as Docker container name
     /// suffix).
     pub id: String,
+    /// Type of process to launch (Sandbox or Function).
+    pub process_type: ProcessType,
     /// Container image (for Docker driver).
     pub image: Option<String>,
     /// Command to execute.

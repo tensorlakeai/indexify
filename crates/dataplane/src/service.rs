@@ -1,4 +1,5 @@
 use std::{
+    path::PathBuf,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -19,12 +20,14 @@ use proto_api::executor_api_pb::{
     executor_api_client::ExecutorApiClient,
 };
 use sha2::{Digest, Sha256};
-use tokio::sync::Notify;
+use tokio::sync::{Mutex, Notify, mpsc};
 use tokio_util::sync::CancellationToken;
 use tonic::transport::{Channel, ClientTlsConfig, Endpoint};
 use tracing::Instrument;
 
 use crate::{
+    blob_ops::BlobStore,
+    code_cache::CodeCache,
     config::{DataplaneConfig, DriverConfig},
     driver::{DockerDriver, ForkExecDriver, ProcessDriver},
     function_container_manager::{DefaultImageResolver, FunctionContainerManager},
@@ -32,6 +35,8 @@ use crate::{
     metrics::DataplaneMetrics,
     resources::{probe_free_resources, probe_host_resources},
     state_file::StateFile,
+    state_reconciler::StateReconciler,
+    state_reporter::StateReporter,
 };
 
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
@@ -44,6 +49,8 @@ pub struct Service {
     host_resources: HostResources,
     container_manager: Arc<FunctionContainerManager>,
     metrics: Arc<DataplaneMetrics>,
+    state_reconciler: Arc<Mutex<StateReconciler>>,
+    state_reporter: Arc<StateReporter>,
 }
 
 impl Service {
@@ -67,12 +74,58 @@ impl Service {
                 .context("Failed to initialize state file")?,
         );
         let container_manager = Arc::new(FunctionContainerManager::new(
-            driver,
+            driver.clone(),
             image_resolver,
             metrics.clone(),
             state_file,
             config.executor_id.clone(),
         ));
+
+        // Create blob store (auto-detect from config or default to local)
+        let blob_store = match &config.function_executor.blob_store_url {
+            Some(url) => Arc::new(
+                BlobStore::from_uri(url)
+                    .await
+                    .context("Failed to create blob store")?,
+            ),
+            None => Arc::new(BlobStore::new_local()),
+        };
+
+        // Create code cache
+        let code_cache = Arc::new(CodeCache::new(
+            PathBuf::from(&config.function_executor.code_cache_path),
+            blob_store.clone(),
+        ));
+
+        // Create allocation result channel
+        let (result_tx, result_rx) = mpsc::unbounded_channel();
+
+        // Determine FE binary path
+        let fe_binary_path = config
+            .function_executor
+            .fe_binary_path
+            .clone()
+            .unwrap_or_else(|| "function-executor".to_string());
+
+        let state_change_notify = Arc::new(Notify::new());
+
+        // Create state reconciler
+        let cancel_token = CancellationToken::new();
+        let state_reconciler = Arc::new(Mutex::new(StateReconciler::new(
+            container_manager.clone(),
+            driver.clone(),
+            result_tx,
+            cancel_token,
+            channel.clone(),
+            blob_store,
+            code_cache,
+            config.executor_id.clone(),
+            fe_binary_path,
+            state_change_notify.clone(),
+        )));
+
+        // Create state reporter
+        let state_reporter = Arc::new(StateReporter::new(result_rx));
 
         Ok(Self {
             config,
@@ -80,6 +133,8 @@ impl Service {
             host_resources,
             container_manager,
             metrics,
+            state_reconciler,
+            state_reporter,
         })
     }
 
@@ -115,7 +170,8 @@ impl Service {
             let heartbeat_healthy = heartbeat_healthy.clone();
             let stream_notify = stream_notify.clone();
             let host_resources = self.host_resources;
-            let container_manager = self.container_manager.clone();
+            let state_reconciler = self.state_reconciler.clone();
+            let state_reporter = self.state_reporter.clone();
             let cancel_token = cancel_token.clone();
             let metrics = self.metrics.clone();
             let http_proxy_address = self.config.http_proxy.get_advertise_address();
@@ -125,7 +181,8 @@ impl Service {
                     channel,
                     executor_id,
                     host_resources,
-                    container_manager,
+                    state_reconciler,
+                    state_reporter,
                     heartbeat_healthy,
                     stream_notify,
                     cancel_token,
@@ -144,14 +201,14 @@ impl Service {
             let executor_id = executor_id.clone();
             let heartbeat_healthy = heartbeat_healthy.clone();
             let stream_notify = stream_notify.clone();
-            let container_manager = self.container_manager.clone();
+            let state_reconciler = self.state_reconciler.clone();
             let cancel_token = cancel_token.clone();
             let metrics = self.metrics.clone();
             async move {
                 run_desired_stream_loop(
                     channel,
                     executor_id,
-                    container_manager,
+                    state_reconciler,
                     heartbeat_healthy,
                     stream_notify,
                     cancel_token,
@@ -209,6 +266,8 @@ impl Service {
             _ = tokio::signal::ctrl_c() => {
                 tracing::info!("Shutdown signal received, cancelling tasks");
                 cancel_token.cancel();
+                // Shut down FE controllers
+                self.state_reconciler.lock().await.shutdown().await;
             }
             result = heartbeat_handle => {
                 if let Err(e) = result {
@@ -266,7 +325,8 @@ async fn run_heartbeat_loop(
     channel: Channel,
     executor_id: String,
     host_resources: HostResources,
-    container_manager: Arc<FunctionContainerManager>,
+    state_reconciler: Arc<Mutex<StateReconciler>>,
+    state_reporter: Arc<StateReporter>,
     heartbeat_healthy: Arc<AtomicBool>,
     stream_notify: Arc<Notify>,
     cancel_token: CancellationToken,
@@ -282,7 +342,14 @@ async fn run_heartbeat_loop(
             return;
         }
 
-        let function_executor_states = container_manager.get_states().await;
+        // Get FE states and function call watches from reconciler
+        let reconciler_guard = state_reconciler.lock().await;
+        let function_executor_states = reconciler_guard.get_all_fe_states().await;
+        let function_call_watches = reconciler_guard.get_function_call_watches().await;
+        drop(reconciler_guard);
+
+        // Collect allocation results from FE controllers
+        let allocation_results = state_reporter.take_results().await;
 
         // Build executor state without state_hash first
         let system_hostname = hostname::get()
@@ -297,6 +364,7 @@ async fn run_heartbeat_loop(
             total_resources: Some(host_resources),
             total_function_executor_resources: Some(host_resources),
             function_executor_states,
+            function_call_watches,
             proxy_address: Some(proxy_address.clone()),
             ..Default::default()
         };
@@ -312,7 +380,7 @@ async fn run_heartbeat_loop(
             executor_state: Some(executor_state),
             executor_update: Some(ExecutorUpdate {
                 executor_id: Some(executor_id.clone()),
-                allocation_results: vec![],
+                allocation_results,
             }),
         };
 
@@ -324,10 +392,25 @@ async fn run_heartbeat_loop(
                     tracing::info!("Heartbeat succeeded, notifying stream to start");
                     stream_notify.notify_one();
                 }
+                let results_notify = state_reporter.results_notify();
+                let reconciler = state_reconciler.lock().await;
+                let watcher_notify = reconciler.watcher_notify();
+                let state_change_notify = reconciler.state_change_notify();
+                drop(reconciler);
+
                 tokio::select! {
                     _ = cancel_token.cancelled() => {
                         tracing::info!("Heartbeat loop cancelled");
                         return;
+                    }
+                    _ = results_notify.notified() => {
+                        // Results available, send heartbeat immediately
+                    }
+                    _ = watcher_notify.notified() => {
+                        // New watches registered, send heartbeat immediately
+                    }
+                    _ = state_change_notify.notified() => {
+                        // FE added/removed, send heartbeat immediately
                     }
                     _ = tokio::time::sleep(HEARTBEAT_INTERVAL) => {}
                 }
@@ -351,7 +434,7 @@ async fn run_heartbeat_loop(
 async fn run_desired_stream_loop(
     channel: Channel,
     executor_id: String,
-    container_manager: Arc<FunctionContainerManager>,
+    state_reconciler: Arc<Mutex<StateReconciler>>,
     heartbeat_healthy: Arc<AtomicBool>,
     stream_notify: Arc<Notify>,
     cancel_token: CancellationToken,
@@ -379,7 +462,7 @@ async fn run_desired_stream_loop(
         if let Err(e) = run_desired_stream(
             &channel,
             &executor_id,
-            &container_manager,
+            &state_reconciler,
             &heartbeat_healthy,
             &cancel_token,
             &metrics,
@@ -404,7 +487,7 @@ async fn run_desired_stream_loop(
 async fn run_desired_stream(
     channel: &Channel,
     executor_id: &str,
-    container_manager: &FunctionContainerManager,
+    state_reconciler: &Arc<Mutex<StateReconciler>>,
     heartbeat_healthy: &AtomicBool,
     cancel_token: &CancellationToken,
     metrics: &DataplaneMetrics,
@@ -448,7 +531,7 @@ async fn run_desired_stream(
 
         match message {
             Ok(Ok(Some(state))) => {
-                handle_desired_state(state, container_manager, metrics).await;
+                handle_desired_state(state, state_reconciler, metrics).await;
             }
             Ok(Ok(None)) => {
                 metrics
@@ -471,11 +554,12 @@ async fn run_desired_stream(
 
 async fn handle_desired_state(
     state: DesiredExecutorState,
-    container_manager: &FunctionContainerManager,
+    state_reconciler: &Arc<Mutex<StateReconciler>>,
     metrics: &DataplaneMetrics,
 ) {
     let num_fes = state.function_executors.len();
     let num_allocs = state.allocations.len();
+    let num_fc_results = state.function_call_results.len();
     let clock = state.clock.unwrap_or(0);
 
     // Record metrics for desired state received
@@ -487,11 +571,27 @@ async fn handle_desired_state(
         clock,
         num_function_executors = num_fes,
         num_allocations = num_allocs,
+        num_function_call_results = num_fc_results,
         "Received desired executor state"
     );
 
-    // Sync containers with desired state
-    container_manager.sync(state.function_executors).await;
+    // Reconcile through the unified state reconciler
+    let mut reconciler = state_reconciler.lock().await;
+    reconciler.reconcile(state.function_executors).await;
+
+    // Route allocations to their FE controllers
+    for allocation in &state.allocations {
+        if let Some(fe_id) = &allocation.function_executor_id {
+            reconciler.add_allocation(fe_id, allocation.clone());
+        }
+    }
+
+    // Route function call results to registered watchers
+    if !state.function_call_results.is_empty() {
+        reconciler
+            .deliver_function_call_results(&state.function_call_results)
+            .await;
+    }
 }
 
 async fn create_channel(config: &DataplaneConfig) -> Result<Channel> {

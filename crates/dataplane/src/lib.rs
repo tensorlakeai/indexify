@@ -2,20 +2,32 @@
 //!
 //! This module exposes the dataplane components for testing and reuse.
 
+pub mod blob_ops;
+pub mod code_cache;
 pub mod config;
 pub mod daemon_binary;
 pub mod daemon_client;
 pub mod driver;
 pub mod function_container_manager;
+pub mod function_executor;
 pub mod http_proxy;
 pub mod metrics;
 pub mod network_rules;
 mod resources;
 pub mod state_file;
+pub mod state_reconciler;
+pub mod state_reporter;
 
 // Re-export key types for convenience
 pub use daemon_client::DaemonClient;
-pub use driver::{DockerDriver, ForkExecDriver, ProcessConfig, ProcessDriver, ProcessHandle};
+pub use driver::{
+    DockerDriver,
+    ForkExecDriver,
+    ProcessConfig,
+    ProcessDriver,
+    ProcessHandle,
+    ProcessType,
+};
 pub use function_container_manager::{
     DefaultImageResolver,
     FunctionContainerManager,

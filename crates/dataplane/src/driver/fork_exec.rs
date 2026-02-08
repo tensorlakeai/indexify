@@ -8,7 +8,7 @@ use tokio::{
 };
 use tracing::info;
 
-use super::{ExitStatus, ProcessConfig, ProcessDriver, ProcessHandle};
+use super::{ExitStatus, ProcessConfig, ProcessDriver, ProcessHandle, ProcessType};
 use crate::daemon_binary;
 
 pub struct ForkExecDriver {
@@ -31,7 +31,7 @@ impl Default for ForkExecDriver {
 
 /// Allocate an ephemeral port by binding to port 0 and getting the assigned
 /// port.
-fn allocate_ephemeral_port() -> Result<u16> {
+pub fn allocate_ephemeral_port() -> Result<u16> {
     let listener = TcpListener::bind("127.0.0.1:0").context("Failed to bind to ephemeral port")?;
     let port = listener
         .local_addr()
@@ -46,53 +46,80 @@ fn allocate_ephemeral_port() -> Result<u16> {
 #[async_trait]
 impl ProcessDriver for ForkExecDriver {
     async fn start(&self, config: ProcessConfig) -> Result<ProcessHandle> {
-        // If image is specified, we're in sandbox mode - start the daemon binary
-        // If no image, we're in direct mode - run the command directly (for testing)
-        let (cmd, daemon_addr, http_addr) = if config.image.is_some() {
-            // Sandbox mode: start daemon binary with ephemeral ports
-            let daemon_path = daemon_binary::get_daemon_path()
-                .context("Daemon binary not available for fork_exec driver")?;
+        let (cmd, daemon_addr, http_addr) = match config.process_type {
+            ProcessType::Sandbox if config.image.is_some() => {
+                // Sandbox mode: start daemon binary with ephemeral ports
+                let daemon_path = daemon_binary::get_daemon_path()
+                    .context("Daemon binary not available for fork_exec driver")?;
 
-            let grpc_port = allocate_ephemeral_port().context("Failed to allocate gRPC port")?;
-            let http_port = allocate_ephemeral_port().context("Failed to allocate HTTP port")?;
+                let grpc_port =
+                    allocate_ephemeral_port().context("Failed to allocate gRPC port")?;
+                let http_port =
+                    allocate_ephemeral_port().context("Failed to allocate HTTP port")?;
 
-            info!(
-                daemon_path = %daemon_path.display(),
-                grpc_port = grpc_port,
-                http_port = http_port,
-                "Starting daemon via fork_exec (ignoring image: {:?})",
-                config.image
-            );
+                info!(
+                    daemon_path = %daemon_path.display(),
+                    grpc_port = grpc_port,
+                    http_port = http_port,
+                    "Starting daemon via fork_exec (ignoring image: {:?})",
+                    config.image
+                );
 
-            let mut cmd = Command::new(daemon_path);
-            cmd.arg("--port").arg(grpc_port.to_string());
-            cmd.arg("--http-port").arg(http_port.to_string());
-            cmd.arg("--log-dir").arg("/tmp/indexify-daemon-logs");
+                let mut cmd = Command::new(daemon_path);
+                cmd.arg("--port").arg(grpc_port.to_string());
+                cmd.arg("--http-port").arg(http_port.to_string());
+                cmd.arg("--log-dir").arg("/tmp/indexify-daemon-logs");
 
-            // Pass original command after -- if provided
-            if !config.command.is_empty() {
-                cmd.arg("--");
-                cmd.arg(&config.command);
-                cmd.args(&config.args);
+                // Pass original command after -- if provided
+                if !config.command.is_empty() {
+                    cmd.arg("--");
+                    cmd.arg(&config.command);
+                    cmd.args(&config.args);
+                }
+
+                (
+                    cmd,
+                    Some(format!("127.0.0.1:{}", grpc_port)),
+                    Some(format!("127.0.0.1:{}", http_port)),
+                )
             }
+            ProcessType::Function => {
+                // Function executor mode: launch function-executor binary
+                // with ephemeral gRPC port. The binary is expected to be on PATH
+                // or provided via config.command.
+                let grpc_port =
+                    allocate_ephemeral_port().context("Failed to allocate FE gRPC port")?;
 
-            (
-                cmd,
-                Some(format!("127.0.0.1:{}", grpc_port)),
-                Some(format!("127.0.0.1:{}", http_port)),
-            )
-        } else {
-            // Direct mode: run the command directly (for testing)
-            let mut cmd = Command::new(&config.command);
-            cmd.args(&config.args);
-            (cmd, None, None)
+                info!(
+                    command = %config.command,
+                    grpc_port = grpc_port,
+                    "Starting function-executor via fork_exec"
+                );
+
+                let mut cmd = Command::new(&config.command);
+                cmd.args(&config.args);
+                // The FE listens on --address for its gRPC server.
+                cmd.arg("--address").arg(format!("127.0.0.1:{}", grpc_port));
+
+                (
+                    cmd,
+                    Some(format!("127.0.0.1:{}", grpc_port)),
+                    None, // No HTTP API for function executors
+                )
+            }
+            _ => {
+                // Direct mode: run the command directly (for testing)
+                let mut cmd = Command::new(&config.command);
+                cmd.args(&config.args);
+                (cmd, None, None)
+            }
         };
 
         let mut cmd = cmd;
         cmd.envs(config.env);
         cmd.stdin(Stdio::null());
-        cmd.stdout(Stdio::piped());
-        cmd.stderr(Stdio::piped());
+        cmd.stdout(Stdio::inherit());
+        cmd.stderr(Stdio::inherit());
 
         if let Some(dir) = &config.working_dir {
             cmd.current_dir(dir);
@@ -206,6 +233,7 @@ mod tests {
 
         let config = ProcessConfig {
             id: "test".to_string(),
+            process_type: ProcessType::default(),
             image: None,
             command: "sleep".to_string(),
             args: vec!["10".to_string()],
@@ -232,6 +260,7 @@ mod tests {
 
         let config = ProcessConfig {
             id: "test".to_string(),
+            process_type: ProcessType::default(),
             image: None,
             command: "echo".to_string(),
             args: vec!["hello".to_string()],
@@ -256,6 +285,7 @@ mod tests {
 
         let config = ProcessConfig {
             id: "test".to_string(),
+            process_type: ProcessType::default(),
             image: None,
             command: "sleep".to_string(),
             args: vec!["60".to_string()],
@@ -283,6 +313,7 @@ mod tests {
 
         let config = ProcessConfig {
             id: "test".to_string(),
+            process_type: ProcessType::default(),
             image: None,
             command: "env".to_string(),
             args: vec![],
@@ -307,6 +338,7 @@ mod tests {
 
         let config = ProcessConfig {
             id: "test".to_string(),
+            process_type: ProcessType::default(),
             image: None,
             command: "nonexistent_command_12345".to_string(),
             args: vec![],
@@ -327,6 +359,7 @@ mod tests {
 
         let config = ProcessConfig {
             id: "test".to_string(),
+            process_type: ProcessType::default(),
             image: None,
             command: "sleep".to_string(),
             args: vec!["60".to_string()],
