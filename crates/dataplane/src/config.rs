@@ -272,6 +272,12 @@ pub struct DataplaneConfig {
     /// Function executor configuration.
     #[serde(default)]
     pub function_executor: FunctionExecutorConfig,
+    /// Function allowlist: only accept allocations for these functions.
+    /// Format: "namespace:application:function" or
+    /// "namespace:application:function:version".
+    /// Empty list means accept all functions (default).
+    #[serde(default)]
+    pub function_allowlist: Vec<String>,
 }
 
 /// Configuration for function executor mode (subprocess-based).
@@ -321,6 +327,7 @@ impl Default for DataplaneConfig {
             http_proxy: HttpProxyConfig::default(),
             daemon_binary_extract_path: None,
             function_executor: FunctionExecutorConfig::default(),
+            function_allowlist: Vec::new(),
         }
     }
 }
@@ -353,6 +360,31 @@ impl DataplaneConfig {
 
     pub fn structured_logging(&self) -> bool {
         self.env != LOCAL_ENV
+    }
+
+    /// Parse function_allowlist strings into AllowedFunction protos.
+    /// Format: "namespace:application:function" or
+    /// "namespace:application:function:version".
+    pub fn parse_allowed_functions(&self) -> Vec<proto_api::executor_api_pb::AllowedFunction> {
+        self.function_allowlist
+            .iter()
+            .filter_map(|uri| {
+                let tokens: Vec<&str> = uri.split(':').collect();
+                if tokens.len() < 3 || tokens.len() > 4 {
+                    tracing::warn!(
+                        uri = %uri,
+                        "Invalid function URI, expected namespace:application:function[:version]"
+                    );
+                    return None;
+                }
+                Some(proto_api::executor_api_pb::AllowedFunction {
+                    namespace: Some(tokens[0].to_string()),
+                    application_name: Some(tokens[1].to_string()),
+                    function_name: Some(tokens[2].to_string()),
+                    application_version: tokens.get(3).map(|v| v.to_string()),
+                })
+            })
+            .collect()
     }
 
     pub fn instance_id(&self) -> String {

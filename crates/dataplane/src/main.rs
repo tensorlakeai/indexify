@@ -20,6 +20,7 @@ mod service;
 mod state_file;
 mod state_reconciler;
 mod state_reporter;
+mod validation;
 
 use config::DataplaneConfig;
 use otel_tracing::setup_tracing;
@@ -32,13 +33,20 @@ use tracing::{info, instrument};
 struct Cli {
     #[arg(short, long, value_name = "FILE")]
     config: Option<PathBuf>,
+    /// Functions this executor will run.
+    /// Format: namespace:application:function or
+    /// namespace:application:function:version.
+    /// Can be specified multiple times. If none specified, all functions are
+    /// accepted.
+    #[arg(short, long = "function")]
+    functions: Vec<String>,
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
-    let config = match cli.config {
+    let mut config = match cli.config {
         Some(path) => DataplaneConfig::from_path(
             path.to_str()
                 .ok_or_else(|| anyhow::anyhow!("Config path contains invalid UTF-8"))?,
@@ -51,6 +59,11 @@ async fn main() -> anyhow::Result<()> {
             config
         }
     };
+
+    // CLI --function flags override config file
+    if !cli.functions.is_empty() {
+        config.function_allowlist = cli.functions;
+    }
 
     setup_tracing(&config)?;
 

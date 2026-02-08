@@ -8,6 +8,7 @@ use std::{
 };
 
 use anyhow::{Context, Result};
+use indexify_dataplane::validation;
 use prost::Message;
 use proto_api::executor_api_pb::{
     DesiredExecutorState,
@@ -40,13 +41,19 @@ use crate::{
 };
 
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
-const HEARTBEAT_RETRY_INTERVAL: Duration = Duration::from_secs(2);
 const STREAM_IDLE_TIMEOUT: Duration = Duration::from_secs(300); // 5 minutes
+
+/// Heartbeat retry backoff parameters (matches Python executor's
+/// state_reporter.py).
+const HEARTBEAT_MIN_RETRY_INTERVAL: Duration = Duration::from_secs(5);
+const HEARTBEAT_MAX_RETRY_INTERVAL: Duration = Duration::from_secs(300); // 5 minutes
+const HEARTBEAT_BACKOFF_MULTIPLIER: u32 = 3;
 
 pub struct Service {
     config: DataplaneConfig,
     channel: Channel,
     host_resources: HostResources,
+    allowed_functions: Vec<proto_api::executor_api_pb::AllowedFunction>,
     container_manager: Arc<FunctionContainerManager>,
     metrics: Arc<DataplaneMetrics>,
     state_reconciler: Arc<Mutex<StateReconciler>>,
@@ -127,10 +134,20 @@ impl Service {
         // Create state reporter
         let state_reporter = Arc::new(StateReporter::new(result_rx));
 
+        // Parse function allowlist
+        let allowed_functions = config.parse_allowed_functions();
+        if !allowed_functions.is_empty() {
+            tracing::info!(
+                count = allowed_functions.len(),
+                "Function allowlist configured"
+            );
+        }
+
         Ok(Self {
             config,
             channel,
             host_resources,
+            allowed_functions,
             container_manager,
             metrics,
             state_reconciler,
@@ -170,6 +187,7 @@ impl Service {
             let heartbeat_healthy = heartbeat_healthy.clone();
             let stream_notify = stream_notify.clone();
             let host_resources = self.host_resources;
+            let allowed_functions = self.allowed_functions.clone();
             let state_reconciler = self.state_reconciler.clone();
             let state_reporter = self.state_reporter.clone();
             let cancel_token = cancel_token.clone();
@@ -181,6 +199,7 @@ impl Service {
                     channel,
                     executor_id,
                     host_resources,
+                    allowed_functions,
                     state_reconciler,
                     state_reporter,
                     heartbeat_healthy,
@@ -263,10 +282,9 @@ impl Service {
         });
 
         tokio::select! {
-            _ = tokio::signal::ctrl_c() => {
-                tracing::info!("Shutdown signal received, cancelling tasks");
+            signal_name = wait_for_shutdown_signal() => {
+                tracing::info!(signal = signal_name, "Shutdown signal received");
                 cancel_token.cancel();
-                // Shut down FE controllers
                 self.state_reconciler.lock().await.shutdown().await;
             }
             result = heartbeat_handle => {
@@ -325,6 +343,7 @@ async fn run_heartbeat_loop(
     channel: Channel,
     executor_id: String,
     host_resources: HostResources,
+    allowed_functions: Vec<proto_api::executor_api_pb::AllowedFunction>,
     state_reconciler: Arc<Mutex<StateReconciler>>,
     state_reporter: Arc<StateReporter>,
     heartbeat_healthy: Arc<AtomicBool>,
@@ -335,6 +354,7 @@ async fn run_heartbeat_loop(
     server_addr: String,
 ) {
     let mut client = ExecutorApiClient::new(channel);
+    let mut retry_interval = HEARTBEAT_MIN_RETRY_INTERVAL;
 
     loop {
         if cancel_token.is_cancelled() {
@@ -348,9 +368,6 @@ async fn run_heartbeat_loop(
         let function_call_watches = reconciler_guard.get_function_call_watches().await;
         drop(reconciler_guard);
 
-        // Collect allocation results from FE controllers
-        let allocation_results = state_reporter.take_results().await;
-
         // Build executor state without state_hash first
         let system_hostname = hostname::get()
             .map(|h| h.to_string_lossy().to_string())
@@ -363,6 +380,7 @@ async fn run_heartbeat_loop(
             status: Some(ExecutorStatus::Running.into()),
             total_resources: Some(host_resources),
             total_function_executor_resources: Some(host_resources),
+            allowed_functions: allowed_functions.clone(),
             function_executor_states,
             function_call_watches,
             proxy_address: Some(proxy_address.clone()),
@@ -376,6 +394,27 @@ async fn run_heartbeat_loop(
         let hash = hasher.finalize();
         executor_state.state_hash = Some(format!("{:x}", hash));
 
+        // Calculate base message size (without allocation results) for fragmentation.
+        let base_request = ReportExecutorStateRequest {
+            executor_state: Some(executor_state.clone()),
+            executor_update: Some(ExecutorUpdate {
+                executor_id: Some(executor_id.clone()),
+                allocation_results: vec![],
+            }),
+        };
+        let base_message_size = base_request.encoded_len();
+
+        // Collect allocation results that fit within the 10 MB message size limit.
+        // Results are NOT removed from the buffer yet — only after successful RPC.
+        let (allocation_results, has_remaining) =
+            state_reporter.collect_results(base_message_size).await;
+
+        // Extract IDs for removal after successful send
+        let reported_ids: Vec<String> = allocation_results
+            .iter()
+            .filter_map(|r| r.allocation_id.clone())
+            .collect();
+
         let request = ReportExecutorStateRequest {
             executor_state: Some(executor_state),
             executor_update: Some(ExecutorUpdate {
@@ -387,11 +426,25 @@ async fn run_heartbeat_loop(
         match client.report_executor_state(request).await {
             Ok(_) => {
                 metrics.counters.record_heartbeat(true);
+                retry_interval = HEARTBEAT_MIN_RETRY_INTERVAL; // Reset backoff on success
+
+                // Remove successfully reported results from the buffer
+                state_reporter.remove_reported_results(&reported_ids).await;
+
                 let was_healthy = heartbeat_healthy.swap(true, Ordering::SeqCst);
                 if !was_healthy {
                     tracing::info!("Heartbeat succeeded, notifying stream to start");
                     stream_notify.notify_one();
                 }
+
+                // If more results remain due to fragmentation, send immediately
+                if has_remaining {
+                    tracing::debug!(
+                        "More allocation results pending, sending next heartbeat immediately"
+                    );
+                    continue;
+                }
+
                 let results_notify = state_reporter.results_notify();
                 let reconciler = state_reconciler.lock().await;
                 let watcher_notify = reconciler.watcher_notify();
@@ -416,16 +469,27 @@ async fn run_heartbeat_loop(
                 }
             }
             Err(e) => {
+                // Results NOT removed from buffer — will be retried in next heartbeat
                 metrics.counters.record_heartbeat(false);
-                tracing::warn!(error = %e, %server_addr, "Heartbeat failed, retrying");
+                tracing::warn!(
+                    error = %e,
+                    %server_addr,
+                    retry_in_secs = retry_interval.as_secs(),
+                    "Heartbeat failed, retrying with backoff"
+                );
                 heartbeat_healthy.store(false, Ordering::SeqCst);
                 tokio::select! {
                     _ = cancel_token.cancelled() => {
                         tracing::info!("Heartbeat loop cancelled");
                         return;
                     }
-                    _ = tokio::time::sleep(HEARTBEAT_RETRY_INTERVAL) => {}
+                    _ = tokio::time::sleep(retry_interval) => {}
                 }
+                // Exponential backoff: 5s → 15s → 45s → 135s → 300s (capped)
+                retry_interval = std::cmp::min(
+                    retry_interval * HEARTBEAT_BACKOFF_MULTIPLIER,
+                    HEARTBEAT_MAX_RETRY_INTERVAL,
+                );
             }
         }
     }
@@ -552,6 +616,12 @@ async fn run_desired_stream(
     }
 }
 
+/// Number of reconciliation retry attempts (matches Python executor's
+/// state_reconciler.py).
+const RECONCILIATION_RETRIES: u32 = 3;
+/// Delay between reconciliation retry attempts.
+const RECONCILIATION_RETRY_DELAY: Duration = Duration::from_secs(5);
+
 async fn handle_desired_state(
     state: DesiredExecutorState,
     state_reconciler: &Arc<Mutex<StateReconciler>>,
@@ -575,12 +645,63 @@ async fn handle_desired_state(
         "Received desired executor state"
     );
 
-    // Reconcile through the unified state reconciler
-    let mut reconciler = state_reconciler.lock().await;
-    reconciler.reconcile(state.function_executors).await;
+    // Retry reconciliation up to 3 times with 5s delay between attempts.
+    // Matches Python executor's state_reconciler.py _reconcile_state().
+    for attempt in 0..RECONCILIATION_RETRIES {
+        match try_reconcile(&state, state_reconciler).await {
+            Ok(()) => return,
+            Err(e) => {
+                tracing::warn!(
+                    attempt = attempt + 1,
+                    max_attempts = RECONCILIATION_RETRIES,
+                    error = %e,
+                    "Reconciliation failed, retrying"
+                );
+                if attempt + 1 < RECONCILIATION_RETRIES {
+                    tokio::time::sleep(RECONCILIATION_RETRY_DELAY).await;
+                }
+            }
+        }
+    }
+    tracing::error!("Reconciliation failed after all retry attempts");
+}
 
-    // Route allocations to their FE controllers
+async fn try_reconcile(
+    state: &DesiredExecutorState,
+    state_reconciler: &Arc<Mutex<StateReconciler>>,
+) -> Result<()> {
+    // Validate FE descriptions, skip invalid ones
+    let valid_fes: Vec<_> = state
+        .function_executors
+        .iter()
+        .filter(|fe| {
+            if let Err(e) = validation::validate_fe_description(fe) {
+                tracing::warn!(
+                    fe_id = ?fe.id,
+                    error = %e,
+                    "Skipping invalid FunctionExecutorDescription"
+                );
+                false
+            } else {
+                true
+            }
+        })
+        .cloned()
+        .collect();
+
+    let mut reconciler = state_reconciler.lock().await;
+    reconciler.reconcile(valid_fes).await;
+
+    // Route allocations to their FE controllers, skip invalid ones
     for allocation in &state.allocations {
+        if let Err(e) = validation::validate_allocation(allocation) {
+            tracing::warn!(
+                allocation_id = ?allocation.allocation_id,
+                error = %e,
+                "Skipping invalid Allocation"
+            );
+            continue;
+        }
         if let Some(fe_id) = &allocation.function_executor_id {
             reconciler.add_allocation(fe_id, allocation.clone());
         }
@@ -591,6 +712,35 @@ async fn handle_desired_state(
         reconciler
             .deliver_function_call_results(&state.function_call_results)
             .await;
+    }
+
+    Ok(())
+}
+
+/// Wait for any shutdown signal (SIGINT, SIGTERM, SIGQUIT).
+/// Returns the name of the signal received.
+async fn wait_for_shutdown_signal() -> &'static str {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{SignalKind, signal};
+
+        let mut sigterm =
+            signal(SignalKind::terminate()).expect("Failed to install SIGTERM handler");
+        let mut sigquit = signal(SignalKind::quit()).expect("Failed to install SIGQUIT handler");
+
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => "SIGINT",
+            _ = sigterm.recv() => "SIGTERM",
+            _ = sigquit.recv() => "SIGQUIT",
+        }
+    }
+
+    #[cfg(not(unix))]
+    {
+        tokio::signal::ctrl_c()
+            .await
+            .expect("Failed to listen for ctrl_c");
+        "SIGINT"
     }
 }
 

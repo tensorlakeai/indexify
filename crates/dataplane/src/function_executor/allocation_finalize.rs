@@ -75,16 +75,27 @@ pub async fn finalize_allocation(
         }
     }
 
-    // Complete output blob multipart uploads
-    // The FE writes directly to presigned URLs, so we don't need to complete
-    // these — the FE already uploaded the parts. However, for S3 multipart
-    // uploads, we need to explicitly complete them.
+    // Handle output blob multipart uploads.
+    // If no fe_result (cancelled/failed before execution produced a result),
+    // abort all output blob uploads to clean up resources.
     for handle in output_blob_handles {
-        // For output blobs, the ETags come from the FE's AllocationState
-        // output_blob_requests. Since we don't track per-output-blob ETags
-        // in the current flow, we skip completion here. The FE writes
-        // directly via presigned upload-part URLs.
-        // TODO: Track output blob ETags and complete multipart uploads.
+        if fe_result.is_none() {
+            debug!(
+                allocation_id = %allocation_id,
+                uri = %handle.uri,
+                "Aborting output blob (no FE result)"
+            );
+            let _ = blob_store
+                .abort_multipart_upload(&handle.uri, &handle.upload_id)
+                .await;
+            continue;
+        }
+        // For output blobs with an FE result, the ETags come from the FE's
+        // AllocationState output_blob_requests. Since we don't track
+        // per-output-blob ETags in the current flow, we skip completion here.
+        // The FE writes directly via presigned upload-part URLs.
+        // TODO: Extract output blob ETags from fe_result and complete multipart
+        // uploads.
         debug!(
             allocation_id = %allocation_id,
             uri = %handle.uri,

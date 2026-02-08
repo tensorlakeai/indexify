@@ -9,7 +9,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use opentelemetry::{
     KeyValue,
-    metrics::{Counter, ObservableGauge},
+    metrics::{Counter, Histogram, ObservableGauge},
 };
 use opentelemetry_otlp::{MetricExporter, WithExportConfig};
 use opentelemetry_sdk::{
@@ -115,6 +115,10 @@ pub struct DataplaneCounters {
     pub heartbeat_failures: Counter<u64>,
     /// Counter for stream disconnections
     pub stream_disconnections: Counter<u64>,
+    /// Counter for completed allocations (labeled by outcome)
+    pub allocations_completed: Counter<u64>,
+    /// Histogram for allocation execution duration in milliseconds
+    pub allocation_duration_ms: Histogram<u64>,
 }
 
 impl DataplaneCounters {
@@ -161,6 +165,17 @@ impl DataplaneCounters {
             .with_description("Number of stream disconnections")
             .build();
 
+        let allocations_completed = meter
+            .u64_counter("indexify.dataplane.allocations.completed")
+            .with_description("Number of completed allocations")
+            .build();
+
+        let allocation_duration_ms = meter
+            .u64_histogram("indexify.dataplane.allocations.duration_ms")
+            .with_description("Allocation execution duration in milliseconds")
+            .with_unit("ms")
+            .build();
+
         Self {
             containers_started,
             containers_terminated,
@@ -170,6 +185,8 @@ impl DataplaneCounters {
             heartbeat_success,
             heartbeat_failures,
             stream_disconnections,
+            allocations_completed,
+            allocation_duration_ms,
         }
     }
 
@@ -213,6 +230,23 @@ impl DataplaneCounters {
     pub fn record_stream_disconnection(&self, reason: &str) {
         self.stream_disconnections
             .add(1, &[KeyValue::new("reason", reason.to_string())]);
+    }
+
+    /// Record a completed allocation with its outcome and optional duration.
+    pub fn record_allocation_completed(
+        &self,
+        outcome: &str,
+        failure_reason: Option<&str>,
+        duration_ms: Option<u64>,
+    ) {
+        let mut attrs = vec![KeyValue::new("outcome", outcome.to_string())];
+        if let Some(reason) = failure_reason {
+            attrs.push(KeyValue::new("failure_reason", reason.to_string()));
+        }
+        self.allocations_completed.add(1, &attrs);
+        if let Some(ms) = duration_ms {
+            self.allocation_duration_ms.record(ms, &attrs);
+        }
     }
 }
 

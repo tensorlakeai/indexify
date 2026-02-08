@@ -1,11 +1,10 @@
 //! Core allocation execution protocol.
 //!
-//! Runs an allocation on a function executor subprocess by:
-//! 1. Creating the allocation on the FE
-//! 2. Watching the allocation state stream
-//! 3. Reconciling output blob requests, function calls, and watchers
-//! 4. Collecting the allocation result
-//! 5. Finalizing blob operations and deleting the allocation from the FE
+//! Executes an allocation on a function executor subprocess. This is the
+//! "Running" phase of the 3-phase lifecycle (Preparing → Running → Finalizing).
+//!
+//! Prep and finalization are handled separately by the controller so that
+//! only execution occupies a concurrency slot.
 
 use std::{
     collections::{HashMap, HashSet},
@@ -14,6 +13,7 @@ use std::{
 };
 
 use anyhow::Result;
+use prost::Message as _;
 use proto_api::{
     executor_api_pb::{
         Allocation as ServerAllocation,
@@ -32,10 +32,7 @@ use proto_api::{
         AllocationRequestStatePrepareWriteOperationResult,
         AllocationState,
         AllocationUpdate,
-        Blob,
-        BlobChunk,
         CreateAllocationRequest,
-        FunctionInputs,
         allocation_request_state_operation,
     },
 };
@@ -44,18 +41,37 @@ use tonic::transport::Channel;
 use tracing::{debug, error, info, warn};
 
 use super::{
-    allocation_finalize,
-    allocation_prep,
-    events::AllocationOutcome,
+    events::{AllocationOutcome, PreparedAllocation},
     fe_client::FunctionExecutorGrpcClient,
     watcher_registry::WatcherRegistry,
 };
 use crate::blob_ops::{self, BlobStore, MultipartUploadHandle};
 
-/// Run an allocation on the FE and return the outcome.
-pub async fn run_allocation(
+/// Maximum function call request size in bytes (1 MB).
+/// Matches Python executor's limits.py MAX_FUNCTION_CALL_SIZE_MB.
+const MAX_FUNCTION_CALL_SIZE: usize = 1024 * 1024;
+
+/// Maximum number of items in execution plan updates.
+/// Matches Python executor's limits.py
+/// MAX_FUNCTION_CALL_EXECUTION_PLAN_UPDATE_ITEMS_COUNT.
+const MAX_EXECUTION_PLAN_UPDATE_ITEMS: usize = 1000;
+
+/// Maximum retries for server RPCs (e.g. call_function).
+const SERVER_RPC_MAX_RETRIES: u32 = 5;
+/// Initial retry delay for server RPCs.
+const SERVER_RPC_INITIAL_DELAY: Duration = Duration::from_millis(100);
+/// Maximum retry delay for server RPCs.
+const SERVER_RPC_MAX_DELAY: Duration = Duration::from_secs(15);
+
+/// Execute an allocation on the FE and return the outcome.
+///
+/// This is the "Running" phase — it occupies a concurrency slot. Preparation
+/// (presigning blobs) and finalization (completing uploads) are handled by the
+/// controller outside the slot.
+pub async fn execute_allocation(
     mut client: FunctionExecutorGrpcClient,
     allocation: ServerAllocation,
+    prepared: PreparedAllocation,
     server_channel: Channel,
     blob_store: Arc<BlobStore>,
     timeout: Duration,
@@ -67,21 +83,7 @@ pub async fn run_allocation(
 
     info!(allocation_id = %allocation_id, "Starting allocation execution");
 
-    // Phase 1: Prepare inputs (presign read URLs, create error blob)
-    let prepared = match allocation_prep::prepare_allocation(&allocation, &blob_store).await {
-        Ok(p) => p,
-        Err(e) => {
-            error!(allocation_id = %allocation_id, error = %e, "Failed to prepare allocation");
-            return AllocationOutcome::Failed {
-                reason: proto_api::executor_api_pb::AllocationFailureReason::InternalError,
-                error_message: e.to_string(),
-            };
-        }
-    };
-
-    let request_error_blob_handle = prepared.request_error_blob_handle.clone();
-
-    // Phase 2: Create allocation on FE
+    // Create allocation on FE
     let fe_allocation = function_executor_pb::Allocation {
         request_id: allocation.request_id.clone(),
         function_call_id: allocation.function_call_id.clone(),
@@ -96,11 +98,11 @@ pub async fn run_allocation(
 
     if let Err(e) = client.create_allocation(create_request).await {
         error!(allocation_id = %allocation_id, error = %e, "Failed to create allocation on FE");
-        // Abort request error blob if we created one
-        abort_request_error_blob(&request_error_blob_handle, &blob_store).await;
         return AllocationOutcome::Failed {
             reason: proto_api::executor_api_pb::AllocationFailureReason::InternalError,
             error_message: e.to_string(),
+            output_blob_handles: Vec::new(),
+            likely_fe_crash: true,
         };
     }
 
@@ -110,10 +112,11 @@ pub async fn run_allocation(
         Err(e) => {
             error!(allocation_id = %allocation_id, error = %e, "Failed to open allocation state stream");
             let _ = client.delete_allocation(&allocation_id).await;
-            abort_request_error_blob(&request_error_blob_handle, &blob_store).await;
             return AllocationOutcome::Failed {
-                reason: proto_api::executor_api_pb::AllocationFailureReason::InternalError,
+                reason: proto_api::executor_api_pb::AllocationFailureReason::FunctionError,
                 error_message: e.to_string(),
+                output_blob_handles: Vec::new(),
+                likely_fe_crash: true,
             };
         }
     };
@@ -130,6 +133,7 @@ pub async fn run_allocation(
     let mut watcher_tasks = WatcherTaskGuard {
         handles: Vec::new(),
     };
+    let mut has_active_watchers = false;
 
     let uri_prefix = allocation
         .request_data_payload_uri_prefix
@@ -140,17 +144,26 @@ pub async fn run_allocation(
         if cancel_token.is_cancelled() {
             info!(allocation_id = %allocation_id, "Allocation cancelled");
             let _ = client.delete_allocation(&allocation_id).await;
-            abort_request_error_blob(&request_error_blob_handle, &blob_store).await;
-            return AllocationOutcome::Cancelled;
+            return AllocationOutcome::Cancelled {
+                output_blob_handles,
+            };
+        }
+
+        // If we have active watchers (waiting for child functions), we extend the
+        // deadline to prevent timeout while waiting. The child function has its
+        // own timeout.
+        if has_active_watchers {
+            deadline = Instant::now() + timeout;
         }
 
         if Instant::now() > deadline {
             warn!(allocation_id = %allocation_id, "Allocation timed out");
             let _ = client.delete_allocation(&allocation_id).await;
-            abort_request_error_blob(&request_error_blob_handle, &blob_store).await;
             return AllocationOutcome::Failed {
                 reason: proto_api::executor_api_pb::AllocationFailureReason::FunctionTimeout,
                 error_message: "Allocation execution timed out".to_string(),
+                output_blob_handles,
+                likely_fe_crash: false,
             };
         }
 
@@ -158,8 +171,9 @@ pub async fn run_allocation(
         let message = tokio::select! {
             _ = cancel_token.cancelled() => {
                 let _ = client.delete_allocation(&allocation_id).await;
-                abort_request_error_blob(&request_error_blob_handle, &blob_store).await;
-                return AllocationOutcome::Cancelled;
+                return AllocationOutcome::Cancelled {
+                    output_blob_handles,
+                };
             }
             result = tokio::time::timeout(remaining, stream.message()) => result,
         };
@@ -170,6 +184,8 @@ pub async fn run_allocation(
                 if state.progress.is_some() {
                     deadline = Instant::now() + timeout;
                 }
+
+                has_active_watchers = !state.function_call_watchers.is_empty();
 
                 // Reconcile output blob requests
                 for blob_req in &state.output_blob_requests {
@@ -298,33 +314,106 @@ pub async fn run_allocation(
                             source_function_call_id: allocation.function_call_id.clone(),
                         };
 
-                        let creation_result = match server_client.call_function(fc_request).await {
-                            Ok(_) => AllocationFunctionCallCreationResult {
-                                function_call_id: root_fc_id,
+                        // Validate function call size and update count limits
+                        let request_size = fc_request.encoded_len();
+                        let update_count = fc_request
+                            .updates
+                            .as_ref()
+                            .map(|u| u.updates.len())
+                            .unwrap_or(0);
+
+                        if request_size > MAX_FUNCTION_CALL_SIZE {
+                            warn!(
+                                allocation_id = %allocation_id,
+                                function_call_id = %fc_id,
+                                size = request_size,
+                                limit = MAX_FUNCTION_CALL_SIZE,
+                                "Function call exceeds size limit"
+                            );
+                            let creation_result = AllocationFunctionCallCreationResult {
+                                function_call_id: root_fc_id.clone(),
                                 allocation_function_call_id: Some(fc_id.to_string()),
                                 status: Some(proto_api::google_rpc::Status {
-                                    code: 0,
-                                    message: String::new(),
+                                    code: 8, // RESOURCE_EXHAUSTED
+                                    message: format!(
+                                        "Function call size {} exceeds limit {} bytes",
+                                        request_size, MAX_FUNCTION_CALL_SIZE
+                                    ),
                                     details: vec![],
                                 }),
-                            },
-                            Err(e) => {
-                                warn!(
-                                    allocation_id = %allocation_id,
-                                    error = %e,
-                                    "call_function RPC failed"
-                                );
-                                AllocationFunctionCallCreationResult {
+                            };
+                            let update = AllocationUpdate {
+                                allocation_id: Some(allocation_id.clone()),
+                                update: Some(
+                                    function_executor_pb::allocation_update::Update::FunctionCallCreationResult(
+                                        creation_result,
+                                    ),
+                                ),
+                            };
+                            let _ = client.send_allocation_update(update).await;
+                            continue;
+                        }
+
+                        if update_count > MAX_EXECUTION_PLAN_UPDATE_ITEMS {
+                            warn!(
+                                allocation_id = %allocation_id,
+                                function_call_id = %fc_id,
+                                count = update_count,
+                                limit = MAX_EXECUTION_PLAN_UPDATE_ITEMS,
+                                "Function call exceeds update items limit"
+                            );
+                            let creation_result = AllocationFunctionCallCreationResult {
+                                function_call_id: root_fc_id.clone(),
+                                allocation_function_call_id: Some(fc_id.to_string()),
+                                status: Some(proto_api::google_rpc::Status {
+                                    code: 8, // RESOURCE_EXHAUSTED
+                                    message: format!(
+                                        "Execution plan update count {} exceeds limit {}",
+                                        update_count, MAX_EXECUTION_PLAN_UPDATE_ITEMS
+                                    ),
+                                    details: vec![],
+                                }),
+                            };
+                            let update = AllocationUpdate {
+                                allocation_id: Some(allocation_id.clone()),
+                                update: Some(
+                                    function_executor_pb::allocation_update::Update::FunctionCallCreationResult(
+                                        creation_result,
+                                    ),
+                                ),
+                            };
+                            let _ = client.send_allocation_update(update).await;
+                            continue;
+                        }
+
+                        let creation_result =
+                            match call_function_with_retry(&mut server_client, fc_request).await {
+                                Ok(_) => AllocationFunctionCallCreationResult {
                                     function_call_id: root_fc_id,
                                     allocation_function_call_id: Some(fc_id.to_string()),
                                     status: Some(proto_api::google_rpc::Status {
-                                        code: 13, // INTERNAL
-                                        message: e.to_string(),
+                                        code: 0,
+                                        message: String::new(),
                                         details: vec![],
                                     }),
+                                },
+                                Err(e) => {
+                                    warn!(
+                                        allocation_id = %allocation_id,
+                                        error = %e,
+                                        "call_function RPC failed after retries"
+                                    );
+                                    AllocationFunctionCallCreationResult {
+                                        function_call_id: root_fc_id,
+                                        allocation_function_call_id: Some(fc_id.to_string()),
+                                        status: Some(proto_api::google_rpc::Status {
+                                            code: 13, // INTERNAL
+                                            message: e.to_string(),
+                                            details: vec![],
+                                        }),
+                                    }
                                 }
-                            }
-                        };
+                            };
 
                         let update = AllocationUpdate {
                             allocation_id: Some(allocation_id.clone()),
@@ -437,63 +526,55 @@ pub async fn run_allocation(
                 }
             }
             Ok(Ok(None)) => {
-                // Stream closed without result
+                // Stream closed without result — FE likely crashed
                 warn!(allocation_id = %allocation_id, "Allocation state stream closed prematurely");
                 let _ = client.delete_allocation(&allocation_id).await;
-                abort_request_error_blob(&request_error_blob_handle, &blob_store).await;
                 return AllocationOutcome::Failed {
-                    reason: proto_api::executor_api_pb::AllocationFailureReason::InternalError,
+                    reason: proto_api::executor_api_pb::AllocationFailureReason::FunctionError,
                     error_message: "Allocation state stream closed without result".to_string(),
+                    output_blob_handles,
+                    likely_fe_crash: true,
                 };
             }
             Ok(Err(e)) => {
+                // gRPC stream error — FE likely crashed
                 error!(allocation_id = %allocation_id, error = %e, "Allocation state stream error");
                 let _ = client.delete_allocation(&allocation_id).await;
-                abort_request_error_blob(&request_error_blob_handle, &blob_store).await;
                 return AllocationOutcome::Failed {
-                    reason: proto_api::executor_api_pb::AllocationFailureReason::InternalError,
+                    reason: proto_api::executor_api_pb::AllocationFailureReason::FunctionError,
                     error_message: e.to_string(),
+                    output_blob_handles,
+                    likely_fe_crash: true,
                 };
             }
             Err(_) => {
                 // Timeout
+                if has_active_watchers {
+                    // This is expected if the FE is blocked waiting for a child function.
+                    // We just continue the loop (deadline was already extended).
+                    continue;
+                }
                 warn!(allocation_id = %allocation_id, "Allocation timed out waiting for state");
                 let _ = client.delete_allocation(&allocation_id).await;
-                abort_request_error_blob(&request_error_blob_handle, &blob_store).await;
                 return AllocationOutcome::Failed {
                     reason: proto_api::executor_api_pb::AllocationFailureReason::FunctionTimeout,
                     error_message: "Allocation timed out".to_string(),
+                    output_blob_handles,
+                    likely_fe_crash: false,
                 };
             }
         }
     }
 
-    // Phase 5: Finalize blob operations
     let execution_duration_ms = start_time.elapsed().as_millis() as u64;
 
-    // Finalize blob operations (complete/abort multipart uploads)
-    if let Err(e) = allocation_finalize::finalize_allocation(
-        &allocation_id,
-        final_result.as_ref(),
-        request_error_blob_handle.as_ref(),
-        &output_blob_handles,
-        &blob_store,
-    )
-    .await
-    {
-        warn!(
-            allocation_id = %allocation_id,
-            error = %e,
-            "Blob finalization failed"
-        );
-    }
-
-    // Delete allocation from FE
+    // Delete allocation from FE (fast gRPC call, do before freeing the slot)
     if let Err(e) = client.delete_allocation(&allocation_id).await {
         warn!(allocation_id = %allocation_id, error = %e, "Failed to delete allocation from FE");
     }
 
-    // Convert FE result to server result
+    // Convert FE result to server result. Finalization is handled by the
+    // controller.
     match &final_result {
         Some(fe_result) => {
             let server_result =
@@ -502,22 +583,58 @@ pub async fn run_allocation(
                 result: server_result,
                 execution_duration_ms,
                 fe_result: final_result,
+                output_blob_handles,
             }
         }
         None => AllocationOutcome::Failed {
             reason: proto_api::executor_api_pb::AllocationFailureReason::InternalError,
             error_message: "No result from allocation".to_string(),
+            output_blob_handles,
+            likely_fe_crash: false,
         },
     }
 }
 
-/// Abort the request error blob multipart upload (best-effort).
-async fn abort_request_error_blob(handle: &Option<MultipartUploadHandle>, blob_store: &BlobStore) {
-    if let Some(handle) = handle {
-        let _ = blob_store
-            .abort_multipart_upload(&handle.uri, &handle.upload_id)
-            .await;
+/// Call server's call_function RPC with exponential backoff retry.
+///
+/// Retries on transient gRPC errors (Unavailable, Internal, DeadlineExceeded).
+/// Matches Python executor's retry behavior for server RPCs.
+async fn call_function_with_retry(
+    client: &mut ExecutorApiClient<Channel>,
+    request: proto_api::executor_api_pb::FunctionCallRequest,
+) -> Result<(), tonic::Status> {
+    let mut delay = SERVER_RPC_INITIAL_DELAY;
+
+    for attempt in 0..=SERVER_RPC_MAX_RETRIES {
+        match client.call_function(request.clone()).await {
+            Ok(_) => return Ok(()),
+            Err(status) => {
+                let retryable = matches!(
+                    status.code(),
+                    tonic::Code::Unavailable |
+                        tonic::Code::Internal |
+                        tonic::Code::DeadlineExceeded
+                );
+
+                if !retryable || attempt == SERVER_RPC_MAX_RETRIES {
+                    return Err(status);
+                }
+
+                warn!(
+                    attempt = attempt + 1,
+                    max_retries = SERVER_RPC_MAX_RETRIES,
+                    code = ?status.code(),
+                    delay_ms = delay.as_millis() as u64,
+                    "call_function RPC failed, retrying"
+                );
+
+                tokio::time::sleep(delay).await;
+                delay = std::cmp::min(delay * 2, SERVER_RPC_MAX_DELAY);
+            }
+        }
     }
+
+    unreachable!()
 }
 
 /// Convert FE AllocationResult to server AllocationResult.
