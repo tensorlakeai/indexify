@@ -389,7 +389,7 @@ impl ProxyHttp for HttpProxy {
                 .map(|t| format!("established_ts={:?}", t.established_ts))
                 .unwrap_or_else(|| "no timing".to_string());
 
-            info!(
+            debug!(
                 peer_addr = %peer.address(),
                 peer_tls = peer.is_tls(),
                 connection_reused = reused,
@@ -534,7 +534,7 @@ impl ProxyHttp for HttpProxy {
             peer_addr = %peer.address(),
             peer_tls = peer.is_tls(),
             is_grpc = ctx.is_grpc,
-            "Failed to connect to container - detailed diagnostics"
+            "Failed to connect to container"
         );
 
         e
@@ -640,7 +640,7 @@ impl ProxyHttp for HttpProxy {
                 is_grpc = ctx.is_grpc,
                 container_addr = ctx.container_addr.as_deref().unwrap_or("unknown"),
                 response_status = status,
-                "Proxy error - detailed diagnostics"
+                "Proxy error"
             );
         });
 
