@@ -1,4 +1,4 @@
-FROM rust:slim-trixie AS builder
+FROM --platform=$BUILDPLATFORM rust:slim-trixie AS builder
 
 WORKDIR /app
 
@@ -11,30 +11,56 @@ RUN apt-get update && apt-get install -y \
 RUN curl -sL https://deb.nodesource.com/setup_24.x | bash && \
     apt-get install -y nodejs
 
+ARG TARGETPLATFORM
+
+ARG ARG ZIG_VERSION=0.15.2
+RUN <<EOF
+  if [ "$TARGETPLATFORM" = "linux/amd64" ]; then
+    ZIG_ARCH="x86_64"
+  else
+    ZIG_ARCH="aarch64"
+  fi
+  curl -fsSL -o /opt/zig.tar.xz "https://ziglang.org/download/0.15.2/zig-${ZIG_ARCH}-linux-0.15.2.tar.xz"
+  tar xJ -C /opt -f /opt/zig.tar.xz
+  ln -s /opt/zig-${ZIG_ARCH}-linux-0.15.2/zig /usr/local/bin/zig
+  zig version
+EOF
+
+ARG CARGO_ZIGBUILD_VERSION=0.20.1
+RUN <<EOF
+  if [ "$TARGETPLATFORM" = "linux/amd64" ]; then
+    BUILD_TARGET="x86_64-unknown-linux-musl"
+  else
+    BUILD_TARGET="aarch64-unknown-linux-musl"
+  fi
+  curl -sSOL https://github.com/rust-cross/cargo-zigbuild/releases/download/v${CARGO_ZIGBUILD_VERSION}/cargo-zigbuild-v${CARGO_ZIGBUILD_VERSION}.$BUILD_TARGET.tar.gz
+  tar -xzf cargo-zigbuild-v${CARGO_ZIGBUILD_VERSION}.$BUILD_TARGET.tar.gz
+  mv cargo-zigbuild /usr/local/bin/cargo-zigbuild
+  rm -rf cargo-zigbuild*
+  cargo-zigbuild --version
+EOF
+
 COPY rust-toolchain.toml .
 COPY Cargo.toml .
 COPY Cargo.lock .
 COPY proto proto
 COPY crates crates
 
-RUN cargo build --release --bin indexify-server
+RUN <<EOF
+  if [ "$TARGETPLATFORM" = "linux/amd64" ]; then
+    BUILD_TARGET="x86_64-unknown-linux-musl"
+  else
+    BUILD_TARGET="aarch64-unknown-linux-musl"
+  fi
+  rustup target add $BUILD_TARGET
+  cargo zigbuild -p indexify-server --target $BUILD_TARGET --release
+  cp target/$BUILD_TARGET/release/indexify-server target/indexify-server
+EOF
 
-FROM ubuntu:24.04 AS runner
-
-RUN apt update
-
-RUN apt-get update && apt install -y \
-    curl \
-    libssl-dev \
-    ca-certificates && \
-    apt clean
-
-RUN update-ca-certificates
-
+FROM scratch
 WORKDIR /indexify
 
-COPY --from=builder /app/target/release/indexify-server ./
-
-ENV PATH="/indexify:${PATH}"
+COPY --from=ghcr.io/calavera/http-health-probe:0.1.0 /http-health-probe /http-health-probe
+COPY --from=builder /app/target/indexify-server ./
 
 ENTRYPOINT [ "/indexify/indexify-server" ]

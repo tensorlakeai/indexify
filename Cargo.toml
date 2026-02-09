@@ -91,3 +91,8 @@ pingora-proxy = { git = "https://github.com/cloudflare/pingora", rev = "ad449bf3
 pingora-http = { git = "https://github.com/cloudflare/pingora", rev = "ad449bf373a696116f60c89f1e7d62c00f7cb09a" }
 reqwest = { version = "0.13.1", default-features = false, features = ["json", "rustls-tls-webpki-roots"] }
 hyper-rustls = { version = "0.27.7", default-features = false, features = ["http1", "http2", "aws-lc-rs", "tls12", "webpki-tokio"] }
+
+[profile.release]
+strip = true
+codegen-units = 1
+lto = true
