@@ -18,6 +18,7 @@
 //! 4. Proxy forwards request to container, stripping routing headers
 
 use std::{
+    os::fd::RawFd,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -28,10 +29,13 @@ use pingora::{
     prelude::*,
     protocols::TcpKeepalive,
     services::listening::Service,
-    upstreams::peer::PeerOptions,
+    upstreams::peer::{ALPN, Peer, PeerOptions},
 };
-use pingora_core::apps::HttpServerOptions;
-use pingora_http::{RequestHeader, ResponseHeader};
+use pingora_core::{
+    apps::HttpServerOptions,
+    protocols::{Digest, http::HttpTask},
+};
+use pingora_http::{HMap, RequestHeader, ResponseHeader};
 use pingora_proxy::{FailToProxy, HttpProxy as PingoraHttpProxy, ProxyHttp, Session};
 use serde::Serialize;
 use tokio_util::sync::CancellationToken;
@@ -104,6 +108,18 @@ pub struct ProxyContext {
     request_start: Instant,
     /// Response status code (set after upstream response)
     status_code: Option<u16>,
+    /// Whether this request is gRPC (requires HTTP/2)
+    is_grpc: bool,
+    /// Whether upstream response was a gRPC trailers-only response
+    /// (grpc-status in initial headers, meaning the stream will close
+    /// immediately). In this case, an H2 RST_STREAM(NO_ERROR) is expected
+    /// and not a proxy error.
+    grpc_trailers_only: bool,
+    /// Saved gRPC trailer headers (grpc-status, grpc-message) extracted from a
+    /// trailers-only response. These are removed from the initial response
+    /// headers and re-sent as proper HTTP/2 trailers so gRPC clients handle
+    /// them correctly.
+    grpc_trailers: Option<Box<HMap>>,
 }
 
 /// HTTP proxy with header-based routing to sandbox containers.
@@ -158,6 +174,17 @@ fn get_origin(session: &Session) -> Option<String> {
         .map(|s| s.to_string())
 }
 
+/// Check if request is gRPC based on content-type header.
+fn is_grpc_request(session: &Session) -> bool {
+    session
+        .req_header()
+        .headers
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .map(|ct| ct.starts_with("application/grpc"))
+        .unwrap_or(false)
+}
+
 async fn send_error_response(
     session: &mut Session,
     status: u16,
@@ -191,6 +218,9 @@ impl ProxyHttp for HttpProxy {
             container_addr: None,
             request_start: Instant::now(),
             status_code: None,
+            is_grpc: false,
+            grpc_trailers_only: false,
+            grpc_trailers: None,
         }
     }
 
@@ -200,6 +230,9 @@ impl ProxyHttp for HttpProxy {
         let method = &req.method;
         let path = req.uri.path().to_string();
         let origin = get_origin(session);
+
+        // Detect gRPC requests by content-type header
+        ctx.is_grpc = is_grpc_request(session);
 
         // Handle CORS preflight requests (OPTIONS)
         if method == Method::OPTIONS {
@@ -303,15 +336,69 @@ impl ProxyHttp for HttpProxy {
             .as_ref()
             .ok_or_else(|| Error::explain(ErrorType::HTTPStatus(500), "No container address"))?;
 
-        // Connect to container with HTTP/2 preferred, HTTP/1.1 fallback
-        // This supports gRPC (requires HTTP/2), regular HTTP, and WebSockets (HTTP/1.1
-        // upgrade)
         let mut peer = HttpPeer::new(addr, false, String::new());
         peer.options = create_peer_options(&self.upstream_config);
-        // Prefer HTTP/2 (h2c) but allow HTTP/1.1 fallback for WebSockets and legacy
-        // services
-        peer.options.set_http_version(2, 1);
+
+        if ctx.is_grpc {
+            // gRPC requires HTTP/2 - no fallback allowed
+            peer.options.alpn = ALPN::H2;
+            ctx.span.in_scope(|| {
+                debug!(
+                    upstream_addr = %addr,
+                    is_grpc = true,
+                    alpn = "H2",
+                    tls = false,
+                    "Configuring upstream peer for gRPC (HTTP/2 required)"
+                );
+            });
+        } else {
+            // Regular HTTP: prefer H2, fallback to H1 (for WebSockets, etc.)
+            peer.options.set_http_version(2, 1);
+            ctx.span.in_scope(|| {
+                debug!(
+                    upstream_addr = %addr,
+                    is_grpc = false,
+                    http_version = "H2 preferred, H1 fallback",
+                    tls = false,
+                    "Configuring upstream peer for HTTP"
+                );
+            });
+        }
+
         Ok(Box::new(peer))
+    }
+
+    /// Called when successfully connected to upstream.
+    /// Logs connection details for debugging.
+    async fn connected_to_upstream(
+        &self,
+        _session: &mut Session,
+        reused: bool,
+        peer: &HttpPeer,
+        _fd: RawFd,
+        digest: Option<&Digest>,
+        ctx: &mut Self::CTX,
+    ) -> Result<()>
+    where
+        Self::CTX: Send + Sync,
+    {
+        ctx.span.in_scope(|| {
+            let timing_info = digest
+                .and_then(|d| d.timing_digest.first())
+                .and_then(|t| t.as_ref())
+                .map(|t| format!("established_ts={:?}", t.established_ts))
+                .unwrap_or_else(|| "no timing".to_string());
+
+            debug!(
+                peer_addr = %peer.address(),
+                peer_tls = peer.is_tls(),
+                connection_reused = reused,
+                is_grpc = ctx.is_grpc,
+                timing = %timing_info,
+                "Successfully connected to upstream"
+            );
+        });
+        Ok(())
     }
 
     /// Remove routing headers before forwarding to container.
@@ -338,7 +425,54 @@ impl ProxyHttp for HttpProxy {
     where
         Self::CTX: Send + Sync,
     {
-        ctx.status_code = Some(upstream_response.status.as_u16());
+        let status = upstream_response.status.as_u16();
+        ctx.status_code = Some(status);
+
+        // Log response details for debugging
+        ctx.span.in_scope(|| {
+            let headers: Vec<_> = upstream_response
+                .headers
+                .iter()
+                .map(|(k, v)| format!("{}: {}", k.as_str(), v.to_str().unwrap_or("<binary>")))
+                .collect();
+
+            debug!(
+                upstream_status = status,
+                upstream_headers = ?headers,
+                is_grpc = ctx.is_grpc,
+                "Received upstream response headers"
+            );
+        });
+
+        // Detect gRPC trailers-only responses: when grpc-status appears in the
+        // initial response headers (not trailing headers), the server is signaling
+        // an immediate result with no body. The H2 stream will be closed right after
+        // these headers, which Pingora sees as a ReadError.
+        //
+        // gRPC clients expect grpc-status in HTTP/2 *trailers* (a trailing HEADERS
+        // frame with END_STREAM), not in the initial response headers. If we leave
+        // them in the initial headers, clients report "server closed the stream
+        // without sending trailers". So we extract them here and re-send them as
+        // proper HTTP/2 trailers in fail_to_proxy.
+        if ctx.is_grpc && upstream_response.headers.contains_key("grpc-status") {
+            ctx.grpc_trailers_only = true;
+
+            let mut trailers = HMap::new();
+            if let Some(val) = upstream_response.remove_header("grpc-status") {
+                ctx.span.in_scope(|| {
+                    debug!(
+                        grpc_status = val.to_str().unwrap_or("?"),
+                        "Detected gRPC trailers-only response, moving grpc-status to trailers"
+                    );
+                });
+                trailers.insert("grpc-status", val);
+            }
+            if let Some(val) = upstream_response.remove_header("grpc-message") {
+                trailers.insert("grpc-message", val);
+            }
+            ctx.grpc_trailers = Some(Box::new(trailers));
+        }
+
         add_cors_headers(upstream_response, get_origin(session).as_deref());
         Ok(())
     }
@@ -376,15 +510,32 @@ impl ProxyHttp for HttpProxy {
     fn fail_to_connect(
         &self,
         _session: &mut Session,
-        _peer: &HttpPeer,
+        peer: &HttpPeer,
         ctx: &mut Self::CTX,
         e: Box<Error>,
     ) -> Box<Error> {
         let duration_ms = ctx.request_start.elapsed().as_millis() as u64;
         ctx.span.record("duration_ms", duration_ms);
 
+        // Collect cause chain for detailed logging
+        let mut cause_chain = Vec::new();
+        let mut current: &dyn std::error::Error = e.as_ref();
+        while let Some(source) = current.source() {
+            cause_chain.push(format!("{}", source));
+            current = source;
+        }
+
         let _guard = ctx.span.enter();
-        error!(error = %e, error_type = e.etype().as_str(), "Failed to connect to container");
+        error!(
+            error = %e,
+            error_debug = ?e,
+            error_type = e.etype().as_str(),
+            cause_chain = ?cause_chain,
+            peer_addr = %peer.address(),
+            peer_tls = peer.is_tls(),
+            is_grpc = ctx.is_grpc,
+            "Failed to connect to container"
+        );
 
         e
     }
@@ -398,7 +549,52 @@ impl ProxyHttp for HttpProxy {
     where
         Self::CTX: Send + Sync,
     {
+        // gRPC trailers-only responses: the upstream already sent grpc-status in the
+        // initial response headers and then closed the H2 stream. Pingora sees this
+        // stream close as a ReadError, but it is completely expected. The downstream
+        // client already has all the information it needs from the headers.
+        // Critically, we must NOT send a JSON error body here — the response headers
+        // (with content-type: application/grpc) have already been forwarded downstream,
+        // so any body we write would be interpreted as a gRPC length-prefixed frame,
+        // producing a confusing "message larger than max" error on the client.
+        if ctx.grpc_trailers_only {
+            ctx.span.in_scope(|| {
+                debug!(
+                    error = %e,
+                    "gRPC trailers-only response completed (stream close is expected)"
+                );
+            });
+
+            // Send the saved grpc-status/grpc-message as proper HTTP/2 trailers.
+            // We removed these from the initial response headers in
+            // upstream_response_filter so they wouldn't be sent as regular headers
+            // (which gRPC clients ignore). Sending them as trailers (a trailing
+            // HEADERS frame with END_STREAM) is what the gRPC protocol requires.
+            if let Some(trailers) = ctx.grpc_trailers.take() {
+                let _ = session
+                    .write_response_tasks(vec![HttpTask::Trailer(Some(trailers))])
+                    .await;
+            }
+
+            return FailToProxy {
+                error_code: 200,
+                can_reuse_downstream: true,
+            };
+        }
+
         let error_type = e.etype();
+
+        // Collect detailed error information for logging
+        let error_detail = format!("{}", e);
+        let error_debug = format!("{:?}", e);
+
+        // Walk the error cause chain
+        let mut cause_chain = Vec::new();
+        let mut current: &dyn std::error::Error = e;
+        while let Some(source) = current.source() {
+            cause_chain.push(format!("{}", source));
+            current = source;
+        }
 
         // Determine status, message, and code based on error type
         let (status, message, code) = match error_type {
@@ -434,15 +630,31 @@ impl ProxyHttp for HttpProxy {
             ),
         };
 
+        // Log detailed error information
+        ctx.span.in_scope(|| {
+            error!(
+                error_type = error_type.as_str(),
+                error_display = %error_detail,
+                error_debug = %error_debug,
+                cause_chain = ?cause_chain,
+                is_grpc = ctx.is_grpc,
+                container_addr = ctx.container_addr.as_deref().unwrap_or("unknown"),
+                response_status = status,
+                "Proxy error"
+            );
+        });
+
         // Disable keepalive to ensure clean connection close
         session.set_keepalive(None);
 
-        ctx.status_code = Some(status);
-
-        let origin = get_origin(session);
-
-        // Best effort - if this fails, Pingora will still return the status code
-        let _ = send_error_response(session, status, message, code, origin.as_deref()).await;
+        // Only send error response if upstream response headers haven't been sent yet.
+        // If they have (status_code was already set in upstream_response_filter),
+        // writing new headers/body would corrupt the in-flight response.
+        if ctx.status_code.is_none() {
+            ctx.status_code = Some(status);
+            let origin = get_origin(session);
+            let _ = send_error_response(session, status, message, code, origin.as_deref()).await;
+        }
 
         FailToProxy {
             error_code: status,

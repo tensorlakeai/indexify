@@ -519,15 +519,14 @@ impl FunctionContainerManager {
                                 "Failed to remove container from state file"
                             );
                         }
-                        if let Some(removed) = containers.remove(&id) {
-                            if let Some(sid) = removed
+                        if let Some(removed) = containers.remove(&id) &&
+                            let Some(sid) = removed
                                 .description
                                 .sandbox_metadata
                                 .as_ref()
                                 .and_then(|m| m.sandbox_id.as_ref())
-                            {
-                                containers.unindex_sandbox(sid);
-                            }
+                        {
+                            containers.unindex_sandbox(sid);
                         }
                     }
                     ContainerState::Stopping { .. } => {
