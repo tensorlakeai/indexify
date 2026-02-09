@@ -50,7 +50,7 @@ json-subscriber = "0.2.7"
 console-subscriber = "0.5.0"
 otlp-logs-exporter = { git = "https://github.com/tensorlakeai/otlp-logs-exporter", features = ["rt-tokio"] }
 utoipa = { version = "5.4.0", features = ["axum_extras", "yaml"] }
-utoipa-swagger-ui = { version = "9.0.2", features = ["axum"] }
+utoipa-swagger-ui = { version = "9.0.2", features = ["axum", "vendored"] }
 object_store = { version = "0.13.1", features = ["aws", "tls-webpki-roots"] }
 rocksdb = "0.24.0"
 anyhow = "1.0.100"
