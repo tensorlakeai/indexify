@@ -30,7 +30,7 @@ axum = { version = "0.8.8", features = ["multipart", "macros", "tokio"] }
 axum-server = "0.8.0"
 tower-http = { version = "0.6.8", default-features = false, features = ["cors", "trace"] }
 hyper = { version = "1.8.1", features = ["client", "http1"] }
-tonic = { version = "0.14.3", features = ["transport", "tls-ring", "tls-native-roots"] }
+tonic = { version = "0.14.3", features = ["transport", "tls-aws-lc", "tls-webpki-roots"] }
 tonic-prost = "0.14.3"
 tonic-reflection = "0.14.3"
 tonic-types = "0.14.3"
@@ -51,7 +51,7 @@ console-subscriber = "0.5.0"
 otlp-logs-exporter = { git = "https://github.com/tensorlakeai/otlp-logs-exporter", features = ["rt-tokio"] }
 utoipa = { version = "5.4.0", features = ["axum_extras", "yaml"] }
 utoipa-swagger-ui = { version = "9.0.2", features = ["axum"] }
-object_store = { version = "0.13.1", features = ["aws"] }
+object_store = { version = "0.13.1", features = ["aws", "tls-webpki-roots"] }
 rocksdb = "0.24.0"
 anyhow = "1.0.100"
 thiserror = "2.0.18"
@@ -89,4 +89,5 @@ pingora = { git = "https://github.com/cloudflare/pingora", rev = "ad449bf373a696
 pingora-core = { git = "https://github.com/cloudflare/pingora", rev = "ad449bf373a696116f60c89f1e7d62c00f7cb09a" }
 pingora-proxy = { git = "https://github.com/cloudflare/pingora", rev = "ad449bf373a696116f60c89f1e7d62c00f7cb09a" }
 pingora-http = { git = "https://github.com/cloudflare/pingora", rev = "ad449bf373a696116f60c89f1e7d62c00f7cb09a" }
-reqwest = { version = "0.13.1", default-features = false, features = ["json"] }
+reqwest = { version = "0.13.1", default-features = false, features = ["json", "rustls-tls-webpki-roots"] }
+hyper-rustls = { version = "0.27.7", default-features = false, features = ["http1", "http2", "aws-lc-rs", "tls12", "webpki-tokio"] }
