@@ -17,6 +17,8 @@ use std::{
 use anyhow::Result;
 use proto_api::executor_api_pb::{
     Allocation as ServerAllocation,
+    AllocationFailureReason,
+    AllocationOutcomeCode,
     AllocationResult as ServerAllocationResult,
     FunctionExecutorDescription,
     FunctionExecutorState,
@@ -52,6 +54,20 @@ use crate::{
 
 /// Timeout for connecting to the FE after spawning the process.
 const FE_READY_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// Shared configuration for spawning function executor controllers.
+#[derive(Clone)]
+pub struct FESpawnConfig {
+    pub driver: Arc<dyn ProcessDriver>,
+    pub image_resolver: Arc<dyn ImageResolver>,
+    pub result_tx: mpsc::UnboundedSender<CompletedAllocation>,
+    pub server_channel: Channel,
+    pub blob_store: Arc<BlobStore>,
+    pub code_cache: Arc<CodeCache>,
+    pub executor_id: String,
+    pub fe_binary_path: String,
+    pub metrics: Arc<crate::metrics::DataplaneMetrics>,
+}
 
 /// Handle returned to the StateReconciler for communicating with a controller.
 pub struct FEControllerHandle {
@@ -122,23 +138,17 @@ pub struct FunctionExecutorController {
     watcher_registry: WatcherRegistry,
     // Token to cancel the health checker when the process is killed
     fe_process_cancel_token: Option<CancellationToken>,
+    // Shared metrics
+    metrics: Arc<crate::metrics::DataplaneMetrics>,
 }
 
 impl FunctionExecutorController {
     /// Spawn a new controller as a tokio task. Returns a handle for
     /// communication.
-    #[allow(clippy::too_many_arguments)]
     pub fn spawn(
         description: FunctionExecutorDescription,
-        driver: Arc<dyn ProcessDriver>,
-        image_resolver: Arc<dyn ImageResolver>,
-        result_tx: mpsc::UnboundedSender<CompletedAllocation>,
+        config: FESpawnConfig,
         cancel_token: CancellationToken,
-        server_channel: Channel,
-        blob_store: Arc<BlobStore>,
-        code_cache: Arc<CodeCache>,
-        executor_id: String,
-        fe_binary_path: String,
         watcher_registry: WatcherRegistry,
     ) -> FEControllerHandle {
         let (command_tx, command_rx) = mpsc::unbounded_channel();
@@ -159,26 +169,27 @@ impl FunctionExecutorController {
         let mut controller = Self {
             description,
             handle: None,
-            driver,
+            driver: config.driver,
             client: None,
             event_tx,
             event_rx,
             command_rx,
-            result_tx,
+            result_tx: config.result_tx,
             state_tx,
             allocations: HashMap::new(),
             runnable_queue: VecDeque::new(),
             running_set: HashSet::new(),
             max_concurrency,
             cancel_token,
-            server_channel,
-            blob_store,
-            code_cache,
-            executor_id,
-            fe_binary_path,
-            image_resolver,
+            server_channel: config.server_channel,
+            blob_store: config.blob_store,
+            code_cache: config.code_cache,
+            executor_id: config.executor_id,
+            fe_binary_path: config.fe_binary_path,
+            image_resolver: config.image_resolver,
             watcher_registry,
             fe_process_cancel_token: None,
+            metrics: config.metrics,
         };
 
         tokio::spawn(
@@ -196,12 +207,13 @@ impl FunctionExecutorController {
 
     /// Main control loop.
     async fn run(&mut self) {
-        let metrics = crate::metrics::DataplaneCounters::new();
-        let histograms = crate::metrics::DataplaneHistograms::new();
-        let up_down = crate::metrics::DataplaneUpDownCounters::new();
+        let metrics = self.metrics.clone();
+        let counters = &metrics.counters;
+        let histograms = &metrics.histograms;
+        let up_down = &metrics.up_down_counters;
 
         let create_start = Instant::now();
-        metrics.function_executor_creates.add(1, &[]);
+        counters.function_executor_creates.add(1, &[]);
         up_down.function_executors_count.add(1, &[]);
 
         // Phase 1: Start the FE process
@@ -209,8 +221,8 @@ impl FunctionExecutorController {
         let start_process_time = Instant::now();
         if let Err(e) = self.start_fe_process().await {
             error!(error = %e, "Failed to start function executor process");
-            metrics.function_executor_create_errors.add(1, &[]);
-            metrics.function_executor_create_server_errors.add(1, &[]);
+            counters.function_executor_create_errors.add(1, &[]);
+            counters.function_executor_create_server_errors.add(1, &[]);
             histograms
                 .function_executor_create_server_latency_seconds
                 .record(start_process_time.elapsed().as_secs_f64(), &[]);
@@ -253,7 +265,7 @@ impl FunctionExecutorController {
             }
             Err(e) => {
                 info!(error = %e, "Failed to connect/initialize function executor");
-                metrics.function_executor_create_errors.add(1, &[]);
+                counters.function_executor_create_errors.add(1, &[]);
                 histograms
                     .function_executor_create_latency_seconds
                     .record(create_start.elapsed().as_secs_f64(), &[]);
@@ -547,9 +559,7 @@ impl FunctionExecutorController {
     }
 
     fn handle_add_allocation(&mut self, allocation: ServerAllocation) {
-        let counters = crate::metrics::DataplaneCounters::new();
-        let up_down = crate::metrics::DataplaneUpDownCounters::new();
-        counters.allocations_fetched.add(1, &[]);
+        self.metrics.counters.allocations_fetched.add(1, &[]);
 
         // If we're terminated/terminating, don't accept new allocations
         if let Some(status) = self.state_tx.borrow().status &&
@@ -616,26 +626,30 @@ impl FunctionExecutorController {
         };
 
         self.allocations.insert(alloc_id.clone(), info);
-        counters.allocation_preparations.add(1, &[]);
-        up_down.allocations_getting_prepared.add(1, &[]);
+        self.metrics.counters.allocation_preparations.add(1, &[]);
+        self.metrics
+            .up_down_counters
+            .allocations_getting_prepared
+            .add(1, &[]);
 
         // Spawn prep task (does NOT occupy a concurrency slot)
         let event_tx = self.event_tx.clone();
         let blob_store = self.blob_store.clone();
         let alloc_id_clone = alloc_id.clone();
+        let metrics = self.metrics.clone();
         tokio::spawn(async move {
             let prep_start = Instant::now();
             let result = allocation_prep::prepare_allocation(&allocation, &blob_store).await;
-            let histograms = crate::metrics::DataplaneHistograms::new();
-            let up_down = crate::metrics::DataplaneUpDownCounters::new();
-            histograms
+            metrics
+                .histograms
                 .allocation_preparation_latency_seconds
                 .record(prep_start.elapsed().as_secs_f64(), &[]);
-            up_down.allocations_getting_prepared.add(-1, &[]);
+            metrics
+                .up_down_counters
+                .allocations_getting_prepared
+                .add(-1, &[]);
             if result.is_err() {
-                crate::metrics::DataplaneCounters::new()
-                    .allocation_preparation_errors
-                    .add(1, &[]);
+                metrics.counters.allocation_preparation_errors.add(1, &[]);
             }
             let _ = event_tx.send(FEEvent::AllocationPreparationFinished {
                 allocation_id: alloc_id_clone,
@@ -656,7 +670,10 @@ impl FunctionExecutorController {
 
             // If cancelled while in queue, route to finalization
             if info.cancel_token.is_cancelled() {
-                info.server_result = Some(make_cancelled_result(&info.allocation));
+                info.server_result = Some(make_failure_result(
+                    &info.allocation,
+                    AllocationFailureReason::AllocationCancelled,
+                ));
                 self.start_finalization(&alloc_id.clone());
                 continue;
             }
@@ -668,7 +685,10 @@ impl FunctionExecutorController {
                     "Cannot schedule allocation, FE client is not available (terminated?)"
                 );
                 if let Some(info) = self.allocations.get_mut(&alloc_id) {
-                    info.server_result = Some(make_fe_terminated_result(&info.allocation));
+                    info.server_result = Some(make_failure_result(
+                        &info.allocation,
+                        AllocationFailureReason::FunctionExecutorTerminated,
+                    ));
                 }
                 self.start_finalization(&alloc_id.clone());
                 continue;
@@ -682,7 +702,10 @@ impl FunctionExecutorController {
                         allocation_id = %alloc_id,
                         "No prepared data for runnable allocation"
                     );
-                    info.server_result = Some(make_internal_error_result(&info.allocation));
+                    info.server_result = Some(make_failure_result(
+                        &info.allocation,
+                        AllocationFailureReason::InternalError,
+                    ));
                     self.start_finalization(&alloc_id.clone());
                     continue;
                 }
@@ -691,10 +714,11 @@ impl FunctionExecutorController {
             info.state = AllocationState::Running;
             self.running_set.insert(alloc_id.clone());
 
-            let counters = crate::metrics::DataplaneCounters::new();
-            let up_down = crate::metrics::DataplaneUpDownCounters::new();
-            counters.allocation_runs.add(1, &[]);
-            up_down.allocation_runs_in_progress.add(1, &[]);
+            self.metrics.counters.allocation_runs.add(1, &[]);
+            self.metrics
+                .up_down_counters
+                .allocation_runs_in_progress
+                .add(1, &[]);
 
             let allocation = info.allocation.clone();
             let cancel_token = info.cancel_token.clone();
@@ -703,6 +727,7 @@ impl FunctionExecutorController {
             let blob_store = self.blob_store.clone();
             let alloc_id_clone = alloc_id.clone();
             let watcher_registry = self.watcher_registry.clone();
+            let metrics = self.metrics.clone();
             let allocation_timeout = Duration::from_millis(
                 self.description.allocation_timeout_ms.unwrap_or(300_000) as u64,
             );
@@ -718,15 +743,18 @@ impl FunctionExecutorController {
                     allocation_timeout,
                     cancel_token,
                     watcher_registry,
+                    metrics.clone(),
                 )
                 .await;
 
-                let histograms = crate::metrics::DataplaneHistograms::new();
-                let up_down = crate::metrics::DataplaneUpDownCounters::new();
-                histograms
+                metrics
+                    .histograms
                     .allocation_run_latency_seconds
                     .record(run_start.elapsed().as_secs_f64(), &[]);
-                up_down.allocation_runs_in_progress.add(-1, &[]);
+                metrics
+                    .up_down_counters
+                    .allocation_runs_in_progress
+                    .add(-1, &[]);
 
                 let _ = event_tx.send(FEEvent::AllocationExecutionFinished {
                     allocation_id: alloc_id_clone,
@@ -777,7 +805,10 @@ impl FunctionExecutorController {
 
         // If cancelled during prep, route to finalization
         if info.cancel_token.is_cancelled() {
-            info.server_result = Some(make_cancelled_result(&info.allocation));
+            info.server_result = Some(make_failure_result(
+                &info.allocation,
+                AllocationFailureReason::AllocationCancelled,
+            ));
             // If prep succeeded, we have a request_error_blob_handle to clean up
             if let Ok(prepared) = result {
                 info.finalization_ctx = Some(FinalizationContext {
@@ -809,7 +840,10 @@ impl FunctionExecutorController {
                     error = %e,
                     "Allocation preparation failed"
                 );
-                info.server_result = Some(make_internal_error_result(&info.allocation));
+                info.server_result = Some(make_failure_result(
+                    &info.allocation,
+                    AllocationFailureReason::InternalError,
+                ));
                 self.start_finalization(allocation_id);
             }
         }
@@ -949,10 +983,11 @@ impl FunctionExecutorController {
 
         info.state = AllocationState::Finalizing;
 
-        let counters = crate::metrics::DataplaneCounters::new();
-        let up_down = crate::metrics::DataplaneUpDownCounters::new();
-        counters.allocation_finalizations.add(1, &[]);
-        up_down.allocations_finalizing.add(1, &[]);
+        self.metrics.counters.allocation_finalizations.add(1, &[]);
+        self.metrics
+            .up_down_counters
+            .allocations_finalizing
+            .add(1, &[]);
 
         // Take finalization context (may be None if prep never completed)
         let ctx = info.finalization_ctx.take().unwrap_or(FinalizationContext {
@@ -964,6 +999,7 @@ impl FunctionExecutorController {
         let event_tx = self.event_tx.clone();
         let blob_store = self.blob_store.clone();
         let alloc_id = allocation_id.to_string();
+        let metrics = self.metrics.clone();
 
         tokio::spawn(async move {
             let finalization_start = Instant::now();
@@ -977,16 +1013,13 @@ impl FunctionExecutorController {
             .await
             .is_ok();
 
-            let histograms = crate::metrics::DataplaneHistograms::new();
-            let up_down = crate::metrics::DataplaneUpDownCounters::new();
-            histograms
+            metrics
+                .histograms
                 .allocation_finalization_latency_seconds
                 .record(finalization_start.elapsed().as_secs_f64(), &[]);
-            up_down.allocations_finalizing.add(-1, &[]);
+            metrics.up_down_counters.allocations_finalizing.add(-1, &[]);
             if !is_success {
-                crate::metrics::DataplaneCounters::new()
-                    .allocation_finalization_errors
-                    .add(1, &[]);
+                metrics.counters.allocation_finalization_errors.add(1, &[]);
             }
 
             let _ = event_tx.send(FEEvent::AllocationFinalizationFinished {
@@ -1007,20 +1040,24 @@ impl FunctionExecutorController {
                 .server_result
                 .as_ref()
                 .and_then(|r| r.execution_duration_ms);
-            let mut err_result = make_internal_error_result(&info.allocation);
+            let mut err_result =
+                make_failure_result(&info.allocation, AllocationFailureReason::InternalError);
             err_result.execution_duration_ms = existing_duration;
             info.server_result = Some(err_result);
         } else if info.server_result.is_none() {
             // Should not happen, but if server_result is missing, set internal error
             warn!(allocation_id = %allocation_id, "Server result missing after finalization");
-            info.server_result = Some(make_internal_error_result(&info.allocation));
+            info.server_result = Some(make_failure_result(
+                &info.allocation,
+                AllocationFailureReason::InternalError,
+            ));
         }
 
         info.state = AllocationState::Done;
 
         if let Some(result) = info.server_result.take() {
             // Record allocation outcome metrics
-            record_allocation_metrics(&result);
+            record_allocation_metrics(&result, &self.metrics.counters);
             let _ = self.result_tx.send(CompletedAllocation { result });
         }
     }
@@ -1059,7 +1096,10 @@ impl FunctionExecutorController {
             if let Some(info) = self.allocations.get_mut(alloc_id) &&
                 info.state == AllocationState::Runnable
             {
-                info.server_result = Some(make_fe_terminated_result(&info.allocation));
+                info.server_result = Some(make_failure_result(
+                    &info.allocation,
+                    AllocationFailureReason::FunctionExecutorTerminated,
+                ));
                 // start_finalization needs &mut self, so we do it below
             }
         }
@@ -1080,10 +1120,7 @@ impl FunctionExecutorController {
 
     async fn shutdown(&mut self) {
         info!("Shutting down function executor controller");
-        let counters = crate::metrics::DataplaneCounters::new();
-        let histograms = crate::metrics::DataplaneHistograms::new();
-        let up_down = crate::metrics::DataplaneUpDownCounters::new();
-        counters.function_executor_destroys.add(1, &[]);
+        self.metrics.counters.function_executor_destroys.add(1, &[]);
         let destroy_start = Instant::now();
 
         // Cancel all allocations
@@ -1100,10 +1137,14 @@ impl FunctionExecutorController {
         if let Some(handle) = &self.handle {
             let _ = self.driver.kill(handle).await;
         }
-        histograms
+        self.metrics
+            .histograms
             .function_executor_destroy_latency_seconds
             .record(destroy_start.elapsed().as_secs_f64(), &[]);
-        up_down.function_executors_count.add(-1, &[]);
+        self.metrics
+            .up_down_counters
+            .function_executors_count
+            .add(-1, &[]);
         self.transition_to_terminated(FunctionExecutorTerminationReason::FunctionCancelled);
     }
 
@@ -1131,56 +1172,39 @@ impl FunctionExecutorController {
     }
 }
 
-/// Build a cancelled AllocationResult for the given allocation.
-fn make_cancelled_result(allocation: &ServerAllocation) -> ServerAllocationResult {
+/// Build a failure AllocationResult for the given allocation and reason.
+fn make_failure_result(
+    allocation: &ServerAllocation,
+    failure_reason: AllocationFailureReason,
+) -> ServerAllocationResult {
     ServerAllocationResult {
         function: allocation.function.clone(),
         allocation_id: allocation.allocation_id.clone(),
         function_call_id: allocation.function_call_id.clone(),
         request_id: allocation.request_id.clone(),
-        outcome_code: Some(proto_api::executor_api_pb::AllocationOutcomeCode::Failure.into()),
-        failure_reason: Some(
-            proto_api::executor_api_pb::AllocationFailureReason::AllocationCancelled.into(),
-        ),
+        outcome_code: Some(AllocationOutcomeCode::Failure.into()),
+        failure_reason: Some(failure_reason.into()),
         return_value: None,
         request_error: None,
         execution_duration_ms: None,
     }
 }
 
-/// Build an internal error AllocationResult for the given allocation.
-fn make_internal_error_result(allocation: &ServerAllocation) -> ServerAllocationResult {
-    ServerAllocationResult {
-        function: allocation.function.clone(),
-        allocation_id: allocation.allocation_id.clone(),
-        function_call_id: allocation.function_call_id.clone(),
-        request_id: allocation.request_id.clone(),
-        outcome_code: Some(proto_api::executor_api_pb::AllocationOutcomeCode::Failure.into()),
-        failure_reason: Some(
-            proto_api::executor_api_pb::AllocationFailureReason::InternalError.into(),
-        ),
-        return_value: None,
-        request_error: None,
-        execution_duration_ms: None,
-    }
-}
-
-/// Record allocation outcome metrics using the global OpenTelemetry meter.
-fn record_allocation_metrics(result: &ServerAllocationResult) {
-    use crate::metrics::DataplaneCounters;
-
-    let counters = DataplaneCounters::new();
+/// Record allocation outcome metrics.
+fn record_allocation_metrics(
+    result: &ServerAllocationResult,
+    counters: &crate::metrics::DataplaneCounters,
+) {
     let outcome_code = result.outcome_code.unwrap_or(0);
-    let outcome =
-        if outcome_code == proto_api::executor_api_pb::AllocationOutcomeCode::Success as i32 {
-            "success"
-        } else {
-            "failure"
-        };
+    let outcome = if outcome_code == AllocationOutcomeCode::Success as i32 {
+        "success"
+    } else {
+        "failure"
+    };
 
     let failure_reason = if outcome == "failure" {
         result.failure_reason.and_then(|r| {
-            proto_api::executor_api_pb::AllocationFailureReason::try_from(r)
+            AllocationFailureReason::try_from(r)
                 .ok()
                 .map(|reason| format!("{:?}", reason))
         })
@@ -1193,21 +1217,4 @@ fn record_allocation_metrics(result: &ServerAllocationResult) {
         failure_reason.as_deref(),
         result.execution_duration_ms,
     );
-}
-
-/// Build an FE-terminated AllocationResult for the given allocation.
-fn make_fe_terminated_result(allocation: &ServerAllocation) -> ServerAllocationResult {
-    ServerAllocationResult {
-        function: allocation.function.clone(),
-        allocation_id: allocation.allocation_id.clone(),
-        function_call_id: allocation.function_call_id.clone(),
-        request_id: allocation.request_id.clone(),
-        outcome_code: Some(proto_api::executor_api_pb::AllocationOutcomeCode::Failure.into()),
-        failure_reason: Some(
-            proto_api::executor_api_pb::AllocationFailureReason::FunctionExecutorTerminated.into(),
-        ),
-        return_value: None,
-        request_error: None,
-        execution_duration_ms: None,
-    }
 }

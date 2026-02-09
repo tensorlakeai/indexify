@@ -78,6 +78,7 @@ pub async fn execute_allocation(
     timeout: Duration,
     cancel_token: CancellationToken,
     watcher_registry: WatcherRegistry,
+    metrics: Arc<crate::metrics::DataplaneMetrics>,
 ) -> AllocationOutcome {
     let allocation_id = allocation.allocation_id.clone().unwrap_or_default();
     let start_time = Instant::now();
@@ -388,34 +389,39 @@ pub async fn execute_allocation(
                             continue;
                         }
 
-                        let creation_result =
-                            match call_function_with_retry(&mut server_client, fc_request).await {
-                                Ok(_) => AllocationFunctionCallCreationResult {
+                        let creation_result = match call_function_with_retry(
+                            &mut server_client,
+                            fc_request,
+                            &metrics,
+                        )
+                        .await
+                        {
+                            Ok(_) => AllocationFunctionCallCreationResult {
+                                function_call_id: root_fc_id,
+                                allocation_function_call_id: Some(fc_id.to_string()),
+                                status: Some(proto_api::google_rpc::Status {
+                                    code: 0,
+                                    message: String::new(),
+                                    details: vec![],
+                                }),
+                            },
+                            Err(e) => {
+                                warn!(
+                                    allocation_id = %allocation_id,
+                                    error = %e,
+                                    "call_function RPC failed after retries"
+                                );
+                                AllocationFunctionCallCreationResult {
                                     function_call_id: root_fc_id,
                                     allocation_function_call_id: Some(fc_id.to_string()),
                                     status: Some(proto_api::google_rpc::Status {
-                                        code: 0,
-                                        message: String::new(),
+                                        code: 13, // INTERNAL
+                                        message: e.to_string(),
                                         details: vec![],
                                     }),
-                                },
-                                Err(e) => {
-                                    warn!(
-                                        allocation_id = %allocation_id,
-                                        error = %e,
-                                        "call_function RPC failed after retries"
-                                    );
-                                    AllocationFunctionCallCreationResult {
-                                        function_call_id: root_fc_id,
-                                        allocation_function_call_id: Some(fc_id.to_string()),
-                                        status: Some(proto_api::google_rpc::Status {
-                                            code: 13, // INTERNAL
-                                            message: e.to_string(),
-                                            details: vec![],
-                                        }),
-                                    }
                                 }
-                            };
+                            }
+                        };
 
                         let update = AllocationUpdate {
                             allocation_id: Some(allocation_id.clone()),
@@ -603,24 +609,24 @@ pub async fn execute_allocation(
 async fn call_function_with_retry(
     client: &mut ExecutorApiClient<Channel>,
     request: proto_api::executor_api_pb::FunctionCallRequest,
+    metrics: &crate::metrics::DataplaneMetrics,
 ) -> Result<(), tonic::Status> {
-    let counters = crate::metrics::DataplaneCounters::new();
-    let histograms = crate::metrics::DataplaneHistograms::new();
-
     // Record message size
     let msg_size = prost::Message::encoded_len(&request);
-    histograms
+    metrics
+        .histograms
         .function_call_message_size_mb
         .record(msg_size as f64 / (1024.0 * 1024.0), &[]);
 
-    counters.call_function_rpcs.add(1, &[]);
+    metrics.counters.call_function_rpcs.add(1, &[]);
     let mut delay = SERVER_RPC_INITIAL_DELAY;
 
     for attempt in 0..=SERVER_RPC_MAX_RETRIES {
         let rpc_start = std::time::Instant::now();
         match client.call_function(request.clone()).await {
             Ok(_) => {
-                histograms
+                metrics
+                    .histograms
                     .call_function_rpc_latency_seconds
                     .record(rpc_start.elapsed().as_secs_f64(), &[]);
                 return Ok(());
@@ -634,8 +640,9 @@ async fn call_function_with_retry(
                 );
 
                 if !retryable || attempt == SERVER_RPC_MAX_RETRIES {
-                    counters.call_function_rpc_errors.add(1, &[]);
-                    histograms
+                    metrics.counters.call_function_rpc_errors.add(1, &[]);
+                    metrics
+                        .histograms
                         .call_function_rpc_latency_seconds
                         .record(rpc_start.elapsed().as_secs_f64(), &[]);
                     return Err(status);

@@ -14,19 +14,15 @@ use proto_api::executor_api_pb::{
     FunctionExecutorState,
     FunctionExecutorType,
 };
-use tokio::sync::{Notify, mpsc};
+use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
-use tonic::transport::Channel;
 use tracing::{debug, info};
 
 use crate::{
-    blob_ops::BlobStore,
-    code_cache::CodeCache,
-    driver::ProcessDriver,
-    function_container_manager::{FunctionContainerManager, ImageResolver},
+    function_container_manager::FunctionContainerManager,
     function_executor::{
-        controller::{FEControllerHandle, FunctionExecutorController},
-        events::{CompletedAllocation, FECommand},
+        controller::{FEControllerHandle, FESpawnConfig, FunctionExecutorController},
+        events::FECommand,
         watcher_registry::WatcherRegistry,
     },
 };
@@ -37,24 +33,10 @@ pub struct StateReconciler {
     fe_controllers: HashMap<String, FEControllerHandle>,
     /// Container manager (Docker-based, for Sandbox type FEs).
     container_manager: Arc<FunctionContainerManager>,
-    /// Process driver for spawning FE subprocesses.
-    driver: Arc<dyn ProcessDriver>,
-    /// Image resolver for resolving container images.
-    image_resolver: Arc<dyn ImageResolver>,
-    /// Channel for collecting allocation results from all FE controllers.
-    result_tx: mpsc::UnboundedSender<CompletedAllocation>,
+    /// Shared spawn configuration for FE controllers.
+    spawn_config: FESpawnConfig,
     /// Cancellation token for all controllers.
     cancel_token: CancellationToken,
-    /// Server gRPC channel for call_function RPC.
-    server_channel: Channel,
-    /// Blob store for allocation operations.
-    blob_store: Arc<BlobStore>,
-    /// Code cache for application code download.
-    code_cache: Arc<CodeCache>,
-    /// Executor ID.
-    executor_id: String,
-    /// Path to the function-executor binary.
-    fe_binary_path: String,
     /// Shared watcher registry for function call result routing.
     watcher_registry: WatcherRegistry,
     /// Notify for state changes (added/removed FEs) to trigger immediate
@@ -63,32 +45,17 @@ pub struct StateReconciler {
 }
 
 impl StateReconciler {
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         container_manager: Arc<FunctionContainerManager>,
-        driver: Arc<dyn ProcessDriver>,
-        image_resolver: Arc<dyn ImageResolver>,
-        result_tx: mpsc::UnboundedSender<CompletedAllocation>,
+        spawn_config: FESpawnConfig,
         cancel_token: CancellationToken,
-        server_channel: Channel,
-        blob_store: Arc<BlobStore>,
-        code_cache: Arc<CodeCache>,
-        executor_id: String,
-        fe_binary_path: String,
         state_change_notify: Arc<Notify>,
     ) -> Self {
         Self {
             fe_controllers: HashMap::new(),
             container_manager,
-            driver,
-            image_resolver,
-            result_tx,
+            spawn_config,
             cancel_token,
-            server_channel,
-            blob_store,
-            code_cache,
-            executor_id,
-            fe_binary_path,
             watcher_registry: WatcherRegistry::new(),
             state_change_notify,
         }
@@ -149,15 +116,8 @@ impl StateReconciler {
                 info!(fe_id = %id, "Creating function executor controller");
                 let handle = FunctionExecutorController::spawn(
                     description.clone(),
-                    self.driver.clone(),
-                    self.image_resolver.clone(),
-                    self.result_tx.clone(),
+                    self.spawn_config.clone(),
                     self.cancel_token.child_token(),
-                    self.server_channel.clone(),
-                    self.blob_store.clone(),
-                    self.code_cache.clone(),
-                    self.executor_id.clone(),
-                    self.fe_binary_path.clone(),
                     self.watcher_registry.clone(),
                 );
                 self.fe_controllers.insert(id.clone(), handle);
