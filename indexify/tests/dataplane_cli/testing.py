@@ -1,12 +1,14 @@
 import os
-import signal
 import shutil
+import signal
+import socket
 import subprocess
 import tempfile
 import time
+from typing import Any, Dict
+
 import yaml
-import socket
-from typing import Dict, Any
+
 
 class DataplaneProcessContextManager:
     def __init__(
@@ -34,19 +36,16 @@ class DataplaneProcessContextManager:
             "driver": {"type": "fork_exec"},
             "state_file": self._state_file_path,
             "http_proxy": {
-                "port": 8095, # Default, can be overridden
-                "listen_addr": "0.0.0.0"
+                "port": 8095,  # Default, can be overridden
+                "listen_addr": "0.0.0.0",
             },
-            "monitoring": {
-                "port": find_free_port(),
-                "listen_addr": "0.0.0.0"
-            },
-            "labels": self._labels
+            "monitoring": {"port": find_free_port(), "listen_addr": "0.0.0.0"},
+            "labels": self._labels,
         }
-        
+
         # Merge overrides
         self._merge_dicts(config, self._config_overrides)
-        
+
         with open(self._config_path, "w") as f:
             yaml.dump(config, f)
 
@@ -59,11 +58,11 @@ class DataplaneProcessContextManager:
 
     def __enter__(self) -> subprocess.Popen:
         self._generate_config()
-        
+
         dataplane_bin = os.environ.get("DATAPLANE_BIN", "indexify-dataplane")
         args = [dataplane_bin, "--config", self._config_path]
         args.extend(self._extra_args)
-        
+
         kwargs = {}
         if self._extra_env:
             kwargs["env"] = os.environ.copy()
@@ -72,7 +71,7 @@ class DataplaneProcessContextManager:
         if not self._keep_std_outputs:
             kwargs["stdout"] = subprocess.DEVNULL
             kwargs["stderr"] = subprocess.DEVNULL
-            
+
         self._process = subprocess.Popen(args, start_new_session=True, **kwargs)
         return self._process
 
@@ -93,12 +92,15 @@ class DataplaneProcessContextManager:
                 except ProcessLookupError:
                     pass
                 self._process.wait()
-                
+
         if self._temp_dir:
             try:
                 shutil.rmtree(self._temp_dir)
             except Exception as e:
-                print(f"Warning: Failed to clean up temp directory {self._temp_dir}: {e}")
+                print(
+                    f"Warning: Failed to clean up temp directory {self._temp_dir}: {e}"
+                )
+
 
 def find_free_port() -> int:
     """Return a free TCP port by briefly binding to port 0."""
@@ -122,7 +124,9 @@ def wait_dataplane_startup(port: int):
                 raise
 
         attempts_left -= 1
-        print(f"Waiting Dataplane to start at port {port} (attempts left: {attempts_left})")
+        print(
+            f"Waiting Dataplane to start at port {port} (attempts left: {attempts_left})"
+        )
         time.sleep(1)
-    
+
     raise Exception(f"Dataplane failed to start at port {port}")

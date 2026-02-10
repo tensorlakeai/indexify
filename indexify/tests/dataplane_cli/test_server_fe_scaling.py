@@ -41,12 +41,12 @@ if __name__ == "__main__":
 
     sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-    from tensorlake.applications.remote.deploy import deploy_applications
     from dataplane_cli.testing import (
         DataplaneProcessContextManager,
         find_free_port,
         wait_dataplane_startup,
     )
+    from tensorlake.applications.remote.deploy import deploy_applications
 
     class TestServerFunctionExecutorScalingDataplane(unittest.TestCase):
         def test_server_scales_up_function_executors_for_slow_function(self):

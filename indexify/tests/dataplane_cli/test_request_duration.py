@@ -38,12 +38,12 @@ if __name__ == "__main__":
 
     sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-    from tensorlake.applications.remote.deploy import deploy_applications
     from dataplane_cli.testing import (
         DataplaneProcessContextManager,
         find_free_port,
         wait_dataplane_startup,
     )
+    from tensorlake.applications.remote.deploy import deploy_applications
 
     class TestInvokeDurationsDataplane(unittest.TestCase):
         def setUp(self):

@@ -24,15 +24,17 @@ def get_environment(_a: int) -> EnvResponse:
 # function executor loads this file as an application module.
 if __name__ == "__main__":
     import sys
+
     sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
     import unittest
-    from tensorlake.applications.remote.deploy import deploy_applications
+
     from dataplane_cli.testing import (
         DataplaneProcessContextManager,
         find_free_port,
         wait_dataplane_startup,
     )
+    from tensorlake.applications.remote.deploy import deploy_applications
 
     class TestEnvironmentVariablesDataplane(unittest.TestCase):
         def setUp(self):

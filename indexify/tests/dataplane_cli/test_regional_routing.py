@@ -69,12 +69,12 @@ if __name__ == "__main__":
 
     sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-    from tensorlake.applications.remote.deploy import deploy_applications
     from dataplane_cli.testing import (
         DataplaneProcessContextManager,
         find_free_port,
         wait_dataplane_startup,
     )
+    from tensorlake.applications.remote.deploy import deploy_applications
 
     class TestRegionalRoutingDataplane(unittest.TestCase):
         @classmethod
@@ -192,7 +192,9 @@ if __name__ == "__main__":
                 }
 
                 for func_name, pids in regional_function_to_executor_pids.items():
-                    func_allowed_pid: int = function_name_to_allowed_executor_pid[func_name]
+                    func_allowed_pid: int = function_name_to_allowed_executor_pid[
+                        func_name
+                    ]
                     for pid in pids:
                         self.assertEqual(
                             pid,

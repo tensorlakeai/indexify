@@ -25,12 +25,12 @@ if __name__ == "__main__":
 
     sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-    from tensorlake.applications.remote.deploy import deploy_applications
     from dataplane_cli.testing import (
         DataplaneProcessContextManager,
         find_free_port,
         wait_dataplane_startup,
     )
+    from tensorlake.applications.remote.deploy import deploy_applications
 
     class TestExecutorExitDataplane(unittest.TestCase):
         def setUp(self):
@@ -54,7 +54,9 @@ if __name__ == "__main__":
                     config_overrides={"http_proxy": {"port": port_a}},
                     keep_std_outputs=True,
                 ) as executor_a:
-                    print(f"Started Executor A (will be killed) with PID: {executor_a.pid}")
+                    print(
+                        f"Started Executor A (will be killed) with PID: {executor_a.pid}"
+                    )
                     wait_dataplane_startup(port_a)
 
                     # Submit requests with a long-enough sleep that they'll
@@ -74,7 +76,9 @@ if __name__ == "__main__":
                 # executor A is now terminated (exited the with-block) while
                 # work is still in-flight. Executor B is still running and
                 # should pick up the rescheduled work.
-                print("Executor A killed. Waiting for all requests to complete via Executor B...")
+                print(
+                    "Executor A killed. Waiting for all requests to complete via Executor B..."
+                )
 
                 for request in requests:
                     print(f"Waiting for request {request.id}...")
