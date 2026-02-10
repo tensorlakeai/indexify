@@ -47,8 +47,7 @@ pub(super) async fn start_container_with_daemon(
         crate::driver::ResourceLimits {
             // cpu_ms_per_sec is equivalent to millicores (1000 = 1 CPU)
             cpu_millicores: r.cpu_ms_per_sec.map(|v| v as u64),
-            // Convert bytes to megabytes
-            memory_mb: r.memory_bytes.map(|v| v / (1024 * 1024)),
+            memory_bytes: r.memory_bytes,
         }
     });
 

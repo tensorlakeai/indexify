@@ -25,9 +25,10 @@ pub enum ProcessType {
 /// Resource limits for a process/container.
 #[derive(Debug, Clone, Default)]
 pub struct ResourceLimits {
-    /// Memory limit in megabytes.
-    pub memory_mb: Option<u64>,
-    /// CPU limit in millicores (1000 = 1 CPU core).
+    /// Memory limit in bytes.
+    pub memory_bytes: Option<u64>,
+    /// CPU limit in millicores (1000 = 1 CPU core), equivalent to
+    /// `cpu_ms_per_sec` from the server proto.
     pub cpu_millicores: Option<u64>,
 }
 

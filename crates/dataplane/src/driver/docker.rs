@@ -168,23 +168,71 @@ impl Default for DockerDriver {
     }
 }
 
-/// Build Docker resource limits from ProcessConfig resources.
-fn build_resource_limits(resources: &Option<super::ResourceLimits>) -> (Option<i64>, Option<i64>) {
-    let mut memory_limit = None;
-    let mut nano_cpus = None;
+const CPU_PERIOD_MICROSEC: i64 = 20_000;
 
-    if let Some(resources) = resources {
-        if let Some(memory_mb) = resources.memory_mb {
-            memory_limit = Some((memory_mb * 1024 * 1024) as i64);
-        }
-        if let Some(cpu_millicores) = resources.cpu_millicores {
-            // Docker uses nano CPUs (1 CPU = 1e9 nano CPUs)
-            // millicores: 1000 = 1 CPU, so nano = millicores * 1e6
-            nano_cpus = Some((cpu_millicores as i64) * 1_000_000);
-        }
+const SHMEM_SIZE: i64 = 1024 * 1024 * 1024; // 1 GB
+
+const ONE_GB: i64 = 1024 * 1024 * 1024;
+const ONE_MILLION: i64 = 1_000_000;
+
+fn build_ulimits() -> Vec<ResourcesUlimits> {
+    vec![
+        // Core files are useless in ephemeral container filesystem.
+        ResourcesUlimits {
+            name: Some("core".to_string()),
+            soft: Some(0),
+            hard: Some(0),
+        },
+        ResourcesUlimits {
+            name: Some("memlock".to_string()),
+            soft: Some(ONE_GB),
+            hard: Some(ONE_GB),
+        },
+        ResourcesUlimits {
+            name: Some("stack".to_string()),
+            soft: Some(ONE_GB),
+            hard: Some(ONE_GB),
+        },
+        ResourcesUlimits {
+            name: Some("msgqueue".to_string()),
+            soft: Some(ONE_GB),
+            hard: Some(ONE_GB),
+        },
+        ResourcesUlimits {
+            name: Some("nofile".to_string()),
+            soft: Some(ONE_MILLION),
+            hard: Some(ONE_MILLION),
+        },
+    ]
+}
+
+fn build_host_config_resources(resources: &Option<super::ResourceLimits>) -> HostConfig {
+    let Some(resources) = resources else {
+        return HostConfig {
+            shm_size: Some(SHMEM_SIZE),
+            ulimits: Some(build_ulimits()),
+            ..Default::default()
+        };
+    };
+
+    let memory = resources.memory_bytes.map(|v| v as i64);
+
+    let (cpu_period, cpu_quota) = if let Some(cpu_millicores) = resources.cpu_millicores {
+        let cpu_fraction = cpu_millicores as f64 / 1000.0;
+        let quota = (cpu_fraction * CPU_PERIOD_MICROSEC as f64).ceil() as i64;
+        (Some(CPU_PERIOD_MICROSEC), Some(quota))
+    } else {
+        (None, None)
+    };
+
+    HostConfig {
+        memory,
+        cpu_period,
+        cpu_quota,
+        shm_size: Some(SHMEM_SIZE),
+        ulimits: Some(build_ulimits()),
+        ..Default::default()
     }
-
-    (memory_limit, nano_cpus)
 }
 
 /// Internal specification for creating a Docker container.
@@ -242,7 +290,6 @@ impl DockerDriver {
         let container_name = format!("indexify-{}", config.id);
         let fe_grpc_port: u16 = 9600;
 
-        let (memory_limit, nano_cpus) = build_resource_limits(&config.resources);
         let env: Vec<String> = config
             .env
             .iter()
@@ -268,16 +315,7 @@ impl DockerDriver {
             env,
             labels,
             working_dir: config.working_dir.clone(),
-            host_config: HostConfig {
-                memory: memory_limit,
-                nano_cpus,
-                ulimits: Some(vec![ResourcesUlimits {
-                    name: Some("nofile".to_string()),
-                    soft: Some(65536),
-                    hard: Some(65536),
-                }]),
-                ..Default::default()
-            },
+            host_config: build_host_config_resources(&config.resources),
         }
     }
 
@@ -294,7 +332,6 @@ impl DockerDriver {
             CONTAINER_DAEMON_PATH
         )];
 
-        let (memory_limit, nano_cpus) = build_resource_limits(&config.resources);
         let env: Vec<String> = config
             .env
             .iter()
@@ -317,6 +354,9 @@ impl DockerDriver {
             cmd.extend(config.args.clone());
         }
 
+        let mut host_config = build_host_config_resources(&config.resources);
+        host_config.binds = Some(binds);
+
         Ok(ContainerSpec {
             container_name,
             image: image.to_string(),
@@ -325,17 +365,7 @@ impl DockerDriver {
             env,
             labels,
             working_dir: config.working_dir.clone(),
-            host_config: HostConfig {
-                binds: Some(binds),
-                memory: memory_limit,
-                nano_cpus,
-                ulimits: Some(vec![ResourcesUlimits {
-                    name: Some("nofile".to_string()),
-                    soft: Some(65536),
-                    hard: Some(65536),
-                }]),
-                ..Default::default()
-            },
+            host_config,
         })
     }
 }
