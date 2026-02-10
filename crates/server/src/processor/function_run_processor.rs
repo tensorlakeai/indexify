@@ -270,6 +270,7 @@ impl FunctionRunProcessor {
                 &function_run.version,
                 function,
                 &app_version.state,
+                true, // Critical: Task allocation
             )
         };
 

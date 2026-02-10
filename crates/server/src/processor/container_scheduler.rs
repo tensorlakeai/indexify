@@ -456,6 +456,7 @@ impl ContainerScheduler {
         version: &str,
         function: &Function,
         application_state: &ApplicationState,
+        is_critical: bool,
     ) -> Result<Option<SchedulerUpdateRequest>> {
         // Check if the application is disabled
         if let ApplicationState::Disabled { reason } = application_state {
@@ -502,6 +503,7 @@ impl ContainerScheduler {
             function_container,
             ContainerType::Function,
             Some(&pool_key),
+            is_critical,
         )
     }
 
@@ -559,6 +561,7 @@ impl ContainerScheduler {
             function_container,
             ContainerType::Sandbox,
             None, // Sandboxes don't have a requesting pool for vacuum priority
+            true, // Critical: Sandbox creation
         )
     }
 
@@ -572,6 +575,7 @@ impl ContainerScheduler {
         function_container: Container,
         container_type: ContainerType,
         requesting_pool_key: Option<&ContainerPoolKey>,
+        is_critical: bool,
     ) -> Result<Option<SchedulerUpdateRequest>> {
         let mut candidates = self.candidate_hosts(namespace, application, function, resources);
         let mut update = SchedulerUpdateRequest::default();
@@ -589,6 +593,7 @@ impl ContainerScheduler {
                 namespace,
                 application,
                 function,
+                is_critical,
             );
             for fe in function_executors_to_remove {
                 let mut update_fe = fe.clone();
@@ -776,6 +781,7 @@ impl ContainerScheduler {
         namespace: &str,
         application: &str,
         function: Option<&Function>,
+        is_critical: bool,
     ) -> Vec<ContainerServerMetadata> {
         // Determine if the requesting pool is below its min (desperate mode)
         let requesting_pool_desperate = requesting_pool_key
@@ -867,7 +873,7 @@ impl ContainerScheduler {
             let mut evicted_from_pool: imbl::HashMap<ContainerPoolKey, u32> = imbl::HashMap::new();
 
             let mut function_executors_to_remove = Vec::new();
-            for (_initial_priority, fe_server_metadata) in candidates {
+            for (priority, fe_server_metadata) in candidates {
                 let pool_key = fe_server_metadata.function_container.pool_key();
 
                 // Re-compute priority based on what we've already decided to evict
@@ -875,15 +881,25 @@ impl ContainerScheduler {
                 let effective_count = self
                     .pool_container_count(&pool_key)
                     .saturating_sub(already_evicted);
-                let priority = compute_priority(&pool_key, effective_count);
+                let current_priority = compute_priority(&pool_key, effective_count);
+
+                // Use the stricter of the initial vs current priority
+                let effective_priority = std::cmp::max(priority, current_priority);
 
                 // Skip BelowMin always
-                if priority == EvictionPriority::BelowMin {
+                if effective_priority == EvictionPriority::BelowMin {
+                    continue;
+                }
+
+                // If this is not a critical request (e.g. just filling a buffer),
+                // we can ONLY steal from AboveBuffer (true excess).
+                // We cannot steal from AboveMin (which is the other pool's buffer).
+                if !is_critical && effective_priority > EvictionPriority::AboveBuffer {
                     continue;
                 }
 
                 // Skip AtMin unless desperate
-                if priority == EvictionPriority::AtMin && !requesting_pool_desperate {
+                if effective_priority == EvictionPriority::AtMin && !requesting_pool_desperate {
                     continue;
                 }
 
@@ -1072,6 +1088,7 @@ impl ContainerScheduler {
     pub fn create_container_for_pool(
         &mut self,
         pool: &ContainerPool,
+        is_critical: bool,
     ) -> Result<Option<SchedulerUpdateRequest>> {
         let resources = FunctionResources {
             cpu_ms_per_sec: pool.resources.cpu_ms_per_sec,
@@ -1113,6 +1130,7 @@ impl ContainerScheduler {
             container,
             ContainerType::Sandbox,
             Some(&pool_key),
+            is_critical,
         )
     }
 

@@ -180,7 +180,7 @@ impl AllocationRunner {
     async fn run(&mut self, prepared: PreparedAllocation) -> AllocationOutcome {
         let start_time = Instant::now();
 
-        info!(allocation_id = %self.allocation_id, "Starting allocation execution");
+        info!("Starting allocation execution");
 
         // Create allocation on FE
         let fe_allocation = function_executor_pb::Allocation {
@@ -196,7 +196,7 @@ impl AllocationRunner {
         };
 
         if let Err(e) = self.client.create_allocation(create_request).await {
-            error!(allocation_id = %self.allocation_id, error = %e, "Failed to create allocation on FE");
+            error!(error = %e, "Failed to create allocation on FE");
             return AllocationOutcome::Failed {
                 reason: proto_api::executor_api_pb::AllocationFailureReason::InternalError,
                 error_message: e.to_string(),
@@ -213,7 +213,7 @@ impl AllocationRunner {
         {
             Ok(s) => s,
             Err(e) => {
-                error!(allocation_id = %self.allocation_id, error = %e, "Failed to open allocation state stream");
+                error!(error = %e, "Failed to open allocation state stream");
                 return self
                     .fail_with_cleanup(
                         proto_api::executor_api_pb::AllocationFailureReason::FunctionError,
@@ -231,16 +231,12 @@ impl AllocationRunner {
 
         loop {
             if self.cancel_token.is_cancelled() {
-                info!(allocation_id = %self.allocation_id, "Allocation cancelled");
+                info!("Allocation cancelled");
                 return self.cancel_with_cleanup().await;
             }
 
-            if self.has_active_watchers {
-                deadline = Instant::now() + self.timeout;
-            }
-
             if Instant::now() > deadline {
-                warn!(allocation_id = %self.allocation_id, "Allocation timed out");
+                warn!("Allocation timed out");
                 return self
                     .fail_with_cleanup(
                         proto_api::executor_api_pb::AllocationFailureReason::FunctionTimeout,
@@ -287,7 +283,6 @@ impl AllocationRunner {
                             let has_request_error = result.request_error_output.is_some();
                             let has_value = result.outputs.is_some();
                             error!(
-                                allocation_id = %self.allocation_id,
                                 outcome = ?result.outcome_code,
                                 failure_reason = ?failure_reason,
                                 has_request_error = has_request_error,
@@ -296,7 +291,6 @@ impl AllocationRunner {
                             );
                         } else {
                             info!(
-                                allocation_id = %self.allocation_id,
                                 outcome = ?result.outcome_code,
                                 "Allocation completed"
                             );
@@ -306,7 +300,7 @@ impl AllocationRunner {
                     }
                 }
                 Ok(Ok(None)) => {
-                    warn!(allocation_id = %self.allocation_id, "Allocation state stream closed prematurely");
+                    warn!("Allocation state stream closed prematurely");
                     return self
                         .fail_with_cleanup(
                             proto_api::executor_api_pb::AllocationFailureReason::FunctionError,
@@ -325,7 +319,6 @@ impl AllocationRunner {
                         tonic::Code::Unavailable | tonic::Code::Internal | tonic::Code::Unknown
                     );
                     error!(
-                        allocation_id = %self.allocation_id,
                         error = %e,
                         code = ?e.code(),
                         likely_fe_crash = likely_fe_crash,
@@ -343,7 +336,7 @@ impl AllocationRunner {
                     if self.has_active_watchers {
                         continue;
                     }
-                    warn!(allocation_id = %self.allocation_id, "Allocation timed out waiting for state");
+                    warn!("Allocation timed out waiting for state");
                     return self
                         .fail_with_cleanup(
                             proto_api::executor_api_pb::AllocationFailureReason::FunctionTimeout,
@@ -358,7 +351,7 @@ impl AllocationRunner {
         let execution_duration_ms = start_time.elapsed().as_millis() as u64;
 
         if let Err(e) = self.client.delete_allocation(&self.allocation_id).await {
-            warn!(allocation_id = %self.allocation_id, error = %e, "Failed to delete allocation from FE");
+            warn!(error = %e, "Failed to delete allocation from FE");
         }
 
         match &final_result {
@@ -405,7 +398,6 @@ impl AllocationRunner {
         .await;
 
         watcher_reconciler::reconcile_watchers(
-            &self.allocation_id,
             &self.allocation,
             &self.ctx.watcher_registry,
             &mut self.seen_watcher_ids,

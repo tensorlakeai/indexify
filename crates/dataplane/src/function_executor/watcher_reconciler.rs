@@ -22,7 +22,6 @@ use crate::blob_ops::BlobStore;
 /// Results will be delivered to `result_tx` and handled by the allocation
 /// runner's select loop — no background tasks are spawned.
 pub(super) async fn reconcile_watchers(
-    allocation_id: &str,
     allocation: &proto_api::executor_api_pb::Allocation,
     watcher_registry: &WatcherRegistry,
     seen_watcher_ids: &mut HashSet<String>,
@@ -38,7 +37,6 @@ pub(super) async fn reconcile_watchers(
             let watched_fc_id = watcher.root_function_call_id.as_deref().unwrap_or("");
 
             debug!(
-                allocation_id = %allocation_id,
                 watcher_id = %watcher_id,
                 root_function_call_id = %watched_fc_id,
                 "New function call watcher, registering"
@@ -81,7 +79,6 @@ pub(super) async fn deliver_function_call_result_to_fe(
     blob_store: &BlobStore,
 ) {
     debug!(
-        allocation_id = %allocation_id,
         watcher_id = %watcher_id,
         function_call_id = %watched_function_call_id,
         outcome = ?fc_result.outcome_code,
@@ -111,7 +108,6 @@ pub(super) async fn deliver_function_call_result_to_fe(
             }
             Err(e) => {
                 warn!(
-                    allocation_id = %allocation_id,
                     watcher_id = %watcher_id,
                     error = %e,
                     "Failed to presign value blob for function call result"
@@ -131,7 +127,6 @@ pub(super) async fn deliver_function_call_result_to_fe(
             }
             Err(e) => {
                 warn!(
-                    allocation_id = %allocation_id,
                     watcher_id = %watcher_id,
                     error = %e,
                     "Failed to presign request error blob for function call result"
@@ -147,7 +142,6 @@ pub(super) async fn deliver_function_call_result_to_fe(
 
     if let Err(e) = client.send_allocation_update(update).await {
         warn!(
-            allocation_id = %allocation_id,
             watcher_id = %watcher_id,
             error = %e,
             "Failed to send function call result to FE"

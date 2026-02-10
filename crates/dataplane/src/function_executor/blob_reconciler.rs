@@ -25,7 +25,6 @@ pub(super) async fn reconcile_output_blobs(
         let blob_id = blob_req.id.as_deref().unwrap_or("");
         if !blob_id.is_empty() && seen_blob_ids.insert(blob_id.to_string()) {
             debug!(
-                allocation_id = %allocation_id,
                 blob_id = %blob_id,
                 size = ?blob_req.size,
                 "New output blob request"
@@ -57,7 +56,6 @@ pub(super) async fn reconcile_output_blobs(
                     );
                     if let Err(e) = client.send_allocation_update(update).await {
                         warn!(
-                            allocation_id = %allocation_id,
                             blob_id = %blob_id,
                             error = %e,
                             "Failed to send output blob update"
@@ -66,7 +64,6 @@ pub(super) async fn reconcile_output_blobs(
                 }
                 Err(e) => {
                     warn!(
-                        allocation_id = %allocation_id,
                         blob_id = %blob_id,
                         error = %e,
                         "Failed to create output blob"

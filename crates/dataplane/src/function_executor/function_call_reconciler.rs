@@ -47,7 +47,6 @@ pub(super) async fn reconcile_function_calls(
         let fc_id = fc.id.as_deref().unwrap_or("");
         if !fc_id.is_empty() && seen_function_call_ids.insert(fc_id.to_string()) {
             debug!(
-                allocation_id = %allocation_id,
                 function_call_id = %fc_id,
                 "New function call from allocation"
             );
@@ -94,7 +93,6 @@ pub(super) async fn reconcile_function_calls(
 
             if request_size > MAX_FUNCTION_CALL_SIZE {
                 warn!(
-                    allocation_id = %allocation_id,
                     function_call_id = %fc_id,
                     size = request_size,
                     limit = MAX_FUNCTION_CALL_SIZE,
@@ -116,7 +114,6 @@ pub(super) async fn reconcile_function_calls(
 
             if update_count > MAX_EXECUTION_PLAN_UPDATE_ITEMS {
                 warn!(
-                    allocation_id = %allocation_id,
                     function_call_id = %fc_id,
                     count = update_count,
                     limit = MAX_EXECUTION_PLAN_UPDATE_ITEMS,
@@ -145,7 +142,6 @@ pub(super) async fn reconcile_function_calls(
                     },
                     Err(e) => {
                         warn!(
-                            allocation_id = %allocation_id,
                             error = %e,
                             "call_function RPC failed after retries"
                         );
@@ -165,7 +161,6 @@ pub(super) async fn reconcile_function_calls(
             );
             if let Err(e) = client.send_allocation_update(update).await {
                 warn!(
-                    allocation_id = %allocation_id,
                     error = %e,
                     "Failed to send function call creation result"
                 );

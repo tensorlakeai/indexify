@@ -22,8 +22,7 @@ pub async fn prepare_allocation(
     allocation: &ServerAllocation,
     blob_store: &BlobStore,
 ) -> Result<PreparedAllocation> {
-    let allocation_id = allocation.allocation_id.as_deref().unwrap_or("");
-    debug!(allocation_id = %allocation_id, "Preparing allocation inputs");
+    debug!("Preparing allocation inputs");
 
     // Create request error blob multipart upload
     let (request_error_blob_handle, request_error_blob) =
@@ -31,7 +30,6 @@ pub async fn prepare_allocation(
             Ok((handle, blob)) => (Some(handle), Some(blob)),
             Err(e) => {
                 warn!(
-                    allocation_id = %allocation_id,
                     error = %e,
                     "Failed to create request error blob, continuing without it"
                 );

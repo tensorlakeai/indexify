@@ -311,6 +311,19 @@ impl FunctionExecutorController {
 
         let max_concurrency = description.max_concurrency.unwrap_or(1);
         let fe_id = description.id.clone().unwrap_or_default();
+        let func_ref = description.function.as_ref();
+        let namespace = func_ref
+            .and_then(|f| f.namespace.as_deref())
+            .unwrap_or("")
+            .to_string();
+        let app = func_ref
+            .and_then(|f| f.application_name.as_deref())
+            .unwrap_or("")
+            .to_string();
+        let fn_name = func_ref
+            .and_then(|f| f.function_name.as_deref())
+            .unwrap_or("")
+            .to_string();
 
         let mut controller = Self {
             description,
@@ -332,7 +345,7 @@ impl FunctionExecutorController {
             async move {
                 controller.run().await;
             }
-            .instrument(tracing::info_span!("fe_controller", fe_id = %fe_id)),
+            .instrument(tracing::info_span!("fe_controller", fe_id = %fe_id, namespace = %namespace, app = %app, fn_name = %fn_name)),
         );
 
         FEControllerHandle {
@@ -756,21 +769,25 @@ impl FunctionExecutorController {
         let event_tx = self.event_tx.clone();
         let blob_store = self.config.blob_store.clone();
         let alloc_id_clone = alloc_id.clone();
+        let request_id = allocation.request_id.clone().unwrap_or_default();
         let metrics = self.config.metrics.clone();
-        tokio::spawn(async move {
-            let result = timed_phase(
-                &metrics.histograms.allocation_preparation_latency_seconds,
-                &metrics.up_down_counters.allocations_getting_prepared,
-                Some(&metrics.counters.allocation_preparation_errors),
-                allocation_prep::prepare_allocation(&allocation, &blob_store),
-                |r: &Result<_>| r.is_err(),
-            )
-            .await;
-            let _ = event_tx.send(FEEvent::AllocationPreparationFinished {
-                allocation_id: alloc_id_clone,
-                result,
-            });
-        });
+        tokio::spawn(
+            async move {
+                let result = timed_phase(
+                    &metrics.histograms.allocation_preparation_latency_seconds,
+                    &metrics.up_down_counters.allocations_getting_prepared,
+                    Some(&metrics.counters.allocation_preparation_errors),
+                    allocation_prep::prepare_allocation(&allocation, &blob_store),
+                    |r: &Result<_>| r.is_err(),
+                )
+                .await;
+                let _ = event_tx.send(FEEvent::AllocationPreparationFinished {
+                    allocation_id: alloc_id_clone,
+                    result,
+                });
+            }
+            .instrument(tracing::info_span!("allocation_prep", allocation_id = %alloc_id, request_id = %request_id)),
+        );
     }
 
     /// Fail an allocation by routing it through finalization with the given
@@ -848,28 +865,32 @@ impl FunctionExecutorController {
                 metrics: metrics.clone(),
             };
 
-            tokio::spawn(async move {
-                let result = timed_phase(
-                    &metrics.histograms.allocation_run_latency_seconds,
-                    &metrics.up_down_counters.allocation_runs_in_progress,
-                    None,
-                    super::allocation_runner::execute_allocation(
-                        client,
-                        allocation,
-                        prepared,
-                        ctx,
-                        allocation_timeout,
-                        cancel_token,
-                    ),
-                    |_: &AllocationOutcome| false,
-                )
-                .await;
+            let request_id = allocation.request_id.clone().unwrap_or_default();
+            tokio::spawn(
+                async move {
+                    let result = timed_phase(
+                        &metrics.histograms.allocation_run_latency_seconds,
+                        &metrics.up_down_counters.allocation_runs_in_progress,
+                        None,
+                        super::allocation_runner::execute_allocation(
+                            client,
+                            allocation,
+                            prepared,
+                            ctx,
+                            allocation_timeout,
+                            cancel_token,
+                        ),
+                        |_: &AllocationOutcome| false,
+                    )
+                    .await;
 
-                let _ = event_tx.send(FEEvent::AllocationExecutionFinished {
-                    allocation_id: alloc_id_clone,
-                    result,
-                });
-            });
+                    let _ = event_tx.send(FEEvent::AllocationExecutionFinished {
+                        allocation_id: alloc_id_clone,
+                        result,
+                    });
+                }
+                .instrument(tracing::info_span!("allocation_exec", allocation_id = %alloc_id, request_id = %request_id)),
+            );
         }
     }
 
@@ -1061,33 +1082,37 @@ impl FunctionExecutorController {
         let event_tx = self.event_tx.clone();
         let blob_store = self.config.blob_store.clone();
         let alloc_id = allocation_id.to_string();
+        let request_id = info.allocation.request_id.clone().unwrap_or_default();
         let metrics = self.config.metrics.clone();
 
-        tokio::spawn(async move {
-            let is_success = timed_phase(
-                &metrics.histograms.allocation_finalization_latency_seconds,
-                &metrics.up_down_counters.allocations_finalizing,
-                Some(&metrics.counters.allocation_finalization_errors),
-                async {
-                    allocation_finalize::finalize_allocation(
-                        &alloc_id,
-                        ctx.fe_result.as_ref(),
-                        ctx.request_error_blob_handle.as_ref(),
-                        &ctx.output_blob_handles,
-                        &blob_store,
-                    )
-                    .await
-                    .is_ok()
-                },
-                |success: &bool| !success,
-            )
-            .await;
+        tokio::spawn(
+            async move {
+                let is_success = timed_phase(
+                    &metrics.histograms.allocation_finalization_latency_seconds,
+                    &metrics.up_down_counters.allocations_finalizing,
+                    Some(&metrics.counters.allocation_finalization_errors),
+                    async {
+                        allocation_finalize::finalize_allocation(
+                            &alloc_id,
+                            ctx.fe_result.as_ref(),
+                            ctx.request_error_blob_handle.as_ref(),
+                            &ctx.output_blob_handles,
+                            &blob_store,
+                        )
+                        .await
+                        .is_ok()
+                    },
+                    |success: &bool| !success,
+                )
+                .await;
 
-            let _ = event_tx.send(FEEvent::AllocationFinalizationFinished {
-                allocation_id: alloc_id,
-                is_success,
-            });
-        });
+                let _ = event_tx.send(FEEvent::AllocationFinalizationFinished {
+                    allocation_id: alloc_id,
+                    is_success,
+                });
+            }
+            .instrument(tracing::info_span!("allocation_finalize", allocation_id = %allocation_id, request_id = %request_id)),
+        );
     }
 
     fn handle_finalization_finished(&mut self, allocation_id: &str, is_success: bool) {

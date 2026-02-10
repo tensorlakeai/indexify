@@ -115,7 +115,6 @@ impl RequestStateHandler {
         let blob_uri = request_state_key_blob_uri(uri_prefix, state_key);
 
         debug!(
-            allocation_id = %allocation_id,
             operation_id = %op_id,
             state_key = %state_key,
             "Handling prepare_read state operation"
@@ -134,7 +133,6 @@ impl RequestStateHandler {
                     Ok(blob) => (allocation_runner::ok_status(), Some(blob)),
                     Err(e) => {
                         warn!(
-                            allocation_id = %allocation_id,
                             operation_id = %op_id,
                             error = %e,
                             "Failed to presign read blob for state operation"
@@ -149,7 +147,6 @@ impl RequestStateHandler {
         let update = make_read_result(allocation_id, op_id, status, blob);
         if let Err(e) = client.send_allocation_update(update).await {
             warn!(
-                allocation_id = %allocation_id,
                 operation_id = %op_id,
                 error = %e,
                 "Failed to send state read operation result"
@@ -172,7 +169,6 @@ impl RequestStateHandler {
         let blob_uri = request_state_key_blob_uri(uri_prefix, state_key);
 
         debug!(
-            allocation_id = %allocation_id,
             operation_id = %op_id,
             state_key = %state_key,
             size = write_size,
@@ -202,7 +198,6 @@ impl RequestStateHandler {
                     }
                     Err(e) => {
                         warn!(
-                            allocation_id = %allocation_id,
                             operation_id = %op_id,
                             error = %e,
                             "Failed to presign write blob for state operation"
@@ -216,7 +211,6 @@ impl RequestStateHandler {
             }
             Err(e) => {
                 warn!(
-                    allocation_id = %allocation_id,
                     operation_id = %op_id,
                     error = %e,
                     "Failed to create multipart upload for state operation"
@@ -228,7 +222,6 @@ impl RequestStateHandler {
         let update = make_write_result(allocation_id, op_id, status, blob);
         if let Err(e) = client.send_allocation_update(update).await {
             warn!(
-                allocation_id = %allocation_id,
                 operation_id = %op_id,
                 error = %e,
                 "Failed to send state write operation result"
@@ -247,7 +240,6 @@ impl RequestStateHandler {
         allocation_id: &str,
     ) {
         debug!(
-            allocation_id = %allocation_id,
             operation_id = %op_id,
             "Handling commit_write state operation"
         );
@@ -273,7 +265,6 @@ impl RequestStateHandler {
                     Ok(()) => allocation_runner::ok_status(),
                     Err(e) => {
                         warn!(
-                            allocation_id = %allocation_id,
                             operation_id = %op_id,
                             error = %e,
                             "Failed to complete multipart upload for state operation"
@@ -291,7 +282,6 @@ impl RequestStateHandler {
         let update = make_commit_result(allocation_id, op_id, status);
         if let Err(e) = client.send_allocation_update(update).await {
             warn!(
-                allocation_id = %allocation_id,
                 operation_id = %op_id,
                 error = %e,
                 "Failed to send state commit operation result"
