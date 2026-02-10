@@ -17,8 +17,6 @@ use proto_api::executor_api_pb::AllocationResult;
 use tokio::sync::{Mutex, Notify, mpsc};
 use tracing::debug;
 
-use crate::function_executor::events::CompletedAllocation;
-
 /// Maximum state report message size in bytes (10 MB).
 /// Matches Python executor's `_STATE_REPORT_MAX_MESSAGE_SIZE_MB`.
 const STATE_REPORT_MAX_MESSAGE_SIZE: usize = 10 * 1024 * 1024;
@@ -34,7 +32,7 @@ pub struct StateReporter {
 impl StateReporter {
     /// Create a new state reporter and spawn a background task that drains
     /// the result channel and notifies the heartbeat loop.
-    pub fn new(result_rx: mpsc::UnboundedReceiver<CompletedAllocation>) -> Self {
+    pub fn new(result_rx: mpsc::UnboundedReceiver<AllocationResult>) -> Self {
         let pending_results = Arc::new(Mutex::new(Vec::new()));
         let results_notify = Arc::new(Notify::new());
 
@@ -132,13 +130,13 @@ impl StateReporter {
 
 /// Background task: drains the result channel and notifies the heartbeat loop.
 async fn drain_results(
-    mut result_rx: mpsc::UnboundedReceiver<CompletedAllocation>,
+    mut result_rx: mpsc::UnboundedReceiver<AllocationResult>,
     pending_results: Arc<Mutex<Vec<AllocationResult>>>,
     results_notify: Arc<Notify>,
 ) {
-    while let Some(completed) = result_rx.recv().await {
+    while let Some(result) = result_rx.recv().await {
         let mut pending = pending_results.lock().await;
-        pending.push(completed.result);
+        pending.push(result);
         drop(pending);
         // Wake up heartbeat loop to send results immediately
         results_notify.notify_one();
@@ -152,7 +150,7 @@ mod tests {
     /// Helper: create a StateReporter and push results directly into the
     /// buffer.
     async fn setup_reporter(results: Vec<AllocationResult>) -> StateReporter {
-        let (_tx, rx) = mpsc::unbounded_channel::<CompletedAllocation>();
+        let (_tx, rx) = mpsc::unbounded_channel::<AllocationResult>();
         let reporter = StateReporter::new(rx);
         {
             let mut pending = reporter.pending_results.lock().await;
@@ -324,18 +322,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_drain_from_channel() {
-        let (tx, rx) = mpsc::unbounded_channel::<CompletedAllocation>();
+        let (tx, rx) = mpsc::unbounded_channel::<AllocationResult>();
         let reporter = StateReporter::new(rx);
 
         // Send results through the channel
-        tx.send(CompletedAllocation {
-            result: make_result("c1"),
-        })
-        .unwrap();
-        tx.send(CompletedAllocation {
-            result: make_result("c2"),
-        })
-        .unwrap();
+        tx.send(make_result("c1")).unwrap();
+        tx.send(make_result("c2")).unwrap();
 
         // Give the drain task a moment to process
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;

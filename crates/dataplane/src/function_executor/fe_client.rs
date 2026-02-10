@@ -23,15 +23,6 @@ use proto_api::function_executor_pb::{
 use tonic::{Streaming, transport::Channel};
 use tracing::debug;
 
-/// Timeout for connecting to the function executor.
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
-
-/// Interval for polling FE availability.
-/// Used by integration tests (separate crate, so not detected by dead_code
-/// lint).
-#[allow(dead_code)]
-const POLL_INTERVAL: Duration = Duration::from_millis(100);
-
 /// Client for communicating with a function executor subprocess.
 #[derive(Clone)]
 pub struct FunctionExecutorGrpcClient {
@@ -42,16 +33,8 @@ impl FunctionExecutorGrpcClient {
     /// Create a new client connected to the given address (e.g.,
     /// "127.0.0.1:9600").
     pub async fn connect(addr: &str) -> Result<Self> {
-        let endpoint = format!("http://{}", addr);
-        debug!(endpoint = %endpoint, "Connecting to function executor");
-
-        let channel = Channel::from_shared(endpoint.clone())
-            .context("Invalid endpoint")?
-            .connect_timeout(CONNECT_TIMEOUT)
-            .connect()
-            .await
-            .context("Failed to connect to function executor")?;
-
+        debug!(addr = %addr, "Connecting to function executor");
+        let channel = crate::grpc::connect_channel(addr).await?;
         let client = FunctionExecutorClient::new(channel);
         Ok(Self { client })
     }
@@ -61,23 +44,14 @@ impl FunctionExecutorGrpcClient {
     /// lint).
     #[allow(dead_code)]
     pub async fn connect_with_retry(addr: &str, timeout: Duration) -> Result<Self> {
-        let deadline = tokio::time::Instant::now() + timeout;
-
-        while tokio::time::Instant::now() < deadline {
-            match Self::connect(addr).await {
-                Ok(client) => return Ok(client),
-                Err(e) => {
-                    debug!(error = %e, addr = %addr, "FE connection failed, retrying...");
-                    tokio::time::sleep(POLL_INTERVAL).await;
-                }
-            }
-        }
-
-        anyhow::bail!(
-            "Timeout connecting to function executor at {} after {:?}",
-            addr,
-            timeout
+        crate::retry::retry_until_deadline(
+            timeout,
+            crate::grpc::POLL_INTERVAL,
+            &format!("connecting to function executor at {}", addr),
+            || Self::connect(addr),
+            || async { Ok(()) },
         )
+        .await
     }
 
     /// Initialize the function executor for a particular function.

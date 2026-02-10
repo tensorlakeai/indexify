@@ -1,8 +1,8 @@
 //! Function call watcher registry.
 //!
 //! Tracks function call watchers registered by allocation runners and provides
-//! routing of function call results from the server to the appropriate FE
-//! allocation runners.
+//! routing of function call results from the server to the appropriate
+//! allocation runner's channel.
 //!
 //! This is the Rust equivalent of the Python executor's
 //! FunctionCallWatchDispatcher and the watcher tracking in state_reconciler.
@@ -17,13 +17,27 @@ use proto_api::executor_api_pb::{
 use tokio::sync::{Mutex, Notify, mpsc};
 use tracing::{debug, warn};
 
-/// A registered watcher with a channel to receive results.
+/// A watcher result delivered to an allocation runner's channel.
+pub struct WatcherResult {
+    pub watcher_id: String,
+    pub watched_function_call_id: String,
+    pub fc_result: ServerFunctionCallResult,
+}
+
+/// A registered watcher tied to a specific allocation runner.
+struct RegisteredWatcher {
+    watcher_id: String,
+    watched_function_call_id: String,
+    result_tx: mpsc::UnboundedSender<WatcherResult>,
+}
+
+/// Entry for a watch key (namespace.request_id.function_call_id).
 struct WatcherEntry {
     /// The FunctionCallWatch to include in heartbeats.
     watch: FunctionCallWatch,
-    /// Senders for delivering results. Multiple allocations can watch the same
-    /// function call.
-    result_senders: Vec<mpsc::UnboundedSender<ServerFunctionCallResult>>,
+    /// Registered watchers. Multiple allocations can watch the same function
+    /// call.
+    watchers: Vec<RegisteredWatcher>,
 }
 
 /// Thread-safe registry for function call watchers.
@@ -62,8 +76,9 @@ impl WatcherRegistry {
         self.watcher_notify.clone()
     }
 
-    /// Register a function call watcher. Returns a receiver for the result.
+    /// Register a function call watcher.
     ///
+    /// Results will be delivered to `result_tx` as `WatcherResult` values.
     /// The watch will be included in heartbeats so the server knows to send
     /// function call results for this function call.
     pub async fn register_watcher(
@@ -72,9 +87,10 @@ impl WatcherRegistry {
         application: &str,
         request_id: &str,
         function_call_id: &str,
-    ) -> mpsc::UnboundedReceiver<ServerFunctionCallResult> {
+        watcher_id: &str,
+        result_tx: mpsc::UnboundedSender<WatcherResult>,
+    ) {
         let key = watch_key(namespace, request_id, function_call_id);
-        let (tx, rx) = mpsc::unbounded_channel();
 
         let mut inner = self.inner.lock().await;
         let entry = inner.watchers.entry(key).or_insert_with(|| WatcherEntry {
@@ -84,21 +100,24 @@ impl WatcherRegistry {
                 request_id: Some(request_id.to_string()),
                 function_call_id: Some(function_call_id.to_string()),
             },
-            result_senders: Vec::new(),
+            watchers: Vec::new(),
         });
-        entry.result_senders.push(tx);
+        entry.watchers.push(RegisteredWatcher {
+            watcher_id: watcher_id.to_string(),
+            watched_function_call_id: function_call_id.to_string(),
+            result_tx,
+        });
 
         debug!(
             namespace = %namespace,
             request_id = %request_id,
             function_call_id = %function_call_id,
+            watcher_id = %watcher_id,
             "Registered function call watcher"
         );
 
         // Wake up heartbeat loop to report new watches immediately
         self.watcher_notify.notify_one();
-
-        rx
     }
 
     /// Route function call results to registered watchers.
@@ -128,14 +147,20 @@ impl WatcherRegistry {
             let key = watch_key(namespace, request_id, function_call_id);
 
             if let Some(entry) = inner.watchers.get_mut(&key) {
-                // Deliver to all registered senders
-                entry.result_senders.retain(|tx| {
-                    if tx.is_closed() {
+                // Deliver to all registered watchers, removing closed ones
+                entry.watchers.retain(|w| {
+                    if w.result_tx.is_closed() {
                         return false;
                     }
-                    if tx.send(result.clone()).is_err() {
+                    let watcher_result = WatcherResult {
+                        watcher_id: w.watcher_id.clone(),
+                        watched_function_call_id: w.watched_function_call_id.clone(),
+                        fc_result: result.clone(),
+                    };
+                    if w.result_tx.send(watcher_result).is_err() {
                         warn!(
                             function_call_id = %function_call_id,
+                            watcher_id = %w.watcher_id,
                             "Failed to deliver function call result to watcher"
                         );
                         false
@@ -165,8 +190,8 @@ impl WatcherRegistry {
 
         // Prune closed senders and empty entries
         inner.watchers.retain(|key, entry| {
-            entry.result_senders.retain(|tx| !tx.is_closed());
-            if entry.result_senders.is_empty() {
+            entry.watchers.retain(|w| !w.result_tx.is_closed());
+            if entry.watchers.is_empty() {
                 debug!(
                     key = %key,
                     "Removing stale function call watcher (no more listeners)"

@@ -33,16 +33,10 @@ use tracing::{Instrument, error, info, warn};
 use super::{
     allocation_finalize,
     allocation_prep,
-    events::{
-        AllocationOutcome,
-        CompletedAllocation,
-        FECommand,
-        FEEvent,
-        FinalizationContext,
-        PreparedAllocation,
-    },
+    events::{AllocationOutcome, FECommand, FEEvent, FinalizationContext, PreparedAllocation},
     fe_client::FunctionExecutorGrpcClient,
     health_checker,
+    proto_convert,
     watcher_registry::WatcherRegistry,
 };
 use crate::{
@@ -55,12 +49,24 @@ use crate::{
 /// Timeout for connecting to the FE after spawning the process.
 const FE_READY_TIMEOUT: Duration = Duration::from_secs(60);
 
+/// Typed error for FE initialization timeout (replaces string-based detection).
+#[derive(Debug)]
+struct InitTimedOut(u64);
+
+impl std::fmt::Display for InitTimedOut {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "FE initialization timed out after {}ms", self.0)
+    }
+}
+
+impl std::error::Error for InitTimedOut {}
+
 /// Shared configuration for spawning function executor controllers.
 #[derive(Clone)]
 pub struct FESpawnConfig {
     pub driver: Arc<dyn ProcessDriver>,
     pub image_resolver: Arc<dyn ImageResolver>,
-    pub result_tx: mpsc::UnboundedSender<CompletedAllocation>,
+    pub result_tx: mpsc::UnboundedSender<ServerAllocationResult>,
     pub server_channel: Channel,
     pub blob_store: Arc<BlobStore>,
     pub code_cache: Arc<CodeCache>,
@@ -78,26 +84,182 @@ pub struct FEControllerHandle {
 }
 
 /// State of an allocation tracked by the controller.
+///
+/// Phase transitions follow this graph:
+///
+/// ```text
+///   Preparing ──► Runnable ──► Running ──► Finalizing ──► Done
+///       │             │                        ▲
+///       └─────────────┴── (on failure/cancel) ─┘
+/// ```
+///
+/// Use the `transition_*` and `take_*` methods to move between phases.
+/// These encapsulate the `mem::replace` pattern and keep the invariants
+/// in one place.
 struct AllocationInfo {
     allocation: ServerAllocation,
-    state: AllocationState,
     cancel_token: CancellationToken,
-    /// Prepared inputs (set after prep completes, taken when execution starts).
-    prepared: Option<PreparedAllocation>,
-    /// Server-side result (built from execution outcome, sent during
-    /// finalization).
-    server_result: Option<ServerAllocationResult>,
-    /// Context for finalization (accumulated across prep and execution).
-    finalization_ctx: Option<FinalizationContext>,
+    phase: AllocationPhase,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-enum AllocationState {
+impl AllocationInfo {
+    /// Transition from Preparing → Runnable with prepared data.
+    ///
+    /// A `FinalizationContext` is created automatically from the prepared
+    /// allocation's `request_error_blob_handle`.
+    fn transition_to_runnable(&mut self, prepared: PreparedAllocation) {
+        let finalization_ctx = FinalizationContext {
+            request_error_blob_handle: prepared.request_error_blob_handle.clone(),
+            output_blob_handles: Vec::new(),
+            fe_result: None,
+        };
+        self.phase = AllocationPhase::Runnable {
+            prepared,
+            finalization_ctx,
+        };
+    }
+
+    /// Transition from Runnable → Running, returning the `PreparedAllocation`.
+    ///
+    /// Returns `None` if not in the Runnable phase (phase is left unchanged).
+    fn take_prepared_and_run(&mut self) -> Option<PreparedAllocation> {
+        match std::mem::replace(&mut self.phase, AllocationPhase::Done) {
+            AllocationPhase::Runnable {
+                prepared,
+                finalization_ctx,
+            } => {
+                self.phase = AllocationPhase::Running { finalization_ctx };
+                Some(prepared)
+            }
+            other => {
+                self.phase = other;
+                None
+            }
+        }
+    }
+
+    /// Extract the `FinalizationContext` from Runnable or Running phases.
+    ///
+    /// For other phases, returns a default context (phase unchanged). This
+    /// is intentional: error/cancellation paths may need a context even when
+    /// the phase is unexpected.
+    fn take_finalization_ctx(&mut self) -> FinalizationContext {
+        match std::mem::replace(&mut self.phase, AllocationPhase::Done) {
+            AllocationPhase::Runnable {
+                finalization_ctx, ..
+            } |
+            AllocationPhase::Running { finalization_ctx } => finalization_ctx,
+            other => {
+                self.phase = other;
+                FinalizationContext::default()
+            }
+        }
+    }
+
+    /// Set the phase to Finalizing with the given server result.
+    fn transition_to_finalizing(&mut self, server_result: ServerAllocationResult) {
+        self.phase = AllocationPhase::Finalizing { server_result };
+    }
+
+    /// Extract the server result from the Finalizing phase.
+    ///
+    /// Returns `None` if not in the Finalizing phase (phase unchanged).
+    fn take_server_result(&mut self) -> Option<ServerAllocationResult> {
+        match std::mem::replace(&mut self.phase, AllocationPhase::Done) {
+            AllocationPhase::Finalizing { server_result } => Some(server_result),
+            other => {
+                self.phase = other;
+                None
+            }
+        }
+    }
+}
+
+/// Allocation lifecycle phase with data carried per variant.
+///
+/// Data moves forward through phases and is consumed at transitions,
+/// eliminating the `Option` fields of the previous design.
+enum AllocationPhase {
+    /// Waiting for input preparation (presigning blobs).
     Preparing,
-    Runnable,
-    Running,
-    Finalizing,
+    /// Inputs ready, queued for a concurrency slot.
+    Runnable {
+        prepared: PreparedAllocation,
+        finalization_ctx: FinalizationContext,
+    },
+    /// Executing on the FE subprocess (occupies a concurrency slot).
+    Running {
+        finalization_ctx: FinalizationContext,
+    },
+    /// Post-execution cleanup (completing multipart uploads, etc.).
+    Finalizing {
+        server_result: ServerAllocationResult,
+    },
+    /// Terminal state — result has been sent.
     Done,
+}
+
+/// Tracks allocations through their lifecycle phases with coupled data
+/// structures.
+///
+/// Centralizes the `allocations` map, `runnable_queue`, and `running_set`
+/// to prevent them from drifting out of sync.
+struct AllocationTracker {
+    allocations: HashMap<String, AllocationInfo>,
+    runnable_queue: VecDeque<String>,
+    running_set: HashSet<String>,
+}
+
+impl AllocationTracker {
+    fn new() -> Self {
+        Self {
+            allocations: HashMap::new(),
+            runnable_queue: VecDeque::new(),
+            running_set: HashSet::new(),
+        }
+    }
+
+    fn contains(&self, id: &str) -> bool {
+        self.allocations.contains_key(id)
+    }
+
+    fn insert(&mut self, id: String, info: AllocationInfo) {
+        self.allocations.insert(id, info);
+    }
+
+    fn get_mut(&mut self, id: &str) -> Option<&mut AllocationInfo> {
+        self.allocations.get_mut(id)
+    }
+
+    fn cancel_all_tokens(&self) {
+        for info in self.allocations.values() {
+            info.cancel_token.cancel();
+        }
+    }
+
+    fn enqueue_runnable(&mut self, id: String) {
+        self.runnable_queue.push_back(id);
+    }
+
+    fn dequeue_runnable(&mut self) -> Option<String> {
+        self.runnable_queue.pop_front()
+    }
+
+    fn drain_runnable(&mut self) -> Vec<String> {
+        self.runnable_queue.drain(..).collect()
+    }
+
+    fn mark_running(&mut self, id: String) {
+        self.running_set.insert(id);
+    }
+
+    fn unmark_running(&mut self, id: &str) {
+        self.running_set.remove(id);
+    }
+
+    fn running_count(&self) -> usize {
+        self.running_set.len()
+    }
 }
 
 /// The main controller that manages one function executor process.
@@ -114,13 +276,11 @@ pub struct FunctionExecutorController {
     // Inbound commands from StateReconciler
     command_rx: mpsc::UnboundedReceiver<FECommand>,
     // Outbound: completed allocation results → StateReporter
-    result_tx: mpsc::UnboundedSender<CompletedAllocation>,
+    result_tx: mpsc::UnboundedSender<ServerAllocationResult>,
     // Outbound: current FE state for heartbeat reporting
     state_tx: watch::Sender<FunctionExecutorState>,
     // Allocation tracking
-    allocations: HashMap<String, AllocationInfo>,
-    runnable_queue: VecDeque<String>,
-    running_set: HashSet<String>,
+    tracker: AllocationTracker,
     max_concurrency: u32,
     // Cancellation hierarchy
     cancel_token: CancellationToken,
@@ -176,9 +336,7 @@ impl FunctionExecutorController {
             command_rx,
             result_tx: config.result_tx,
             state_tx,
-            allocations: HashMap::new(),
-            runnable_queue: VecDeque::new(),
-            running_set: HashSet::new(),
+            tracker: AllocationTracker::new(),
             max_concurrency,
             cancel_token,
             server_channel: config.server_channel,
@@ -216,75 +374,19 @@ impl FunctionExecutorController {
         counters.function_executor_creates.add(1, &[]);
         up_down.function_executors_count.add(1, &[]);
 
-        // Phase 1: Start the FE process
-        info!(fe_id = ?self.description.id, "Starting function executor");
-        let start_process_time = Instant::now();
-        if let Err(e) = self.start_fe_process().await {
-            error!(error = %e, "Failed to start function executor process");
-            counters.function_executor_create_errors.add(1, &[]);
-            counters.function_executor_create_server_errors.add(1, &[]);
-            histograms
-                .function_executor_create_server_latency_seconds
-                .record(start_process_time.elapsed().as_secs_f64(), &[]);
-            histograms
-                .function_executor_create_latency_seconds
-                .record(create_start.elapsed().as_secs_f64(), &[]);
-            up_down.function_executors_count.add(-1, &[]);
-            self.transition_to_terminated(
-                FunctionExecutorTerminationReason::StartupFailedInternalError,
-            );
-            return;
-        }
-        histograms
-            .function_executor_create_server_latency_seconds
-            .record(start_process_time.elapsed().as_secs_f64(), &[]);
-
-        // Phase 2: Connect to FE and initialize
-        match self.connect_and_initialize().await {
-            Ok(client) => {
-                histograms
-                    .function_executor_create_latency_seconds
-                    .record(create_start.elapsed().as_secs_f64(), &[]);
-                self.client = Some(client.clone());
-                self.update_state(FunctionExecutorStatus::Running, None);
-
-                // Create a cancellation token for the process-bound tasks
-                let process_token = CancellationToken::new();
-                self.fe_process_cancel_token = Some(process_token.clone());
-
-                // Spawn health checker
-                let health_cancel = process_token.clone();
-                let fe_id = self.description.id.clone().unwrap_or_default();
-                let event_tx = self.event_tx.clone();
-                tokio::spawn(health_checker::run_health_checker(
-                    client,
-                    event_tx,
-                    health_cancel,
-                    fe_id,
-                ));
-            }
-            Err(e) => {
-                info!(error = %e, "Failed to connect/initialize function executor");
+        // Phase 1+2: Start process, connect, and initialize
+        let client = match self.start_and_initialize().await {
+            Ok(client) => client,
+            Err(reason) => {
                 counters.function_executor_create_errors.add(1, &[]);
                 histograms
                     .function_executor_create_latency_seconds
                     .record(create_start.elapsed().as_secs_f64(), &[]);
                 up_down.function_executors_count.add(-1, &[]);
-                // Kill the process since we can't use it
-                if let Some(handle) = &self.handle {
-                    let _ = self.driver.kill(handle).await;
-                }
-
-                let reason = if e.to_string().contains("FE initialization timed out") {
-                    FunctionExecutorTerminationReason::StartupFailedFunctionTimeout
-                } else {
-                    FunctionExecutorTerminationReason::StartupFailedInternalError
-                };
-
                 self.transition_to_terminated(reason);
 
-                // Drain command channel to handle any allocations that were sent while we were
-                // initializing
+                // Drain command channel to handle any allocations that were sent
+                // while we were initializing
                 self.command_rx.close();
                 while let Some(cmd) = self.command_rx.recv().await {
                     if let FECommand::AddAllocation(alloc) = cmd {
@@ -293,7 +395,25 @@ impl FunctionExecutorController {
                 }
                 return;
             }
-        }
+        };
+
+        histograms
+            .function_executor_create_latency_seconds
+            .record(create_start.elapsed().as_secs_f64(), &[]);
+        self.client = Some(client.clone());
+        self.update_state(FunctionExecutorStatus::Running, None);
+
+        // Spawn health checker
+        let process_token = CancellationToken::new();
+        self.fe_process_cancel_token = Some(process_token.clone());
+        let fe_id = self.description.id.clone().unwrap_or_default();
+        let event_tx = self.event_tx.clone();
+        tokio::spawn(health_checker::run_health_checker(
+            client,
+            event_tx,
+            process_token,
+            fe_id,
+        ));
 
         info!(fe_id = ?self.description.id, "Function executor running, entering event loop");
 
@@ -315,11 +435,57 @@ impl FunctionExecutorController {
                     }
                 }
                 Some(event) = self.event_rx.recv() => {
-                    let should_exit = self.handle_event(event).await;
-                    if should_exit {
-                        break;
-                    }
+                    self.handle_event(event).await;
                 }
+            }
+        }
+    }
+
+    /// Start the FE process, connect, and initialize it.
+    ///
+    /// Returns `Ok(client)` on success, or `Err(termination_reason)` on
+    /// failure (the process is killed on connect/init failure).
+    async fn start_and_initialize(
+        &mut self,
+    ) -> std::result::Result<FunctionExecutorGrpcClient, FunctionExecutorTerminationReason> {
+        let metrics = self.metrics.clone();
+
+        // Start the FE process
+        info!(fe_id = ?self.description.id, "Starting function executor");
+        let start_process_time = Instant::now();
+        if let Err(e) = self.start_fe_process().await {
+            error!(error = %e, "Failed to start function executor process");
+            metrics
+                .counters
+                .function_executor_create_server_errors
+                .add(1, &[]);
+            metrics
+                .histograms
+                .function_executor_create_server_latency_seconds
+                .record(start_process_time.elapsed().as_secs_f64(), &[]);
+            return Err(FunctionExecutorTerminationReason::StartupFailedInternalError);
+        }
+        metrics
+            .histograms
+            .function_executor_create_server_latency_seconds
+            .record(start_process_time.elapsed().as_secs_f64(), &[]);
+
+        // Connect to FE and initialize
+        match self.connect_and_initialize().await {
+            Ok(client) => Ok(client),
+            Err(e) => {
+                info!(error = %e, "Failed to connect/initialize function executor");
+                // Kill the process since we can't use it
+                if let Some(handle) = &self.handle {
+                    let _ = self.driver.kill(handle).await;
+                }
+
+                let reason = if e.is::<InitTimedOut>() {
+                    FunctionExecutorTerminationReason::StartupFailedFunctionTimeout
+                } else {
+                    FunctionExecutorTerminationReason::StartupFailedInternalError
+                };
+                Err(reason)
             }
         }
     }
@@ -379,6 +545,13 @@ impl FunctionExecutorController {
 
     /// Connect to the FE gRPC server and initialize it.
     async fn connect_and_initialize(&mut self) -> Result<FunctionExecutorGrpcClient> {
+        let mut client = self.connect_to_fe().await?;
+        self.initialize_fe(&mut client).await?;
+        Ok(client)
+    }
+
+    /// Connect to the FE gRPC server with retry and verify connectivity.
+    async fn connect_to_fe(&self) -> Result<FunctionExecutorGrpcClient> {
         let handle = self
             .handle
             .as_ref()
@@ -394,53 +567,35 @@ impl FunctionExecutorController {
         // Retry connecting to the FE with process liveness checks.
         // If the FE process dies (e.g. port binding failure), we fail
         // immediately instead of waiting the full FE_READY_TIMEOUT.
-        let mut client = {
-            let deadline = tokio::time::Instant::now() + FE_READY_TIMEOUT;
-            let poll_interval = Duration::from_millis(100);
-            let mut last_err = None;
-
-            loop {
-                if tokio::time::Instant::now() >= deadline {
-                    anyhow::bail!(
-                        "Timeout connecting to function executor at {} after {:?}: {}",
-                        addr,
-                        FE_READY_TIMEOUT,
-                        last_err
-                            .as_ref()
-                            .map(|e: &anyhow::Error| e.to_string())
-                            .unwrap_or_default()
-                    );
-                }
-
-                match FunctionExecutorGrpcClient::connect(addr).await {
-                    Ok(c) => break c,
-                    Err(e) => {
-                        last_err = Some(e);
+        let driver = self.driver.clone();
+        let process_handle = self.handle.clone();
+        let addr_owned = addr.to_string();
+        let mut client = crate::retry::retry_until_deadline(
+            FE_READY_TIMEOUT,
+            Duration::from_millis(100),
+            &format!("connecting to function executor at {}", addr),
+            || FunctionExecutorGrpcClient::connect(&addr_owned),
+            || {
+                let driver = driver.clone();
+                let process_handle = process_handle.clone();
+                async move {
+                    if let Some(h) = &process_handle &&
+                        !driver.alive(h).await.unwrap_or(false)
+                    {
+                        let exit_status = driver.get_exit_status(h).await.ok().flatten();
+                        anyhow::bail!(
+                            "Function executor process died before accepting connections \
+                             (exit_status={:?})",
+                            exit_status,
+                        );
                     }
+                    Ok(())
                 }
+            },
+        )
+        .await?;
 
-                // Check if the FE process is still alive before retrying.
-                // This catches crashes like port binding failures immediately.
-                if let Some(h) = &self.handle &&
-                    !self.driver.alive(h).await.unwrap_or(false)
-                {
-                    let exit_status = self.driver.get_exit_status(h).await.ok().flatten();
-                    anyhow::bail!(
-                        "Function executor process died before accepting connections \
-                         (exit_status={:?}): {}",
-                        exit_status,
-                        last_err
-                            .as_ref()
-                            .map(|e: &anyhow::Error| e.to_string())
-                            .unwrap_or_default()
-                    );
-                }
-
-                tokio::time::sleep(poll_interval).await;
-            }
-        };
-
-        // Get info to verify connectivity
+        // Verify connectivity
         let info = client.get_info().await?;
         info!(
             version = ?info.version,
@@ -449,10 +604,13 @@ impl FunctionExecutorController {
             "Connected to function executor"
         );
 
-        // Download application code via cache
+        Ok(client)
+    }
+
+    /// Download application code and send initialization RPC.
+    async fn initialize_fe(&self, client: &mut FunctionExecutorGrpcClient) -> Result<()> {
         let application_code = self.download_app_code().await?;
 
-        // Initialize the FE with the function to run
         let init_request = proto_api::function_executor_pb::InitializeRequest {
             function: self.description.function.as_ref().map(|f| {
                 proto_api::function_executor_pb::FunctionRef {
@@ -471,7 +629,7 @@ impl FunctionExecutorController {
         let init_response = if timeout_ms > 0 {
             tokio::time::timeout(Duration::from_millis(timeout_ms as u64), init_future)
                 .await
-                .map_err(|_| anyhow::anyhow!("FE initialization timed out after {}ms", timeout_ms))?
+                .map_err(|_| InitTimedOut(timeout_ms as u64))?
                 .map_err(|e| {
                     error!(error = %e, "FE initialize RPC call failed");
                     e
@@ -499,7 +657,7 @@ impl FunctionExecutorController {
             }
         }
 
-        Ok(client)
+        Ok(())
     }
 
     /// Download application code using the code cache.
@@ -570,62 +728,36 @@ impl FunctionExecutorController {
                 "Rejecting allocation, FE is terminated"
             );
 
-            let term_reason = self
+            let failure_reason = self
                 .state_tx
                 .borrow()
                 .termination_reason
-                .and_then(|r| FunctionExecutorTerminationReason::try_from(r).ok());
+                .and_then(|r| FunctionExecutorTerminationReason::try_from(r).ok())
+                .map(proto_convert::termination_to_failure_reason)
+                .unwrap_or(AllocationFailureReason::FunctionExecutorTerminated);
 
-            let failure_reason = match term_reason {
-                Some(FunctionExecutorTerminationReason::StartupFailedFunctionTimeout) => {
-                    proto_api::executor_api_pb::AllocationFailureReason::StartupFailedFunctionTimeout
-                }
-                Some(FunctionExecutorTerminationReason::StartupFailedInternalError) => {
-                    proto_api::executor_api_pb::AllocationFailureReason::StartupFailedInternalError
-                }
-                Some(FunctionExecutorTerminationReason::StartupFailedFunctionError) => {
-                    proto_api::executor_api_pb::AllocationFailureReason::StartupFailedFunctionError
-                }
-                _ => proto_api::executor_api_pb::AllocationFailureReason::FunctionExecutorTerminated,
-            };
-
-            // We should probably report failure for this allocation immediately
-            if let Some(alloc_id) = allocation.allocation_id {
-                let result = proto_api::executor_api_pb::AllocationResult {
-                    function: allocation.function.clone(),
-                    allocation_id: Some(alloc_id),
-                    function_call_id: allocation.function_call_id.clone(),
-                    request_id: allocation.request_id.clone(),
-                    outcome_code: Some(
-                        proto_api::executor_api_pb::AllocationOutcomeCode::Failure.into(),
-                    ),
-                    failure_reason: Some(failure_reason.into()),
-                    return_value: None,
-                    request_error: None,
-                    execution_duration_ms: None,
-                };
-                let _ = self.result_tx.send(CompletedAllocation { result });
+            // Report failure for this allocation immediately
+            if allocation.allocation_id.is_some() {
+                let result = proto_convert::make_failure_result(&allocation, failure_reason);
+                let _ = self.result_tx.send(result);
             }
             return;
         }
 
         let alloc_id = allocation.allocation_id.clone().unwrap_or_default();
 
-        if self.allocations.contains_key(&alloc_id) {
+        if self.tracker.contains(&alloc_id) {
             return; // Already tracking
         }
 
         let alloc_cancel = self.cancel_token.child_token();
         let info = AllocationInfo {
             allocation: allocation.clone(),
-            state: AllocationState::Preparing,
             cancel_token: alloc_cancel,
-            prepared: None,
-            server_result: None,
-            finalization_ctx: None,
+            phase: AllocationPhase::Preparing,
         };
 
-        self.allocations.insert(alloc_id.clone(), info);
+        self.tracker.insert(alloc_id.clone(), info);
         self.metrics.counters.allocation_preparations.add(1, &[]);
         self.metrics
             .up_down_counters
@@ -638,19 +770,14 @@ impl FunctionExecutorController {
         let alloc_id_clone = alloc_id.clone();
         let metrics = self.metrics.clone();
         tokio::spawn(async move {
-            let prep_start = Instant::now();
-            let result = allocation_prep::prepare_allocation(&allocation, &blob_store).await;
-            metrics
-                .histograms
-                .allocation_preparation_latency_seconds
-                .record(prep_start.elapsed().as_secs_f64(), &[]);
-            metrics
-                .up_down_counters
-                .allocations_getting_prepared
-                .add(-1, &[]);
-            if result.is_err() {
-                metrics.counters.allocation_preparation_errors.add(1, &[]);
-            }
+            let result = timed_phase(
+                &metrics.histograms.allocation_preparation_latency_seconds,
+                &metrics.up_down_counters.allocations_getting_prepared,
+                Some(&metrics.counters.allocation_preparation_errors),
+                allocation_prep::prepare_allocation(&allocation, &blob_store),
+                |r: &Result<_>| r.is_err(),
+            )
+            .await;
             let _ = event_tx.send(FEEvent::AllocationPreparationFinished {
                 allocation_id: alloc_id_clone,
                 result,
@@ -658,23 +785,30 @@ impl FunctionExecutorController {
         });
     }
 
+    /// Fail an allocation by routing it through finalization with the given
+    /// failure reason.
+    fn fail_allocation(&mut self, allocation_id: &str, reason: AllocationFailureReason) {
+        let Some(info) = self.tracker.get_mut(allocation_id) else {
+            return;
+        };
+        let result = proto_convert::make_failure_result(&info.allocation, reason);
+        let ctx = info.take_finalization_ctx();
+        self.start_finalization(allocation_id, result, ctx);
+    }
+
     fn handle_schedule_execution(&mut self) {
-        while self.running_set.len() < self.max_concurrency as usize {
-            let Some(alloc_id) = self.runnable_queue.pop_front() else {
+        while self.tracker.running_count() < self.max_concurrency as usize {
+            let Some(alloc_id) = self.tracker.dequeue_runnable() else {
                 break;
             };
 
-            let Some(info) = self.allocations.get_mut(&alloc_id) else {
+            let Some(info) = self.tracker.get_mut(&alloc_id) else {
                 continue;
             };
 
             // If cancelled while in queue, route to finalization
             if info.cancel_token.is_cancelled() {
-                info.server_result = Some(make_failure_result(
-                    &info.allocation,
-                    AllocationFailureReason::AllocationCancelled,
-                ));
-                self.start_finalization(&alloc_id.clone());
+                self.fail_allocation(&alloc_id, AllocationFailureReason::AllocationCancelled);
                 continue;
             }
 
@@ -684,77 +818,63 @@ impl FunctionExecutorController {
                     allocation_id = %alloc_id,
                     "Cannot schedule allocation, FE client is not available (terminated?)"
                 );
-                if let Some(info) = self.allocations.get_mut(&alloc_id) {
-                    info.server_result = Some(make_failure_result(
-                        &info.allocation,
-                        AllocationFailureReason::FunctionExecutorTerminated,
-                    ));
-                }
-                self.start_finalization(&alloc_id.clone());
+                self.fail_allocation(
+                    &alloc_id,
+                    AllocationFailureReason::FunctionExecutorTerminated,
+                );
                 continue;
             };
 
-            // Take prepared data
-            let prepared = match info.prepared.take() {
-                Some(p) => p,
-                None => {
-                    warn!(
-                        allocation_id = %alloc_id,
-                        "No prepared data for runnable allocation"
-                    );
-                    info.server_result = Some(make_failure_result(
-                        &info.allocation,
-                        AllocationFailureReason::InternalError,
-                    ));
-                    self.start_finalization(&alloc_id.clone());
-                    continue;
-                }
+            // Transition Runnable → Running, taking the prepared data
+            let Some(prepared) = info.take_prepared_and_run() else {
+                warn!(
+                    allocation_id = %alloc_id,
+                    "Expected Runnable phase for scheduled allocation"
+                );
+                self.fail_allocation(&alloc_id, AllocationFailureReason::InternalError);
+                continue;
             };
+            // Clone data from info before releasing the tracker borrow
+            let allocation = info.allocation.clone();
+            let cancel_token = info.cancel_token.clone();
 
-            info.state = AllocationState::Running;
-            self.running_set.insert(alloc_id.clone());
+            self.tracker.mark_running(alloc_id.clone());
 
             self.metrics.counters.allocation_runs.add(1, &[]);
             self.metrics
                 .up_down_counters
                 .allocation_runs_in_progress
                 .add(1, &[]);
-
-            let allocation = info.allocation.clone();
-            let cancel_token = info.cancel_token.clone();
             let event_tx = self.event_tx.clone();
-            let server_channel = self.server_channel.clone();
-            let blob_store = self.blob_store.clone();
             let alloc_id_clone = alloc_id.clone();
-            let watcher_registry = self.watcher_registry.clone();
             let metrics = self.metrics.clone();
             let allocation_timeout = Duration::from_millis(
                 self.description.allocation_timeout_ms.unwrap_or(300_000) as u64,
             );
 
+            let ctx = super::allocation_runner::AllocationContext {
+                server_channel: self.server_channel.clone(),
+                blob_store: self.blob_store.clone(),
+                watcher_registry: self.watcher_registry.clone(),
+                metrics: metrics.clone(),
+            };
+
             tokio::spawn(async move {
-                let run_start = Instant::now();
-                let result = super::allocation_runner::execute_allocation(
-                    client,
-                    allocation,
-                    prepared,
-                    server_channel,
-                    blob_store,
-                    allocation_timeout,
-                    cancel_token,
-                    watcher_registry,
-                    metrics.clone(),
+                let result = timed_phase(
+                    &metrics.histograms.allocation_run_latency_seconds,
+                    &metrics.up_down_counters.allocation_runs_in_progress,
+                    None,
+                    super::allocation_runner::execute_allocation(
+                        client,
+                        allocation,
+                        prepared,
+                        ctx,
+                        allocation_timeout,
+                        cancel_token,
+                    ),
+                    |_: &AllocationOutcome| false,
                 )
                 .await;
-
-                metrics
-                    .histograms
-                    .allocation_run_latency_seconds
-                    .record(run_start.elapsed().as_secs_f64(), &[]);
-                metrics
-                    .up_down_counters
-                    .allocation_runs_in_progress
-                    .add(-1, &[]);
 
                 let _ = event_tx.send(FEEvent::AllocationExecutionFinished {
                     allocation_id: alloc_id_clone,
@@ -764,7 +884,7 @@ impl FunctionExecutorController {
         }
     }
 
-    async fn handle_event(&mut self, event: FEEvent) -> bool {
+    async fn handle_event(&mut self, event: FEEvent) {
         match event {
             FEEvent::FunctionExecutorTerminated { fe_id, reason } => {
                 self.handle_fe_terminated(fe_id, reason).await;
@@ -791,7 +911,6 @@ impl FunctionExecutorController {
                 self.handle_finalization_finished(&allocation_id, is_success);
             }
         }
-        false // don't exit
     }
 
     fn handle_preparation_finished(
@@ -799,39 +918,33 @@ impl FunctionExecutorController {
         allocation_id: &str,
         result: anyhow::Result<PreparedAllocation>,
     ) {
-        let Some(info) = self.allocations.get_mut(allocation_id) else {
+        let Some(info) = self.tracker.get_mut(allocation_id) else {
             return;
         };
 
         // If cancelled during prep, route to finalization
         if info.cancel_token.is_cancelled() {
-            info.server_result = Some(make_failure_result(
+            let server_result = proto_convert::make_failure_result(
                 &info.allocation,
                 AllocationFailureReason::AllocationCancelled,
-            ));
-            // If prep succeeded, we have a request_error_blob_handle to clean up
-            if let Ok(prepared) = result {
-                info.finalization_ctx = Some(FinalizationContext {
+            );
+            let ctx = if let Ok(prepared) = result {
+                FinalizationContext {
                     request_error_blob_handle: prepared.request_error_blob_handle,
                     output_blob_handles: Vec::new(),
                     fe_result: None,
-                });
-            }
-            self.start_finalization(allocation_id);
+                }
+            } else {
+                FinalizationContext::default()
+            };
+            self.start_finalization(allocation_id, server_result, ctx);
             return;
         }
 
         match result {
             Ok(prepared) => {
-                // Initialize finalization context with the request error blob handle
-                info.finalization_ctx = Some(FinalizationContext {
-                    request_error_blob_handle: prepared.request_error_blob_handle.clone(),
-                    output_blob_handles: Vec::new(),
-                    fe_result: None,
-                });
-                info.prepared = Some(prepared);
-                info.state = AllocationState::Runnable;
-                self.runnable_queue.push_back(allocation_id.to_string());
+                info.transition_to_runnable(prepared);
+                self.tracker.enqueue_runnable(allocation_id.to_string());
                 let _ = self.event_tx.send(FEEvent::ScheduleAllocationExecution);
             }
             Err(e) => {
@@ -840,41 +953,47 @@ impl FunctionExecutorController {
                     error = %e,
                     "Allocation preparation failed"
                 );
-                info.server_result = Some(make_failure_result(
+                let server_result = proto_convert::make_failure_result(
                     &info.allocation,
                     AllocationFailureReason::InternalError,
-                ));
-                self.start_finalization(allocation_id);
+                );
+                self.start_finalization(
+                    allocation_id,
+                    server_result,
+                    FinalizationContext::default(),
+                );
             }
         }
     }
 
     fn handle_execution_finished(&mut self, allocation_id: &str, outcome: AllocationOutcome) {
         // Free concurrency slot immediately
-        self.running_set.remove(allocation_id);
+        self.tracker.unmark_running(allocation_id);
 
         // Pipeline next allocation
         let _ = self.event_tx.send(FEEvent::ScheduleAllocationExecution);
 
-        let Some(info) = self.allocations.get_mut(allocation_id) else {
+        let Some(info) = self.tracker.get_mut(allocation_id) else {
             return;
         };
+
+        // Take finalization_ctx from Running phase
+        let mut finalization_ctx = info.take_finalization_ctx();
 
         // Track whether the failure was due to a stream error (FE likely crashed)
         let mut trigger_fe_termination = false;
 
-        // Extract data from outcome and update finalization context
-        match outcome {
+        // Extract data from outcome, build server_result, and update finalization
+        // context
+        let server_result = match outcome {
             AllocationOutcome::Completed {
                 result,
                 fe_result,
                 output_blob_handles,
             } => {
-                info.server_result = Some(result);
-                if let Some(ref mut ctx) = info.finalization_ctx {
-                    ctx.output_blob_handles = output_blob_handles;
-                    ctx.fe_result = fe_result;
-                }
+                finalization_ctx.output_blob_handles = output_blob_handles;
+                finalization_ctx.fe_result = fe_result;
+                result
             }
             AllocationOutcome::Cancelled {
                 output_blob_handles,
@@ -890,42 +1009,11 @@ impl FunctionExecutorController {
                     let Ok(term_reason) =
                         FunctionExecutorTerminationReason::try_from(term_reason_i32)
                 {
-                    failure_reason = match term_reason {
-                        FunctionExecutorTerminationReason::Unhealthy => {
-                            // Treat grey failures (process crash/unresponsive) as FunctionError
-                            // to prevent service abuse by functions that crash the executor.
-                            proto_api::executor_api_pb::AllocationFailureReason::FunctionError
-                        }
-                        FunctionExecutorTerminationReason::InternalError => {
-                            proto_api::executor_api_pb::AllocationFailureReason::InternalError
-                        }
-                        FunctionExecutorTerminationReason::FunctionTimeout => {
-                            proto_api::executor_api_pb::AllocationFailureReason::FunctionTimeout
-                        }
-                        FunctionExecutorTerminationReason::Oom => {
-                            proto_api::executor_api_pb::AllocationFailureReason::Oom
-                        }
-                        _ => proto_api::executor_api_pb::AllocationFailureReason::FunctionExecutorTerminated,
-                    };
+                    failure_reason = proto_convert::termination_to_failure_reason(term_reason);
                 }
 
-                let result = ServerAllocationResult {
-                    function: info.allocation.function.clone(),
-                    allocation_id: info.allocation.allocation_id.clone(),
-                    function_call_id: info.allocation.function_call_id.clone(),
-                    request_id: info.allocation.request_id.clone(),
-                    outcome_code: Some(
-                        proto_api::executor_api_pb::AllocationOutcomeCode::Failure.into(),
-                    ),
-                    failure_reason: Some(failure_reason.into()),
-                    return_value: None,
-                    request_error: None,
-                    execution_duration_ms: None,
-                };
-                info.server_result = Some(result);
-                if let Some(ref mut ctx) = info.finalization_ctx {
-                    ctx.output_blob_handles = output_blob_handles;
-                }
+                finalization_ctx.output_blob_handles = output_blob_handles;
+                proto_convert::make_failure_result(&info.allocation, failure_reason)
             }
             AllocationOutcome::Failed {
                 reason,
@@ -933,9 +1021,6 @@ impl FunctionExecutorController {
                 output_blob_handles,
                 likely_fe_crash,
             } => {
-                // If the allocation failed due to a connection/stream error, the FE likely
-                // crashed. Trigger immediate termination instead of waiting 15s
-                // for the health checker.
                 if likely_fe_crash {
                     warn!(
                         allocation_id = %allocation_id,
@@ -945,27 +1030,12 @@ impl FunctionExecutorController {
                     trigger_fe_termination = true;
                 }
 
-                let result = ServerAllocationResult {
-                    function: info.allocation.function.clone(),
-                    allocation_id: info.allocation.allocation_id.clone(),
-                    function_call_id: info.allocation.function_call_id.clone(),
-                    request_id: info.allocation.request_id.clone(),
-                    outcome_code: Some(
-                        proto_api::executor_api_pb::AllocationOutcomeCode::Failure.into(),
-                    ),
-                    failure_reason: Some(reason.into()),
-                    return_value: None,
-                    request_error: None,
-                    execution_duration_ms: None,
-                };
-                info.server_result = Some(result);
-                if let Some(ref mut ctx) = info.finalization_ctx {
-                    ctx.output_blob_handles = output_blob_handles;
-                }
+                finalization_ctx.output_blob_handles = output_blob_handles;
+                proto_convert::make_failure_result(&info.allocation, reason)
             }
-        }
+        };
 
-        self.start_finalization(allocation_id);
+        self.start_finalization(allocation_id, server_result, finalization_ctx);
 
         if trigger_fe_termination {
             let fe_id = self.description.id.clone().unwrap_or_default();
@@ -976,12 +1046,15 @@ impl FunctionExecutorController {
         }
     }
 
-    fn start_finalization(&mut self, allocation_id: &str) {
-        let Some(info) = self.allocations.get_mut(allocation_id) else {
+    fn start_finalization(
+        &mut self,
+        allocation_id: &str,
+        server_result: ServerAllocationResult,
+        ctx: FinalizationContext,
+    ) {
+        let Some(info) = self.tracker.get_mut(allocation_id) else {
             return;
         };
-
-        info.state = AllocationState::Finalizing;
 
         self.metrics.counters.allocation_finalizations.add(1, &[]);
         self.metrics
@@ -989,12 +1062,7 @@ impl FunctionExecutorController {
             .allocations_finalizing
             .add(1, &[]);
 
-        // Take finalization context (may be None if prep never completed)
-        let ctx = info.finalization_ctx.take().unwrap_or(FinalizationContext {
-            request_error_blob_handle: None,
-            output_blob_handles: Vec::new(),
-            fe_result: None,
-        });
+        info.transition_to_finalizing(server_result);
 
         let event_tx = self.event_tx.clone();
         let blob_store = self.blob_store.clone();
@@ -1002,25 +1070,24 @@ impl FunctionExecutorController {
         let metrics = self.metrics.clone();
 
         tokio::spawn(async move {
-            let finalization_start = Instant::now();
-            let is_success = allocation_finalize::finalize_allocation(
-                &alloc_id,
-                ctx.fe_result.as_ref(),
-                ctx.request_error_blob_handle.as_ref(),
-                &ctx.output_blob_handles,
-                &blob_store,
+            let is_success = timed_phase(
+                &metrics.histograms.allocation_finalization_latency_seconds,
+                &metrics.up_down_counters.allocations_finalizing,
+                Some(&metrics.counters.allocation_finalization_errors),
+                async {
+                    allocation_finalize::finalize_allocation(
+                        &alloc_id,
+                        ctx.fe_result.as_ref(),
+                        ctx.request_error_blob_handle.as_ref(),
+                        &ctx.output_blob_handles,
+                        &blob_store,
+                    )
+                    .await
+                    .is_ok()
+                },
+                |success: &bool| !success,
             )
-            .await
-            .is_ok();
-
-            metrics
-                .histograms
-                .allocation_finalization_latency_seconds
-                .record(finalization_start.elapsed().as_secs_f64(), &[]);
-            metrics.up_down_counters.allocations_finalizing.add(-1, &[]);
-            if !is_success {
-                metrics.counters.allocation_finalization_errors.add(1, &[]);
-            }
+            .await;
 
             let _ = event_tx.send(FEEvent::AllocationFinalizationFinished {
                 allocation_id: alloc_id,
@@ -1030,36 +1097,31 @@ impl FunctionExecutorController {
     }
 
     fn handle_finalization_finished(&mut self, allocation_id: &str, is_success: bool) {
-        let Some(info) = self.allocations.get_mut(allocation_id) else {
+        let Some(info) = self.tracker.get_mut(allocation_id) else {
             return;
         };
 
-        if !is_success {
+        // Extract server_result from Finalizing phase
+        let Some(server_result) = info.take_server_result() else {
+            warn!(allocation_id = %allocation_id, "Expected Finalizing phase");
+            return;
+        };
+
+        let result = if !is_success {
             // Override result with internal error, but preserve execution_duration_ms
-            let existing_duration = info
-                .server_result
-                .as_ref()
-                .and_then(|r| r.execution_duration_ms);
-            let mut err_result =
-                make_failure_result(&info.allocation, AllocationFailureReason::InternalError);
-            err_result.execution_duration_ms = existing_duration;
-            info.server_result = Some(err_result);
-        } else if info.server_result.is_none() {
-            // Should not happen, but if server_result is missing, set internal error
-            warn!(allocation_id = %allocation_id, "Server result missing after finalization");
-            info.server_result = Some(make_failure_result(
+            let mut err_result = proto_convert::make_failure_result(
                 &info.allocation,
                 AllocationFailureReason::InternalError,
-            ));
-        }
+            );
+            err_result.execution_duration_ms = server_result.execution_duration_ms;
+            err_result
+        } else {
+            server_result
+        };
 
-        info.state = AllocationState::Done;
-
-        if let Some(result) = info.server_result.take() {
-            // Record allocation outcome metrics
-            record_allocation_metrics(&result, &self.metrics.counters);
-            let _ = self.result_tx.send(CompletedAllocation { result });
-        }
+        // Record allocation outcome metrics
+        record_allocation_metrics(&result, &self.metrics.counters);
+        let _ = self.result_tx.send(result);
     }
 
     async fn handle_fe_terminated(
@@ -1076,46 +1138,7 @@ impl FunctionExecutorController {
             return;
         }
         warn!(reason = ?reason, "Function executor terminated");
-
-        // Cancel the health checker immediately
-        if let Some(token) = &self.fe_process_cancel_token {
-            token.cancel();
-        }
-
-        // Cancel all allocation tokens
-        for info in self.allocations.values() {
-            info.cancel_token.cancel();
-        }
-
-        // For allocations that are already Done or Finalizing, let them finish
-        // normally. For allocations in Preparing, their prep task will fire the
-        // event and handle_preparation_finished will see the cancellation.
-        // For allocations in Runnable, drain them through finalization now.
-        let runnable_ids: Vec<String> = self.runnable_queue.drain(..).collect();
-        for alloc_id in &runnable_ids {
-            if let Some(info) = self.allocations.get_mut(alloc_id) &&
-                info.state == AllocationState::Runnable
-            {
-                info.server_result = Some(make_failure_result(
-                    &info.allocation,
-                    AllocationFailureReason::FunctionExecutorTerminated,
-                ));
-                // start_finalization needs &mut self, so we do it below
-            }
-        }
-        for alloc_id in runnable_ids {
-            self.start_finalization(&alloc_id);
-        }
-
-        // For Running allocations, the cancel token was cancelled above.
-        // Their execution tasks will return Cancelled outcomes, which will
-        // route through handle_execution_finished → start_finalization.
-
-        // Kill process
-        if let Some(handle) = &self.handle {
-            let _ = self.driver.kill(handle).await;
-        }
-        self.transition_to_terminated(reason);
+        self.terminate(reason, true).await;
     }
 
     async fn shutdown(&mut self) {
@@ -1123,20 +1146,9 @@ impl FunctionExecutorController {
         self.metrics.counters.function_executor_destroys.add(1, &[]);
         let destroy_start = Instant::now();
 
-        // Cancel all allocations
-        for info in self.allocations.values() {
-            info.cancel_token.cancel();
-        }
+        self.terminate(FunctionExecutorTerminationReason::FunctionCancelled, false)
+            .await;
 
-        // Cancel the health checker immediately
-        if let Some(token) = &self.fe_process_cancel_token {
-            token.cancel();
-        }
-
-        // Kill the process
-        if let Some(handle) = &self.handle {
-            let _ = self.driver.kill(handle).await;
-        }
         self.metrics
             .histograms
             .function_executor_destroy_latency_seconds
@@ -1145,7 +1157,52 @@ impl FunctionExecutorController {
             .up_down_counters
             .function_executors_count
             .add(-1, &[]);
-        self.transition_to_terminated(FunctionExecutorTerminationReason::FunctionCancelled);
+    }
+
+    /// Core termination logic shared by `handle_fe_terminated` and `shutdown`.
+    ///
+    /// Cancels all allocations, stops the health checker, kills the process,
+    /// and transitions to Terminated. When `drain_runnable` is true, runnable
+    /// allocations are routed through finalization (needed when the FE crashes
+    /// so blob handles are cleaned up).
+    async fn terminate(&mut self, reason: FunctionExecutorTerminationReason, drain_runnable: bool) {
+        // Cancel the health checker immediately
+        if let Some(token) = &self.fe_process_cancel_token {
+            token.cancel();
+        }
+
+        // Cancel all allocation tokens
+        self.tracker.cancel_all_tokens();
+
+        // Drain runnable allocations through finalization so blob handles are
+        // cleaned up. Only needed on FE crash — on graceful shutdown, Running
+        // allocations will see cancellation and finalize themselves.
+        if drain_runnable {
+            let runnable_ids = self.tracker.drain_runnable();
+            let mut runnable_items: Vec<(String, ServerAllocationResult, FinalizationContext)> =
+                Vec::new();
+            for alloc_id in &runnable_ids {
+                if let Some(info) = self.tracker.get_mut(alloc_id) &&
+                    matches!(info.phase, AllocationPhase::Runnable { .. })
+                {
+                    let result = proto_convert::make_failure_result(
+                        &info.allocation,
+                        AllocationFailureReason::FunctionExecutorTerminated,
+                    );
+                    let ctx = info.take_finalization_ctx();
+                    runnable_items.push((alloc_id.clone(), result, ctx));
+                }
+            }
+            for (alloc_id, result, ctx) in runnable_items {
+                self.start_finalization(&alloc_id, result, ctx);
+            }
+        }
+
+        // Kill process
+        if let Some(handle) = &self.handle {
+            let _ = self.driver.kill(handle).await;
+        }
+        self.transition_to_terminated(reason);
     }
 
     fn transition_to_terminated(&mut self, reason: FunctionExecutorTerminationReason) {
@@ -1172,22 +1229,25 @@ impl FunctionExecutorController {
     }
 }
 
-/// Build a failure AllocationResult for the given allocation and reason.
-fn make_failure_result(
-    allocation: &ServerAllocation,
-    failure_reason: AllocationFailureReason,
-) -> ServerAllocationResult {
-    ServerAllocationResult {
-        function: allocation.function.clone(),
-        allocation_id: allocation.allocation_id.clone(),
-        function_call_id: allocation.function_call_id.clone(),
-        request_id: allocation.request_id.clone(),
-        outcome_code: Some(AllocationOutcomeCode::Failure.into()),
-        failure_reason: Some(failure_reason.into()),
-        return_value: None,
-        request_error: None,
-        execution_duration_ms: None,
+/// Execute a future while recording latency, decrementing an in-progress
+/// counter, and optionally incrementing an error counter.
+async fn timed_phase<T>(
+    latency: &opentelemetry::metrics::Histogram<f64>,
+    in_progress: &opentelemetry::metrics::UpDownCounter<i64>,
+    errors: Option<&opentelemetry::metrics::Counter<u64>>,
+    fut: impl std::future::Future<Output = T>,
+    is_err: impl FnOnce(&T) -> bool,
+) -> T {
+    let start = Instant::now();
+    let result = fut.await;
+    latency.record(start.elapsed().as_secs_f64(), &[]);
+    in_progress.add(-1, &[]);
+    if let Some(counter) = errors &&
+        is_err(&result)
+    {
+        counter.add(1, &[]);
     }
+    result
 }
 
 /// Record allocation outcome metrics.

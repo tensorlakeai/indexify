@@ -84,6 +84,7 @@ pub enum AllocationOutcome {
 }
 
 /// Data accumulated across prep and execution phases for finalization.
+#[derive(Default)]
 pub struct FinalizationContext {
     /// Handle for the request error blob multipart upload (if created).
     pub request_error_blob_handle: Option<MultipartUploadHandle>,
@@ -91,10 +92,4 @@ pub struct FinalizationContext {
     pub output_blob_handles: Vec<MultipartUploadHandle>,
     /// FE result containing uploaded blob info for finalization.
     pub fe_result: Option<proto_api::function_executor_pb::AllocationResult>,
-}
-
-/// Completed allocation result ready to be reported to the server.
-#[derive(Debug)]
-pub struct CompletedAllocation {
-    pub result: ServerAllocationResult,
 }

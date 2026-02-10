@@ -44,20 +44,8 @@ pub async fn prepare_allocation(
     let mut arg_blobs = Vec::new();
 
     for (idx, data_payload) in allocation.args.iter().enumerate() {
-        let manifest = proto_api::function_executor_pb::SerializedObjectManifest {
-            encoding: data_payload.encoding,
-            encoding_version: data_payload.encoding_version,
-            size: data_payload.size,
-            metadata_size: data_payload.metadata_size,
-            sha256_hash: data_payload.sha256_hash.clone(),
-            content_type: data_payload.content_type.clone(),
-            source_function_call_id: data_payload.source_function_call_id.clone(),
-        };
-
-        let so_inside_blob = proto_api::function_executor_pb::SerializedObjectInsideBlob {
-            manifest: Some(manifest),
-            offset: data_payload.offset,
-        };
+        let so_inside_blob =
+            super::proto_convert::data_payload_to_serialized_object_inside_blob(data_payload);
         args.push(so_inside_blob);
 
         // Presign read-only blob for this argument.

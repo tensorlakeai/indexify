@@ -4,12 +4,15 @@
 //! download for function executor allocations. Supports both S3 and local
 //! filesystem backends.
 
-use std::{path::PathBuf, time::Duration};
+use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use anyhow::{Context, Result, anyhow};
 use aws_sdk_s3::{Client as S3Client, presigning::PresigningConfig};
 use bytes::Bytes;
+use opentelemetry::metrics::{Counter, Histogram};
 use tracing::debug;
+
+use crate::metrics::DataplaneMetrics;
 
 /// Maximum presigned URL expiration (7 days, S3 limit).
 const MAX_PRESIGN_EXPIRATION: Duration = Duration::from_secs(7 * 24 * 60 * 60);
@@ -29,6 +32,24 @@ const OUTPUT_BLOB_SLOWER_CHUNK_SIZE: u64 = 1024 * 1024 * 1024;
 /// Request error blob maximum size (10 MB).
 pub const REQUEST_ERROR_MAX_SIZE: u64 = 10 * 1024 * 1024;
 
+/// Record metrics around a blob store operation: request count, latency, and
+/// error count.
+async fn record_blob_op<T>(
+    requests: &Counter<u64>,
+    latency: &Histogram<f64>,
+    errors: &Counter<u64>,
+    fut: impl std::future::Future<Output = Result<T>>,
+) -> Result<T> {
+    requests.add(1, &[]);
+    let start = std::time::Instant::now();
+    let result = fut.await;
+    latency.record(start.elapsed().as_secs_f64(), &[]);
+    if result.is_err() {
+        errors.add(1, &[]);
+    }
+    result
+}
+
 /// Metadata about a blob (size, etc.).
 pub struct BlobMetadata {
     pub size_bytes: u64,
@@ -38,7 +59,7 @@ pub struct BlobMetadata {
 #[derive(Clone)]
 pub struct BlobStore {
     inner: BlobStoreInner,
-    metrics: Option<std::sync::Arc<crate::metrics::DataplaneMetrics>>,
+    metrics: Arc<DataplaneMetrics>,
 }
 
 #[derive(Clone)]
@@ -56,57 +77,44 @@ pub struct MultipartUploadHandle {
 
 impl BlobStore {
     /// Create a new S3-backed blob store.
-    pub async fn new_s3() -> Result<Self> {
+    pub async fn new_s3(metrics: Arc<DataplaneMetrics>) -> Result<Self> {
         let config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
         let client = S3Client::new(&config);
         Ok(Self {
             inner: BlobStoreInner::S3 { client },
-            metrics: None,
+            metrics,
         })
     }
 
     /// Create a local filesystem blob store.
-    pub fn new_local() -> Self {
+    pub fn new_local(metrics: Arc<DataplaneMetrics>) -> Self {
         Self {
             inner: BlobStoreInner::LocalFs,
-            metrics: None,
+            metrics,
         }
     }
 
     /// Auto-detect backend from a URI scheme.
-    pub async fn from_uri(uri: &str) -> Result<Self> {
+    pub async fn from_uri(uri: &str, metrics: Arc<DataplaneMetrics>) -> Result<Self> {
         if is_file_uri(uri) {
-            Ok(Self::new_local())
+            Ok(Self::new_local(metrics))
         } else {
-            Self::new_s3().await
+            Self::new_s3(metrics).await
         }
-    }
-
-    /// Set the metrics handle for instrumentation.
-    pub fn with_metrics(
-        mut self,
-        metrics: std::sync::Arc<crate::metrics::DataplaneMetrics>,
-    ) -> Self {
-        self.metrics = Some(metrics);
-        self
     }
 
     /// Get metadata (size) for a blob.
     pub async fn get_metadata(&self, uri: &str) -> Result<BlobMetadata> {
-        if let Some(m) = &self.metrics {
-            m.counters.blob_store_get_metadata_requests.add(1, &[]);
-            let start = std::time::Instant::now();
-            let result = self.get_metadata_impl(uri).await;
-            m.histograms
-                .blob_store_get_metadata_latency_seconds
-                .record(start.elapsed().as_secs_f64(), &[]);
-            if result.is_err() {
-                m.counters.blob_store_get_metadata_errors.add(1, &[]);
-            }
-            result
-        } else {
-            self.get_metadata_impl(uri).await
-        }
+        record_blob_op(
+            &self.metrics.counters.blob_store_get_metadata_requests,
+            &self
+                .metrics
+                .histograms
+                .blob_store_get_metadata_latency_seconds,
+            &self.metrics.counters.blob_store_get_metadata_errors,
+            self.get_metadata_impl(uri),
+        )
+        .await
     }
 
     async fn get_metadata_impl(&self, uri: &str) -> Result<BlobMetadata> {
@@ -140,20 +148,16 @@ impl BlobStore {
     /// For S3 URIs, returns a presigned HTTPS URL.
     /// For file:// URIs, returns the URI unchanged.
     pub async fn presign_get_uri(&self, uri: &str) -> Result<String> {
-        if let Some(m) = &self.metrics {
-            m.counters.blob_store_presign_uri_requests.add(1, &[]);
-            let start = std::time::Instant::now();
-            let result = self.presign_get_uri_impl(uri).await;
-            m.histograms
-                .blob_store_presign_uri_latency_seconds
-                .record(start.elapsed().as_secs_f64(), &[]);
-            if result.is_err() {
-                m.counters.blob_store_presign_uri_errors.add(1, &[]);
-            }
-            result
-        } else {
-            self.presign_get_uri_impl(uri).await
-        }
+        record_blob_op(
+            &self.metrics.counters.blob_store_presign_uri_requests,
+            &self
+                .metrics
+                .histograms
+                .blob_store_presign_uri_latency_seconds,
+            &self.metrics.counters.blob_store_presign_uri_errors,
+            self.presign_get_uri_impl(uri),
+        )
+        .await
     }
 
     async fn presign_get_uri_impl(&self, uri: &str) -> Result<String> {
@@ -211,24 +215,22 @@ impl BlobStore {
 
     /// Create a multipart upload session.
     pub async fn create_multipart_upload(&self, uri: &str) -> Result<MultipartUploadHandle> {
-        if let Some(m) = &self.metrics {
-            m.counters
-                .blob_store_create_multipart_upload_requests
-                .add(1, &[]);
-            let start = std::time::Instant::now();
-            let result = self.create_multipart_upload_impl(uri).await;
-            m.histograms
-                .blob_store_create_multipart_upload_latency_seconds
-                .record(start.elapsed().as_secs_f64(), &[]);
-            if result.is_err() {
-                m.counters
-                    .blob_store_create_multipart_upload_errors
-                    .add(1, &[]);
-            }
-            result
-        } else {
-            self.create_multipart_upload_impl(uri).await
-        }
+        record_blob_op(
+            &self
+                .metrics
+                .counters
+                .blob_store_create_multipart_upload_requests,
+            &self
+                .metrics
+                .histograms
+                .blob_store_create_multipart_upload_latency_seconds,
+            &self
+                .metrics
+                .counters
+                .blob_store_create_multipart_upload_errors,
+            self.create_multipart_upload_impl(uri),
+        )
+        .await
     }
 
     async fn create_multipart_upload_impl(&self, uri: &str) -> Result<MultipartUploadHandle> {
@@ -309,27 +311,22 @@ impl BlobStore {
         upload_id: &str,
         parts_etags: &[String],
     ) -> Result<()> {
-        if let Some(m) = &self.metrics {
-            m.counters
-                .blob_store_complete_multipart_upload_requests
-                .add(1, &[]);
-            let start = std::time::Instant::now();
-            let result = self
-                .complete_multipart_upload_impl(uri, upload_id, parts_etags)
-                .await;
-            m.histograms
-                .blob_store_complete_multipart_upload_latency_seconds
-                .record(start.elapsed().as_secs_f64(), &[]);
-            if result.is_err() {
-                m.counters
-                    .blob_store_complete_multipart_upload_errors
-                    .add(1, &[]);
-            }
-            result
-        } else {
-            self.complete_multipart_upload_impl(uri, upload_id, parts_etags)
-                .await
-        }
+        record_blob_op(
+            &self
+                .metrics
+                .counters
+                .blob_store_complete_multipart_upload_requests,
+            &self
+                .metrics
+                .histograms
+                .blob_store_complete_multipart_upload_latency_seconds,
+            &self
+                .metrics
+                .counters
+                .blob_store_complete_multipart_upload_errors,
+            self.complete_multipart_upload_impl(uri, upload_id, parts_etags),
+        )
+        .await
     }
 
     async fn complete_multipart_upload_impl(
@@ -379,24 +376,22 @@ impl BlobStore {
 
     /// Abort a multipart upload, cleaning up resources.
     pub async fn abort_multipart_upload(&self, uri: &str, upload_id: &str) -> Result<()> {
-        if let Some(m) = &self.metrics {
-            m.counters
-                .blob_store_abort_multipart_upload_requests
-                .add(1, &[]);
-            let start = std::time::Instant::now();
-            let result = self.abort_multipart_upload_impl(uri, upload_id).await;
-            m.histograms
-                .blob_store_abort_multipart_upload_latency_seconds
-                .record(start.elapsed().as_secs_f64(), &[]);
-            if result.is_err() {
-                m.counters
-                    .blob_store_abort_multipart_upload_errors
-                    .add(1, &[]);
-            }
-            result
-        } else {
-            self.abort_multipart_upload_impl(uri, upload_id).await
-        }
+        record_blob_op(
+            &self
+                .metrics
+                .counters
+                .blob_store_abort_multipart_upload_requests,
+            &self
+                .metrics
+                .histograms
+                .blob_store_abort_multipart_upload_latency_seconds,
+            &self
+                .metrics
+                .counters
+                .blob_store_abort_multipart_upload_errors,
+            self.abort_multipart_upload_impl(uri, upload_id),
+        )
+        .await
     }
 
     async fn abort_multipart_upload_impl(&self, uri: &str, upload_id: &str) -> Result<()> {
@@ -577,6 +572,10 @@ fn file_uri_to_path(uri: &str) -> Result<PathBuf> {
 mod tests {
     use super::*;
 
+    fn test_metrics() -> Arc<DataplaneMetrics> {
+        Arc::new(DataplaneMetrics::default())
+    }
+
     #[test]
     fn test_parse_s3_uri() {
         let (bucket, key) = parse_s3_uri("s3://my-bucket/some/key/path.bin").unwrap();
@@ -603,7 +602,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_local_presign_get_returns_same_uri() {
-        let store = BlobStore::new_local();
+        let store = BlobStore::new_local(test_metrics());
         let uri = "file:///tmp/test/blob.bin";
         let result = store.presign_get_uri(uri).await.unwrap();
         assert_eq!(result, uri);
@@ -613,7 +612,7 @@ mod tests {
     async fn test_local_create_and_abort_multipart() {
         let dir = tempfile::tempdir().unwrap();
         let uri = format!("file://{}/test_blob", dir.path().display());
-        let store = BlobStore::new_local();
+        let store = BlobStore::new_local(test_metrics());
 
         let handle = store.create_multipart_upload(&uri).await.unwrap();
         assert_eq!(handle.upload_id, "local-multipart-upload-id");
@@ -627,7 +626,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_presign_read_only_blob_chunks() {
-        let store = BlobStore::new_local();
+        let store = BlobStore::new_local(test_metrics());
         let uri = "file:///tmp/test.bin";
         let size = 250 * 1024 * 1024u64; // 250 MB → 3 chunks
 
@@ -646,7 +645,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_presign_write_only_blob_chunks() {
-        let store = BlobStore::new_local();
+        let store = BlobStore::new_local(test_metrics());
         let uri = "file:///tmp/test_output.bin";
         let size = 250 * 1024 * 1024u64; // 250 MB → 3 chunks
 
@@ -663,7 +662,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_presign_read_only_blob_zero_size() {
-        let store = BlobStore::new_local();
+        let store = BlobStore::new_local(test_metrics());
         let blob = presign_read_only_blob("empty", "file:///tmp/empty", 0, &store)
             .await
             .unwrap();
@@ -681,7 +680,7 @@ mod tests {
         let data = b"hello blob store";
         tokio::fs::write(&file_path, data).await.unwrap();
 
-        let store = BlobStore::new_local();
+        let store = BlobStore::new_local(test_metrics());
         let result = store.get(&uri).await.unwrap();
         assert_eq!(result.as_ref(), data);
     }

@@ -154,9 +154,8 @@ fn product_name_to_gpu_model(product_name: &str) -> GpuModel {
 
 /// Probe total host resources (used for heartbeat reporting).
 ///
-/// When running in a container, this function reads from host-mounted
-/// filesystems at `/host/proc` and `/host/sys` to get actual host resources.
-/// When running directly on the host, it uses the sysinfo crate.
+/// When running in a container, reads from host-mounted filesystems at
+/// `/host/proc` to get actual host resources. Falls back to sysinfo.
 ///
 /// To enable host resource detection in a container, mount:
 /// ```text
@@ -164,70 +163,42 @@ fn product_name_to_gpu_model(product_name: &str) -> GpuModel {
 /// ```
 pub fn probe_host_resources() -> HostResources {
     let gpu = detect_nvidia_gpus();
-    if is_host_mounted() {
-        probe_host_resources_from_mount(gpu)
-    } else {
-        probe_host_resources_from_sysinfo(gpu)
-    }
-}
-
-/// Probe host resources from mounted /host/proc filesystem.
-fn probe_host_resources_from_mount(gpu: Option<GpuResources>) -> HostResources {
-    let meminfo_path = format!("{}/meminfo", HOST_PROC_PATH);
-    let cpuinfo_path = format!("{}/cpuinfo", HOST_PROC_PATH);
-
-    let memory_bytes = parse_meminfo(&meminfo_path).unwrap_or_else(|| {
-        tracing::warn!("Failed to parse {}, falling back to sysinfo", meminfo_path);
-        let mut sys = System::new();
-        sys.refresh_memory();
-        sys.total_memory()
-    });
-
-    let cpu_count = parse_cpuinfo(&cpuinfo_path).unwrap_or_else(|| {
-        tracing::warn!("Failed to parse {}, falling back to sysinfo", cpuinfo_path);
-        let mut sys = System::new();
-        sys.refresh_cpu_all();
-        sys.cpus().len() as u32
-    });
-
-    // For disk, we still use sysinfo as disk detection is more complex
-    // and typically the container's view of disks is acceptable
-    let disks = Disks::new_with_refreshed_list();
-    let disk_bytes: u64 = disks.iter().map(|d| d.total_space()).sum();
-
-    tracing::info!(
-        cpu_count,
-        memory_bytes,
-        disk_bytes,
-        source = "host_mount",
-        "Probed host resources from mounted /host/proc"
-    );
-
-    HostResources {
-        cpu_count: Some(cpu_count),
-        memory_bytes: Some(memory_bytes),
-        disk_bytes: Some(disk_bytes),
-        gpu,
-    }
-}
-
-/// Probe host resources using sysinfo (when running directly on host).
-fn probe_host_resources_from_sysinfo(gpu: Option<GpuResources>) -> HostResources {
     let mut sys = System::new();
-    sys.refresh_cpu_all();
-    sys.refresh_memory();
 
-    let cpu_count = sys.cpus().len() as u32;
-    let memory_bytes = sys.total_memory();
+    let (cpu_count, memory_bytes) = if is_host_mounted() {
+        let meminfo_path = format!("{}/meminfo", HOST_PROC_PATH);
+        let cpuinfo_path = format!("{}/cpuinfo", HOST_PROC_PATH);
+
+        let memory = parse_meminfo(&meminfo_path).unwrap_or_else(|| {
+            tracing::warn!("Failed to parse {}, falling back to sysinfo", meminfo_path);
+            sys.refresh_memory();
+            sys.total_memory()
+        });
+        let cpu = parse_cpuinfo(&cpuinfo_path).unwrap_or_else(|| {
+            tracing::warn!("Failed to parse {}, falling back to sysinfo", cpuinfo_path);
+            sys.refresh_cpu_all();
+            sys.cpus().len() as u32
+        });
+        (cpu, memory)
+    } else {
+        sys.refresh_cpu_all();
+        sys.refresh_memory();
+        (sys.cpus().len() as u32, sys.total_memory())
+    };
 
     let disks = Disks::new_with_refreshed_list();
     let disk_bytes: u64 = disks.iter().map(|d| d.total_space()).sum();
 
+    let source = if is_host_mounted() {
+        "host_mount"
+    } else {
+        "sysinfo"
+    };
     tracing::info!(
         cpu_count,
         memory_bytes,
         disk_bytes,
-        source = "sysinfo",
+        source,
         "Probed host resources"
     );
 
@@ -241,57 +212,30 @@ fn probe_host_resources_from_sysinfo(gpu: Option<GpuResources>) -> HostResources
 
 /// Probe free/available resources for metrics.
 ///
-/// Similar to probe_host_resources, this uses host-mounted filesystems
-/// when available.
+/// Uses host-mounted filesystems for memory when available,
+/// sysinfo for CPU and disk.
 pub fn probe_free_resources() -> ResourceAvailability {
-    if is_host_mounted() {
-        probe_free_resources_from_mount()
-    } else {
-        probe_free_resources_from_sysinfo()
-    }
-}
-
-/// Probe free resources from mounted /host/proc filesystem.
-fn probe_free_resources_from_mount() -> ResourceAvailability {
-    let meminfo_path = format!("{}/meminfo", HOST_PROC_PATH);
-
-    // CPU usage is trickier to get from /proc, use sysinfo for now
     let mut sys = System::new();
     sys.refresh_cpu_all();
+
     let cpu_usage: f32 =
         sys.cpus().iter().map(|cpu| cpu.cpu_usage()).sum::<f32>() / sys.cpus().len() as f32;
     let free_cpu_percent = (100.0 - cpu_usage) as f64;
 
-    let free_memory_bytes = parse_meminfo_available(&meminfo_path).unwrap_or_else(|| {
-        tracing::warn!(
-            "Failed to parse MemAvailable from {}, falling back to sysinfo",
-            meminfo_path
-        );
+    let free_memory_bytes = if is_host_mounted() {
+        let meminfo_path = format!("{}/meminfo", HOST_PROC_PATH);
+        parse_meminfo_available(&meminfo_path).unwrap_or_else(|| {
+            tracing::warn!(
+                "Failed to parse MemAvailable from {}, falling back to sysinfo",
+                meminfo_path
+            );
+            sys.refresh_memory();
+            sys.available_memory()
+        })
+    } else {
         sys.refresh_memory();
         sys.available_memory()
-    });
-
-    let disks = Disks::new_with_refreshed_list();
-    let free_disk_bytes: u64 = disks.iter().map(|d| d.available_space()).sum();
-
-    ResourceAvailability {
-        free_cpu_percent,
-        free_memory_bytes,
-        free_disk_bytes,
-    }
-}
-
-/// Probe free resources using sysinfo.
-fn probe_free_resources_from_sysinfo() -> ResourceAvailability {
-    let mut sys = System::new();
-    sys.refresh_cpu_all();
-    sys.refresh_memory();
-
-    let cpu_usage: f32 =
-        sys.cpus().iter().map(|cpu| cpu.cpu_usage()).sum::<f32>() / sys.cpus().len() as f32;
-    let free_cpu_percent = (100.0 - cpu_usage) as f64;
-
-    let free_memory_bytes = sys.available_memory();
+    };
 
     let disks = Disks::new_with_refreshed_list();
     let free_disk_bytes: u64 = disks.iter().map(|d| d.available_space()).sum();

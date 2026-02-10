@@ -11,12 +11,6 @@ use proto_api::container_daemon_pb::{
 use tonic::transport::Channel;
 use tracing::{debug, warn};
 
-/// Timeout for connecting to the daemon.
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
-
-/// Interval for polling daemon availability.
-const POLL_INTERVAL: Duration = Duration::from_millis(100);
-
 /// Client for communicating with the container daemon.
 #[derive(Clone)]
 pub struct DaemonClient {
@@ -27,40 +21,22 @@ impl DaemonClient {
     /// Create a new daemon client connected to the given address (e.g.,
     /// "172.17.0.2:9500").
     pub async fn connect(addr: &str) -> Result<Self> {
-        let endpoint = format!("http://{}", addr);
-        debug!(endpoint = %endpoint, "Connecting to daemon");
-
-        let channel = Channel::from_shared(endpoint.clone())
-            .context("Invalid endpoint")?
-            .connect_timeout(CONNECT_TIMEOUT)
-            .connect()
-            .await
-            .context("Failed to connect to daemon")?;
-
+        debug!(addr = %addr, "Connecting to daemon");
+        let channel = crate::grpc::connect_channel(addr).await?;
         let client = ContainerDaemonClient::new(channel);
-
         Ok(Self { client })
     }
 
     /// Try to connect to the daemon, retrying until timeout.
     pub async fn connect_with_retry(addr: &str, timeout: Duration) -> Result<Self> {
-        let deadline = tokio::time::Instant::now() + timeout;
-
-        while tokio::time::Instant::now() < deadline {
-            match Self::connect(addr).await {
-                Ok(client) => return Ok(client),
-                Err(e) => {
-                    debug!(error = %e, addr = %addr, "Connection failed, retrying...");
-                    tokio::time::sleep(POLL_INTERVAL).await;
-                }
-            }
-        }
-
-        anyhow::bail!(
-            "Timeout connecting to daemon at {} after {:?}",
-            addr,
-            timeout
+        crate::retry::retry_until_deadline(
+            timeout,
+            crate::grpc::POLL_INTERVAL,
+            &format!("connecting to daemon at {}", addr),
+            || Self::connect(addr),
+            || async { Ok(()) },
         )
+        .await
     }
 
     /// Check if the daemon is healthy and ready.
@@ -120,7 +96,7 @@ impl DaemonClient {
                     debug!(error = %e, "Health check error, retrying...");
                 }
             }
-            tokio::time::sleep(POLL_INTERVAL).await;
+            tokio::time::sleep(crate::grpc::POLL_INTERVAL).await;
         }
 
         anyhow::bail!("Timeout waiting for daemon to be ready after {:?}", timeout)

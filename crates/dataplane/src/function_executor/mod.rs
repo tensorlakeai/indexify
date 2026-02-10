@@ -1,8 +1,13 @@
 pub mod allocation_finalize;
 pub mod allocation_prep;
 pub mod allocation_runner;
+mod blob_reconciler;
 pub mod controller;
 pub mod events;
 pub mod fe_client;
+mod function_call_reconciler;
 pub mod health_checker;
+pub mod proto_convert;
+mod state_ops;
+mod watcher_reconciler;
 pub mod watcher_registry;

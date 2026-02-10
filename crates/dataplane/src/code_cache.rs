@@ -19,6 +19,7 @@ use crate::blob_ops::BlobStore;
 pub struct CodeCache {
     cache_dir: PathBuf,
     blob_store: Arc<BlobStore>,
+    metrics: Arc<crate::metrics::DataplaneMetrics>,
 }
 
 impl CodeCache {
@@ -26,10 +27,15 @@ impl CodeCache {
     ///
     /// `cache_dir` is the root directory for the cache (e.g.,
     /// `/tmp/indexify_cache`).
-    pub fn new(cache_dir: PathBuf, blob_store: Arc<BlobStore>) -> Self {
+    pub fn new(
+        cache_dir: PathBuf,
+        blob_store: Arc<BlobStore>,
+        metrics: Arc<crate::metrics::DataplaneMetrics>,
+    ) -> Self {
         Self {
             cache_dir,
             blob_store,
+            metrics,
         }
     }
 
@@ -46,9 +52,6 @@ impl CodeCache {
         code_uri: &str,
         expected_sha256: Option<&str>,
     ) -> Result<Bytes> {
-        let counters = crate::metrics::DataplaneCounters::new();
-        let histograms = crate::metrics::DataplaneHistograms::new();
-
         let cache_path = self
             .cache_dir
             .join("application_cache")
@@ -57,31 +60,21 @@ impl CodeCache {
             .join(app_version);
 
         // Check local cache
-        if cache_path.exists() {
-            match tokio::fs::read(&cache_path).await {
-                Ok(data) => {
-                    debug!(
-                        namespace = %namespace,
-                        app_name = %app_name,
-                        app_version = %app_version,
-                        "Application code loaded from cache"
-                    );
-                    counters.application_downloads_from_cache.add(1, &[]);
-                    return Ok(Bytes::from(data));
-                }
-                Err(e) => {
-                    warn!(
-                        error = %e,
-                        cache_path = %cache_path.display(),
-                        "Cache read failed, downloading"
-                    );
-                }
-            }
+        if let Some(data) = try_read_cache(&cache_path).await {
+            debug!(
+                namespace = %namespace,
+                app_name = %app_name,
+                app_version = %app_version,
+                "Application code loaded from cache"
+            );
+            self.metrics
+                .counters
+                .application_downloads_from_cache
+                .add(1, &[]);
+            return Ok(data);
         }
 
-        // Cache miss — download from blob store
-        counters.application_downloads.add(1, &[]);
-        let download_start = std::time::Instant::now();
+        // Cache miss — download and verify
         info!(
             namespace = %namespace,
             app_name = %app_name,
@@ -89,6 +82,25 @@ impl CodeCache {
             code_uri = %code_uri,
             "Downloading application code"
         );
+        let data = self.download_and_verify(code_uri, expected_sha256).await?;
+
+        // Write to cache asynchronously (atomic via temp file + rename)
+        spawn_cache_write(self.cache_dir.clone(), cache_path, data.clone());
+
+        Ok(data)
+    }
+
+    /// Download application code from blob store and verify integrity.
+    async fn download_and_verify(
+        &self,
+        code_uri: &str,
+        expected_sha256: Option<&str>,
+    ) -> Result<Bytes> {
+        let counters = &self.metrics.counters;
+        let histograms = &self.metrics.histograms;
+
+        counters.application_downloads.add(1, &[]);
+        let download_start = std::time::Instant::now();
 
         let data = match self.blob_store.get(code_uri).await {
             Ok(data) => {
@@ -106,37 +118,58 @@ impl CodeCache {
             }
         };
 
-        // Verify SHA256 if expected hash provided
         if let Some(expected) = expected_sha256 {
-            let mut hasher = Sha256::new();
-            hasher.update(&data);
-            let actual = format!("{:x}", hasher.finalize());
-            if actual != expected {
-                anyhow::bail!(
-                    "SHA256 mismatch for application code: expected {}, got {}",
-                    expected,
-                    actual
-                );
-            }
+            verify_sha256(&data, expected)?;
         }
-
-        // Write to cache asynchronously (atomic via temp file + rename)
-        let data_clone = data.clone();
-        let cache_path_clone = cache_path.clone();
-        let cache_dir = self.cache_dir.clone();
-        tokio::spawn(async move {
-            if let Err(e) = write_cache_atomically(&cache_dir, &cache_path_clone, &data_clone).await
-            {
-                warn!(
-                    error = %e,
-                    path = %cache_path_clone.display(),
-                    "Failed to write application code to cache"
-                );
-            }
-        });
 
         Ok(data)
     }
+}
+
+/// Try to read cached application code from the given path.
+async fn try_read_cache(cache_path: &Path) -> Option<Bytes> {
+    if !cache_path.exists() {
+        return None;
+    }
+    match tokio::fs::read(cache_path).await {
+        Ok(data) => Some(Bytes::from(data)),
+        Err(e) => {
+            warn!(
+                error = %e,
+                cache_path = %cache_path.display(),
+                "Cache read failed, will download"
+            );
+            None
+        }
+    }
+}
+
+/// Verify SHA256 hash of downloaded data.
+fn verify_sha256(data: &[u8], expected: &str) -> Result<()> {
+    let mut hasher = Sha256::new();
+    hasher.update(data);
+    let actual = format!("{:x}", hasher.finalize());
+    if actual != expected {
+        anyhow::bail!(
+            "SHA256 mismatch for application code: expected {}, got {}",
+            expected,
+            actual
+        );
+    }
+    Ok(())
+}
+
+/// Spawn an async task to write data to the cache atomically.
+fn spawn_cache_write(cache_dir: PathBuf, cache_path: PathBuf, data: Bytes) {
+    tokio::spawn(async move {
+        if let Err(e) = write_cache_atomically(&cache_dir, &cache_path, &data).await {
+            warn!(
+                error = %e,
+                path = %cache_path.display(),
+                "Failed to write application code to cache"
+            );
+        }
+    });
 }
 
 /// Write data to cache path atomically using a temp file and rename.
@@ -190,8 +223,9 @@ mod tests {
         let code_data = b"print('hello')";
         tokio::fs::write(&code_path, code_data).await.unwrap();
 
-        let blob_store = Arc::new(BlobStore::new_local());
-        let cache = CodeCache::new(cache_dir.clone(), blob_store);
+        let metrics = Arc::new(crate::metrics::DataplaneMetrics::new());
+        let blob_store = Arc::new(BlobStore::new_local(metrics.clone()));
+        let cache = CodeCache::new(cache_dir.clone(), blob_store, metrics);
 
         let code_uri = format!("file://{}", code_path.display());
 
@@ -228,8 +262,9 @@ mod tests {
         let code_data = b"test data";
         tokio::fs::write(&code_path, code_data).await.unwrap();
 
-        let blob_store = Arc::new(BlobStore::new_local());
-        let cache = CodeCache::new(dir.path().join("cache"), blob_store);
+        let metrics = Arc::new(crate::metrics::DataplaneMetrics::new());
+        let blob_store = Arc::new(BlobStore::new_local(metrics.clone()));
+        let cache = CodeCache::new(dir.path().join("cache"), blob_store, metrics);
         let code_uri = format!("file://{}", code_path.display());
 
         // Correct hash

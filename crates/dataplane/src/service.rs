@@ -20,7 +20,10 @@ use proto_api::executor_api_pb::{
     executor_api_client::ExecutorApiClient,
 };
 use sha2::{Digest, Sha256};
-use tokio::sync::{Mutex, Notify, mpsc};
+use tokio::{
+    sync::{Mutex, Notify, mpsc},
+    task::JoinSet,
+};
 use tokio_util::sync::CancellationToken;
 use tonic::transport::{Channel, ClientTlsConfig, Endpoint};
 use tracing::Instrument;
@@ -67,17 +70,11 @@ impl Service {
     pub async fn new(config: DataplaneConfig) -> Result<Self> {
         let channel = create_channel(&config).await?;
         let host_resources = probe_host_resources();
-
-        let driver: Arc<dyn ProcessDriver> = match &config.driver {
-            DriverConfig::ForkExec => Arc::new(ForkExecDriver::new()),
-            DriverConfig::Docker { address } => match address {
-                Some(addr) => Arc::new(DockerDriver::with_address(addr)?),
-                None => Arc::new(DockerDriver::new()?),
-            },
-        };
-
-        let image_resolver: Arc<dyn ImageResolver> = Arc::new(DefaultImageResolver::new());
         let metrics = Arc::new(DataplaneMetrics::new());
+
+        let driver = create_process_driver(&config)?;
+        let image_resolver: Arc<dyn ImageResolver> = Arc::new(DefaultImageResolver::new());
+
         let state_file = Arc::new(
             StateFile::new(&config.state_file)
                 .await
@@ -91,36 +88,16 @@ impl Service {
             config.executor_id.clone(),
         ));
 
-        // Create blob store (auto-detect from config or default to local)
-        let blob_store = match &config.function_executor.blob_store_url {
-            Some(url) => Arc::new(
-                BlobStore::from_uri(url)
-                    .await
-                    .context("Failed to create blob store")?
-                    .with_metrics(metrics.clone()),
-            ),
-            None => Arc::new(BlobStore::new_local().with_metrics(metrics.clone())),
-        };
-
-        // Create code cache
+        let blob_store = create_blob_store(&config, &metrics).await?;
         let code_cache = Arc::new(CodeCache::new(
             PathBuf::from(&config.function_executor.code_cache_path),
             blob_store.clone(),
+            metrics.clone(),
         ));
 
-        // Create allocation result channel
         let (result_tx, result_rx) = mpsc::unbounded_channel();
-
-        // Determine FE binary path
-        let fe_binary_path = config
-            .function_executor
-            .fe_binary_path
-            .clone()
-            .unwrap_or_else(|| "function-executor".to_string());
-
         let state_change_notify = Arc::new(Notify::new());
 
-        // Create spawn config for FE controllers
         let spawn_config = FESpawnConfig {
             driver: driver.clone(),
             image_resolver,
@@ -129,11 +106,14 @@ impl Service {
             blob_store,
             code_cache,
             executor_id: config.executor_id.clone(),
-            fe_binary_path,
+            fe_binary_path: config
+                .function_executor
+                .fe_binary_path
+                .clone()
+                .unwrap_or_else(|| "function-executor".to_string()),
             metrics: metrics.clone(),
         };
 
-        // Create state reconciler
         let cancel_token = CancellationToken::new();
         let state_reconciler = Arc::new(Mutex::new(StateReconciler::new(
             container_manager.clone(),
@@ -142,10 +122,8 @@ impl Service {
             state_change_notify.clone(),
         )));
 
-        // Create state reporter
         let state_reporter = Arc::new(StateReporter::new(result_rx));
 
-        // Parse function allowlist
         let allowed_functions = config.parse_allowed_functions();
         if !allowed_functions.is_empty() {
             tracing::info!(
@@ -154,8 +132,6 @@ impl Service {
             );
         }
 
-        // Monitoring state is created here, heartbeat_healthy will be shared
-        // with the heartbeat loop
         let monitoring_state = Arc::new(MonitoringState::new(Arc::new(AtomicBool::new(false))));
 
         Ok(Self {
@@ -198,56 +174,52 @@ impl Service {
 
         let runtime = Arc::new(ServiceRuntime {
             channel: self.channel.clone(),
-            executor_id: executor_id.clone(),
-            host_resources: self.host_resources,
-            allowed_functions: self.allowed_functions.clone(),
+            identity: ExecutorIdentity {
+                executor_id: executor_id.clone(),
+                host_resources: self.host_resources,
+                allowed_functions: self.allowed_functions.clone(),
+                labels: self.config.labels.clone(),
+                proxy_address: self.config.http_proxy.get_advertise_address(),
+                server_addr: self.config.server_addr.clone(),
+            },
             state_reconciler: self.state_reconciler.clone(),
             state_reporter: self.state_reporter.clone(),
             heartbeat_healthy: heartbeat_healthy.clone(),
             stream_notify: stream_notify.clone(),
             cancel_token: cancel_token.clone(),
             metrics: self.metrics.clone(),
-            proxy_address: self.config.http_proxy.get_advertise_address(),
-            server_addr: self.config.server_addr.clone(),
-            labels: self.config.labels.clone(),
             monitoring_state: self.monitoring_state.clone(),
         });
 
-        let heartbeat_handle = tokio::spawn({
+        let mut tasks = JoinSet::new();
+
+        tasks.spawn({
             let span = span.clone();
             let rt = runtime.clone();
             async move { rt.run_heartbeat_loop().await }.instrument(span)
         });
 
-        let stream_handle = tokio::spawn({
+        tasks.spawn({
             let span = span.clone();
             let rt = runtime.clone();
             async move { rt.run_desired_stream_loop().await }.instrument(span)
         });
 
-        let health_check_handle = tokio::spawn({
+        tasks.spawn({
             let span = span.clone();
             let container_manager = self.container_manager.clone();
             let cancel_token = cancel_token.clone();
-            async move {
-                container_manager.run_health_checks(cancel_token).await;
-            }
-            .instrument(span)
+            async move { container_manager.run_health_checks(cancel_token).await }.instrument(span)
         });
 
-        // Metrics update loop for resource availability
-        let metrics_update_handle = tokio::spawn({
+        tasks.spawn({
             let span = span.clone();
             let metrics = self.metrics.clone();
             let cancel_token = cancel_token.clone();
-            async move {
-                run_metrics_update_loop(metrics, cancel_token).await;
-            }
-            .instrument(span)
+            async move { run_metrics_update_loop(metrics, cancel_token).await }.instrument(span)
         });
 
-        // HTTP proxy server for header-based routing to sandbox containers
-        let http_proxy_handle = tokio::spawn({
+        tasks.spawn({
             let span = span.clone();
             let cancel_token = cancel_token.clone();
             let http_proxy_config = self.config.http_proxy.clone();
@@ -268,8 +240,7 @@ impl Service {
             .instrument(span)
         });
 
-        // HTTP monitoring server for startup/health probes and state inspection
-        let monitoring_handle = tokio::spawn({
+        tasks.spawn({
             let span = span.clone();
             let cancel_token = cancel_token.clone();
             let monitoring_state = self.monitoring_state.clone();
@@ -286,34 +257,9 @@ impl Service {
                 cancel_token.cancel();
                 self.state_reconciler.lock().await.shutdown().await;
             }
-            result = heartbeat_handle => {
+            Some(result) = tasks.join_next() => {
                 if let Err(e) = result {
-                    tracing::error!(error = %e, "Heartbeat task panicked");
-                }
-            }
-            result = stream_handle => {
-                if let Err(e) = result {
-                    tracing::error!(error = %e, "Stream task panicked");
-                }
-            }
-            result = health_check_handle => {
-                if let Err(e) = result {
-                    tracing::error!(error = %e, "Health check task panicked");
-                }
-            }
-            result = metrics_update_handle => {
-                if let Err(e) = result {
-                    tracing::error!(error = %e, "Metrics update task panicked");
-                }
-            }
-            result = http_proxy_handle => {
-                if let Err(e) = result {
-                    tracing::error!(error = %e, "HTTP proxy server task panicked");
-                }
-            }
-            result = monitoring_handle => {
-                if let Err(e) = result {
-                    tracing::error!(error = %e, "Monitoring server task panicked");
+                    tracing::error!(error = %e, "Background task panicked");
                 }
             }
         }
@@ -342,25 +288,104 @@ async fn run_metrics_update_loop(metrics: Arc<DataplaneMetrics>, cancel_token: C
     }
 }
 
-/// Shared runtime context for heartbeat and stream loops.
-struct ServiceRuntime {
-    channel: Channel,
+/// Static identity fields for this executor, used in heartbeats and stream
+/// requests.
+struct ExecutorIdentity {
     executor_id: String,
     host_resources: HostResources,
     allowed_functions: Vec<proto_api::executor_api_pb::AllowedFunction>,
+    labels: std::collections::HashMap<String, String>,
+    proxy_address: String,
+    server_addr: String,
+}
+
+/// Shared runtime context for heartbeat and stream loops.
+struct ServiceRuntime {
+    channel: Channel,
+    identity: ExecutorIdentity,
     state_reconciler: Arc<Mutex<StateReconciler>>,
     state_reporter: Arc<StateReporter>,
     heartbeat_healthy: Arc<AtomicBool>,
     stream_notify: Arc<Notify>,
     cancel_token: CancellationToken,
     metrics: Arc<DataplaneMetrics>,
-    proxy_address: String,
-    server_addr: String,
-    labels: std::collections::HashMap<String, String>,
     monitoring_state: Arc<MonitoringState>,
 }
 
 impl ServiceRuntime {
+    /// Build the executor state with all fields and a SHA-256 state hash.
+    async fn build_executor_state(
+        &self,
+        function_executor_states: Vec<proto_api::executor_api_pb::FunctionExecutorState>,
+        function_call_watches: Vec<proto_api::executor_api_pb::FunctionCallWatch>,
+    ) -> ExecutorState {
+        let system_hostname = hostname::get()
+            .map(|h| h.to_string_lossy().to_string())
+            .unwrap_or_else(|_| "localhost".to_string());
+
+        let mut executor_state = ExecutorState {
+            executor_id: Some(self.identity.executor_id.clone()),
+            hostname: Some(system_hostname),
+            version: Some(env!("CARGO_PKG_VERSION").to_string()),
+            status: Some(ExecutorStatus::Running.into()),
+            total_resources: Some(self.identity.host_resources),
+            total_function_executor_resources: Some(self.identity.host_resources),
+            allowed_functions: self.identity.allowed_functions.clone(),
+            function_executor_states,
+            function_call_watches,
+            proxy_address: Some(self.identity.proxy_address.clone()),
+            labels: self.identity.labels.clone(),
+            ..Default::default()
+        };
+
+        let serialized = executor_state.encode_to_vec();
+        let mut hasher = Sha256::new();
+        hasher.update(&serialized);
+        let hash = hasher.finalize();
+        executor_state.state_hash = Some(format!("{:x}", hash));
+
+        executor_state
+    }
+
+    /// Build a heartbeat request with allocation results, fragmenting to fit
+    /// within the 10 MB message size limit.
+    ///
+    /// Returns `(request, reported_allocation_ids, has_remaining_results)`.
+    async fn build_heartbeat_request(
+        &self,
+        executor_state: ExecutorState,
+    ) -> (ReportExecutorStateRequest, Vec<String>, bool) {
+        // Calculate base message size (without allocation results) for fragmentation.
+        let base_request = ReportExecutorStateRequest {
+            executor_state: Some(executor_state.clone()),
+            executor_update: Some(ExecutorUpdate {
+                executor_id: Some(self.identity.executor_id.clone()),
+                allocation_results: vec![],
+            }),
+        };
+        let base_message_size = base_request.encoded_len();
+
+        // Collect allocation results that fit within the 10 MB message size limit.
+        // Results are NOT removed from the buffer yet — only after successful RPC.
+        let (allocation_results, has_remaining) =
+            self.state_reporter.collect_results(base_message_size).await;
+
+        let reported_ids: Vec<String> = allocation_results
+            .iter()
+            .filter_map(|r| r.allocation_id.clone())
+            .collect();
+
+        let request = ReportExecutorStateRequest {
+            executor_state: Some(executor_state),
+            executor_update: Some(ExecutorUpdate {
+                executor_id: Some(self.identity.executor_id.clone()),
+                allocation_results,
+            }),
+        };
+
+        (request, reported_ids, has_remaining)
+    }
+
     async fn run_heartbeat_loop(&self) {
         let mut client = ExecutorApiClient::new(self.channel.clone());
         let mut retry_interval = HEARTBEAT_MIN_RETRY_INTERVAL;
@@ -377,61 +402,11 @@ impl ServiceRuntime {
             let function_call_watches = reconciler_guard.get_function_call_watches().await;
             drop(reconciler_guard);
 
-            // Build executor state without state_hash first
-            let system_hostname = hostname::get()
-                .map(|h| h.to_string_lossy().to_string())
-                .unwrap_or_else(|_| "localhost".to_string());
-
-            let mut executor_state = ExecutorState {
-                executor_id: Some(self.executor_id.clone()),
-                hostname: Some(system_hostname),
-                version: Some(env!("CARGO_PKG_VERSION").to_string()),
-                status: Some(ExecutorStatus::Running.into()),
-                total_resources: Some(self.host_resources),
-                total_function_executor_resources: Some(self.host_resources),
-                allowed_functions: self.allowed_functions.clone(),
-                function_executor_states,
-                function_call_watches,
-                proxy_address: Some(self.proxy_address.clone()),
-                labels: self.labels.clone(),
-                ..Default::default()
-            };
-
-            // Compute state_hash by serializing and hashing
-            let serialized = executor_state.encode_to_vec();
-            let mut hasher = Sha256::new();
-            hasher.update(&serialized);
-            let hash = hasher.finalize();
-            executor_state.state_hash = Some(format!("{:x}", hash));
-
-            // Calculate base message size (without allocation results) for fragmentation.
-            let base_request = ReportExecutorStateRequest {
-                executor_state: Some(executor_state.clone()),
-                executor_update: Some(ExecutorUpdate {
-                    executor_id: Some(self.executor_id.clone()),
-                    allocation_results: vec![],
-                }),
-            };
-            let base_message_size = base_request.encoded_len();
-
-            // Collect allocation results that fit within the 10 MB message size limit.
-            // Results are NOT removed from the buffer yet — only after successful RPC.
-            let (allocation_results, has_remaining) =
-                self.state_reporter.collect_results(base_message_size).await;
-
-            // Extract IDs for removal after successful send
-            let reported_ids: Vec<String> = allocation_results
-                .iter()
-                .filter_map(|r| r.allocation_id.clone())
-                .collect();
-
-            let request = ReportExecutorStateRequest {
-                executor_state: Some(executor_state),
-                executor_update: Some(ExecutorUpdate {
-                    executor_id: Some(self.executor_id.clone()),
-                    allocation_results,
-                }),
-            };
+            let executor_state = self
+                .build_executor_state(function_executor_states, function_call_watches)
+                .await;
+            let (request, reported_ids, has_remaining) =
+                self.build_heartbeat_request(executor_state).await;
 
             // Record state report metrics
             let report_start = std::time::Instant::now();
@@ -517,7 +492,7 @@ impl ServiceRuntime {
                         .record(report_start.elapsed().as_secs_f64(), &[]);
                     tracing::warn!(
                         error = %e,
-                        server_addr = %self.server_addr,
+                        server_addr = %self.identity.server_addr,
                         retry_in_secs = retry_interval.as_secs(),
                         "Heartbeat failed, retrying with backoff"
                     );
@@ -559,17 +534,7 @@ impl ServiceRuntime {
             }
 
             tracing::info!("Starting desired executor states stream");
-            if let Err(e) = run_desired_stream(
-                &self.channel,
-                &self.executor_id,
-                &self.state_reconciler,
-                &self.heartbeat_healthy,
-                &self.cancel_token,
-                &self.metrics,
-                &self.monitoring_state,
-            )
-            .await
-            {
+            if let Err(e) = self.run_desired_stream().await {
                 self.metrics.counters.record_stream_disconnection("error");
                 tracing::warn!(error = %e, "Desired stream ended");
             }
@@ -586,78 +551,80 @@ impl ServiceRuntime {
     }
 }
 
-async fn run_desired_stream(
-    channel: &Channel,
-    executor_id: &str,
-    state_reconciler: &Arc<Mutex<StateReconciler>>,
-    heartbeat_healthy: &AtomicBool,
-    cancel_token: &CancellationToken,
-    metrics: &DataplaneMetrics,
-    monitoring_state: &MonitoringState,
-) -> Result<()> {
-    let mut client = ExecutorApiClient::new(channel.clone());
+impl ServiceRuntime {
+    async fn run_desired_stream(&self) -> Result<()> {
+        let mut client = ExecutorApiClient::new(self.channel.clone());
 
-    let request = GetDesiredExecutorStatesRequest {
-        executor_id: Some(executor_id.to_string()),
-    };
+        let request = GetDesiredExecutorStatesRequest {
+            executor_id: Some(self.identity.executor_id.clone()),
+        };
 
-    let response = client
-        .get_desired_executor_states(request)
-        .await
-        .context("Failed to open desired states stream")?;
+        let response = client
+            .get_desired_executor_states(request)
+            .await
+            .context("Failed to open desired states stream")?;
 
-    let mut stream = response.into_inner();
+        let mut stream = response.into_inner();
 
-    loop {
-        // Check if cancelled
-        if cancel_token.is_cancelled() {
-            tracing::info!("Stream cancelled");
-            return Ok(());
-        }
-
-        // Check if heartbeat is still healthy
-        if !heartbeat_healthy.load(Ordering::SeqCst) {
-            metrics
-                .counters
-                .record_stream_disconnection("heartbeat_unhealthy");
-            tracing::warn!("Heartbeat unhealthy, disconnecting stream");
-            return Ok(());
-        }
-
-        let message = tokio::select! {
-            _ = cancel_token.cancelled() => {
+        loop {
+            // Check if cancelled
+            if self.cancel_token.is_cancelled() {
                 tracing::info!("Stream cancelled");
                 return Ok(());
             }
-            result = tokio::time::timeout(STREAM_IDLE_TIMEOUT, stream.message()) => result
-        };
 
-        match message {
-            Ok(Ok(Some(state))) => {
-                handle_desired_state(state, state_reconciler, metrics, monitoring_state).await;
-            }
-            Ok(Ok(None)) => {
-                metrics
+            // Check if heartbeat is still healthy
+            if !self.heartbeat_healthy.load(Ordering::SeqCst) {
+                self.metrics
                     .counters
-                    .record_stream_disconnection("server_closed");
-                tracing::info!("Stream closed by server");
+                    .record_stream_disconnection("heartbeat_unhealthy");
+                tracing::warn!("Heartbeat unhealthy, disconnecting stream");
                 return Ok(());
             }
-            Ok(Err(e)) => {
-                return Err(e).context("Stream error");
-            }
-            Err(_) => {
-                metrics.counters.record_stream_disconnection("idle_timeout");
-                tracing::warn!("Stream idle timeout, reconnecting");
-                return Ok(());
+
+            let message = tokio::select! {
+                _ = self.cancel_token.cancelled() => {
+                    tracing::info!("Stream cancelled");
+                    return Ok(());
+                }
+                result = tokio::time::timeout(STREAM_IDLE_TIMEOUT, stream.message()) => result
+            };
+
+            match message {
+                Ok(Ok(Some(state))) => {
+                    handle_desired_state(
+                        state,
+                        &self.state_reconciler,
+                        &self.metrics,
+                        &self.monitoring_state,
+                    )
+                    .await;
+                }
+                Ok(Ok(None)) => {
+                    self.metrics
+                        .counters
+                        .record_stream_disconnection("server_closed");
+                    tracing::info!("Stream closed by server");
+                    return Ok(());
+                }
+                Ok(Err(e)) => {
+                    return Err(e).context("Stream error");
+                }
+                Err(_) => {
+                    self.metrics
+                        .counters
+                        .record_stream_disconnection("idle_timeout");
+                    tracing::warn!("Stream idle timeout, reconnecting");
+                    return Ok(());
+                }
             }
         }
     }
 }
 
-/// Number of reconciliation retry attempts (matches Python executor's
-/// state_reconciler.py).
-const RECONCILIATION_RETRIES: u32 = 3;
+/// Maximum retries for reconciliation (total attempts = 1 + this value).
+/// Matches Python executor's state_reconciler.py _reconcile_state().
+const RECONCILIATION_MAX_RETRIES: u32 = 2;
 /// Delay between reconciliation retry attempts.
 const RECONCILIATION_RETRY_DELAY: Duration = Duration::from_secs(5);
 
@@ -682,6 +649,13 @@ async fn handle_desired_state(
         .record_desired_state(num_fes as u64, num_allocs as u64);
     metrics.counters.state_reconciliations.add(1, &[]);
 
+    // Update gauge values for desired state
+    {
+        let mut state = metrics.state.lock().await;
+        state.last_desired_state_allocations = num_allocs as u64;
+        state.last_desired_state_function_executors = num_fes as u64;
+    }
+
     tracing::info!(
         clock,
         num_function_executors = num_fes,
@@ -690,36 +664,32 @@ async fn handle_desired_state(
         "Received desired executor state"
     );
 
-    // Retry reconciliation up to 3 times with 5s delay between attempts.
-    // Matches Python executor's state_reconciler.py _reconcile_state().
-    for attempt in 0..RECONCILIATION_RETRIES {
-        match try_reconcile(&state, state_reconciler).await {
-            Ok(()) => {
-                metrics
-                    .histograms
-                    .state_reconciliation_latency_seconds
-                    .record(reconcile_start.elapsed().as_secs_f64(), &[]);
-                return;
-            }
-            Err(e) => {
-                tracing::warn!(
-                    attempt = attempt + 1,
-                    max_attempts = RECONCILIATION_RETRIES,
-                    error = %e,
-                    "Reconciliation failed, retrying"
-                );
-                if attempt + 1 < RECONCILIATION_RETRIES {
-                    tokio::time::sleep(RECONCILIATION_RETRY_DELAY).await;
-                }
-            }
+    use crate::retry::{Backoff, retry_with_backoff};
+
+    match retry_with_backoff(
+        RECONCILIATION_MAX_RETRIES,
+        Backoff::Fixed(RECONCILIATION_RETRY_DELAY),
+        "reconciliation",
+        || try_reconcile(&state, state_reconciler),
+        |_: &anyhow::Error| true,
+    )
+    .await
+    {
+        Ok(()) => {
+            metrics
+                .histograms
+                .state_reconciliation_latency_seconds
+                .record(reconcile_start.elapsed().as_secs_f64(), &[]);
+        }
+        Err(e) => {
+            metrics.counters.state_reconciliation_errors.add(1, &[]);
+            metrics
+                .histograms
+                .state_reconciliation_latency_seconds
+                .record(reconcile_start.elapsed().as_secs_f64(), &[]);
+            tracing::error!(error = %e, "Reconciliation failed after all retry attempts");
         }
     }
-    metrics.counters.state_reconciliation_errors.add(1, &[]);
-    metrics
-        .histograms
-        .state_reconciliation_latency_seconds
-        .record(reconcile_start.elapsed().as_secs_f64(), &[]);
-    tracing::error!("Reconciliation failed after all retry attempts");
 }
 
 async fn try_reconcile(
@@ -797,6 +767,32 @@ async fn wait_for_shutdown_signal() -> &'static str {
             .await
             .expect("Failed to listen for ctrl_c");
         "SIGINT"
+    }
+}
+
+/// Create the process driver based on config (ForkExec or Docker).
+fn create_process_driver(config: &DataplaneConfig) -> Result<Arc<dyn ProcessDriver>> {
+    match &config.driver {
+        DriverConfig::ForkExec => Ok(Arc::new(ForkExecDriver::new())),
+        DriverConfig::Docker { address } => match address {
+            Some(addr) => Ok(Arc::new(DockerDriver::with_address(addr)?)),
+            None => Ok(Arc::new(DockerDriver::new()?)),
+        },
+    }
+}
+
+/// Create the blob store from config (S3/GCS URL or local filesystem).
+async fn create_blob_store(
+    config: &DataplaneConfig,
+    metrics: &Arc<DataplaneMetrics>,
+) -> Result<Arc<BlobStore>> {
+    match &config.function_executor.blob_store_url {
+        Some(url) => Ok(Arc::new(
+            BlobStore::from_uri(url, metrics.clone())
+                .await
+                .context("Failed to create blob store")?,
+        )),
+        None => Ok(Arc::new(BlobStore::new_local(metrics.clone()))),
     }
 }
 

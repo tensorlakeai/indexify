@@ -49,11 +49,12 @@ echo "############################################"
 echo "# Starting background dataplane            #"
 echo "############################################"
 
-DATAPLANE_BIN="/Users/diptanuc/Src/indexify/target/debug/indexify-dataplane"
+DATAPLANE_BIN="${DATAPLANE_BIN:-$(which indexify-dataplane 2>/dev/null || echo "")}"
 DATAPLANE_PID=""
 
-if [ -x "$DATAPLANE_BIN" ]; then
-  $DATAPLANE_BIN &
+DATAPLANE_CONFIG="$(dirname "$0")/dataplane_config.yaml"
+if [ -n "$DATAPLANE_BIN" ] && [ -x "$DATAPLANE_BIN" ]; then
+  $DATAPLANE_BIN --config "$DATAPLANE_CONFIG" &
   DATAPLANE_PID=$!
   echo "Started background dataplane with PID: $DATAPLANE_PID"
   # Wait for it to connect to the server.

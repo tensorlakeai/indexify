@@ -1,9 +1,23 @@
-//! Unified state reconciler that manages both FE controllers (function-type)
-//! and Docker containers (sandbox-type).
+//! Unified state reconciler — the bridge between the server's desired state
+//! and the dataplane's two execution paths.
 //!
-//! Routes function executors from the server's DesiredExecutorState to either
-//! the FE controller path (subprocess-based) or the container manager path
-//! (Docker-based) based on `container_type`.
+//! The dataplane supports two distinct APIs:
+//!
+//! **Functions** (`FunctionExecutorType::Function`)
+//!   Users invoke functions; the dataplane runs them inside subprocess-based
+//!   function executors. Each FE is managed by a [`FunctionExecutorController`]
+//!   that handles process lifecycle, allocation execution (via
+//!   [`AllocationRunner`]), health checking, and result reporting.
+//!
+//! **Sandboxes** (`FunctionExecutorType::Sandbox`)
+//!   Users interact with containers directly (e.g. for interactive sessions).
+//!   The dataplane makes Docker containers available and routes HTTP traffic
+//!   to them. Containers are managed by [`FunctionContainerManager`], which
+//!   handles Docker lifecycle, warm-pool pre-creation, health checks, and
+//!   timeout enforcement.
+//!
+//! This reconciler partitions the server's desired FE descriptions by
+//! `container_type` and routes each group to the appropriate handler.
 
 use std::{collections::HashMap, sync::Arc};
 
@@ -27,11 +41,13 @@ use crate::{
     },
 };
 
-/// Manages both FE controllers and Docker containers.
+/// Routes desired state to function controllers and sandbox containers.
+///
+/// See [module docs](self) for the two execution paths.
 pub struct StateReconciler {
-    /// Function executor controllers (subprocess-based, for Function type FEs).
+    /// Subprocess-based controllers for the **Function** execution path.
     fe_controllers: HashMap<String, FEControllerHandle>,
-    /// Container manager (Docker-based, for Sandbox type FEs).
+    /// Docker-based manager for the **Sandbox** execution path.
     container_manager: Arc<FunctionContainerManager>,
     /// Shared spawn configuration for FE controllers.
     spawn_config: FESpawnConfig,
@@ -61,28 +77,24 @@ impl StateReconciler {
         }
     }
 
-    /// Reconcile desired state: route each FE to the appropriate handler.
+    /// Reconcile desired state by partitioning FEs into the two execution
+    /// paths:
+    /// - **Function** FEs → subprocess controllers (create/remove as needed)
+    /// - **Sandbox** FEs → Docker container manager (`sync`)
     pub async fn reconcile(&mut self, function_executors: Vec<FunctionExecutorDescription>) {
         let mut sandbox_fes = Vec::new();
         let mut function_fes = Vec::new();
 
-        // Partition by container_type
         for fe in function_executors {
-            let container_type = fe.container_type();
-            match container_type {
-                FunctionExecutorType::Function => {
-                    function_fes.push(fe);
-                }
+            match fe.container_type() {
+                FunctionExecutorType::Function => function_fes.push(fe),
                 FunctionExecutorType::Sandbox | FunctionExecutorType::Unknown => {
                     sandbox_fes.push(fe);
                 }
             }
         }
 
-        // Route sandbox FEs to existing container manager
         self.container_manager.sync(sandbox_fes).await;
-
-        // Route function FEs to FE controllers
         self.reconcile_function_fes(function_fes).await;
     }
 
@@ -130,7 +142,10 @@ impl StateReconciler {
         }
     }
 
-    /// Route a new allocation to the appropriate FE controller.
+    /// Route a new allocation to a **Function** FE controller.
+    ///
+    /// Sandbox FEs do not receive allocations — they serve user traffic
+    /// directly via HTTP proxy.
     pub fn add_allocation(&self, fe_id: &str, allocation: proto_api::executor_api_pb::Allocation) {
         if let Some(handle) = self.fe_controllers.get(fe_id) {
             let _ = handle.command_tx.send(FECommand::AddAllocation(allocation));

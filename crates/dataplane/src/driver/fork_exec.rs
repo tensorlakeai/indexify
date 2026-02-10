@@ -43,70 +43,67 @@ pub fn allocate_ephemeral_port() -> Result<u16> {
     Ok(port)
 }
 
+/// Build a command for sandbox mode with ephemeral daemon ports.
+fn build_sandbox_command(
+    config: &ProcessConfig,
+) -> Result<(Command, Option<String>, Option<String>)> {
+    let daemon_path = daemon_binary::get_daemon_path()
+        .context("Daemon binary not available for fork_exec driver")?;
+    let grpc_port = allocate_ephemeral_port().context("Failed to allocate gRPC port")?;
+    let http_port = allocate_ephemeral_port().context("Failed to allocate HTTP port")?;
+
+    info!(
+        daemon_path = %daemon_path.display(),
+        grpc_port = grpc_port,
+        http_port = http_port,
+        "Starting daemon via fork_exec (ignoring image: {:?})",
+        config.image
+    );
+
+    let mut cmd = Command::new(daemon_path);
+    cmd.arg("--port").arg(grpc_port.to_string());
+    cmd.arg("--http-port").arg(http_port.to_string());
+    cmd.arg("--log-dir").arg("/tmp/indexify-daemon-logs");
+
+    // Pass original command after -- if provided
+    if !config.command.is_empty() {
+        cmd.arg("--");
+        cmd.arg(&config.command);
+        cmd.args(&config.args);
+    }
+
+    Ok((
+        cmd,
+        Some(format!("127.0.0.1:{}", grpc_port)),
+        Some(format!("127.0.0.1:{}", http_port)),
+    ))
+}
+
+/// Build a command for function executor mode with an ephemeral gRPC port.
+fn build_function_command(
+    config: &ProcessConfig,
+) -> Result<(Command, Option<String>, Option<String>)> {
+    let grpc_port = allocate_ephemeral_port().context("Failed to allocate FE gRPC port")?;
+
+    info!(
+        command = %config.command,
+        grpc_port = grpc_port,
+        "Starting function-executor via fork_exec"
+    );
+
+    let mut cmd = Command::new(&config.command);
+    cmd.args(&config.args);
+    cmd.arg("--address").arg(format!("127.0.0.1:{}", grpc_port));
+
+    Ok((cmd, Some(format!("127.0.0.1:{}", grpc_port)), None))
+}
+
 #[async_trait]
 impl ProcessDriver for ForkExecDriver {
     async fn start(&self, config: ProcessConfig) -> Result<ProcessHandle> {
-        let (cmd, daemon_addr, http_addr) = match config.process_type {
-            ProcessType::Sandbox if config.image.is_some() => {
-                // Sandbox mode: start daemon binary with ephemeral ports
-                let daemon_path = daemon_binary::get_daemon_path()
-                    .context("Daemon binary not available for fork_exec driver")?;
-
-                let grpc_port =
-                    allocate_ephemeral_port().context("Failed to allocate gRPC port")?;
-                let http_port =
-                    allocate_ephemeral_port().context("Failed to allocate HTTP port")?;
-
-                info!(
-                    daemon_path = %daemon_path.display(),
-                    grpc_port = grpc_port,
-                    http_port = http_port,
-                    "Starting daemon via fork_exec (ignoring image: {:?})",
-                    config.image
-                );
-
-                let mut cmd = Command::new(daemon_path);
-                cmd.arg("--port").arg(grpc_port.to_string());
-                cmd.arg("--http-port").arg(http_port.to_string());
-                cmd.arg("--log-dir").arg("/tmp/indexify-daemon-logs");
-
-                // Pass original command after -- if provided
-                if !config.command.is_empty() {
-                    cmd.arg("--");
-                    cmd.arg(&config.command);
-                    cmd.args(&config.args);
-                }
-
-                (
-                    cmd,
-                    Some(format!("127.0.0.1:{}", grpc_port)),
-                    Some(format!("127.0.0.1:{}", http_port)),
-                )
-            }
-            ProcessType::Function => {
-                // Function executor mode: launch function-executor binary
-                // with ephemeral gRPC port. The binary is expected to be on PATH
-                // or provided via config.command.
-                let grpc_port =
-                    allocate_ephemeral_port().context("Failed to allocate FE gRPC port")?;
-
-                info!(
-                    command = %config.command,
-                    grpc_port = grpc_port,
-                    "Starting function-executor via fork_exec"
-                );
-
-                let mut cmd = Command::new(&config.command);
-                cmd.args(&config.args);
-                // The FE listens on --address for its gRPC server.
-                cmd.arg("--address").arg(format!("127.0.0.1:{}", grpc_port));
-
-                (
-                    cmd,
-                    Some(format!("127.0.0.1:{}", grpc_port)),
-                    None, // No HTTP API for function executors
-                )
-            }
+        let (mut cmd, daemon_addr, http_addr) = match config.process_type {
+            ProcessType::Sandbox if config.image.is_some() => build_sandbox_command(&config)?,
+            ProcessType::Function => build_function_command(&config)?,
             _ => {
                 // Direct mode: run the command directly (for testing)
                 let mut cmd = Command::new(&config.command);
@@ -115,7 +112,6 @@ impl ProcessDriver for ForkExecDriver {
             }
         };
 
-        let mut cmd = cmd;
         cmd.envs(config.env);
         cmd.stdin(Stdio::null());
         cmd.stdout(Stdio::inherit());
