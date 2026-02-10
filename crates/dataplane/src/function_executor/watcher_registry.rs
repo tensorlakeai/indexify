@@ -158,8 +158,8 @@ impl WatcherRegistry {
             );
 
             // Filter out non-terminal outcomes
-            if outcome != AllocationOutcomeCode::Success
-                && outcome != AllocationOutcomeCode::Failure
+            if outcome != AllocationOutcomeCode::Success &&
+                outcome != AllocationOutcomeCode::Failure
             {
                 info!(
                     function_call_id = %function_call_id,
