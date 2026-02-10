@@ -61,7 +61,7 @@ async fn read_json_output(
     state: &RouteState,
     namespace: &str,
 ) -> Option<serde_json::Value> {
-    if payload.encoding != "application/json" {
+    if payload.encoding.starts_with("application/json") {
         return None;
     }
 
