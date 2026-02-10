@@ -146,9 +146,27 @@ impl StateReconciler {
     ///
     /// Sandbox FEs do not receive allocations — they serve user traffic
     /// directly via HTTP proxy.
+    ///
+    /// If the controller's command channel is closed (e.g. the controller
+    /// task exited after a startup failure), the allocation is reported as
+    /// failed immediately so the server doesn't wait forever for a result.
     pub fn add_allocation(&self, fe_id: &str, allocation: proto_api::executor_api_pb::Allocation) {
-        if let Some(handle) = self.fe_controllers.get(fe_id) {
-            let _ = handle.command_tx.send(FECommand::AddAllocation(allocation));
+        if let Some(handle) = self.fe_controllers.get(fe_id) &&
+            handle
+                .command_tx
+                .send(FECommand::AddAllocation(allocation.clone()))
+                .is_err()
+        {
+            tracing::warn!(
+                fe_id = %fe_id,
+                allocation_id = ?allocation.allocation_id,
+                "FE controller channel closed, reporting allocation failure"
+            );
+            let result = crate::function_executor::proto_convert::make_failure_result(
+                &allocation,
+                proto_api::executor_api_pb::AllocationFailureReason::FunctionExecutorTerminated,
+            );
+            let _ = self.spawn_config.result_tx.send(result);
         }
     }
 

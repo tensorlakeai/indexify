@@ -69,8 +69,8 @@ echo ""
 echo "############################################"
 echo "# Phase 2: executor + features tests       #"
 echo "############################################"
-# Exclude test_http_handlers.py — it tests old CLI executor HTTP endpoints
-# (localhost:7000/monitoring/metrics) that don't exist in the dataplane.
+# test_http_handlers.py tests old Python CLI executor HTTP monitoring endpoints
+# which are not part of the dataplane.
 executor_tests=$(find ./executor -name 'test_*.py' -not -name 'test_http_handlers.py' | sort)
 features_tests=$(find ./features -name 'test_*.py' | sort)
 run_test_suite "$executor_tests $features_tests" "Indexify"
