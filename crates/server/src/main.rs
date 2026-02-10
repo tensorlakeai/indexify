@@ -53,11 +53,28 @@ mod testing;
 struct Cli {
     #[arg(short, long, value_name = "config file", help = "Path to config file")]
     config: Option<PathBuf>,
+
+    /// Generate Cloud OpenAPI spec and exit
+    #[arg(long)]
+    gen_cloud_openapi: bool,
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
+
+    if cli.gen_cloud_openapi {
+        use routes_v1::ApiDoc;
+        use utoipa::OpenApi;
+
+        let spec = ApiDoc::openapi()
+            .to_pretty_json()
+            .expect("Failed to generate OpenAPI JSON");
+        std::fs::write("openapi.json", spec).expect("Failed to write openapi.json");
+        println!("Generated openapi.json");
+        return Ok(());
+    }
+
     let config = match cli.config {
         Some(path) => config::ServerConfig::from_path(path.to_str().unwrap()).unwrap(),
         None => config::ServerConfig::default(),
