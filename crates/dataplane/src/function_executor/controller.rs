@@ -265,9 +265,9 @@ impl AllocationTracker {
 /// The main controller that manages one function executor process.
 pub struct FunctionExecutorController {
     description: FunctionExecutorDescription,
+    config: FESpawnConfig,
     // Process lifecycle
     handle: Option<ProcessHandle>,
-    driver: Arc<dyn ProcessDriver>,
     // gRPC client to the FE subprocess
     client: Option<FunctionExecutorGrpcClient>,
     // Inbound events from background tasks
@@ -275,8 +275,6 @@ pub struct FunctionExecutorController {
     event_rx: mpsc::UnboundedReceiver<FEEvent>,
     // Inbound commands from StateReconciler
     command_rx: mpsc::UnboundedReceiver<FECommand>,
-    // Outbound: completed allocation results → StateReporter
-    result_tx: mpsc::UnboundedSender<ServerAllocationResult>,
     // Outbound: current FE state for heartbeat reporting
     state_tx: watch::Sender<FunctionExecutorState>,
     // Allocation tracking
@@ -284,22 +282,10 @@ pub struct FunctionExecutorController {
     max_concurrency: u32,
     // Cancellation hierarchy
     cancel_token: CancellationToken,
-    // Server API client for call_function RPC
-    server_channel: Channel,
-    // Blob store and code cache
-    blob_store: Arc<BlobStore>,
-    code_cache: Arc<CodeCache>,
-    // Configuration
-    executor_id: String,
-    fe_binary_path: String,
-    // Image resolver for resolving container images
-    image_resolver: Arc<dyn ImageResolver>,
     // Watcher registry for function call result routing
     watcher_registry: WatcherRegistry,
     // Token to cancel the health checker when the process is killed
     fe_process_cancel_token: Option<CancellationToken>,
-    // Shared metrics
-    metrics: Arc<crate::metrics::DataplaneMetrics>,
 }
 
 impl FunctionExecutorController {
@@ -328,26 +314,18 @@ impl FunctionExecutorController {
 
         let mut controller = Self {
             description,
+            config,
             handle: None,
-            driver: config.driver,
             client: None,
             event_tx,
             event_rx,
             command_rx,
-            result_tx: config.result_tx,
             state_tx,
             tracker: AllocationTracker::new(),
             max_concurrency,
             cancel_token,
-            server_channel: config.server_channel,
-            blob_store: config.blob_store,
-            code_cache: config.code_cache,
-            executor_id: config.executor_id,
-            fe_binary_path: config.fe_binary_path,
-            image_resolver: config.image_resolver,
             watcher_registry,
             fe_process_cancel_token: None,
-            metrics: config.metrics,
         };
 
         tokio::spawn(
@@ -365,7 +343,7 @@ impl FunctionExecutorController {
 
     /// Main control loop.
     async fn run(&mut self) {
-        let metrics = self.metrics.clone();
+        let metrics = self.config.metrics.clone();
         let counters = &metrics.counters;
         let histograms = &metrics.histograms;
         let up_down = &metrics.up_down_counters;
@@ -448,7 +426,7 @@ impl FunctionExecutorController {
     async fn start_and_initialize(
         &mut self,
     ) -> std::result::Result<FunctionExecutorGrpcClient, FunctionExecutorTerminationReason> {
-        let metrics = self.metrics.clone();
+        let metrics = self.config.metrics.clone();
 
         // Start the FE process
         info!(fe_id = ?self.description.id, "Starting function executor");
@@ -477,7 +455,7 @@ impl FunctionExecutorController {
                 info!(error = %e, "Failed to connect/initialize function executor");
                 // Kill the process since we can't use it
                 if let Some(handle) = &self.handle {
-                    let _ = self.driver.kill(handle).await;
+                    let _ = self.config.driver.kill(handle).await;
                 }
 
                 let reason = if e.is::<InitTimedOut>() {
@@ -507,13 +485,17 @@ impl FunctionExecutorController {
 
         // Resolve image (used by Docker driver, ignored by ForkExec)
         let image = self
+            .config
             .image_resolver
             .function_image(namespace, app, function, version)
             .ok();
 
         // Build environment variables
         let env = vec![
-            ("INDEXIFY_EXECUTOR_ID".to_string(), self.executor_id.clone()),
+            (
+                "INDEXIFY_EXECUTOR_ID".to_string(),
+                self.config.executor_id.clone(),
+            ),
             ("INDEXIFY_FE_ID".to_string(), fe_id.clone()),
         ];
 
@@ -522,9 +504,9 @@ impl FunctionExecutorController {
                 id: fe_id.clone(),
                 process_type: ProcessType::Function,
                 image,
-                command: self.fe_binary_path.clone(),
+                command: self.config.fe_binary_path.clone(),
                 args: vec![
-                    format!("--executor-id={}", self.executor_id),
+                    format!("--executor-id={}", self.config.executor_id),
                     format!("--function-executor-id={}", fe_id),
                 ],
                 env,
@@ -538,7 +520,7 @@ impl FunctionExecutorController {
                 labels: vec![],
             };
 
-        let handle = self.driver.start(config).await?;
+        let handle = self.config.driver.start(config).await?;
         self.handle = Some(handle);
         Ok(())
     }
@@ -567,7 +549,7 @@ impl FunctionExecutorController {
         // Retry connecting to the FE with process liveness checks.
         // If the FE process dies (e.g. port binding failure), we fail
         // immediately instead of waiting the full FE_READY_TIMEOUT.
-        let driver = self.driver.clone();
+        let driver = self.config.driver.clone();
         let process_handle = self.handle.clone();
         let addr_owned = addr.to_string();
         let mut client = crate::retry::retry_until_deadline(
@@ -688,6 +670,7 @@ impl FunctionExecutorController {
 
         let expected_sha256 = data_payload.sha256_hash.as_deref();
         let code_bytes = self
+            .config
             .code_cache
             .get_or_download(namespace, app_name, app_version, code_uri, expected_sha256)
             .await?;
@@ -717,7 +700,7 @@ impl FunctionExecutorController {
     }
 
     fn handle_add_allocation(&mut self, allocation: ServerAllocation) {
-        self.metrics.counters.allocations_fetched.add(1, &[]);
+        self.config.metrics.counters.allocations_fetched.add(1, &[]);
 
         // If we're terminated/terminating, don't accept new allocations
         if let Some(status) = self.state_tx.borrow().status &&
@@ -739,7 +722,7 @@ impl FunctionExecutorController {
             // Report failure for this allocation immediately
             if allocation.allocation_id.is_some() {
                 let result = proto_convert::make_failure_result(&allocation, failure_reason);
-                let _ = self.result_tx.send(result);
+                let _ = self.config.result_tx.send(result);
             }
             return;
         }
@@ -758,17 +741,22 @@ impl FunctionExecutorController {
         };
 
         self.tracker.insert(alloc_id.clone(), info);
-        self.metrics.counters.allocation_preparations.add(1, &[]);
-        self.metrics
+        self.config
+            .metrics
+            .counters
+            .allocation_preparations
+            .add(1, &[]);
+        self.config
+            .metrics
             .up_down_counters
             .allocations_getting_prepared
             .add(1, &[]);
 
         // Spawn prep task (does NOT occupy a concurrency slot)
         let event_tx = self.event_tx.clone();
-        let blob_store = self.blob_store.clone();
+        let blob_store = self.config.blob_store.clone();
         let alloc_id_clone = alloc_id.clone();
-        let metrics = self.metrics.clone();
+        let metrics = self.config.metrics.clone();
         tokio::spawn(async move {
             let result = timed_phase(
                 &metrics.histograms.allocation_preparation_latency_seconds,
@@ -840,21 +828,22 @@ impl FunctionExecutorController {
 
             self.tracker.mark_running(alloc_id.clone());
 
-            self.metrics.counters.allocation_runs.add(1, &[]);
-            self.metrics
+            self.config.metrics.counters.allocation_runs.add(1, &[]);
+            self.config
+                .metrics
                 .up_down_counters
                 .allocation_runs_in_progress
                 .add(1, &[]);
             let event_tx = self.event_tx.clone();
             let alloc_id_clone = alloc_id.clone();
-            let metrics = self.metrics.clone();
+            let metrics = self.config.metrics.clone();
             let allocation_timeout = Duration::from_millis(
                 self.description.allocation_timeout_ms.unwrap_or(300_000) as u64,
             );
 
             let ctx = super::allocation_runner::AllocationContext {
-                server_channel: self.server_channel.clone(),
-                blob_store: self.blob_store.clone(),
+                server_channel: self.config.server_channel.clone(),
+                blob_store: self.config.blob_store.clone(),
                 watcher_registry: self.watcher_registry.clone(),
                 metrics: metrics.clone(),
             };
@@ -1056,8 +1045,13 @@ impl FunctionExecutorController {
             return;
         };
 
-        self.metrics.counters.allocation_finalizations.add(1, &[]);
-        self.metrics
+        self.config
+            .metrics
+            .counters
+            .allocation_finalizations
+            .add(1, &[]);
+        self.config
+            .metrics
             .up_down_counters
             .allocations_finalizing
             .add(1, &[]);
@@ -1065,9 +1059,9 @@ impl FunctionExecutorController {
         info.transition_to_finalizing(server_result);
 
         let event_tx = self.event_tx.clone();
-        let blob_store = self.blob_store.clone();
+        let blob_store = self.config.blob_store.clone();
         let alloc_id = allocation_id.to_string();
-        let metrics = self.metrics.clone();
+        let metrics = self.config.metrics.clone();
 
         tokio::spawn(async move {
             let is_success = timed_phase(
@@ -1120,8 +1114,8 @@ impl FunctionExecutorController {
         };
 
         // Record allocation outcome metrics
-        record_allocation_metrics(&result, &self.metrics.counters);
-        let _ = self.result_tx.send(result);
+        record_allocation_metrics(&result, &self.config.metrics.counters);
+        let _ = self.config.result_tx.send(result);
     }
 
     async fn handle_fe_terminated(
@@ -1143,17 +1137,23 @@ impl FunctionExecutorController {
 
     async fn shutdown(&mut self) {
         info!("Shutting down function executor controller");
-        self.metrics.counters.function_executor_destroys.add(1, &[]);
+        self.config
+            .metrics
+            .counters
+            .function_executor_destroys
+            .add(1, &[]);
         let destroy_start = Instant::now();
 
         self.terminate(FunctionExecutorTerminationReason::FunctionCancelled, false)
             .await;
 
-        self.metrics
+        self.config
+            .metrics
             .histograms
             .function_executor_destroy_latency_seconds
             .record(destroy_start.elapsed().as_secs_f64(), &[]);
-        self.metrics
+        self.config
+            .metrics
             .up_down_counters
             .function_executors_count
             .add(-1, &[]);
@@ -1200,7 +1200,7 @@ impl FunctionExecutorController {
 
         // Kill process
         if let Some(handle) = &self.handle {
-            let _ = self.driver.kill(handle).await;
+            let _ = self.config.driver.kill(handle).await;
         }
         self.transition_to_terminated(reason);
     }
