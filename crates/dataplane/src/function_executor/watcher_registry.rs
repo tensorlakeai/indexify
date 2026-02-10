@@ -15,7 +15,7 @@ use proto_api::executor_api_pb::{
     FunctionCallWatch,
 };
 use tokio::sync::{Mutex, Notify, mpsc};
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 
 /// A watcher result delivered to an allocation runner's channel.
 pub struct WatcherResult {
@@ -122,31 +122,59 @@ impl WatcherRegistry {
 
     /// Route function call results to registered watchers.
     ///
-    /// Filters non-terminal results and results without return values
-    /// (matching Python executor behavior).
+    /// Delivers terminal results (Success or Failure) to watchers. For Success
+    /// results, the result is delivered regardless of whether return_value is
+    /// present — the FE handles the tail call resolution.
     pub async fn deliver_results(&self, results: &[ServerFunctionCallResult]) {
         let mut inner = self.inner.lock().await;
 
+        let num_active_watchers = inner.watchers.len();
+        let active_keys: Vec<&String> = inner.watchers.keys().collect();
+        info!(
+            num_results = results.len(),
+            num_active_watchers = num_active_watchers,
+            active_watcher_keys = ?active_keys,
+            "Delivering function call results to watchers"
+        );
+
         for result in results {
-            // Filter out non-terminal outcomes (same logic as Python)
             let outcome = result.outcome_code();
-            if outcome != AllocationOutcomeCode::Success &&
-                outcome != AllocationOutcomeCode::Failure
-            {
-                continue;
-            }
-
-            // If success but no return_value, skip (waiting for tail call resolution)
-            if outcome == AllocationOutcomeCode::Success && result.return_value.is_none() {
-                continue;
-            }
-
             let namespace = result.namespace.as_deref().unwrap_or("");
             let request_id = result.request_id.as_deref().unwrap_or("");
             let function_call_id = result.function_call_id.as_deref().unwrap_or("");
+            let has_return_value = result.return_value.is_some();
+            let has_request_error = result.request_error.is_some();
             let key = watch_key(namespace, request_id, function_call_id);
 
+            info!(
+                function_call_id = %function_call_id,
+                namespace = %namespace,
+                request_id = %request_id,
+                outcome = ?outcome,
+                has_return_value = has_return_value,
+                has_request_error = has_request_error,
+                watch_key = %key,
+                "Processing function call result"
+            );
+
+            // Filter out non-terminal outcomes
+            if outcome != AllocationOutcomeCode::Success
+                && outcome != AllocationOutcomeCode::Failure
+            {
+                info!(
+                    function_call_id = %function_call_id,
+                    outcome = ?outcome,
+                    "Skipping non-terminal function call result"
+                );
+                continue;
+            }
+
             if let Some(entry) = inner.watchers.get_mut(&key) {
+                info!(
+                    function_call_id = %function_call_id,
+                    num_watchers = entry.watchers.len(),
+                    "Found matching watcher entry, delivering result"
+                );
                 // Deliver to all registered watchers, removing closed ones
                 entry.watchers.retain(|w| {
                     if w.result_tx.is_closed() {
@@ -165,19 +193,19 @@ impl WatcherRegistry {
                         );
                         false
                     } else {
+                        info!(
+                            function_call_id = %function_call_id,
+                            watcher_id = %w.watcher_id,
+                            "Successfully delivered function call result to watcher"
+                        );
                         true
                     }
                 });
-
-                debug!(
-                    function_call_id = %function_call_id,
-                    outcome = ?outcome,
-                    "Delivered function call result to watchers"
-                );
             } else {
-                debug!(
+                warn!(
                     function_call_id = %function_call_id,
-                    "No watchers found for function call result, ignoring"
+                    watch_key = %key,
+                    "No watchers found for function call result"
                 );
             }
         }
