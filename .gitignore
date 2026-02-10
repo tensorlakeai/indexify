@@ -64,7 +64,7 @@ sqlite*
 *.log
 
 # Miscellaneous
-openapi.yaml
+openapi.json
 
 # Developer Cargo configs
 .cargo/
