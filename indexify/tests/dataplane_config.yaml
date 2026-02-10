@@ -1,0 +1,6 @@
+env: local
+server_addr: "http://localhost:8901"
+driver:
+  type: fork_exec
+monitoring:
+  port: 7100
