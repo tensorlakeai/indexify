@@ -881,7 +881,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_sync_creates_containers() {
-        let (driver, manager) = create_test_manager().await;
+        let (_driver, manager) = create_test_manager().await;
 
         // Sync with one desired FE
         let desired = vec![create_test_fe_description("fe-123")];
