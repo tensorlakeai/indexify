@@ -208,42 +208,6 @@ async fn send_error_response(
     Ok(true)
 }
 
-/// Map a pingora error type to HTTP status, user message, and error code.
-fn map_proxy_error(error_type: &ErrorType) -> (u16, &'static str, &'static str) {
-    match error_type {
-        ErrorType::ConnectionClosed => (
-            502,
-            "Connection to sandbox closed unexpectedly. The sandbox may have terminated.",
-            error_code::CONNECTION_CLOSED,
-        ),
-        ErrorType::ConnectTimedout => (
-            504,
-            "Connection to sandbox timed out. The sandbox may be overloaded or unresponsive.",
-            error_code::CONNECTION_TIMEOUT,
-        ),
-        ErrorType::ReadTimedout => (
-            504,
-            "Reading from sandbox timed out. The operation is taking longer than expected.",
-            error_code::READ_TIMEOUT,
-        ),
-        ErrorType::WriteTimedout => (
-            504,
-            "Writing to sandbox timed out. The sandbox may be overloaded.",
-            error_code::WRITE_TIMEOUT,
-        ),
-        ErrorType::ConnectRefused => (
-            502,
-            "Connection to sandbox refused. The sandbox may not be running.",
-            error_code::CONNECTION_REFUSED,
-        ),
-        _ => (
-            502,
-            "Failed to proxy request to sandbox.",
-            error_code::PROXY_ERROR,
-        ),
-    }
-}
-
 #[async_trait]
 impl ProxyHttp for HttpProxy {
     type CTX = ProxyContext;
