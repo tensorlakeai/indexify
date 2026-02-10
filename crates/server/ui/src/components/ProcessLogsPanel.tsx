@@ -27,6 +27,8 @@ function ProcessLogsPanel({ daemonUrl, pid, sandboxId }: ProcessLogsPanelProps) 
   const [stderrLogs, setStderrLogs] = useState<LogLine[]>([])
   const [isConnected, setIsConnected] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const errorRef = useRef(error)
+  errorRef.current = error
   const abortControllerRef = useRef<AbortController | null>(null)
   const logsContainerRef = useRef<HTMLDivElement>(null)
 
@@ -118,7 +120,7 @@ function ProcessLogsPanel({ daemonUrl, pid, sandboxId }: ProcessLogsPanelProps) 
         }
       },
       onerror: (err) => {
-        if (!error) {
+        if (!errorRef.current) {
           setError('Failed to connect to log stream')
         }
         setIsConnected(false)
