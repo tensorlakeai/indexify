@@ -469,18 +469,20 @@ impl ExecutorManager {
                 has_output = function_run.output.is_some(),
                 "found function run for executor watch"
             );
-            let failure_reason = match &function_run.outcome {
-                Some(FunctionRunOutcome::Failure(failure_reason)) => Some(failure_reason.clone()),
+            // Skip if function run hasn't completed yet.
+            let Some(ref outcome) = function_run.outcome else {
+                continue;
+            };
+
+            let failure_reason = match outcome {
+                FunctionRunOutcome::Failure(failure_reason) => Some(failure_reason.clone()),
                 _ => None,
             };
             function_call_outcomes.push(FunctionCallOutcome {
                 namespace: function_run.namespace.clone(),
                 request_id: function_run.request_id.clone(),
                 function_call_id: function_run.id.clone(),
-                outcome: function_run
-                    .outcome
-                    .clone()
-                    .unwrap_or(FunctionRunOutcome::Unknown),
+                outcome: outcome.clone(),
                 failure_reason,
                 return_value: function_run.output.clone(),
                 request_error: function_run.request_error.clone(),

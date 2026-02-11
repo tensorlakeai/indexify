@@ -265,6 +265,9 @@ impl AllocationRunner {
                         &self.ctx.blob_store,
                     )
                     .await;
+                    // Reset deadline so the parent function has time to finish
+                    // processing after the child result is delivered.
+                    deadline = Instant::now() + self.timeout;
                     continue;
                 }
                 result = tokio::time::timeout(remaining, stream.message()) => result,

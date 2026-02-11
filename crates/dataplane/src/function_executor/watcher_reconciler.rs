@@ -29,7 +29,13 @@ pub(super) async fn reconcile_watchers(
     result_tx: &mpsc::UnboundedSender<WatcherResult>,
     state: &AllocationState,
 ) {
-    *has_active_watchers = !state.function_call_watchers.is_empty();
+    // Once watchers are detected, keep has_active_watchers true for the rest
+    // of the allocation. The FE may clear function_call_watchers before sending
+    // the final result, but the parent should not time out while waiting for it.
+    // Child functions enforce their own timeouts.
+    if !state.function_call_watchers.is_empty() {
+        *has_active_watchers = true;
+    }
 
     for watcher in &state.function_call_watchers {
         let watcher_id = watcher.id.as_deref().unwrap_or("");
