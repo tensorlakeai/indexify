@@ -281,7 +281,7 @@ jobs:
         with:
           run: |
             chmod u+x ./indexify-server
-            RUST_LOG=info ./indexify-server &
+            DATAPLANE_FUNCTIONS_ENABLED=true RUST_LOG=info ./indexify-server &
             echo $! > /tmp/indexify-server.pid &
           wait-on: |
             tcp:localhost:8900
@@ -354,7 +354,7 @@ jobs:
         with:
           run: |
             chmod u+x ./indexify-server
-            RUST_LOG=info ./indexify-server &
+            DATAPLANE_FUNCTIONS_ENABLED=true RUST_LOG=info ./indexify-server &
             echo $! > /tmp/indexify-server.pid &
           wait-on: |
             tcp:localhost:8900

@@ -38,6 +38,15 @@ use crate::{
 
 const SANDBOX_ENABLED_DATAPLANE_VERSION: &str = "0.2.0";
 
+fn dataplane_functions_enabled() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| {
+        std::env::var("DATAPLANE_FUNCTIONS_ENABLED")
+            .map(|v| v.eq_ignore_ascii_case("true") || v == "1")
+            .unwrap_or(false)
+    })
+}
+
 /// Gauges for monitoring the container scheduler state.
 /// Must be kept alive for callbacks to fire.
 #[allow(dead_code)]
@@ -682,13 +691,14 @@ impl ContainerScheduler {
             if !func.placement_constraints.matches(&executor.labels) {
                 return false;
             }
-            // // Functions can't run on sandbox-enabled dataplanes
-            // if executor
-            //     .executor_version
-            //     .eq_ignore_ascii_case(SANDBOX_ENABLED_DATAPLANE_VERSION)
-            // {
-            //     return false;
-            // }
+            // Functions can't run on sandbox-enabled dataplanes unless opted in.
+            if !dataplane_functions_enabled() &&
+                executor
+                    .executor_version
+                    .eq_ignore_ascii_case(SANDBOX_ENABLED_DATAPLANE_VERSION)
+            {
+                return false;
+            }
         } else {
             // Sandbox container constraints
             if !executor
