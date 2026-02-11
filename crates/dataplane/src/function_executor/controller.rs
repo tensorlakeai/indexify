@@ -465,7 +465,7 @@ impl FunctionExecutorController {
         match self.connect_and_initialize().await {
             Ok(client) => Ok(client),
             Err(e) => {
-                info!(error = %e, "Failed to connect/initialize function executor");
+                info!(error = ?e, "Failed to connect/initialize function executor");
                 // Kill the process since we can't use it
                 if let Some(handle) = &self.handle {
                     let _ = self.config.driver.kill(handle).await;

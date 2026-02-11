@@ -361,8 +361,13 @@ impl AllocationRunner {
 
         match &final_result {
             Some(fe_result) => {
-                let server_result =
-                    convert_fe_result_to_server(&self.allocation, fe_result, execution_duration_ms);
+                let server_result = convert_fe_result_to_server(
+                    &self.allocation,
+                    fe_result,
+                    execution_duration_ms,
+                    &self.uri_prefix,
+                    &self.allocation_id,
+                );
                 AllocationOutcome::Completed {
                     result: server_result,
                     fe_result: final_result,
@@ -399,6 +404,9 @@ impl AllocationRunner {
             &mut self.seen_function_call_ids,
             &self.ctx.metrics,
             state,
+            &self.uri_prefix,
+            &self.output_blob_handles,
+            &self.ctx.blob_store,
         )
         .await;
 
@@ -432,6 +440,8 @@ fn convert_fe_result_to_server(
     allocation: &ServerAllocation,
     fe_result: &function_executor_pb::AllocationResult,
     execution_duration_ms: u64,
+    uri_prefix: &str,
+    allocation_id: &str,
 ) -> ServerAllocationResult {
     use proto_api::executor_api_pb;
 
@@ -441,17 +451,20 @@ fn convert_fe_result_to_server(
     let failure_reason =
         proto_convert::convert_failure_reason_fe_to_server(fe_result.failure_reason());
 
+    // Reconstruct canonical blob URIs from the blob ID rather than using
+    // the presigned upload URLs stored in the blob chunks. Presigned URLs
+    // are transient and cannot be used as the canonical data location.
     let output_blob_uri = fe_result
         .uploaded_function_outputs_blob
         .as_ref()
-        .and_then(|b| b.chunks.first())
-        .and_then(|c| c.uri.clone());
+        .and_then(|b| b.id.as_deref())
+        .map(|blob_id| format!("{}.{}.output_{}", uri_prefix, allocation_id, blob_id));
 
     let request_error_blob_uri = fe_result
         .uploaded_request_error_blob
         .as_ref()
-        .and_then(|b| b.chunks.first())
-        .and_then(|c| c.uri.clone());
+        .and_then(|b| b.id.as_deref())
+        .map(|blob_id| format!("{}.{}.output_{}", uri_prefix, allocation_id, blob_id));
 
     let request_error = fe_result
         .request_error_output

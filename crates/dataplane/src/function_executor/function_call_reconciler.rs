@@ -18,6 +18,7 @@ use super::{
     allocation_runner::{error_status, make_allocation_update, ok_status},
     fe_client::FunctionExecutorGrpcClient,
 };
+use crate::blob_ops::{BlobStore, MultipartUploadHandle};
 
 /// Maximum function call request size in bytes (1 MB).
 const MAX_FUNCTION_CALL_SIZE: usize = 1024 * 1024;
@@ -42,6 +43,9 @@ pub(super) async fn reconcile_function_calls(
     seen_function_call_ids: &mut HashSet<String>,
     metrics: &crate::metrics::DataplaneMetrics,
     state: &AllocationState,
+    uri_prefix: &str,
+    output_blob_handles: &[MultipartUploadHandle],
+    blob_store: &BlobStore,
 ) {
     for fc in &state.function_calls {
         let fc_id = fc.id.as_deref().unwrap_or("");
@@ -58,11 +62,38 @@ pub(super) async fn reconcile_function_calls(
                 .as_ref()
                 .and_then(|u| u.root_function_call_id.clone());
 
+            // Reconstruct canonical blob URI from the blob ID rather than
+            // using the presigned upload URL stored in the blob chunks.
             let args_blob_uri = fc
                 .args_blob
                 .as_ref()
-                .and_then(|b| b.chunks.first())
-                .and_then(|c| c.uri.clone());
+                .and_then(|b| b.id.as_deref())
+                .map(|blob_id| format!("{}.{}.output_{}", uri_prefix, allocation_id, blob_id));
+
+            // Complete the multipart upload for the args blob so the data is
+            // visible in S3 before the server forwards the function call.
+            // S3 multipart uploads are invisible until completed.
+            if let Some(ref blob_uri) = args_blob_uri
+                && let Some(handle) = output_blob_handles.iter().find(|h| h.uri == *blob_uri)
+            {
+                let etags: Vec<String> = fc
+                    .args_blob
+                    .as_ref()
+                    .map(|b| b.chunks.iter().filter_map(|c| c.etag.clone()).collect())
+                    .unwrap_or_default();
+
+                if !etags.is_empty()
+                    && let Err(e) = blob_store
+                        .complete_multipart_upload(blob_uri, &handle.upload_id, &etags)
+                        .await
+                {
+                    warn!(
+                        blob_uri = %blob_uri,
+                        error = %e,
+                        "Failed to complete multipart upload for args blob"
+                    );
+                }
+            }
 
             let server_updates = fc
                 .updates

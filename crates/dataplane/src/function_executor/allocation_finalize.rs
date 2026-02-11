@@ -78,8 +78,32 @@ pub async fn finalize_allocation(
     // Handle output blob multipart uploads.
     // If no fe_result (cancelled/failed before execution produced a result),
     // abort all output blob uploads to clean up resources.
-    for handle in output_blob_handles {
-        if fe_result.is_none() {
+    //
+    // With an fe_result, complete the multipart uploads so the data is visible
+    // in S3 before the result is delivered. S3 multipart uploads are invisible
+    // until completed.
+    complete_output_blobs(allocation_id, fe_result, output_blob_handles, blob_store).await;
+
+    Ok(())
+}
+
+/// Complete or abort output blob multipart uploads.
+///
+/// When there is an `fe_result`, extracts ETags from the uploaded blobs and
+/// completes their multipart uploads. Blobs without a matching fe_result
+/// entry (e.g. function call args blobs that were already completed eagerly
+/// during execution) are left as-is.
+///
+/// When there is no `fe_result`, aborts all uploads to clean up resources.
+async fn complete_output_blobs(
+    allocation_id: &str,
+    fe_result: Option<&proto_api::function_executor_pb::AllocationResult>,
+    output_blob_handles: &[MultipartUploadHandle],
+    blob_store: &BlobStore,
+) {
+    let Some(fe_result) = fe_result else {
+        // No result — abort all output blob uploads
+        for handle in output_blob_handles {
             debug!(
                 allocation_id = %allocation_id,
                 uri = %handle.uri,
@@ -88,20 +112,81 @@ pub async fn finalize_allocation(
             let _ = blob_store
                 .abort_multipart_upload(&handle.uri, &handle.upload_id)
                 .await;
-            continue;
         }
-        // For output blobs with an FE result, the ETags come from the FE's
-        // AllocationState output_blob_requests. Since we don't track
-        // per-output-blob ETags in the current flow, we skip completion here.
-        // The FE writes directly via presigned upload-part URLs.
-        // TODO: Extract output blob ETags from fe_result and complete multipart
-        // uploads.
+        return;
+    };
+
+    // Complete the function outputs blob multipart upload.
+    complete_blob_from_fe(
+        allocation_id,
+        fe_result.uploaded_function_outputs_blob.as_ref(),
+        output_blob_handles,
+        blob_store,
+        "function outputs",
+    )
+    .await;
+}
+
+/// Find the output blob handle matching an FE blob (by ID suffix) and complete
+/// its multipart upload using the ETags from the blob's chunks.
+async fn complete_blob_from_fe(
+    allocation_id: &str,
+    fe_blob: Option<&proto_api::function_executor_pb::Blob>,
+    output_blob_handles: &[MultipartUploadHandle],
+    blob_store: &BlobStore,
+    label: &str,
+) {
+    let Some(blob) = fe_blob else {
+        return;
+    };
+
+    let Some(blob_id) = blob.id.as_deref() else {
+        return;
+    };
+
+    let suffix = format!(".output_{}", blob_id);
+    let Some(handle) = output_blob_handles
+        .iter()
+        .find(|h| h.uri.ends_with(&suffix))
+    else {
+        warn!(
+            allocation_id = %allocation_id,
+            blob_id = %blob_id,
+            label = %label,
+            "No matching output blob handle found for completion"
+        );
+        return;
+    };
+
+    let etags: Vec<String> = blob.chunks.iter().filter_map(|c| c.etag.clone()).collect();
+
+    if etags.is_empty() {
         debug!(
             allocation_id = %allocation_id,
-            uri = %handle.uri,
-            "Output blob handle pending finalization"
+            blob_id = %blob_id,
+            label = %label,
+            "No ETags in blob chunks, skipping completion"
         );
+        return;
     }
 
-    Ok(())
+    if let Err(e) = blob_store
+        .complete_multipart_upload(&handle.uri, &handle.upload_id, &etags)
+        .await
+    {
+        warn!(
+            allocation_id = %allocation_id,
+            blob_id = %blob_id,
+            label = %label,
+            error = %e,
+            "Failed to complete output blob multipart upload"
+        );
+    } else {
+        debug!(
+            allocation_id = %allocation_id,
+            blob_id = %blob_id,
+            label = %label,
+            "Completed output blob multipart upload"
+        );
+    }
 }
