@@ -102,6 +102,7 @@ struct AllocationRunner {
     timeout: Duration,
     cancel_token: CancellationToken,
     uri_prefix: String,
+    request_error_blob_uri: Option<String>,
     // Reconciliation state
     seen_blob_ids: HashSet<String>,
     seen_function_call_ids: HashSet<String>,
@@ -137,6 +138,7 @@ impl AllocationRunner {
             timeout,
             cancel_token,
             uri_prefix,
+            request_error_blob_uri: None,
             seen_blob_ids: HashSet::new(),
             seen_function_call_ids: HashSet::new(),
             active_watcher_ids: HashSet::new(),
@@ -179,6 +181,13 @@ impl AllocationRunner {
         let start_time = Instant::now();
 
         info!("Starting allocation execution");
+
+        // Store the request error blob URI from the prepared handle so we can
+        // use the correct canonical URI during result conversion.
+        self.request_error_blob_uri = prepared
+            .request_error_blob_handle
+            .as_ref()
+            .map(|h| h.uri.clone());
 
         // Create allocation on FE
         let fe_allocation = function_executor_pb::Allocation {
@@ -367,6 +376,7 @@ impl AllocationRunner {
                     execution_duration_ms,
                     &self.uri_prefix,
                     &self.allocation_id,
+                    self.request_error_blob_uri.as_deref(),
                 );
                 AllocationOutcome::Completed {
                     result: server_result,
@@ -442,6 +452,7 @@ fn convert_fe_result_to_server(
     execution_duration_ms: u64,
     uri_prefix: &str,
     allocation_id: &str,
+    request_error_blob_uri: Option<&str>,
 ) -> ServerAllocationResult {
     use proto_api::executor_api_pb;
 
@@ -460,11 +471,7 @@ fn convert_fe_result_to_server(
         .and_then(|b| b.id.as_deref())
         .map(|blob_id| format!("{}.{}.output_{}", uri_prefix, allocation_id, blob_id));
 
-    let request_error_blob_uri = fe_result
-        .uploaded_request_error_blob
-        .as_ref()
-        .and_then(|b| b.id.as_deref())
-        .map(|blob_id| format!("{}.{}.output_{}", uri_prefix, allocation_id, blob_id));
+    let request_error_blob_uri = request_error_blob_uri.map(|s| s.to_string());
 
     let request_error = fe_result
         .request_error_output
