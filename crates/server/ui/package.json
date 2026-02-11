@@ -68,6 +68,13 @@
       "last 1 safari version"
     ]
   },
+  "eslintConfig": {
+    "root": true,
+    "extends": [
+      "react-app",
+      "react-app/jest"
+    ]
+  },
   "devDependencies": {
     "@babel/plugin-proposal-private-property-in-object": "^7.21.11",
     "cross-env": "^10.1.0",
