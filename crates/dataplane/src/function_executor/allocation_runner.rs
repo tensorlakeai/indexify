@@ -105,10 +105,9 @@ struct AllocationRunner {
     // Reconciliation state
     seen_blob_ids: HashSet<String>,
     seen_function_call_ids: HashSet<String>,
-    seen_watcher_ids: HashSet<String>,
+    active_watcher_ids: HashSet<String>,
     state_handler: RequestStateHandler,
     output_blob_handles: Vec<MultipartUploadHandle>,
-    has_active_watchers: bool,
     // Channel for watcher results delivered by the registry
     watcher_result_tx: mpsc::UnboundedSender<WatcherResult>,
     watcher_result_rx: mpsc::UnboundedReceiver<WatcherResult>,
@@ -140,10 +139,9 @@ impl AllocationRunner {
             uri_prefix,
             seen_blob_ids: HashSet::new(),
             seen_function_call_ids: HashSet::new(),
-            seen_watcher_ids: HashSet::new(),
+            active_watcher_ids: HashSet::new(),
             state_handler: RequestStateHandler::new(),
             output_blob_handles: Vec::new(),
-            has_active_watchers: false,
             watcher_result_tx,
             watcher_result_rx,
         }
@@ -238,7 +236,7 @@ impl AllocationRunner {
             // Don't enforce the deadline while waiting for child functions.
             // Child functions have their own timeouts — the parent should wait
             // for them to complete (matching the Python executor behavior).
-            if Instant::now() > deadline && !self.has_active_watchers {
+            if Instant::now() > deadline && self.active_watcher_ids.is_empty() {
                 warn!("Allocation timed out");
                 return self
                     .fail_with_cleanup(
@@ -265,6 +263,7 @@ impl AllocationRunner {
                         &self.ctx.blob_store,
                     )
                     .await;
+                    self.active_watcher_ids.remove(&watcher_result.watcher_id);
                     // Reset deadline so the parent function has time to finish
                     // processing after the child result is delivered.
                     deadline = Instant::now() + self.timeout;
@@ -339,7 +338,7 @@ impl AllocationRunner {
                         .await;
                 }
                 Err(_) => {
-                    if self.has_active_watchers {
+                    if !self.active_watcher_ids.is_empty() {
                         continue;
                     }
                     warn!("Allocation timed out waiting for state");
@@ -406,8 +405,7 @@ impl AllocationRunner {
         watcher_reconciler::reconcile_watchers(
             &self.allocation,
             &self.ctx.watcher_registry,
-            &mut self.seen_watcher_ids,
-            &mut self.has_active_watchers,
+            &mut self.active_watcher_ids,
             &self.watcher_result_tx,
             state,
         )

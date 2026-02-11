@@ -19,27 +19,19 @@ use crate::blob_ops::BlobStore;
 
 /// Register new function call watchers with the shared registry.
 ///
-/// Results will be delivered to `result_tx` and handled by the allocation
-/// runner's select loop — no background tasks are spawned.
+/// New watcher IDs are inserted into `active_watcher_ids` which also serves
+/// as the dedup set (watchers already in the set are skipped). The caller
+/// removes IDs when their results are delivered.
 pub(super) async fn reconcile_watchers(
     allocation: &proto_api::executor_api_pb::Allocation,
     watcher_registry: &WatcherRegistry,
-    seen_watcher_ids: &mut HashSet<String>,
-    has_active_watchers: &mut bool,
+    active_watcher_ids: &mut HashSet<String>,
     result_tx: &mpsc::UnboundedSender<WatcherResult>,
     state: &AllocationState,
 ) {
-    // Once watchers are detected, keep has_active_watchers true for the rest
-    // of the allocation. The FE may clear function_call_watchers before sending
-    // the final result, but the parent should not time out while waiting for it.
-    // Child functions enforce their own timeouts.
-    if !state.function_call_watchers.is_empty() {
-        *has_active_watchers = true;
-    }
-
     for watcher in &state.function_call_watchers {
         let watcher_id = watcher.id.as_deref().unwrap_or("");
-        if !watcher_id.is_empty() && seen_watcher_ids.insert(watcher_id.to_string()) {
+        if !watcher_id.is_empty() && !active_watcher_ids.contains(watcher_id) {
             let watched_fc_id = watcher.root_function_call_id.as_deref().unwrap_or("");
 
             debug!(
@@ -70,6 +62,7 @@ pub(super) async fn reconcile_watchers(
                     result_tx.clone(),
                 )
                 .await;
+            active_watcher_ids.insert(watcher_id.to_string());
         }
     }
 }
