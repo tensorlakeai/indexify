@@ -613,6 +613,16 @@ impl ContainerScheduler {
                     update_fe.function_container.id.clone(),
                     Box::new(update_fe.clone()),
                 );
+
+                // Notify the executor so it receives the updated desired state
+                // (with this container excluded) and terminates the container.
+                // Without this, the executor never learns about the vacuum and
+                // keeps running the container, permanently consuming resources.
+                if let Some(executor_state) = self.executor_states.get(&fe.executor_id) {
+                    update
+                        .updated_executor_states
+                        .insert(fe.executor_id.clone(), executor_state.clone());
+                }
             }
         }
 
