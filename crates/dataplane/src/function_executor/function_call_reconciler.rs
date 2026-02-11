@@ -73,8 +73,8 @@ pub(super) async fn reconcile_function_calls(
             // Complete the multipart upload for the args blob so the data is
             // visible in S3 before the server forwards the function call.
             // S3 multipart uploads are invisible until completed.
-            if let Some(ref blob_uri) = args_blob_uri
-                && let Some(handle) = output_blob_handles.iter().find(|h| h.uri == *blob_uri)
+            if let Some(ref blob_uri) = args_blob_uri &&
+                let Some(handle) = output_blob_handles.iter().find(|h| h.uri == *blob_uri)
             {
                 let etags: Vec<String> = fc
                     .args_blob
@@ -82,8 +82,8 @@ pub(super) async fn reconcile_function_calls(
                     .map(|b| b.chunks.iter().filter_map(|c| c.etag.clone()).collect())
                     .unwrap_or_default();
 
-                if !etags.is_empty()
-                    && let Err(e) = blob_store
+                if !etags.is_empty() &&
+                    let Err(e) = blob_store
                         .complete_multipart_upload(blob_uri, &handle.upload_id, &etags)
                         .await
                 {
