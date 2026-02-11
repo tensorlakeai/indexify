@@ -54,7 +54,7 @@ impl ContainerSchedulerGauges {
             .with_description("Total number of executors")
             .with_callback(move |observer| {
                 if let Ok(scheduler) = scheduler_clone.try_read() {
-                    observer.observe(scheduler.executors.len() as u64, &[]);
+                    observer.observe(scheduler.executor_states.len() as u64, &[]);
                 }
             })
             .build();
