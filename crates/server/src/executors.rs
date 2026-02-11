@@ -440,17 +440,27 @@ impl ExecutorManager {
             return None;
         }
         let mut function_call_outcomes = Vec::new();
+        let reader = self.indexify_state.reader();
         for executor_watch in executor_watches.iter() {
-            let Some(function_run) = indexes.function_runs.get(&executor_watch.into()) else {
-                error!(
-                    namespace = %executor_watch.namespace,
-                    app = %executor_watch.application,
-                    request_id = %executor_watch.request_id,
-                    function_call_id = %executor_watch.function_call_id,
-                    "function run not found for executor watch",
-                );
-                continue;
+            let function_run = if let Some(fr) = indexes.function_runs.get(&executor_watch.into()) {
+                fr.clone()
+            } else {
+                // Function run was deleted from in-memory state
+                // Fall back to RocksDB where the data is still persisted.
+                let Some(fr) = reader
+                    .get_function_run(
+                        &executor_watch.namespace,
+                        &executor_watch.application,
+                        &executor_watch.request_id,
+                        &executor_watch.function_call_id,
+                    )
+                    .await
+                else {
+                    continue;
+                };
+                Box::new(fr)
             };
+            let function_run = &function_run;
             info!(
                 function_call_id = %executor_watch.function_call_id,
                 request_id = %executor_watch.request_id,

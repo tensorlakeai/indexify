@@ -69,7 +69,27 @@ pub struct Service {
 impl Service {
     pub async fn new(config: DataplaneConfig) -> Result<Self> {
         let channel = create_channel(&config).await?;
-        let host_resources = probe_host_resources();
+        let mut host_resources = probe_host_resources();
+
+        // Apply resource overrides from config.
+        if let Some(overrides) = &config.resource_overrides {
+            if let Some(cpu) = overrides.cpu_count {
+                host_resources.cpu_count = Some(cpu);
+            }
+            if let Some(mem) = overrides.memory_bytes {
+                host_resources.memory_bytes = Some(mem);
+            }
+            if let Some(disk) = overrides.disk_bytes {
+                host_resources.disk_bytes = Some(disk);
+            }
+            tracing::info!(
+                cpu_count = ?host_resources.cpu_count,
+                memory_bytes = ?host_resources.memory_bytes,
+                disk_bytes = ?host_resources.disk_bytes,
+                "Applied resource overrides from config"
+            );
+        }
+
         let metrics = Arc::new(DataplaneMetrics::new());
 
         let driver = create_process_driver(&config)?;

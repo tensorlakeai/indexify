@@ -312,6 +312,23 @@ pub struct DataplaneConfig {
     /// HTTP monitoring server configuration.
     #[serde(default)]
     pub monitoring: MonitoringConfig,
+    /// Override probed host resources.
+    #[serde(default)]
+    pub resource_overrides: Option<ResourceOverrides>,
+}
+
+/// Resource overrides to replace probed host resources.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ResourceOverrides {
+    /// Override CPU count.
+    #[serde(default)]
+    pub cpu_count: Option<u32>,
+    /// Override total memory.
+    #[serde(default)]
+    pub memory_bytes: Option<u64>,
+    /// Override total disk.
+    #[serde(default)]
+    pub disk_bytes: Option<u64>,
 }
 
 /// Configuration for function executor mode (subprocess-based).
@@ -364,6 +381,7 @@ impl Default for DataplaneConfig {
             function_allowlist: Vec::new(),
             labels: std::collections::HashMap::new(),
             monitoring: MonitoringConfig::default(),
+            resource_overrides: None,
         }
     }
 }
@@ -557,5 +575,31 @@ server_addr: "https://indexify.example.com:8901"
 "#;
         let config = DataplaneConfig::from_yaml_str(yaml).unwrap();
         assert_eq!(config.server_addr, "https://indexify.example.com:8901");
+    }
+
+    #[test]
+    fn test_resource_overrides() {
+        let yaml = r#"
+env: local
+server_addr: "http://localhost:8901"
+resource_overrides:
+  cpu_count: 2
+  memory_bytes: 4294967296
+"#;
+        let config = DataplaneConfig::from_yaml_str(yaml).unwrap();
+        let overrides = config.resource_overrides.unwrap();
+        assert_eq!(overrides.cpu_count, Some(2));
+        assert_eq!(overrides.memory_bytes, Some(4294967296));
+        assert_eq!(overrides.disk_bytes, None);
+    }
+
+    #[test]
+    fn test_resource_overrides_default() {
+        let yaml = r#"
+env: local
+server_addr: "http://localhost:8901"
+"#;
+        let config = DataplaneConfig::from_yaml_str(yaml).unwrap();
+        assert!(config.resource_overrides.is_none());
     }
 }
