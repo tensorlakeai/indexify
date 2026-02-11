@@ -37,6 +37,8 @@ mod integration_test_executor_catalog;
 #[cfg(test)]
 mod integration_test_http_routes;
 #[cfg(test)]
+mod integration_test_idle_reclamation;
+#[cfg(test)]
 mod integration_test_sandboxes;
 #[cfg(test)]
 mod integration_test_scanner;

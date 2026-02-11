@@ -573,8 +573,58 @@ impl ContainerScheduler {
         container_type: ContainerType,
         requesting_pool_key: Option<&ContainerPoolKey>,
     ) -> Result<Option<SchedulerUpdateRequest>> {
-        let mut candidates = self.candidate_hosts(namespace, application, function, resources);
         let mut update = SchedulerUpdateRequest::default();
+
+        // For sandboxes, proactively try to replace idle function containers
+        if container_type == ContainerType::Sandbox {
+            let candidates = self.candidate_hosts_with_idle_reclamation(
+                namespace,
+                application,
+                function,
+                resources,
+            );
+
+            if let Some((mut candidate, maybe_container_to_replace)) =
+                candidates.choose(&mut rand::rng()).cloned()
+            {
+                // If replacing an idle container, mark it for termination
+                if let Some(container_id) = maybe_container_to_replace &&
+                    let Some(idle_meta) = self.function_containers.get(&container_id)
+                {
+                    let mut terminated_meta = idle_meta.as_ref().clone();
+                    terminated_meta.desired_state = ContainerState::Terminated {
+                        reason: FunctionExecutorTerminationReason::ReplacedBySandbox,
+                        failed_alloc_ids: Vec::new(),
+                    };
+                    update
+                        .containers
+                        .insert(container_id.clone(), Box::new(terminated_meta));
+
+                    info!(
+                        executor_id = %candidate.executor_id,
+                        replaced_container_id = %container_id,
+                        sandbox_id = ?function_container.sandbox_id,
+                        "Replacing idle function container with sandbox"
+                    );
+                }
+
+                // Consume resources and register the sandbox
+                candidate
+                    .free_resources
+                    .consume_function_resources(resources)?;
+                let container_update = self.register_container(
+                    candidate.executor_id.clone(),
+                    function_container,
+                    container_type,
+                )?;
+                update.extend(container_update);
+
+                return Ok(Some(update));
+            }
+        }
+
+        // Fall back to existing logic (vacuum + regular placement)
+        let mut candidates = self.candidate_hosts(namespace, application, function, resources);
 
         // If no candidates, try vacuuming to free up resources
         // NOTE: We only mark containers for termination here, we do NOT free their
@@ -719,6 +769,64 @@ impl ContainerScheduler {
 
             if resource_check.is_ok() {
                 candidates.push(*executor_state.clone());
+            }
+        }
+
+        candidates
+    }
+
+    fn candidate_hosts_with_idle_reclamation(
+        &self,
+        namespace: &str,
+        application: &str,
+        function: Option<&Function>,
+        resources: &FunctionResources,
+    ) -> Vec<(Box<ExecutorServerMetadata>, Option<ContainerId>)> {
+        let mut candidates = Vec::new();
+
+        for (_, executor_state) in &self.executor_states {
+            let Some(executor) = self.executors.get(&executor_state.executor_id) else {
+                continue;
+            };
+
+            if !self.executor_matches_constraints(executor, namespace, application, function) {
+                continue;
+            }
+
+            // First check if free resources can handle it
+            if executor_state
+                .free_resources
+                .can_handle_function_resources(resources)
+                .is_ok()
+            {
+                candidates.push((executor_state.clone(), None));
+                continue;
+            }
+
+            // Check if replacing one idle function container would free enough resources
+            let mut idle_containers: Vec<_> = executor_state
+                .function_container_ids
+                .iter()
+                .filter_map(|id| self.function_containers.get(id))
+                .filter(|meta| self.fe_can_be_removed(meta))
+                .collect();
+
+            // Sort by CPU (prefer replacing smaller containers first)
+            idle_containers.sort_by_key(|meta| meta.function_container.resources.cpu_ms_per_sec);
+
+            for idle_meta in idle_containers {
+                let mut available = executor_state.free_resources.clone();
+                if available
+                    .free(&idle_meta.function_container.resources)
+                    .is_ok() &&
+                    available.can_handle_function_resources(resources).is_ok()
+                {
+                    candidates.push((
+                        executor_state.clone(),
+                        Some(idle_meta.function_container.id.clone()),
+                    ));
+                    break;
+                }
             }
         }
 

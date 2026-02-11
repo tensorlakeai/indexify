@@ -622,6 +622,7 @@ pub struct ExecutorMetadata {
     pub server_only_function_executors: Vec<FunctionExecutorMetadata>,
     pub host_resources: HostResources,
     pub free_resources: HostResources,
+    pub available_resources: HostResources,
     pub state: String,
     pub tombstoned: bool,
     pub state_hash: String,
@@ -632,6 +633,7 @@ pub struct ExecutorMetadata {
 pub fn from_data_model_executor_metadata(
     executor: data_model::ExecutorMetadata,
     free_resources: data_model::HostResources,
+    available_resources: data_model::HostResources,
     function_container_server_metadata: HashMap<ContainerId, Box<ContainerServerMetadata>>,
 ) -> ExecutorMetadata {
     let function_allowlist = executor.function_allowlist.map(|allowlist| {
@@ -682,6 +684,7 @@ pub fn from_data_model_executor_metadata(
         server_only_function_executors,
         host_resources: executor.host_resources.into(),
         free_resources: free_resources.into(),
+        available_resources: available_resources.into(),
         state: executor.state.as_ref().to_string(),
         tombstoned: executor.tombstoned,
         state_hash: executor.state_hash,

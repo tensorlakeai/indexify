@@ -1662,6 +1662,7 @@ pub enum FunctionExecutorTerminationReason {
     DesiredStateRemoved,
     ExecutorRemoved,
     Oom,
+    ReplacedBySandbox,
 }
 
 impl From<&FunctionExecutorTerminationReason> for FunctionRunFailureReason {
@@ -1701,6 +1702,9 @@ impl From<&FunctionExecutorTerminationReason> for FunctionRunFailureReason {
                 FunctionRunFailureReason::ExecutorRemoved
             }
             FunctionExecutorTerminationReason::Oom => FunctionRunFailureReason::OutOfMemory,
+            FunctionExecutorTerminationReason::ReplacedBySandbox => {
+                FunctionRunFailureReason::FunctionExecutorTerminated
+            }
         }
     }
 }
@@ -1913,6 +1917,32 @@ impl ExecutorServerMetadata {
             .insert(container.id.clone(), container.resources.clone());
         self.free_resources
             .force_consume_fe_resources(&container.resources);
+    }
+
+    /// Calculate available resources including free resources plus resources
+    /// from idle function containers that can be reclaimed.
+    pub fn calculate_available_resources(
+        &self,
+        function_containers: &imbl::HashMap<ContainerId, Box<ContainerServerMetadata>>,
+    ) -> Result<HostResources> {
+        let mut available = self.free_resources.clone();
+
+        // Add back resources from idle function containers
+        for container_id in &self.function_container_ids {
+            if let Some(meta) = function_containers.get(container_id) {
+                // Only count idle function containers (not sandboxes, not active, not
+                // terminated)
+                if meta.container_type == ContainerType::Function &&
+                    meta.allocations.is_empty() &&
+                    !matches!(meta.desired_state, ContainerState::Terminated { .. })
+                {
+                    // Idle container - resources can be reclaimed
+                    available.free(&meta.function_container.resources)?;
+                }
+            }
+        }
+
+        Ok(available)
     }
 }
 

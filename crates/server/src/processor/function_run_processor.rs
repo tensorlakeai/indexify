@@ -186,7 +186,8 @@ impl FunctionRunProcessor {
                 .containers_by_function_uri
                 .get(fn_uri)
                 .and_then(|ids| {
-                    ids.iter()
+                    let candidates: Vec<_> = ids
+                        .iter()
                         .filter_map(|id| container_scheduler.function_containers.get(id))
                         .filter(|c| {
                             if let Some(executor) =
@@ -207,7 +208,13 @@ impl FunctionRunProcessor {
                             let capacity = queue_size * c.function_container.max_concurrency;
                             c.allocations.len() < capacity as usize
                         })
-                        .min_by_key(|c| c.allocations.len())
+                        .collect();
+
+                    // Prefer idle containers (consolidates work, leaves others for reclamation)
+                    // Sort by: (is_not_empty, allocation_count) to prioritize idle containers first
+                    candidates
+                        .iter()
+                        .min_by_key(|c| (!c.allocations.is_empty(), c.allocations.len()))
                         .map(|c| {
                             AllocationTarget::new(
                                 c.executor_id.clone(),
