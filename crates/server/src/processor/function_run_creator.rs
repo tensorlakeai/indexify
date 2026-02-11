@@ -254,6 +254,12 @@ impl FunctionRunCreator {
             &allocation,
             &application_version,
         );
+        // Defer outcome when output comes from a child function call tree.
+        // The outcome will be set atomically with the output in
+        // propagate_output_to_consumers when the child completes.
+        if function_run.child_function_call.is_some() && function_run.output.is_none() {
+            function_run.outcome = None;
+        }
         scheduler_update.add_function_run(function_run.clone(), &mut request_ctx);
 
         in_memory_state.update_state(
@@ -489,6 +495,8 @@ fn propagate_output_to_consumers(
                 // assign the output to the function run
                 if child_function_call_id == &function_run_to_propagate.id {
                     fn_run.output = function_run_to_propagate.output.clone();
+                    fn_run.outcome = Some(FunctionRunOutcome::Success);
+                    fn_run.status = FunctionRunStatus::Completed;
                     scheduler_update
                         .updated_function_runs
                         .entry(request_ctx_key.clone())

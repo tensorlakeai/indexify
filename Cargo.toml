@@ -89,4 +89,6 @@ pingora = { git = "https://github.com/cloudflare/pingora", rev = "ad449bf373a696
 pingora-core = { git = "https://github.com/cloudflare/pingora", rev = "ad449bf373a696116f60c89f1e7d62c00f7cb09a" }
 pingora-proxy = { git = "https://github.com/cloudflare/pingora", rev = "ad449bf373a696116f60c89f1e7d62c00f7cb09a" }
 pingora-http = { git = "https://github.com/cloudflare/pingora", rev = "ad449bf373a696116f60c89f1e7d62c00f7cb09a" }
-reqwest = { version = "0.13.1", default-features = false, features = ["json"] }
+reqwest = { version = "0.13.2", default-features = false, features = ["json"] }
+aws-sdk-s3 = "1.122.0"
+aws-config = { version = "1.8.13", features = ["behavior-version-latest"] }

@@ -175,7 +175,7 @@ mod tests {
 
             test_srv.process_all_state_changes().await?;
 
-            assert_function_run_counts!(test_srv, total: 3, allocated: 2, pending: 0, completed_success: 1);
+            assert_function_run_counts!(test_srv, total: 3, allocated: 2, pending: 0, completed_success: 0);
         }
 
         // finalize tasks for fn_b and fn_c
@@ -609,7 +609,7 @@ mod tests {
 
             test_srv.process_all_state_changes().await?;
 
-            assert_function_run_counts!(test_srv, total: 3, allocated: 2, pending: 0, completed_success: 1);
+            assert_function_run_counts!(test_srv, total: 3, allocated: 2, pending: 0, completed_success: 0);
         }
 
         // finalize the remaining allocs
@@ -1695,7 +1695,7 @@ mod tests {
         test_srv.process_all_state_changes().await?;
 
         // The request should now be progressing
-        assert_function_run_counts!(test_srv, total: 3, allocated: 2, pending: 0, completed_success: 1);
+        assert_function_run_counts!(test_srv, total: 3, allocated: 2, pending: 0, completed_success: 0);
 
         Ok(())
     }

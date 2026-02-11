@@ -30,6 +30,7 @@ use proto_api::executor_api_pb::{
     FunctionExecutorDescription,
     FunctionExecutorStatus,
     FunctionRef,
+    SandboxMetadata,
 };
 use tempfile::TempDir;
 use tokio::{
@@ -54,7 +55,21 @@ async fn create_test_state_file() -> Arc<StateFile> {
 struct TestImageResolver;
 
 impl ImageResolver for TestImageResolver {
-    fn resolve_image(&self, _description: &FunctionExecutorDescription) -> anyhow::Result<String> {
+    fn sandbox_image_for_pool(&self, _namespace: &str, _pool_id: &str) -> anyhow::Result<String> {
+        Ok("test-image:latest".to_string())
+    }
+
+    fn sandbox_image(&self, _namespace: &str, _sandbox_id: &str) -> anyhow::Result<String> {
+        Ok("test-image:latest".to_string())
+    }
+
+    fn function_image(
+        &self,
+        _namespace: &str,
+        _app: &str,
+        _function: &str,
+        _version: &str,
+    ) -> anyhow::Result<String> {
         Ok("test-image:latest".to_string())
     }
 }
@@ -262,7 +277,13 @@ fn create_test_fe_description(id: &str) -> FunctionExecutorDescription {
         resources: None,
         max_concurrency: None,
         allocation_timeout_ms: None,
-        sandbox_metadata: None,
+        sandbox_metadata: Some(SandboxMetadata {
+            image: Some("test-image:latest".to_string()),
+            timeout_secs: None,
+            entrypoint: vec![],
+            network_policy: None,
+            sandbox_id: None,
+        }),
         container_type: None,
         pool_id: None,
     }

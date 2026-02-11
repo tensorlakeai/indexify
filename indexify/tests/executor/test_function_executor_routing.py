@@ -1,8 +1,8 @@
 import os
 import platform
 import unittest
+import uuid
 
-from nanoid import generate as nanoid_generate
 from tensorlake.applications import (
     Function,
     application,
@@ -32,7 +32,7 @@ def get_function_executor_id_2(_: int) -> str:
 
 def update_random_version(func: Function) -> None:
     # Hacky way to update application version.
-    func._application_config.version = nanoid_generate()
+    func._application_config.version = str(uuid.uuid4())
 
 
 class TestFunctionExecutorRouting(unittest.TestCase):

@@ -235,6 +235,34 @@ impl HttpProxyConfig {
     }
 }
 
+/// Configuration for the HTTP monitoring server.
+#[serde_inline_default]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MonitoringConfig {
+    /// Port to listen on for HTTP monitoring requests.
+    #[serde_inline_default(7000)]
+    pub port: u16,
+    /// Listen address for the monitoring server.
+    #[serde_inline_default("0.0.0.0".to_string())]
+    pub listen_addr: String,
+}
+
+impl Default for MonitoringConfig {
+    fn default() -> Self {
+        Self {
+            port: 7000,
+            listen_addr: "0.0.0.0".to_string(),
+        }
+    }
+}
+
+impl MonitoringConfig {
+    /// Get the socket address to bind to.
+    pub fn socket_addr(&self) -> String {
+        format!("{}:{}", self.listen_addr, self.port)
+    }
+}
+
 /// Configuration for the dataplane service.
 #[serde_inline_default]
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -269,6 +297,68 @@ pub struct DataplaneConfig {
     /// Defaults to /tmp/indexify-container-daemon.
     #[serde(default)]
     pub daemon_binary_extract_path: Option<String>,
+    /// Function executor configuration.
+    #[serde(default)]
+    pub function_executor: FunctionExecutorConfig,
+    /// Function allowlist: only accept allocations for these functions.
+    /// Format: "namespace:application:function" or
+    /// "namespace:application:function:version".
+    /// Empty list means accept all functions (default).
+    #[serde(default)]
+    pub function_allowlist: Vec<String>,
+    /// Labels to advertise to the server.
+    #[serde(default)]
+    pub labels: std::collections::HashMap<String, String>,
+    /// HTTP monitoring server configuration.
+    #[serde(default)]
+    pub monitoring: MonitoringConfig,
+    /// Override probed host resources.
+    #[serde(default)]
+    pub resource_overrides: Option<ResourceOverrides>,
+}
+
+/// Resource overrides to replace probed host resources.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ResourceOverrides {
+    /// Override CPU count.
+    #[serde(default)]
+    pub cpu_count: Option<u32>,
+    /// Override total memory.
+    #[serde(default)]
+    pub memory_bytes: Option<u64>,
+    /// Override total disk.
+    #[serde(default)]
+    pub disk_bytes: Option<u64>,
+}
+
+/// Configuration for function executor mode (subprocess-based).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FunctionExecutorConfig {
+    /// Path to cache application code. Defaults to /tmp/indexify_code_cache.
+    #[serde(default = "default_code_cache_path")]
+    pub code_cache_path: String,
+    /// Blob store URL (e.g., "s3://bucket" or "file:///path").
+    /// If not set, uses local filesystem.
+    #[serde(default)]
+    pub blob_store_url: Option<String>,
+    /// Path to the function-executor binary.
+    /// If not set, searches PATH.
+    #[serde(default)]
+    pub fe_binary_path: Option<String>,
+}
+
+fn default_code_cache_path() -> String {
+    "/tmp/indexify_code_cache".to_string()
+}
+
+impl Default for FunctionExecutorConfig {
+    fn default() -> Self {
+        Self {
+            code_cache_path: default_code_cache_path(),
+            blob_store_url: None,
+            fe_binary_path: None,
+        }
+    }
 }
 
 fn default_executor_id() -> String {
@@ -287,6 +377,11 @@ impl Default for DataplaneConfig {
             state_file: "./dataplane-state.json".to_string(),
             http_proxy: HttpProxyConfig::default(),
             daemon_binary_extract_path: None,
+            function_executor: FunctionExecutorConfig::default(),
+            function_allowlist: Vec::new(),
+            labels: std::collections::HashMap::new(),
+            monitoring: MonitoringConfig::default(),
+            resource_overrides: None,
         }
     }
 }
@@ -319,6 +414,31 @@ impl DataplaneConfig {
 
     pub fn structured_logging(&self) -> bool {
         self.env != LOCAL_ENV
+    }
+
+    /// Parse function_allowlist strings into AllowedFunction protos.
+    /// Format: "namespace:application:function" or
+    /// "namespace:application:function:version".
+    pub fn parse_allowed_functions(&self) -> Vec<proto_api::executor_api_pb::AllowedFunction> {
+        self.function_allowlist
+            .iter()
+            .filter_map(|uri| {
+                let tokens: Vec<&str> = uri.split(':').collect();
+                if tokens.len() < 3 || tokens.len() > 4 {
+                    tracing::warn!(
+                        uri = %uri,
+                        "Invalid function URI, expected namespace:application:function[:version]"
+                    );
+                    return None;
+                }
+                Some(proto_api::executor_api_pb::AllowedFunction {
+                    namespace: Some(tokens[0].to_string()),
+                    application_name: Some(tokens[1].to_string()),
+                    function_name: Some(tokens[2].to_string()),
+                    application_version: tokens.get(3).map(|v| v.to_string()),
+                })
+            })
+            .collect()
     }
 
     pub fn instance_id(&self) -> String {
@@ -455,5 +575,31 @@ server_addr: "https://indexify.example.com:8901"
 "#;
         let config = DataplaneConfig::from_yaml_str(yaml).unwrap();
         assert_eq!(config.server_addr, "https://indexify.example.com:8901");
+    }
+
+    #[test]
+    fn test_resource_overrides() {
+        let yaml = r#"
+env: local
+server_addr: "http://localhost:8901"
+resource_overrides:
+  cpu_count: 2
+  memory_bytes: 4294967296
+"#;
+        let config = DataplaneConfig::from_yaml_str(yaml).unwrap();
+        let overrides = config.resource_overrides.unwrap();
+        assert_eq!(overrides.cpu_count, Some(2));
+        assert_eq!(overrides.memory_bytes, Some(4294967296));
+        assert_eq!(overrides.disk_bytes, None);
+    }
+
+    #[test]
+    fn test_resource_overrides_default() {
+        let yaml = r#"
+env: local
+server_addr: "http://localhost:8901"
+"#;
+        let config = DataplaneConfig::from_yaml_str(yaml).unwrap();
+        assert!(config.resource_overrides.is_none());
     }
 }

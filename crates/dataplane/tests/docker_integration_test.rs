@@ -21,7 +21,7 @@ use std::{path::PathBuf, sync::Arc, time::Duration};
 use anyhow::Result;
 use indexify_dataplane::{
     daemon_client::DaemonClient,
-    driver::{DockerDriver, ProcessConfig, ProcessDriver},
+    driver::{DockerDriver, ProcessConfig, ProcessDriver, ProcessType},
 };
 
 /// Check if Docker tests should run
@@ -101,6 +101,7 @@ async fn test_docker_daemon_binary_mounted() {
     // Start a container with the daemon
     let config = ProcessConfig {
         id: format!("test-{}", uuid::Uuid::new_v4()),
+        process_type: ProcessType::default(),
         image: Some("alpine:latest".to_string()),
         command: "sleep".to_string(),
         args: vec!["30".to_string()],
@@ -181,6 +182,7 @@ async fn test_docker_daemon_accessible() {
 
     let config = ProcessConfig {
         id: format!("test-{}", uuid::Uuid::new_v4()),
+        process_type: ProcessType::default(),
         image: Some("alpine:latest".to_string()),
         command: "sleep".to_string(),
         args: vec!["30".to_string()],
@@ -258,6 +260,7 @@ async fn test_docker_grpc_health_check() {
 
     let config = ProcessConfig {
         id: format!("test-{}", uuid::Uuid::new_v4()),
+        process_type: ProcessType::default(),
         image: Some("alpine:latest".to_string()),
         command: "sleep".to_string(),
         args: vec!["60".to_string()],
@@ -346,6 +349,7 @@ async fn test_docker_multiple_containers() {
     for i in 0..3 {
         let config = ProcessConfig {
             id: format!("test-multi-{}", i),
+            process_type: ProcessType::default(),
             image: Some("alpine:latest".to_string()),
             command: "sleep".to_string(),
             args: vec!["30".to_string()],
@@ -418,6 +422,7 @@ async fn test_docker_env_vars_passed() {
 
     let config = ProcessConfig {
         id: format!("test-{}", uuid::Uuid::new_v4()),
+        process_type: ProcessType::default(),
         image: Some("alpine:latest".to_string()),
         command: "sleep".to_string(),
         args: vec!["30".to_string()],
@@ -481,14 +486,15 @@ async fn test_docker_resource_limits() {
 
     let config = ProcessConfig {
         id: format!("test-{}", uuid::Uuid::new_v4()),
+        process_type: ProcessType::default(),
         image: Some("alpine:latest".to_string()),
         command: "sleep".to_string(),
         args: vec!["30".to_string()],
         env: vec![],
         working_dir: None,
         resources: Some(ResourceLimits {
-            memory_mb: Some(256),      // 256 MB
-            cpu_millicores: Some(500), // 0.5 CPU cores
+            memory_bytes: Some(256 * 1024 * 1024), // 256 MB
+            cpu_millicores: Some(500),             // 0.5 CPU cores
         }),
         labels: vec![],
     };

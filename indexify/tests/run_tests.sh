@@ -35,7 +35,9 @@ summary_file=".run_tests_summary.txt"
 rm -f $summary_file
 
 # Indexify tests, excluding timed based tests that can fail if the executor is busy.
-indexify_test_files=$(find . -name 'test_*.py')
+# Exclude dataplane_cli/ — those tests require the indexify-dataplane binary and
+# are run separately by run_tests_dataplane.sh.
+indexify_test_files=$(find . -name 'test_*.py' -not -path './dataplane_cli/*')
 run_test_suite "$indexify_test_files" "Indexify"
 
 # If you want to skip the Tensorlake SDK tests,

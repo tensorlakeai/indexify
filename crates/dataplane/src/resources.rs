@@ -5,9 +5,9 @@
 
 #![allow(dead_code)]
 
-use std::{fs, path::Path};
+use std::{fs, path::Path, process::Command};
 
-use proto_api::executor_api_pb::HostResources;
+use proto_api::executor_api_pb::{GpuModel, GpuResources, HostResources};
 use sysinfo::{Disks, System};
 
 use crate::metrics::ResourceAvailability;
@@ -65,81 +65,140 @@ fn parse_meminfo_available(path: &str) -> Option<u64> {
     None
 }
 
+/// Check if nvidia-smi is available on the system.
+fn nvidia_smi_available() -> bool {
+    Command::new("nvidia-smi")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+/// Detect NVIDIA GPUs using nvidia-smi.
+///
+/// Runs `nvidia-smi --query-gpu=index,name,uuid --format=csv,noheader` and
+/// parses the output to determine GPU count and model. Matches the Python
+/// executor's nvidia_gpu.py detection logic.
+fn detect_nvidia_gpus() -> Option<GpuResources> {
+    if !nvidia_smi_available() {
+        return None;
+    }
+
+    let output = Command::new("nvidia-smi")
+        .args(["--query-gpu=index,name,uuid", "--format=csv,noheader"])
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        tracing::warn!("nvidia-smi query failed with status {}", output.status);
+        return None;
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<&str> = stdout.lines().filter(|l| !l.trim().is_empty()).collect();
+
+    if lines.is_empty() {
+        return None;
+    }
+
+    let count = lines.len() as u32;
+
+    // Detect model from the first GPU's product name.
+    // All GPUs on a host are typically the same model.
+    let model = lines
+        .first()
+        .and_then(|line| {
+            let parts: Vec<&str> = line.split(',').map(|s| s.trim()).collect();
+            // Format: "index, product_name, uuid"
+            if parts.len() >= 2 {
+                Some(product_name_to_gpu_model(parts[1]))
+            } else {
+                None
+            }
+        })
+        .unwrap_or(GpuModel::Unknown);
+
+    tracing::info!(
+        gpu_count = count,
+        gpu_model = ?model,
+        "Detected NVIDIA GPUs"
+    );
+
+    Some(GpuResources {
+        count: Some(count),
+        model: Some(model.into()),
+    })
+}
+
+/// Map nvidia-smi product name to GPUModel enum.
+/// Matches Python executor's nvidia_gpu.py _product_name_to_model().
+fn product_name_to_gpu_model(product_name: &str) -> GpuModel {
+    if product_name.starts_with("NVIDIA A100") && product_name.contains("80GB") {
+        GpuModel::NvidiaA10080gb
+    } else if product_name.starts_with("NVIDIA A100") && product_name.contains("40GB") {
+        GpuModel::NvidiaA10040gb
+    } else if product_name.starts_with("NVIDIA H100") && product_name.contains("80GB") {
+        GpuModel::NvidiaH10080gb
+    } else if product_name.starts_with("Tesla T4") {
+        GpuModel::NvidiaTeslaT4
+    } else if product_name.starts_with("NVIDIA RTX A6000") {
+        GpuModel::NvidiaA6000
+    } else if product_name.starts_with("NVIDIA A10") {
+        GpuModel::NvidiaA10
+    } else {
+        tracing::warn!(product_name = %product_name, "Unknown GPU model");
+        GpuModel::Unknown
+    }
+}
+
 /// Probe total host resources (used for heartbeat reporting).
 ///
-/// When running in a container, this function reads from host-mounted
-/// filesystems at `/host/proc` and `/host/sys` to get actual host resources.
-/// When running directly on the host, it uses the sysinfo crate.
+/// When running in a container, reads from host-mounted filesystems at
+/// `/host/proc` to get actual host resources. Falls back to sysinfo.
 ///
 /// To enable host resource detection in a container, mount:
 /// ```text
 /// -v /proc:/host/proc:ro -v /sys:/host/sys:ro
 /// ```
 pub fn probe_host_resources() -> HostResources {
-    if is_host_mounted() {
-        probe_host_resources_from_mount()
-    } else {
-        probe_host_resources_from_sysinfo()
-    }
-}
-
-/// Probe host resources from mounted /host/proc filesystem.
-fn probe_host_resources_from_mount() -> HostResources {
-    let meminfo_path = format!("{}/meminfo", HOST_PROC_PATH);
-    let cpuinfo_path = format!("{}/cpuinfo", HOST_PROC_PATH);
-
-    let memory_bytes = parse_meminfo(&meminfo_path).unwrap_or_else(|| {
-        tracing::warn!("Failed to parse {}, falling back to sysinfo", meminfo_path);
-        let mut sys = System::new();
-        sys.refresh_memory();
-        sys.total_memory()
-    });
-
-    let cpu_count = parse_cpuinfo(&cpuinfo_path).unwrap_or_else(|| {
-        tracing::warn!("Failed to parse {}, falling back to sysinfo", cpuinfo_path);
-        let mut sys = System::new();
-        sys.refresh_cpu_all();
-        sys.cpus().len() as u32
-    });
-
-    // For disk, we still use sysinfo as disk detection is more complex
-    // and typically the container's view of disks is acceptable
-    let disks = Disks::new_with_refreshed_list();
-    let disk_bytes: u64 = disks.iter().map(|d| d.total_space()).sum();
-
-    tracing::info!(
-        cpu_count,
-        memory_bytes,
-        disk_bytes,
-        source = "host_mount",
-        "Probed host resources from mounted /host/proc"
-    );
-
-    HostResources {
-        cpu_count: Some(cpu_count),
-        memory_bytes: Some(memory_bytes),
-        disk_bytes: Some(disk_bytes),
-        gpu: None,
-    }
-}
-
-/// Probe host resources using sysinfo (when running directly on host).
-fn probe_host_resources_from_sysinfo() -> HostResources {
+    let gpu = detect_nvidia_gpus();
     let mut sys = System::new();
-    sys.refresh_cpu_all();
-    sys.refresh_memory();
 
-    let cpu_count = sys.cpus().len() as u32;
-    let memory_bytes = sys.total_memory();
+    let (cpu_count, memory_bytes) = if is_host_mounted() {
+        let meminfo_path = format!("{}/meminfo", HOST_PROC_PATH);
+        let cpuinfo_path = format!("{}/cpuinfo", HOST_PROC_PATH);
+
+        let memory = parse_meminfo(&meminfo_path).unwrap_or_else(|| {
+            tracing::warn!("Failed to parse {}, falling back to sysinfo", meminfo_path);
+            sys.refresh_memory();
+            sys.total_memory()
+        });
+        let cpu = parse_cpuinfo(&cpuinfo_path).unwrap_or_else(|| {
+            tracing::warn!("Failed to parse {}, falling back to sysinfo", cpuinfo_path);
+            sys.refresh_cpu_all();
+            sys.cpus().len() as u32
+        });
+        (cpu, memory)
+    } else {
+        sys.refresh_cpu_all();
+        sys.refresh_memory();
+        (sys.cpus().len() as u32, sys.total_memory())
+    };
 
     let disks = Disks::new_with_refreshed_list();
     let disk_bytes: u64 = disks.iter().map(|d| d.total_space()).sum();
 
+    let source = if is_host_mounted() {
+        "host_mount"
+    } else {
+        "sysinfo"
+    };
     tracing::info!(
         cpu_count,
         memory_bytes,
         disk_bytes,
-        source = "sysinfo",
+        source,
         "Probed host resources"
     );
 
@@ -147,63 +206,36 @@ fn probe_host_resources_from_sysinfo() -> HostResources {
         cpu_count: Some(cpu_count),
         memory_bytes: Some(memory_bytes),
         disk_bytes: Some(disk_bytes),
-        gpu: None,
+        gpu,
     }
 }
 
 /// Probe free/available resources for metrics.
 ///
-/// Similar to probe_host_resources, this uses host-mounted filesystems
-/// when available.
+/// Uses host-mounted filesystems for memory when available,
+/// sysinfo for CPU and disk.
 pub fn probe_free_resources() -> ResourceAvailability {
-    if is_host_mounted() {
-        probe_free_resources_from_mount()
-    } else {
-        probe_free_resources_from_sysinfo()
-    }
-}
-
-/// Probe free resources from mounted /host/proc filesystem.
-fn probe_free_resources_from_mount() -> ResourceAvailability {
-    let meminfo_path = format!("{}/meminfo", HOST_PROC_PATH);
-
-    // CPU usage is trickier to get from /proc, use sysinfo for now
     let mut sys = System::new();
     sys.refresh_cpu_all();
+
     let cpu_usage: f32 =
         sys.cpus().iter().map(|cpu| cpu.cpu_usage()).sum::<f32>() / sys.cpus().len() as f32;
     let free_cpu_percent = (100.0 - cpu_usage) as f64;
 
-    let free_memory_bytes = parse_meminfo_available(&meminfo_path).unwrap_or_else(|| {
-        tracing::warn!(
-            "Failed to parse MemAvailable from {}, falling back to sysinfo",
-            meminfo_path
-        );
+    let free_memory_bytes = if is_host_mounted() {
+        let meminfo_path = format!("{}/meminfo", HOST_PROC_PATH);
+        parse_meminfo_available(&meminfo_path).unwrap_or_else(|| {
+            tracing::warn!(
+                "Failed to parse MemAvailable from {}, falling back to sysinfo",
+                meminfo_path
+            );
+            sys.refresh_memory();
+            sys.available_memory()
+        })
+    } else {
         sys.refresh_memory();
         sys.available_memory()
-    });
-
-    let disks = Disks::new_with_refreshed_list();
-    let free_disk_bytes: u64 = disks.iter().map(|d| d.available_space()).sum();
-
-    ResourceAvailability {
-        free_cpu_percent,
-        free_memory_bytes,
-        free_disk_bytes,
-    }
-}
-
-/// Probe free resources using sysinfo.
-fn probe_free_resources_from_sysinfo() -> ResourceAvailability {
-    let mut sys = System::new();
-    sys.refresh_cpu_all();
-    sys.refresh_memory();
-
-    let cpu_usage: f32 =
-        sys.cpus().iter().map(|cpu| cpu.cpu_usage()).sum::<f32>() / sys.cpus().len() as f32;
-    let free_cpu_percent = (100.0 - cpu_usage) as f64;
-
-    let free_memory_bytes = sys.available_memory();
+    };
 
     let disks = Disks::new_with_refreshed_list();
     let free_disk_bytes: u64 = disks.iter().map(|d| d.available_space()).sum();
@@ -269,5 +301,34 @@ model name	: Intel(R) Core(TM) i7
         let resources = probe_host_resources();
         assert!(resources.cpu_count.is_some());
         assert!(resources.memory_bytes.is_some());
+    }
+
+    #[test]
+    fn test_product_name_to_gpu_model() {
+        assert_eq!(
+            product_name_to_gpu_model("NVIDIA A100-SXM4-80GB"),
+            GpuModel::NvidiaA10080gb
+        );
+        assert_eq!(
+            product_name_to_gpu_model("NVIDIA A100-PCIE-40GB"),
+            GpuModel::NvidiaA10040gb
+        );
+        assert_eq!(
+            product_name_to_gpu_model("NVIDIA H100 80GB HBM3"),
+            GpuModel::NvidiaH10080gb
+        );
+        assert_eq!(
+            product_name_to_gpu_model("Tesla T4"),
+            GpuModel::NvidiaTeslaT4
+        );
+        assert_eq!(
+            product_name_to_gpu_model("NVIDIA RTX A6000"),
+            GpuModel::NvidiaA6000
+        );
+        assert_eq!(product_name_to_gpu_model("NVIDIA A10"), GpuModel::NvidiaA10);
+        assert_eq!(
+            product_name_to_gpu_model("Some Unknown GPU"),
+            GpuModel::Unknown
+        );
     }
 }

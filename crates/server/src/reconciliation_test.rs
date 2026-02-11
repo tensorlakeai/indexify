@@ -62,7 +62,7 @@ mod tests {
             .await?;
         test_srv.process_all_state_changes().await?;
 
-        assert_function_run_counts!(test_srv, total: 3, allocated: 2, pending: 0, completed_success: 1);
+        assert_function_run_counts!(test_srv, total: 3, allocated: 2, pending: 0, completed_success: 0);
 
         Ok(())
     }
@@ -111,7 +111,7 @@ mod tests {
 
         // Tasks for fn_b and fn_c should be created but unallocated since they're not
         // in allowlist
-        assert_function_run_counts!(test_srv, total: 3, allocated: 0, pending: 2, completed_success: 1);
+        assert_function_run_counts!(test_srv, total: 3, allocated: 0, pending: 2, completed_success: 0);
 
         assert_executor_state!(executor, num_func_executors: 1, num_allocated_tasks: 0); // Still has fn_a executor, no tasks allocated
 
@@ -204,7 +204,7 @@ mod tests {
             test_srv.process_all_state_changes().await?;
         }
 
-        assert_function_run_counts!(test_srv, total: 3, allocated: 2, pending: 0, completed_success: 1);
+        assert_function_run_counts!(test_srv, total: 3, allocated: 2, pending: 0, completed_success: 0);
 
         assert_executor_state!(executor, num_func_executors: 3, num_allocated_tasks: 2); // Should have fn_a, fn_b, fn_c and fn_b, fn_c tasks
 
@@ -231,7 +231,7 @@ mod tests {
         }
 
         // Should still have fn_b and fn_c tasks allocated
-        assert_function_run_counts!(test_srv, total: 3, allocated: 2, pending: 0, completed_success: 1);
+        assert_function_run_counts!(test_srv, total: 3, allocated: 2, pending: 0, completed_success: 0);
 
         // The FE for fn_a should be removed
         let executor_server_state = executor.get_executor_server_state().await?;

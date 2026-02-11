@@ -3,7 +3,7 @@ use std::sync::Arc;
 use anyhow::{Result, anyhow};
 use opentelemetry::KeyValue;
 use serde::de::DeserializeOwned;
-use tracing::{debug, trace};
+use tracing::{debug, error, trace};
 
 use super::state_machine::IndexifyObjectsColumns;
 use crate::{
@@ -12,6 +12,8 @@ use crate::{
         AllocationUsageEvent,
         Application,
         ApplicationVersion,
+        FunctionCallId,
+        FunctionRun,
         Namespace,
         RequestCtx,
         Sandbox,
@@ -488,6 +490,41 @@ impl StateReader {
         let request_ctx: RequestCtx = JsonEncoder::decode(&value.unwrap())
             .map_err(|e| anyhow!("unable to decode request ctx: {e}"))?;
         Ok(Some(request_ctx))
+    }
+
+    pub async fn get_function_run(
+        &self,
+        namespace: &str,
+        application: &str,
+        request_id: &str,
+        function_call_id: &str,
+    ) -> Option<FunctionRun> {
+        let request_ctx = match self.request_ctx(namespace, application, request_id).await {
+            Ok(Some(ctx)) => ctx,
+            Ok(None) => {
+                error!(
+                    namespace,
+                    application,
+                    request_id,
+                    function_call_id,
+                    "request_ctx not found in RocksDB for executor watch",
+                );
+                return None;
+            }
+            Err(e) => {
+                error!(
+                    namespace,
+                    application,
+                    request_id,
+                    function_call_id,
+                    error = %e,
+                    "failed to read request_ctx from RocksDB for executor watch",
+                );
+                return None;
+            }
+        };
+        let fc_id = FunctionCallId(function_call_id.to_string());
+        request_ctx.function_runs.get(&fc_id).cloned()
     }
 
     pub async fn get_sandbox(&self, namespace: &str, sandbox_id: &str) -> Result<Option<Sandbox>> {

@@ -24,6 +24,7 @@ use super::{
     ProcessConfig,
     ProcessDriver,
     ProcessHandle,
+    ProcessType,
 };
 use crate::daemon_binary;
 
@@ -167,64 +168,177 @@ impl Default for DockerDriver {
     }
 }
 
-#[async_trait]
-impl ProcessDriver for DockerDriver {
-    async fn start(&self, config: ProcessConfig) -> Result<ProcessHandle> {
-        let image = config
-            .image
-            .as_ref()
-            .context("Docker driver requires an image")?;
+const CPU_PERIOD_MICROSEC: i64 = 20_000;
 
-        // Ensure image is available locally (pull if needed)
-        self.ensure_image(image).await?;
+const SHMEM_SIZE: i64 = 1024 * 1024 * 1024; // 1 GB
 
+const ONE_GB: i64 = 1024 * 1024 * 1024;
+const ONE_MILLION: i64 = 1_000_000;
+
+fn build_ulimits() -> Vec<ResourcesUlimits> {
+    vec![
+        // Core files are useless in ephemeral container filesystem.
+        ResourcesUlimits {
+            name: Some("core".to_string()),
+            soft: Some(0),
+            hard: Some(0),
+        },
+        ResourcesUlimits {
+            name: Some("memlock".to_string()),
+            soft: Some(ONE_GB),
+            hard: Some(ONE_GB),
+        },
+        ResourcesUlimits {
+            name: Some("stack".to_string()),
+            soft: Some(ONE_GB),
+            hard: Some(ONE_GB),
+        },
+        ResourcesUlimits {
+            name: Some("msgqueue".to_string()),
+            soft: Some(ONE_GB),
+            hard: Some(ONE_GB),
+        },
+        ResourcesUlimits {
+            name: Some("nofile".to_string()),
+            soft: Some(ONE_MILLION),
+            hard: Some(ONE_MILLION),
+        },
+    ]
+}
+
+fn build_host_config_resources(resources: &Option<super::ResourceLimits>) -> HostConfig {
+    let Some(resources) = resources else {
+        return HostConfig {
+            shm_size: Some(SHMEM_SIZE),
+            ulimits: Some(build_ulimits()),
+            ..Default::default()
+        };
+    };
+
+    let memory = resources.memory_bytes.map(|v| v as i64);
+
+    let (cpu_period, cpu_quota) = if let Some(cpu_millicores) = resources.cpu_millicores {
+        let cpu_fraction = cpu_millicores as f64 / 1000.0;
+        let quota = (cpu_fraction * CPU_PERIOD_MICROSEC as f64).ceil() as i64;
+        (Some(CPU_PERIOD_MICROSEC), Some(quota))
+    } else {
+        (None, None)
+    };
+
+    HostConfig {
+        memory,
+        cpu_period,
+        cpu_quota,
+        shm_size: Some(SHMEM_SIZE),
+        ulimits: Some(build_ulimits()),
+        ..Default::default()
+    }
+}
+
+/// Internal specification for creating a Docker container.
+struct ContainerSpec {
+    container_name: String,
+    image: String,
+    entrypoint: Option<Vec<String>>,
+    cmd: Vec<String>,
+    env: Vec<String>,
+    labels: HashMap<String, String>,
+    working_dir: Option<String>,
+    host_config: HostConfig,
+}
+
+impl DockerDriver {
+    /// Create and start a Docker container from the given spec.
+    /// Returns `(container_name, container_ip)`.
+    async fn create_and_start_container(&self, spec: ContainerSpec) -> Result<(String, String)> {
+        let container_config = ContainerCreateBody {
+            image: Some(spec.image),
+            entrypoint: spec.entrypoint,
+            cmd: Some(spec.cmd),
+            env: Some(spec.env),
+            labels: Some(spec.labels),
+            working_dir: spec.working_dir,
+            host_config: Some(spec.host_config),
+            ..Default::default()
+        };
+
+        let create_options = CreateContainerOptions {
+            name: Some(spec.container_name.clone()),
+            platform: String::new(),
+        };
+
+        self.docker
+            .create_container(Some(create_options), container_config)
+            .await
+            .context("Failed to create container")?;
+
+        self.docker
+            .start_container(&spec.container_name, None::<StartContainerOptions>)
+            .await
+            .context("Failed to start container")?;
+
+        let container_ip = self
+            .get_container_ip(&spec.container_name)
+            .await
+            .context("Failed to get container IP address")?;
+
+        Ok((spec.container_name, container_ip))
+    }
+
+    /// Build a ContainerSpec for a function executor container.
+    fn build_function_spec(&self, config: &ProcessConfig, image: &str) -> ContainerSpec {
+        let container_name = format!("indexify-{}", config.id);
+        let fe_grpc_port: u16 = 9600;
+
+        let env: Vec<String> = config
+            .env
+            .iter()
+            .map(|(k, v)| format!("{}={}", k, v))
+            .collect();
+        let labels: HashMap<String, String> = config.labels.iter().cloned().collect();
+
+        let mut cmd: Vec<String> = config.args.clone();
+        cmd.push("--address".to_string());
+        cmd.push(format!("0.0.0.0:{}", fe_grpc_port));
+
+        let entrypoint = if config.command.is_empty() {
+            None
+        } else {
+            Some(vec![config.command.clone()])
+        };
+
+        ContainerSpec {
+            container_name,
+            image: image.to_string(),
+            entrypoint,
+            cmd,
+            env,
+            labels,
+            working_dir: config.working_dir.clone(),
+            host_config: build_host_config_resources(&config.resources),
+        }
+    }
+
+    /// Build a ContainerSpec for a sandbox container with daemon injection.
+    fn build_sandbox_spec(&self, config: &ProcessConfig, image: &str) -> Result<ContainerSpec> {
         let container_name = format!("indexify-{}", config.id);
 
-        // Get daemon binary path
         let daemon_binary_path =
             daemon_binary::get_daemon_path().context("Daemon binary not available")?;
 
-        info!(
-            container = %container_name,
-            daemon_path = %daemon_binary_path.display(),
-            grpc_port = DAEMON_GRPC_PORT,
-            http_port = DAEMON_HTTP_PORT,
-            "Starting container with daemon injection"
-        );
-
-        // Build bind mount for daemon binary
         let binds = vec![format!(
             "{}:{}:ro",
             daemon_binary_path.display(),
             CONTAINER_DAEMON_PATH
         )];
 
-        // Build resource limits
-        let mut memory_limit = None;
-        let mut nano_cpus = None;
-
-        if let Some(resources) = &config.resources {
-            if let Some(memory_mb) = resources.memory_mb {
-                memory_limit = Some((memory_mb * 1024 * 1024) as i64);
-            }
-            if let Some(cpu_millicores) = resources.cpu_millicores {
-                // Docker uses nano CPUs (1 CPU = 1e9 nano CPUs)
-                // millicores: 1000 = 1 CPU, so nano = millicores * 1e6
-                nano_cpus = Some((cpu_millicores as i64) * 1_000_000);
-            }
-        }
-
-        // Build environment variables
         let env: Vec<String> = config
             .env
             .iter()
             .map(|(k, v)| format!("{}={}", k, v))
             .collect();
-
-        // Build labels
         let labels: HashMap<String, String> = config.labels.iter().cloned().collect();
 
-        // Build command arguments for daemon
         let mut cmd: Vec<String> = vec![
             "--port".to_string(),
             DAEMON_GRPC_PORT.to_string(),
@@ -234,75 +348,79 @@ impl ProcessDriver for DockerDriver {
             "/var/log/indexify".to_string(),
         ];
 
-        // Only add entrypoint command if specified
         if !config.command.is_empty() {
             cmd.push("--".to_string());
             cmd.push(config.command.clone());
             cmd.extend(config.args.clone());
         }
 
-        let host_config = HostConfig {
-            binds: Some(binds),
-            memory: memory_limit,
-            nano_cpus,
-            // Set reasonable ulimits
-            ulimits: Some(vec![ResourcesUlimits {
-                name: Some("nofile".to_string()),
-                soft: Some(65536),
-                hard: Some(65536),
-            }]),
-            ..Default::default()
-        };
+        let mut host_config = build_host_config_resources(&config.resources);
+        host_config.binds = Some(binds);
 
-        let container_config = ContainerCreateBody {
-            image: Some(image.clone()),
+        Ok(ContainerSpec {
+            container_name,
+            image: image.to_string(),
             entrypoint: Some(vec![CONTAINER_DAEMON_PATH.to_string()]),
-            cmd: Some(cmd),
-            env: Some(env),
-            labels: Some(labels),
+            cmd,
+            env,
+            labels,
             working_dir: config.working_dir.clone(),
-            host_config: Some(host_config),
-            ..Default::default()
-        };
+            host_config,
+        })
+    }
+}
 
-        let create_options = CreateContainerOptions {
-            name: Some(container_name.clone()),
-            platform: String::new(),
-        };
+#[async_trait]
+impl ProcessDriver for DockerDriver {
+    async fn start(&self, config: ProcessConfig) -> Result<ProcessHandle> {
+        let image = config
+            .image
+            .as_ref()
+            .context("Docker driver requires an image")?;
 
-        // Create container
-        self.docker
-            .create_container(Some(create_options), container_config)
-            .await
-            .context("Failed to create container")?;
+        self.ensure_image(image).await?;
 
-        // Start container
-        self.docker
-            .start_container(&container_name, None::<StartContainerOptions>)
-            .await
-            .context("Failed to start container")?;
+        let (spec, grpc_port, http_port): (ContainerSpec, u16, Option<u16>) =
+            match config.process_type {
+                ProcessType::Function => {
+                    let spec = self.build_function_spec(&config, image);
+                    info!(
+                        container = %spec.container_name,
+                        image = %image,
+                        grpc_port = 9600u16,
+                        "Starting function-executor container"
+                    );
+                    (spec, 9600, None)
+                }
+                ProcessType::Sandbox => {
+                    let spec = self.build_sandbox_spec(&config, image)?;
+                    info!(
+                        container = %spec.container_name,
+                        grpc_port = DAEMON_GRPC_PORT,
+                        http_port = DAEMON_HTTP_PORT,
+                        "Starting container with daemon injection"
+                    );
+                    (spec, DAEMON_GRPC_PORT, Some(DAEMON_HTTP_PORT))
+                }
+            };
 
-        // Get container's internal IP address using bollard
-        let container_ip = self
-            .get_container_ip(&container_name)
-            .await
-            .context("Failed to get container IP address")?;
+        let (container_name, container_ip) = self.create_and_start_container(spec).await?;
 
-        let daemon_addr = format!("{}:{}", container_ip, DAEMON_GRPC_PORT);
-        let http_addr = format!("{}:{}", container_ip, DAEMON_HTTP_PORT);
+        let daemon_addr = format!("{}:{}", container_ip, grpc_port);
+        let http_addr = http_port.map(|p| format!("{}:{}", container_ip, p));
 
         info!(
             container = %container_name,
             container_ip = %container_ip,
             daemon_addr = %daemon_addr,
-            http_addr = %http_addr,
-            "Container started, daemon available on container IP"
+            http_addr = ?http_addr,
+            "Container started"
         );
 
         Ok(ProcessHandle {
             id: container_name,
             daemon_addr: Some(daemon_addr),
-            http_addr: Some(http_addr),
+            http_addr,
             container_ip,
         })
     }

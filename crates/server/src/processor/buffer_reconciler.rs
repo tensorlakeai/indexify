@@ -62,8 +62,12 @@ impl BufferReconciler {
             if current < effective_min {
                 let needed = effective_min - current;
                 for _ in 0..needed {
-                    match self.create_container_for_pool(pool, in_memory_state, container_scheduler)
-                    {
+                    match self.create_container_for_pool(
+                        pool,
+                        in_memory_state,
+                        container_scheduler,
+                        true,
+                    ) {
                         Ok(Some(u)) => {
                             container_scheduler.apply_container_update(&u);
                             update.extend(u);
@@ -92,8 +96,12 @@ impl BufferReconciler {
 
                 // Need more idle and not at max
                 if idle < buffer && (active + idle) < max {
-                    match self.create_container_for_pool(pool, in_memory_state, container_scheduler)
-                    {
+                    match self.create_container_for_pool(
+                        pool,
+                        in_memory_state,
+                        container_scheduler,
+                        false,
+                    ) {
                         Ok(Some(u)) => {
                             // Only count as progress if a container was actually
                             // placed on an executor (not just a vacuum update).
@@ -191,6 +199,7 @@ impl BufferReconciler {
         pool: &ContainerPool,
         in_memory_state: &InMemoryState,
         container_scheduler: &mut ContainerScheduler,
+        is_critical: bool,
     ) -> Result<Option<SchedulerUpdateRequest>> {
         if pool.id.is_function_pool() {
             // For function pools, look up the function and create a function container
@@ -218,10 +227,11 @@ impl BufferReconciler {
                 &fn_uri.version,
                 function,
                 &app.state,
+                is_critical,
             )
         } else {
             // For sandbox pools, create a pool container
-            container_scheduler.create_container_for_pool(pool)
+            container_scheduler.create_container_for_pool(pool, is_critical)
         }
     }
 

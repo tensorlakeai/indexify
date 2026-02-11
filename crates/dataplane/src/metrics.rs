@@ -3,13 +3,14 @@
 //! Provides OTLP metrics export with:
 //! - Gauges for current state (running containers, free resources)
 //! - Counters for events (containers started, desired state updates)
+//! - Histograms for latency measurements
 
 use std::sync::Arc;
 
 use anyhow::Result;
 use opentelemetry::{
     KeyValue,
-    metrics::{Counter, ObservableGauge},
+    metrics::{Counter, Histogram, ObservableGauge, UpDownCounter},
 };
 use opentelemetry_otlp::{MetricExporter, WithExportConfig};
 use opentelemetry_sdk::{
@@ -93,86 +94,158 @@ pub struct ResourceAvailability {
 pub struct MetricsState {
     pub container_counts: ContainerCounts,
     pub resources: ResourceAvailability,
+    pub last_desired_state_allocations: u64,
+    pub last_desired_state_function_executors: u64,
 }
 
-/// Counters for tracking events.
-#[derive(Clone)]
-pub struct DataplaneCounters {
-    /// Counter for containers started, labeled by container_type
-    /// (function/sandbox)
-    pub containers_started: Counter<u64>,
-    /// Counter for containers terminated
-    pub containers_terminated: Counter<u64>,
-    /// Counter for desired state messages received from server
-    pub desired_state_received: Counter<u64>,
-    /// Counter for function executors in desired state
-    pub desired_function_executors: Counter<u64>,
-    /// Counter for allocations in desired state
-    pub desired_allocations: Counter<u64>,
-    /// Counter for heartbeat successes
-    pub heartbeat_success: Counter<u64>,
-    /// Counter for heartbeat failures
-    pub heartbeat_failures: Counter<u64>,
-    /// Counter for stream disconnections
-    pub stream_disconnections: Counter<u64>,
-}
-
-impl DataplaneCounters {
-    pub fn new() -> Self {
-        let meter = opentelemetry::global::meter("indexify-dataplane");
-
-        let containers_started = meter
-            .u64_counter("indexify.dataplane.containers.started")
-            .with_description("Number of containers started")
-            .build();
-
-        let containers_terminated = meter
-            .u64_counter("indexify.dataplane.containers.terminated")
-            .with_description("Number of containers terminated")
-            .build();
-
-        let desired_state_received = meter
-            .u64_counter("indexify.dataplane.desired_state.received")
-            .with_description("Number of desired state messages received from server")
-            .build();
-
-        let desired_function_executors = meter
-            .u64_counter("indexify.dataplane.desired_state.function_executors")
-            .with_description("Total function executors received in desired state messages")
-            .build();
-
-        let desired_allocations = meter
-            .u64_counter("indexify.dataplane.desired_state.allocations")
-            .with_description("Total allocations received in desired state messages")
-            .build();
-
-        let heartbeat_success = meter
-            .u64_counter("indexify.dataplane.heartbeat.success")
-            .with_description("Number of successful heartbeats")
-            .build();
-
-        let heartbeat_failures = meter
-            .u64_counter("indexify.dataplane.heartbeat.failures")
-            .with_description("Number of failed heartbeats")
-            .build();
-
-        let stream_disconnections = meter
-            .u64_counter("indexify.dataplane.stream.disconnections")
-            .with_description("Number of stream disconnections")
-            .build();
-
-        Self {
-            containers_started,
-            containers_terminated,
-            desired_state_received,
-            desired_function_executors,
-            desired_allocations,
-            heartbeat_success,
-            heartbeat_failures,
-            stream_disconnections,
+/// Generate a `DataplaneCounters` struct with `new()` and `Default`.
+///
+/// Each entry is: `field_name: "metric.name", "Description";`
+/// All fields are `Counter<u64>`.
+///
+/// The `allocation_duration_ms` histogram is hardcoded here because it lives
+/// in the counters struct for historical reasons.
+macro_rules! define_counters {
+    ( $( $field:ident : $name:literal, $desc:literal; )* ) => {
+        #[derive(Clone)]
+        pub struct DataplaneCounters {
+            $( pub $field: Counter<u64>, )*
+            // Histogram that lives in counters for historical reasons
+            pub allocation_duration_ms: Histogram<u64>,
         }
-    }
 
+        impl DataplaneCounters {
+            pub fn new() -> Self {
+                let meter = opentelemetry::global::meter("indexify-dataplane");
+                Self {
+                    $( $field: meter.u64_counter($name).with_description($desc).build(), )*
+                    allocation_duration_ms: meter
+                        .u64_histogram("indexify.dataplane.allocations.duration_ms")
+                        .with_description("Allocation execution duration in milliseconds")
+                        .with_unit("ms")
+                        .build(),
+                }
+            }
+        }
+
+        impl Default for DataplaneCounters {
+            fn default() -> Self { Self::new() }
+        }
+    };
+}
+
+/// Generate a `DataplaneHistograms` struct with `new()` and `Default`.
+///
+/// Each entry is: `field_name: "metric.name", "Description", "unit";`
+/// All fields are `Histogram<f64>`.
+macro_rules! define_histograms {
+    ( $( $field:ident : $name:literal, $desc:literal, $unit:literal; )* ) => {
+        #[derive(Clone)]
+        pub struct DataplaneHistograms {
+            $( pub $field: Histogram<f64>, )*
+        }
+
+        impl DataplaneHistograms {
+            pub fn new() -> Self {
+                let meter = opentelemetry::global::meter("indexify-dataplane");
+                Self {
+                    $( $field: meter.f64_histogram($name).with_description($desc).with_unit($unit).build(), )*
+                }
+            }
+        }
+
+        impl Default for DataplaneHistograms {
+            fn default() -> Self { Self::new() }
+        }
+    };
+}
+
+/// Generate a `DataplaneUpDownCounters` struct with `new()` and `Default`.
+///
+/// Each entry is: `field_name: "metric.name", "Description";`
+/// All fields are `UpDownCounter<i64>`.
+macro_rules! define_up_down_counters {
+    ( $( $field:ident : $name:literal, $desc:literal; )* ) => {
+        #[derive(Clone)]
+        pub struct DataplaneUpDownCounters {
+            $( pub $field: UpDownCounter<i64>, )*
+        }
+
+        impl DataplaneUpDownCounters {
+            pub fn new() -> Self {
+                let meter = opentelemetry::global::meter("indexify-dataplane");
+                Self {
+                    $( $field: meter.i64_up_down_counter($name).with_description($desc).build(), )*
+                }
+            }
+        }
+
+        impl Default for DataplaneUpDownCounters {
+            fn default() -> Self { Self::new() }
+        }
+    };
+}
+
+// --- Counter definitions ---
+
+define_counters! {
+    containers_started: "indexify.dataplane.containers.started", "Number of containers started";
+    containers_terminated: "indexify.dataplane.containers.terminated", "Number of containers terminated";
+    desired_state_received: "indexify.dataplane.desired_state.received", "Number of desired state messages received from server";
+    desired_function_executors: "indexify.dataplane.desired_state.function_executors", "Total function executors received in desired state messages";
+    desired_allocations: "indexify.dataplane.desired_state.allocations", "Total allocations received in desired state messages";
+    heartbeat_success: "indexify.dataplane.heartbeat.success", "Number of successful heartbeats";
+    heartbeat_failures: "indexify.dataplane.heartbeat.failures", "Number of failed heartbeats";
+    stream_disconnections: "indexify.dataplane.stream.disconnections", "Number of stream disconnections";
+    allocations_completed: "indexify.dataplane.allocations.completed", "Number of completed allocations";
+
+    // Application downloads
+    application_downloads: "indexify.dataplane.application_downloads", "Number of application code downloads";
+    application_download_errors: "indexify.dataplane.application_download_errors", "Number of application code download errors";
+    application_downloads_from_cache: "indexify.dataplane.application_downloads_from_cache", "Number of application code cache hits";
+
+    // Blob store operations
+    blob_store_get_metadata_requests: "indexify.dataplane.blob_store.get_metadata.requests", "Number of blob store get_metadata requests";
+    blob_store_get_metadata_errors: "indexify.dataplane.blob_store.get_metadata.errors", "Number of blob store get_metadata errors";
+    blob_store_presign_uri_requests: "indexify.dataplane.blob_store.presign_uri.requests", "Number of blob store presign URI requests";
+    blob_store_presign_uri_errors: "indexify.dataplane.blob_store.presign_uri.errors", "Number of blob store presign URI errors";
+    blob_store_create_multipart_upload_requests: "indexify.dataplane.blob_store.create_multipart_upload.requests", "Number of blob store create_multipart_upload requests";
+    blob_store_create_multipart_upload_errors: "indexify.dataplane.blob_store.create_multipart_upload.errors", "Number of blob store create_multipart_upload errors";
+    blob_store_complete_multipart_upload_requests: "indexify.dataplane.blob_store.complete_multipart_upload.requests", "Number of blob store complete_multipart_upload requests";
+    blob_store_complete_multipart_upload_errors: "indexify.dataplane.blob_store.complete_multipart_upload.errors", "Number of blob store complete_multipart_upload errors";
+    blob_store_abort_multipart_upload_requests: "indexify.dataplane.blob_store.abort_multipart_upload.requests", "Number of blob store abort_multipart_upload requests";
+    blob_store_abort_multipart_upload_errors: "indexify.dataplane.blob_store.abort_multipart_upload.errors", "Number of blob store abort_multipart_upload errors";
+
+    // Allocation preparation
+    allocation_preparations: "indexify.dataplane.allocation_preparations", "Number of allocation preparations started";
+    allocation_preparation_errors: "indexify.dataplane.allocation_preparation_errors", "Number of allocation preparation errors";
+
+    // Function executor lifecycle
+    function_executor_creates: "indexify.dataplane.function_executor.creates", "Number of function executor create attempts";
+    function_executor_create_errors: "indexify.dataplane.function_executor.create_errors", "Number of function executor create failures";
+    function_executor_destroys: "indexify.dataplane.function_executor.destroys", "Number of function executor destroy attempts";
+    function_executor_create_server_errors: "indexify.dataplane.function_executor.create_server_errors", "Number of FE process start failures";
+
+    // Allocation lifecycle
+    allocations_fetched: "indexify.dataplane.allocations_fetched", "Number of allocations received from server";
+    allocation_runs: "indexify.dataplane.allocation_runs", "Number of allocation runs started";
+    call_function_rpcs: "indexify.dataplane.call_function_rpcs", "Number of call_function RPCs to server";
+    call_function_rpc_errors: "indexify.dataplane.call_function_rpc_errors", "Number of call_function RPC errors";
+    allocation_finalizations: "indexify.dataplane.allocation_finalizations", "Number of allocation finalizations started";
+    allocation_finalization_errors: "indexify.dataplane.allocation_finalization_errors", "Number of allocation finalization errors";
+
+    // State reporting
+    state_report_rpcs: "indexify.dataplane.state_report_rpcs", "Number of state report RPCs";
+    state_report_rpc_errors: "indexify.dataplane.state_report_rpc_errors", "Number of state report RPC errors";
+    state_report_message_fragmentations: "indexify.dataplane.state_report_message_fragmentations", "Number of state report message fragmentations";
+
+    // State reconciliation
+    state_reconciliations: "indexify.dataplane.state_reconciliations", "Number of state reconciliations";
+    state_reconciliation_errors: "indexify.dataplane.state_reconciliation_errors", "Number of state reconciliation errors";
+}
+
+// Helper methods on DataplaneCounters (not generated by macro)
+impl DataplaneCounters {
     /// Record a container started event.
     pub fn record_container_started(&self, container_type: &str) {
         self.containers_started.add(
@@ -214,17 +287,72 @@ impl DataplaneCounters {
         self.stream_disconnections
             .add(1, &[KeyValue::new("reason", reason.to_string())]);
     }
+
+    /// Record a completed allocation with its outcome and optional duration.
+    pub fn record_allocation_completed(
+        &self,
+        outcome: &str,
+        failure_reason: Option<&str>,
+        duration_ms: Option<u64>,
+    ) {
+        let mut attrs = vec![KeyValue::new("outcome", outcome.to_string())];
+        if let Some(reason) = failure_reason {
+            attrs.push(KeyValue::new("failure_reason", reason.to_string()));
+        }
+        self.allocations_completed.add(1, &attrs);
+        if let Some(ms) = duration_ms {
+            self.allocation_duration_ms.record(ms, &attrs);
+        }
+    }
 }
 
-impl Default for DataplaneCounters {
-    fn default() -> Self {
-        Self::new()
-    }
+// --- Histogram definitions ---
+
+define_histograms! {
+    // Application downloads
+    application_download_latency_seconds: "indexify.dataplane.application_download_latency_seconds", "Application download latency", "s";
+
+    // Blob store operations
+    blob_store_get_metadata_latency_seconds: "indexify.dataplane.blob_store.get_metadata.latency_seconds", "Blob store get_metadata latency", "s";
+    blob_store_presign_uri_latency_seconds: "indexify.dataplane.blob_store.presign_uri.latency_seconds", "Blob store presign URI latency", "s";
+    blob_store_create_multipart_upload_latency_seconds: "indexify.dataplane.blob_store.create_multipart_upload.latency_seconds", "Blob store create_multipart_upload latency", "s";
+    blob_store_complete_multipart_upload_latency_seconds: "indexify.dataplane.blob_store.complete_multipart_upload.latency_seconds", "Blob store complete_multipart_upload latency", "s";
+    blob_store_abort_multipart_upload_latency_seconds: "indexify.dataplane.blob_store.abort_multipart_upload.latency_seconds", "Blob store abort_multipart_upload latency", "s";
+
+    // Allocation preparation
+    allocation_preparation_latency_seconds: "indexify.dataplane.allocation_preparation_latency_seconds", "Allocation preparation latency", "s";
+
+    // Function executor lifecycle
+    function_executor_create_latency_seconds: "indexify.dataplane.function_executor.create_latency_seconds", "Function executor overall create latency", "s";
+    function_executor_destroy_latency_seconds: "indexify.dataplane.function_executor.destroy_latency_seconds", "Function executor destroy latency", "s";
+    function_executor_create_server_latency_seconds: "indexify.dataplane.function_executor.create_server_latency_seconds", "FE process start latency", "s";
+
+    // Allocation lifecycle
+    allocation_run_latency_seconds: "indexify.dataplane.allocation_run_latency_seconds", "Allocation run latency", "s";
+    call_function_rpc_latency_seconds: "indexify.dataplane.call_function_rpc_latency_seconds", "call_function RPC latency", "s";
+    function_call_message_size_mb: "indexify.dataplane.function_call_message_size_mb", "Function call message size in MB", "MB";
+    allocation_finalization_latency_seconds: "indexify.dataplane.allocation_finalization_latency_seconds", "Allocation finalization latency", "s";
+
+    // State reporting
+    state_report_rpc_latency_seconds: "indexify.dataplane.state_report_rpc_latency_seconds", "State report RPC latency", "s";
+    state_report_message_size_mb: "indexify.dataplane.state_report_message_size_mb", "State report message size in MB", "MB";
+
+    // State reconciliation
+    state_reconciliation_latency_seconds: "indexify.dataplane.state_reconciliation_latency_seconds", "State reconciliation latency", "s";
+}
+
+// --- UpDownCounter definitions ---
+
+define_up_down_counters! {
+    function_executors_count: "indexify.dataplane.function_executors_count", "Current number of function executors";
+    allocations_getting_prepared: "indexify.dataplane.allocations_getting_prepared", "Current number of allocations being prepared";
+    allocation_runs_in_progress: "indexify.dataplane.allocation_runs_in_progress", "Current number of allocation runs in progress";
+    allocations_finalizing: "indexify.dataplane.allocations_finalizing", "Current number of allocations being finalized";
 }
 
 /// Observable gauges for current state metrics.
 /// These are kept alive to maintain the gauge registrations.
-#[allow(dead_code)]
+#[allow(dead_code)] // Fields must stay alive to keep gauge callbacks registered
 pub struct DataplaneGauges {
     running_functions: ObservableGauge<u64>,
     running_sandboxes: ObservableGauge<u64>,
@@ -233,6 +361,8 @@ pub struct DataplaneGauges {
     free_cpu_percent: ObservableGauge<f64>,
     free_memory_bytes: ObservableGauge<u64>,
     free_disk_bytes: ObservableGauge<u64>,
+    last_desired_state_allocations: ObservableGauge<u64>,
+    last_desired_state_function_executors: ObservableGauge<u64>,
 }
 
 impl DataplaneGauges {
@@ -240,94 +370,93 @@ impl DataplaneGauges {
     pub fn new(state: Arc<Mutex<MetricsState>>) -> Self {
         let meter = opentelemetry::global::meter("indexify-dataplane");
 
-        let state_clone = state.clone();
-        let running_functions = meter
-            .u64_observable_gauge("indexify.dataplane.containers.running.functions")
-            .with_description("Number of running function containers")
-            .with_callback(move |observer| {
-                if let Ok(state) = state_clone.try_lock() {
-                    observer.observe(state.container_counts.running_functions, &[]);
-                }
-            })
-            .build();
+        // Local macros to eliminate per-gauge boilerplate. Each gauge clones
+        // the shared state Arc, locks it in the callback, and reads one field.
+        macro_rules! u64_gauge {
+            ($name:literal, $desc:literal, $($path:tt)+) => {{
+                let s = state.clone();
+                meter.u64_observable_gauge($name)
+                    .with_description($desc)
+                    .with_callback(move |observer| {
+                        if let Ok(st) = s.try_lock() {
+                            observer.observe(st.$($path)+, &[]);
+                        }
+                    })
+                    .build()
+            }};
+        }
 
-        let state_clone = state.clone();
-        let running_sandboxes = meter
-            .u64_observable_gauge("indexify.dataplane.containers.running.sandboxes")
-            .with_description("Number of running sandbox containers")
-            .with_callback(move |observer| {
-                if let Ok(state) = state_clone.try_lock() {
-                    observer.observe(state.container_counts.running_sandboxes, &[]);
-                }
-            })
-            .build();
-
-        let state_clone = state.clone();
-        let pending_functions = meter
-            .u64_observable_gauge("indexify.dataplane.containers.pending.functions")
-            .with_description("Number of pending function containers")
-            .with_callback(move |observer| {
-                if let Ok(state) = state_clone.try_lock() {
-                    observer.observe(state.container_counts.pending_functions, &[]);
-                }
-            })
-            .build();
-
-        let state_clone = state.clone();
-        let pending_sandboxes = meter
-            .u64_observable_gauge("indexify.dataplane.containers.pending.sandboxes")
-            .with_description("Number of pending sandbox containers")
-            .with_callback(move |observer| {
-                if let Ok(state) = state_clone.try_lock() {
-                    observer.observe(state.container_counts.pending_sandboxes, &[]);
-                }
-            })
-            .build();
-
-        let state_clone = state.clone();
-        let free_cpu_percent = meter
-            .f64_observable_gauge("indexify.dataplane.resources.free_cpu_percent")
-            .with_description("Percentage of free CPU")
-            .with_unit("%")
-            .with_callback(move |observer| {
-                if let Ok(state) = state_clone.try_lock() {
-                    observer.observe(state.resources.free_cpu_percent, &[]);
-                }
-            })
-            .build();
-
-        let state_clone = state.clone();
-        let free_memory_bytes = meter
-            .u64_observable_gauge("indexify.dataplane.resources.free_memory_bytes")
-            .with_description("Free memory in bytes")
-            .with_unit("By")
-            .with_callback(move |observer| {
-                if let Ok(state) = state_clone.try_lock() {
-                    observer.observe(state.resources.free_memory_bytes, &[]);
-                }
-            })
-            .build();
-
-        let state_clone = state.clone();
-        let free_disk_bytes = meter
-            .u64_observable_gauge("indexify.dataplane.resources.free_disk_bytes")
-            .with_description("Free disk space in bytes")
-            .with_unit("By")
-            .with_callback(move |observer| {
-                if let Ok(state) = state_clone.try_lock() {
-                    observer.observe(state.resources.free_disk_bytes, &[]);
-                }
-            })
-            .build();
+        macro_rules! u64_gauge_unit {
+            ($name:literal, $desc:literal, $unit:literal, $($path:tt)+) => {{
+                let s = state.clone();
+                meter.u64_observable_gauge($name)
+                    .with_description($desc)
+                    .with_unit($unit)
+                    .with_callback(move |observer| {
+                        if let Ok(st) = s.try_lock() {
+                            observer.observe(st.$($path)+, &[]);
+                        }
+                    })
+                    .build()
+            }};
+        }
 
         Self {
-            running_functions,
-            running_sandboxes,
-            pending_functions,
-            pending_sandboxes,
-            free_cpu_percent,
-            free_memory_bytes,
-            free_disk_bytes,
+            running_functions: u64_gauge!(
+                "indexify.dataplane.containers.running.functions",
+                "Number of running function containers",
+                container_counts.running_functions
+            ),
+            running_sandboxes: u64_gauge!(
+                "indexify.dataplane.containers.running.sandboxes",
+                "Number of running sandbox containers",
+                container_counts.running_sandboxes
+            ),
+            pending_functions: u64_gauge!(
+                "indexify.dataplane.containers.pending.functions",
+                "Number of pending function containers",
+                container_counts.pending_functions
+            ),
+            pending_sandboxes: u64_gauge!(
+                "indexify.dataplane.containers.pending.sandboxes",
+                "Number of pending sandbox containers",
+                container_counts.pending_sandboxes
+            ),
+            free_cpu_percent: {
+                let s = state.clone();
+                meter
+                    .f64_observable_gauge("indexify.dataplane.resources.free_cpu_percent")
+                    .with_description("Percentage of free CPU")
+                    .with_unit("%")
+                    .with_callback(move |observer| {
+                        if let Ok(st) = s.try_lock() {
+                            observer.observe(st.resources.free_cpu_percent, &[]);
+                        }
+                    })
+                    .build()
+            },
+            free_memory_bytes: u64_gauge_unit!(
+                "indexify.dataplane.resources.free_memory_bytes",
+                "Free memory in bytes",
+                "By",
+                resources.free_memory_bytes
+            ),
+            free_disk_bytes: u64_gauge_unit!(
+                "indexify.dataplane.resources.free_disk_bytes",
+                "Free disk space in bytes",
+                "By",
+                resources.free_disk_bytes
+            ),
+            last_desired_state_allocations: u64_gauge!(
+                "indexify.dataplane.last_desired_state_allocations",
+                "Number of allocations in last desired state",
+                last_desired_state_allocations
+            ),
+            last_desired_state_function_executors: u64_gauge!(
+                "indexify.dataplane.last_desired_state_function_executors",
+                "Number of function executors in last desired state",
+                last_desired_state_function_executors
+            ),
         }
     }
 }
@@ -335,6 +464,8 @@ impl DataplaneGauges {
 /// Combined metrics handle for the dataplane.
 pub struct DataplaneMetrics {
     pub counters: DataplaneCounters,
+    pub histograms: DataplaneHistograms,
+    pub up_down_counters: DataplaneUpDownCounters,
     pub state: Arc<Mutex<MetricsState>>,
     // Keep gauges alive - they register callbacks on construction
     #[allow(dead_code)]
@@ -347,10 +478,14 @@ impl DataplaneMetrics {
     pub fn new() -> Self {
         let state = Arc::new(Mutex::new(MetricsState::default()));
         let counters = DataplaneCounters::new();
+        let histograms = DataplaneHistograms::new();
+        let up_down_counters = DataplaneUpDownCounters::new();
         let gauges = DataplaneGauges::new(state.clone());
 
         Self {
             counters,
+            histograms,
+            up_down_counters,
             state,
             gauges,
         }

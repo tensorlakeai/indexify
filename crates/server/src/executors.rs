@@ -440,17 +440,27 @@ impl ExecutorManager {
             return None;
         }
         let mut function_call_outcomes = Vec::new();
+        let reader = self.indexify_state.reader();
         for executor_watch in executor_watches.iter() {
-            let Some(function_run) = indexes.function_runs.get(&executor_watch.into()) else {
-                error!(
-                    namespace = %executor_watch.namespace,
-                    app = %executor_watch.application,
-                    request_id = %executor_watch.request_id,
-                    function_call_id = %executor_watch.function_call_id,
-                    "function run not found for executor watch",
-                );
-                continue;
+            let function_run = if let Some(fr) = indexes.function_runs.get(&executor_watch.into()) {
+                fr.clone()
+            } else {
+                // Function run was deleted from in-memory state
+                // Fall back to RocksDB where the data is still persisted.
+                let Some(fr) = reader
+                    .get_function_run(
+                        &executor_watch.namespace,
+                        &executor_watch.application,
+                        &executor_watch.request_id,
+                        &executor_watch.function_call_id,
+                    )
+                    .await
+                else {
+                    continue;
+                };
+                Box::new(fr)
             };
+            let function_run = &function_run;
             info!(
                 function_call_id = %executor_watch.function_call_id,
                 request_id = %executor_watch.request_id,
@@ -459,18 +469,20 @@ impl ExecutorManager {
                 has_output = function_run.output.is_some(),
                 "found function run for executor watch"
             );
-            let failure_reason = match &function_run.outcome {
-                Some(FunctionRunOutcome::Failure(failure_reason)) => Some(failure_reason.clone()),
+            // Skip if function run hasn't completed yet.
+            let Some(ref outcome) = function_run.outcome else {
+                continue;
+            };
+
+            let failure_reason = match outcome {
+                FunctionRunOutcome::Failure(failure_reason) => Some(failure_reason.clone()),
                 _ => None,
             };
             function_call_outcomes.push(FunctionCallOutcome {
                 namespace: function_run.namespace.clone(),
                 request_id: function_run.request_id.clone(),
                 function_call_id: function_run.id.clone(),
-                outcome: function_run
-                    .outcome
-                    .clone()
-                    .unwrap_or(FunctionRunOutcome::Unknown),
+                outcome: outcome.clone(),
                 failure_reason,
                 return_value: function_run.output.clone(),
                 request_error: function_run.request_error.clone(),
