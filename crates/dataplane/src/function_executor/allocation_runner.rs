@@ -235,7 +235,10 @@ impl AllocationRunner {
                 return self.cancel_with_cleanup().await;
             }
 
-            if Instant::now() > deadline {
+            // Don't enforce the deadline while waiting for child functions.
+            // Child functions have their own timeouts — the parent should wait
+            // for them to complete (matching the Python executor behavior).
+            if Instant::now() > deadline && !self.has_active_watchers {
                 warn!("Allocation timed out");
                 return self
                     .fail_with_cleanup(
