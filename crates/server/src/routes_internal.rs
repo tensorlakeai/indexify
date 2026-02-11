@@ -17,6 +17,13 @@ use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
 use crate::{
+    data_model::{
+        Allocation as DataModelAllocation,
+        AllocationId,
+        ContainerId,
+        ExecutorId,
+        SandboxKey,
+    },
     http_objects::{
         Allocation,
         ApplicationVersion,
@@ -279,6 +286,33 @@ async fn namespaces(
     Ok(Json(NamespaceList { namespaces }))
 }
 
+/// Determines if an executor is ready for teardown.
+/// An executor is ready when it has no running allocations and no sandboxes.
+///
+/// Note: allocations_by_executor only contains non-terminal allocations.
+/// Terminal allocations are removed when allocation outputs are ingested.
+fn is_executor_ready_for_teardown(
+    executor_id: &ExecutorId,
+    allocations_by_executor: &imbl::HashMap<
+        ExecutorId,
+        HashMap<ContainerId, HashMap<AllocationId, Box<DataModelAllocation>>>,
+    >,
+    sandboxes_by_executor: &imbl::HashMap<ExecutorId, imbl::HashSet<SandboxKey>>,
+) -> bool {
+    // Check for running allocations (allocations_by_executor only contains
+    // non-terminal ones)
+    let has_running_allocations = allocations_by_executor
+        .get(executor_id)
+        .is_some_and(|containers| !containers.is_empty());
+
+    // Check for sandboxes
+    let has_sandboxes = sandboxes_by_executor
+        .get(executor_id)
+        .is_some_and(|sandboxes| !sandboxes.is_empty());
+
+    !has_running_allocations && !has_sandboxes
+}
+
 /// List executors
 #[utoipa::path(
     get,
@@ -289,7 +323,7 @@ async fn namespaces(
         (status = INTERNAL_SERVER_ERROR, description = "Internal Server Error")
     ),
 )]
-async fn list_executors(
+pub(crate) async fn list_executors(
     State(state): State<RouteState>,
 ) -> Result<Json<Vec<ExecutorMetadata>>, IndexifyAPIError> {
     let executors = state
@@ -297,19 +331,13 @@ async fn list_executors(
         .list_executors()
         .await
         .map_err(IndexifyAPIError::internal_error)?;
-    let executor_server_metadata = state
-        .indexify_state
-        .container_scheduler
-        .read()
-        .await
-        .executor_states
-        .clone();
 
     let container_sched = state.indexify_state.container_scheduler.read().await;
+    let in_memory_state = state.indexify_state.in_memory_state.read().await;
 
     let mut http_executors = vec![];
     for executor in executors {
-        if let Some(fe_server_metadata) = executor_server_metadata.get(&executor.id) {
+        if let Some(fe_server_metadata) = container_sched.executor_states.get(&executor.id) {
             let mut function_container_server_meta = HashMap::new();
             for container_id in &fe_server_metadata.function_container_ids {
                 let Some(fe_metadata) = container_sched.function_containers.get(container_id)
@@ -318,10 +346,19 @@ async fn list_executors(
                 };
                 function_container_server_meta.insert(container_id.clone(), fe_metadata.clone());
             }
+
+            // Compute readiness for teardown
+            let ready_for_teardown = is_executor_ready_for_teardown(
+                &executor.id,
+                &in_memory_state.allocations_by_executor,
+                &in_memory_state.sandboxes_by_executor,
+            );
+
             http_executors.push(from_data_model_executor_metadata(
                 executor,
                 fe_server_metadata.free_resources.clone(),
                 function_container_server_meta,
+                ready_for_teardown,
             ));
         }
     }

@@ -627,12 +627,14 @@ pub struct ExecutorMetadata {
     pub state_hash: String,
     pub clock: u64,
     pub catalog_entry_name: Option<String>,
+    pub ready_for_teardown: bool,
 }
 
 pub fn from_data_model_executor_metadata(
     executor: data_model::ExecutorMetadata,
     free_resources: data_model::HostResources,
     function_container_server_metadata: HashMap<ContainerId, Box<ContainerServerMetadata>>,
+    ready_for_teardown: bool,
 ) -> ExecutorMetadata {
     let function_allowlist = executor.function_allowlist.map(|allowlist| {
         allowlist
@@ -687,6 +689,7 @@ pub fn from_data_model_executor_metadata(
         state_hash: executor.state_hash,
         clock: executor.clock,
         catalog_entry_name: executor.catalog_name,
+        ready_for_teardown,
     }
 }
 
