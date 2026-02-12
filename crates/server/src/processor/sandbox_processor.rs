@@ -14,7 +14,7 @@ use crate::{
     processor::container_scheduler::{self, ContainerScheduler},
     state_store::{
         in_memory_state::InMemoryState,
-        requests::{RequestPayload, SchedulerUpdatePayload, SchedulerUpdateRequest},
+        requests::{RequestPayload, SchedulerUpdateRequest},
     },
 };
 
@@ -169,9 +169,8 @@ impl SandboxProcessor {
                     );
 
                     // Apply update to local copies so subsequent iterations see the changes
-                    let payload = RequestPayload::SchedulerUpdate(SchedulerUpdatePayload::new(
-                        update.clone(),
-                    ));
+                    let payload =
+                        RequestPayload::SchedulerUpdate((Box::new(update.clone()), vec![]));
                     container_scheduler.update(&payload)?;
                     in_memory_state.update_state(self.clock, &payload, "sandbox_processor")?;
                 } else {
@@ -180,8 +179,9 @@ impl SandboxProcessor {
                     if !container_update.containers.is_empty() ||
                         !container_update.updated_executor_states.is_empty()
                     {
-                        let payload = RequestPayload::SchedulerUpdate(SchedulerUpdatePayload::new(
-                            container_update.clone(),
+                        let payload = RequestPayload::SchedulerUpdate((
+                            Box::new(container_update.clone()),
+                            vec![],
                         ));
                         container_scheduler.update(&payload)?;
                         in_memory_state.update_state(self.clock, &payload, "sandbox_processor")?;
@@ -228,9 +228,8 @@ impl SandboxProcessor {
                     );
 
                     // Apply update to local copies
-                    let payload = RequestPayload::SchedulerUpdate(SchedulerUpdatePayload::new(
-                        update.clone(),
-                    ));
+                    let payload =
+                        RequestPayload::SchedulerUpdate((Box::new(update.clone()), vec![]));
                     container_scheduler.update(&payload)?;
                     in_memory_state.update_state(self.clock, &payload, "sandbox_processor")?;
                 }
@@ -313,7 +312,7 @@ impl SandboxProcessor {
         );
 
         // Apply update to local copies
-        let payload = RequestPayload::SchedulerUpdate(SchedulerUpdatePayload::new(update.clone()));
+        let payload = RequestPayload::SchedulerUpdate((Box::new(update.clone()), vec![]));
         container_scheduler.update(&payload)?;
         in_memory_state.update_state(self.clock, &payload, "sandbox_processor")?;
 

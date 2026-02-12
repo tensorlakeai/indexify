@@ -50,8 +50,8 @@ impl StateMachineUpdateRequest {
             RequestPayload::InvokeApplication(req) => {
                 req.ctx.prepare_for_persistence(clock);
             }
-            RequestPayload::SchedulerUpdate(payload) => {
-                for request_ctx in payload.update.updated_request_states.values_mut() {
+            RequestPayload::SchedulerUpdate((req, _)) => {
+                for request_ctx in req.updated_request_states.values_mut() {
                     request_ctx.prepare_for_persistence(clock);
                 }
             }
@@ -78,9 +78,7 @@ impl StateMachineUpdateRequest {
             RequestPayload::TombstoneRequest(request) => {
                 state_changes::tombstone_request(state_change_id_seq, request)
             }
-            RequestPayload::SchedulerUpdate(payload) => {
-                Ok(payload.update.new_state_changes.clone())
-            }
+            RequestPayload::SchedulerUpdate((request, _)) => Ok(request.state_changes.clone()),
             RequestPayload::DeregisterExecutor(request) => Ok(request.state_changes.clone()),
             RequestPayload::UpsertExecutor(request) => Ok(request.state_changes.clone()),
             RequestPayload::CreateSandbox(request) => {
@@ -119,7 +117,7 @@ pub enum RequestPayload {
     UpdateContainerPool(UpdateContainerPoolRequest),
 
     // App Processor -> State Machine requests
-    SchedulerUpdate(SchedulerUpdatePayload),
+    SchedulerUpdate((Box<SchedulerUpdateRequest>, Vec<StateChange>)),
     DeleteApplicationRequest((DeleteApplicationRequest, Vec<StateChange>)),
     DeleteRequestRequest((DeleteRequestRequest, Vec<StateChange>)),
     TombstoneContainerPool(DeleteContainerPoolRequest),
@@ -127,41 +125,16 @@ pub enum RequestPayload {
     ProcessStateChanges(Vec<StateChange>),
 }
 
-/// Wraps a SchedulerUpdateRequest together with the state changes it processed.
-///
-/// `update` contains the mutations to apply (new allocations, updated runs,
-/// etc.) along with any *new* state changes produced during processing.
-///
-/// `processed_state_changes` are the input state changes that were consumed to
-/// produce this update — they get marked as processed in the persistent store.
-#[derive(Debug, Clone)]
-pub struct SchedulerUpdatePayload {
-    pub update: Box<SchedulerUpdateRequest>,
-    pub processed_state_changes: Vec<StateChange>,
-}
-
-impl SchedulerUpdatePayload {
-    /// Creates a payload with no processed state changes (used for intermediate
-    /// scheduler updates that don't consume state changes from the queue).
-    pub fn new(update: SchedulerUpdateRequest) -> Self {
-        Self {
-            update: Box::new(update),
-            processed_state_changes: vec![],
-        }
-    }
-}
-
 #[derive(Debug, Clone, Default)]
 pub struct SchedulerUpdateRequest {
     pub new_allocations: Vec<Allocation>,
     pub updated_allocations: Vec<Allocation>,
     pub updated_function_runs: HashMap<String, HashSet<FunctionCallId>>,
-    pub updated_function_calls: HashMap<String, HashSet<FunctionCallId>>,
     pub updated_request_states: HashMap<String, RequestCtx>,
     pub remove_executors: Vec<ExecutorId>,
     pub updated_executor_states: HashMap<ExecutorId, Box<ExecutorServerMetadata>>,
     pub containers: HashMap<ContainerId, Box<ContainerServerMetadata>>,
-    pub new_state_changes: Vec<StateChange>,
+    pub state_changes: Vec<StateChange>,
     pub updated_sandboxes: HashMap<SandboxKey, Sandbox>,
     pub updated_pools: HashMap<ContainerPoolKey, ContainerPool>,
     pub deleted_pools: HashSet<ContainerPoolKey>,
@@ -179,15 +152,9 @@ impl SchedulerUpdateRequest {
                 .or_default()
                 .extend(function_run_ids);
         }
-        for (ctx_key, function_call_ids) in other.updated_function_calls {
-            self.updated_function_calls
-                .entry(ctx_key)
-                .or_default()
-                .extend(function_call_ids);
-        }
         self.updated_request_states
             .extend(other.updated_request_states);
-        self.new_state_changes.extend(other.new_state_changes);
+        self.state_changes.extend(other.state_changes);
 
         self.remove_executors.extend(other.remove_executors);
         for (executor_id, executor_server_metadata) in other.updated_executor_states {
@@ -218,13 +185,6 @@ impl SchedulerUpdateRequest {
         self.updated_allocations.push(allocation.clone());
     }
 
-    /// Adds a function run to the request context and tracks it as updated.
-    ///
-    /// NOTE: This does NOT snapshot the RequestCtx. Callers MUST call
-    /// `add_request_state()` once before returning the SchedulerUpdateRequest
-    /// or before passing it to `in_memory_state.update_state()`.
-    /// This avoids O(N^2) cloning when adding many function runs to the same
-    /// request context (e.g., during 1000-item map-reduce).
     pub fn add_function_run(&mut self, function_run: FunctionRun, request_ctx: &mut RequestCtx) {
         request_ctx
             .function_runs
@@ -233,28 +193,22 @@ impl SchedulerUpdateRequest {
             .entry(request_ctx.key())
             .or_default()
             .insert(function_run.id.clone());
+        self.updated_request_states
+            .insert(request_ctx.key(), request_ctx.clone());
     }
 
-    /// Snapshots the current state of a RequestCtx into the update.
-    /// Call this once after all mutations are done, before the scheduler update
-    /// is consumed by `in_memory_state.update_state()` or persisted.
     pub fn add_request_state(&mut self, request_ctx: &RequestCtx) {
         self.updated_request_states
             .insert(request_ctx.key(), request_ctx.clone());
     }
 
-    /// Adds a function call to the request context and tracks it as updated.
-    ///
-    /// NOTE: This does NOT snapshot the RequestCtx.
     pub fn add_function_call(&mut self, function_call: FunctionCall, request_ctx: &mut RequestCtx) {
-        let fc_id = function_call.function_call_id.clone();
-        request_ctx
-            .function_calls
-            .insert(fc_id.clone(), function_call);
-        self.updated_function_calls
-            .entry(request_ctx.key())
-            .or_default()
-            .insert(fc_id);
+        request_ctx.function_calls.insert(
+            function_call.function_call_id.clone(),
+            function_call.clone(),
+        );
+        self.updated_request_states
+            .insert(request_ctx.key(), request_ctx.clone());
     }
 
     pub fn unallocated_function_runs(&self) -> Vec<FunctionRun> {

@@ -3,7 +3,7 @@ use std::{sync::Arc, vec};
 use anyhow::Result;
 use opentelemetry::{
     KeyValue,
-    metrics::{Counter, Gauge, Histogram},
+    metrics::{Counter, Histogram},
 };
 use tokio::sync::Notify;
 use tracing::{debug, error, info, instrument, trace, warn};
@@ -26,7 +26,6 @@ use crate::{
             DeleteContainerPoolRequest,
             DeleteRequestRequest,
             RequestPayload,
-            SchedulerUpdatePayload,
             SchedulerUpdateRequest,
             StateMachineUpdateRequest,
         },
@@ -42,7 +41,6 @@ pub struct ApplicationProcessor {
     pub state_transition_latency: Histogram<f64>,
     pub handle_state_change_latency: Histogram<f64>,
     pub allocate_function_runs_latency: Histogram<f64>,
-    pub state_change_queue_depth: Gauge<u64>,
     pub queue_size: u32,
 }
 
@@ -90,11 +88,6 @@ impl ApplicationProcessor {
             .with_description("Latency of function runs allocation in seconds")
             .build();
 
-        let state_change_queue_depth = meter
-            .u64_gauge("indexify.state_store.state_change_queue_depth")
-            .with_description("Number of unprocessed state changes in the queue")
-            .build();
-
         Self {
             indexify_state,
             write_sm_update_latency,
@@ -103,7 +96,6 @@ impl ApplicationProcessor {
             state_transition_latency,
             handle_state_change_latency,
             allocate_function_runs_latency,
-            state_change_queue_depth,
             queue_size,
         }
     }
@@ -211,9 +203,6 @@ impl ApplicationProcessor {
             state_changes.reverse();
             cached_state_changes.extend(state_changes);
         }
-
-        self.state_change_queue_depth
-            .record(cached_state_changes.len() as u64, &[]);
 
         // 2. If there are no state changes to process, return
         // and wait for the scheduler to wake us up again when there are state changes
@@ -481,10 +470,10 @@ impl ApplicationProcessor {
         scheduler_update.extend(buffer_update);
 
         Ok(StateMachineUpdateRequest {
-            payload: RequestPayload::SchedulerUpdate(SchedulerUpdatePayload {
-                update: Box::new(scheduler_update),
-                processed_state_changes: vec![state_change.clone()],
-            }),
+            payload: RequestPayload::SchedulerUpdate((
+                Box::new(scheduler_update),
+                vec![state_change.clone()],
+            )),
         })
     }
 }

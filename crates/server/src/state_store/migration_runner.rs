@@ -15,7 +15,7 @@ use crate::{
             contexts::{MigrationContext, PrepareContext},
             registry::MigrationRegistry,
         },
-        serializer::{StateStoreEncode, StateStoreEncoder},
+        serializer::{JsonEncode, JsonEncoder},
         state_machine::IndexifyObjectsColumns,
     },
 };
@@ -125,7 +125,7 @@ pub fn read_sm_meta(db: &RocksDBDriver) -> Result<StateMachineMetadata> {
         b"sm_meta",
     )?;
     match meta {
-        Some(meta) => Ok(StateStoreEncoder::decode(&meta)?),
+        Some(meta) => Ok(JsonEncoder::decode(&meta)?),
         None => Ok(StateMachineMetadata {
             db_version: 0,
             last_change_idx: 0,

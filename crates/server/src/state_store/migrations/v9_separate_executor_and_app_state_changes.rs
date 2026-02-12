@@ -122,7 +122,7 @@ mod tests {
         state_store::{
             driver::{Reader, Writer},
             migrations::testing::MigrationTestBuilder,
-            serializer::{StateStoreEncode, StateStoreEncoder},
+            serializer::{JsonEncode, JsonEncoder},
         },
         utils::get_epoch_time_in_ms,
     };
@@ -175,7 +175,7 @@ mod tests {
                     db.put(
                         IndexifyObjectsColumns::UnprocessedStateChanges.as_ref(),
                         app_key,
-                        StateStoreEncoder::encode(&app_state_change)?,
+                        JsonEncoder::encode(&app_state_change)?,
                     )?;
 
                     let mut global_key = Vec::new();
@@ -184,7 +184,7 @@ mod tests {
                     db.put(
                         IndexifyObjectsColumns::UnprocessedStateChanges.as_ref(),
                         global_key,
-                        StateStoreEncoder::encode(&executor_state_change)?,
+                        JsonEncoder::encode(&executor_state_change)?,
                     )?;
 
                     Ok(())
@@ -199,7 +199,7 @@ mod tests {
                         )
                         .unwrap()
                         .expect("Failed to get application state change");
-                    let app_state_change: StateChange = StateStoreEncoder::decode(&change)?;
+                    let app_state_change: StateChange = JsonEncoder::decode(&change)?;
                     assert_eq!(Some("test_ns"), app_state_change.namespace.as_deref());
                     assert_eq!(Some("app_1"), app_state_change.application.as_deref());
                     assert_eq!("request_id", app_state_change.object_id);
@@ -211,7 +211,7 @@ mod tests {
                         )
                         .unwrap()
                         .expect("Failed to get executor state change");
-                    let executor_state_change: StateChange = StateStoreEncoder::decode(&change)?;
+                    let executor_state_change: StateChange = JsonEncoder::decode(&change)?;
                     assert_eq!(None, executor_state_change.namespace);
                     assert_eq!(None, executor_state_change.application);
                     assert_eq!("executor_id", executor_state_change.object_id);

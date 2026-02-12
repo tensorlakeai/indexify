@@ -363,7 +363,7 @@ impl TryFrom<ApplicationFunction> for data_model::Function {
             retry_policy: val.retry_policy.into(),
             cache_key: val.cache_key.map(|v| v.into()),
             parameters: val.parameters.into_iter().map(|p| p.into()).collect(),
-            return_type: val.return_type.map(Into::into),
+            return_type: val.return_type,
             max_concurrency: val.max_concurrency,
             min_containers: val.min_containers,
             max_containers: val.max_containers,
@@ -384,7 +384,7 @@ impl From<data_model::Function> for ApplicationFunction {
             retry_policy: c.retry_policy.into(),
             cache_key: c.cache_key.map(|v| v.into()),
             parameters: c.parameters.into_iter().map(|p| p.into()).collect(),
-            return_type: c.return_type.map(Into::into),
+            return_type: c.return_type,
             placement_constraints: c.placement_constraints.into(),
             max_concurrency: c.max_concurrency,
             max_containers: c.max_containers,
@@ -422,7 +422,7 @@ impl From<data_model::ParameterMetadata> for ParameterMetadata {
             name: parameter.name,
             description: parameter.description,
             required: parameter.required,
-            data_type: parameter.data_type.into(),
+            data_type: parameter.data_type,
         }
     }
 }
@@ -433,7 +433,7 @@ impl From<ParameterMetadata> for data_model::ParameterMetadata {
             name: parameter.name,
             description: parameter.description,
             required: parameter.required,
-            data_type: parameter.data_type.into(),
+            data_type: parameter.data_type,
         }
     }
 }

@@ -6,9 +6,6 @@ use crate::state_store::migrations::{
     v9_separate_executor_and_app_state_changes::V9SeparateExecutorAndAppStateChanges,
     v10_allocation_output_event_format::V10AllocationOutputEventFormat,
     v11_sandbox_data_model_changes::V11SandboxDataModelChanges,
-    v12_slim_allocation_output_event::V12SlimAllocationOutputEvent,
-    v13_reencode_json_as_bincode::V13ReencodeJsonAsBincode,
-    v14_normalize_request_ctx::V14NormalizeRequestCtx,
 };
 // Import all migration implementations
 
@@ -31,9 +28,6 @@ impl MigrationRegistry {
         registry.register(Box::new(V9SeparateExecutorAndAppStateChanges));
         registry.register(Box::new(V10AllocationOutputEventFormat));
         registry.register(Box::new(V11SandboxDataModelChanges));
-        registry.register(Box::new(V12SlimAllocationOutputEvent));
-        registry.register(Box::new(V13ReencodeJsonAsBincode));
-        registry.register(Box::new(V14NormalizeRequestCtx));
 
         // Sort and validate migrations
         registry.sort_and_validate()?;

@@ -22,6 +22,7 @@ use crate::{
         FunctionRun,
         FunctionRunOutcome,
         FunctionRunStatus,
+        RequestCtx,
         test_objects::tests::mock_blocking_function_call,
     },
     executor_api::executor_api_pb::Allocation as AllocationPb,
@@ -143,10 +144,11 @@ impl TestService {
             .service
             .indexify_state
             .reader()
-            .get_all_rows_from_cf::<FunctionRun>(IndexifyObjectsColumns::FunctionRuns)
+            .get_all_rows_from_cf::<RequestCtx>(IndexifyObjectsColumns::RequestCtx)
             .await?
             .into_iter()
-            .map(|(_, fr)| Box::new(fr))
+            .flat_map(|(_, ctx)| ctx.function_runs.values().cloned().collect::<Vec<_>>())
+            .map(Box::new)
             .collect::<Vec<_>>();
         Ok(function_runs)
     }
