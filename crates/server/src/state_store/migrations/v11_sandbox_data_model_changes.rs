@@ -1,4 +1,5 @@
 use anyhow::Result;
+use async_trait::async_trait;
 use serde_json::Value;
 use tracing::info;
 
@@ -28,6 +29,7 @@ use crate::state_store::state_machine::IndexifyObjectsColumns;
 #[derive(Clone)]
 pub struct V11SandboxDataModelChanges;
 
+#[async_trait]
 impl Migration for V11SandboxDataModelChanges {
     fn version(&self) -> u64 {
         11
@@ -37,7 +39,7 @@ impl Migration for V11SandboxDataModelChanges {
         "Sandbox data model changes - remove Function.fn_name field"
     }
 
-    fn apply(&self, ctx: &MigrationContext) -> Result<()> {
+    async fn apply(&self, ctx: &MigrationContext) -> Result<()> {
         let mut apps_processed = 0;
         let mut apps_updated = 0;
         let mut versions_processed = 0;
@@ -49,18 +51,20 @@ impl Migration for V11SandboxDataModelChanges {
         ctx.iterate(&IndexifyObjectsColumns::Applications, |key, value| {
             apps_processed += 1;
 
-            if let Ok(mut json) = serde_json::from_slice::<Value>(value) {
-                if remove_fn_name_from_functions(&mut json) {
-                    let updated = serde_json::to_vec(&json)?;
-                    app_updates.push((key.to_vec(), updated));
-                }
+            if let Ok(mut json) = serde_json::from_slice::<Value>(value) &&
+                remove_fn_name_from_functions(&mut json)
+            {
+                let updated = serde_json::to_vec(&json)?;
+                app_updates.push((key.to_vec(), updated));
             }
             Ok(())
-        })?;
+        })
+        .await?;
 
         for (key, value) in &app_updates {
             ctx.txn
-                .put(IndexifyObjectsColumns::Applications.as_ref(), key, value)?;
+                .put(IndexifyObjectsColumns::Applications.as_ref(), key, value)
+                .await?;
             apps_updated += 1;
         }
 
@@ -72,22 +76,25 @@ impl Migration for V11SandboxDataModelChanges {
             |key, value| {
                 versions_processed += 1;
 
-                if let Ok(mut json) = serde_json::from_slice::<Value>(value) {
-                    if remove_fn_name_from_functions(&mut json) {
-                        let updated = serde_json::to_vec(&json)?;
-                        version_updates.push((key.to_vec(), updated));
-                    }
+                if let Ok(mut json) = serde_json::from_slice::<Value>(value) &&
+                    remove_fn_name_from_functions(&mut json)
+                {
+                    let updated = serde_json::to_vec(&json)?;
+                    version_updates.push((key.to_vec(), updated));
                 }
                 Ok(())
             },
-        )?;
+        )
+        .await?;
 
         for (key, value) in &version_updates {
-            ctx.txn.put(
-                IndexifyObjectsColumns::ApplicationVersions.as_ref(),
-                key,
-                value,
-            )?;
+            ctx.txn
+                .put(
+                    IndexifyObjectsColumns::ApplicationVersions.as_ref(),
+                    key,
+                    value,
+                )
+                .await?;
             versions_updated += 1;
         }
 
@@ -109,14 +116,14 @@ impl Migration for V11SandboxDataModelChanges {
 fn remove_fn_name_from_functions(json: &mut Value) -> bool {
     let mut modified = false;
 
-    if let Some(functions) = json.get_mut("functions") {
-        if let Some(functions_map) = functions.as_object_mut() {
-            for (_fn_key, fn_value) in functions_map.iter_mut() {
-                if let Some(fn_obj) = fn_value.as_object_mut() {
-                    if fn_obj.remove("fn_name").is_some() {
-                        modified = true;
-                    }
-                }
+    if let Some(functions) = json.get_mut("functions") &&
+        let Some(functions_map) = functions.as_object_mut()
+    {
+        for (_fn_key, fn_value) in functions_map.iter_mut() {
+            if let Some(fn_obj) = fn_value.as_object_mut() &&
+                fn_obj.remove("fn_name").is_some()
+            {
+                modified = true;
             }
         }
     }
@@ -129,7 +136,10 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::state_store::migrations::testing::MigrationTestBuilder;
+    use crate::state_store::{
+        driver::{Reader, Writer},
+        migrations::testing::MigrationTestBuilder,
+    };
 
     #[test]
     fn test_remove_fn_name_from_functions() {
@@ -183,8 +193,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_v11_migration_removes_fn_name() -> Result<()> {
+    #[tokio::test]
+    async fn test_v11_migration_removes_fn_name() -> Result<()> {
         let migration = V11SandboxDataModelChanges;
 
         let old_app_json = json!({
@@ -216,37 +226,49 @@ mod tests {
             "created_at": 12345
         });
 
+        let old_app_bytes = serde_json::to_vec(&old_app_json)?;
+
         MigrationTestBuilder::new()
             .with_column_family(IndexifyObjectsColumns::Applications.as_ref())
             .with_column_family(IndexifyObjectsColumns::ApplicationVersions.as_ref())
             .run_test(
                 &migration,
                 |db| {
-                    db.put(
-                        IndexifyObjectsColumns::Applications.as_ref(),
-                        b"test_ns|app_1",
-                        serde_json::to_vec(&old_app_json)?,
-                    )?;
-                    Ok(())
+                    Box::pin(async move {
+                        db.put(
+                            IndexifyObjectsColumns::Applications.as_ref(),
+                            b"test_ns|app_1",
+                            &old_app_bytes,
+                        )
+                        .await?;
+                        Ok(())
+                    })
                 },
                 |db| {
-                    let result = db
-                        .get(IndexifyObjectsColumns::Applications, b"test_ns|app_1")?
-                        .expect("Application should exist");
+                    Box::pin(async move {
+                        let result = db
+                            .get(
+                                IndexifyObjectsColumns::Applications.as_ref(),
+                                b"test_ns|app_1",
+                            )
+                            .await?
+                            .expect("Application should exist");
 
-                    let json: Value = serde_json::from_slice(&result)?;
-                    let functions = json.get("functions").unwrap().as_object().unwrap();
-                    let fn_a = functions.get("fn_a").unwrap();
+                        let json: Value = serde_json::from_slice(&result)?;
+                        let functions = json.get("functions").unwrap().as_object().unwrap();
+                        let fn_a = functions.get("fn_a").unwrap();
 
-                    // fn_name should be removed
-                    assert!(fn_a.get("fn_name").is_none(), "fn_name should be removed");
-                    // Other fields preserved
-                    assert_eq!(fn_a.get("name").unwrap(), "fn_a");
-                    assert_eq!(fn_a.get("description").unwrap(), "test");
+                        // fn_name should be removed
+                        assert!(fn_a.get("fn_name").is_none(), "fn_name should be removed");
+                        // Other fields preserved
+                        assert_eq!(fn_a.get("name").unwrap(), "fn_a");
+                        assert_eq!(fn_a.get("description").unwrap(), "test");
 
-                    Ok(())
+                        Ok(())
+                    })
                 },
-            )?;
+            )
+            .await?;
 
         Ok(())
     }

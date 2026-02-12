@@ -24,6 +24,7 @@ use crate::{
         DataPayload,
         ExecutorId,
         Function,
+        FunctionCall,
         FunctionCallId,
         FunctionRun,
         FunctionRunFailureReason,
@@ -32,6 +33,7 @@ use crate::{
         Namespace,
         NamespaceBuilder,
         NetworkPolicy,
+        PersistedRequestCtx,
         RequestCtx,
         RequestCtxKey,
         Sandbox,
@@ -307,7 +309,9 @@ impl InMemoryState {
             all_apps,
             all_cg_versions,
             allocations_result,
-            all_app_request_ctx,
+            all_persisted_request_ctx,
+            all_function_runs,
+            all_function_calls,
             all_sandboxes,
         ) = tokio::join!(
             reader.get_all_namespaces(),
@@ -321,7 +325,9 @@ impl InMemoryState {
                 IndexifyObjectsColumns::Allocations,
                 None,
             ),
-            reader.get_all_rows_from_cf::<RequestCtx>(IndexifyObjectsColumns::RequestCtx),
+            reader.get_all_rows_from_cf::<PersistedRequestCtx>(IndexifyObjectsColumns::RequestCtx),
+            reader.get_all_rows_from_cf::<FunctionRun>(IndexifyObjectsColumns::FunctionRuns),
+            reader.get_all_rows_from_cf::<FunctionCall>(IndexifyObjectsColumns::FunctionCalls),
             reader.get_all_rows_from_cf::<Sandbox>(IndexifyObjectsColumns::Sandboxes),
         );
 
@@ -330,7 +336,10 @@ impl InMemoryState {
         let all_apps: Vec<(String, Application)> = all_apps?;
         let all_cg_versions: Vec<(String, ApplicationVersion)> = all_cg_versions?;
         let (allocations, _) = allocations_result?;
-        let all_app_request_ctx: Vec<(String, RequestCtx)> = all_app_request_ctx?;
+        let all_persisted_request_ctx: Vec<(String, PersistedRequestCtx)> =
+            all_persisted_request_ctx?;
+        let all_function_runs: Vec<(String, FunctionRun)> = all_function_runs?;
+        let all_function_calls: Vec<(String, FunctionCall)> = all_function_calls?;
         let all_sandboxes: Vec<(String, Sandbox)> = all_sandboxes?;
 
         debug!(
@@ -379,10 +388,41 @@ impl InMemoryState {
                 .insert(alloc_id, Box::new(allocation));
         }
 
-        let request_ctx_filtered: Vec<_> = all_app_request_ctx
-            .par_iter()
+        // Group function_runs by request key (namespace|app|request_id)
+        let mut fr_by_request: HashMap<String, HashMap<FunctionCallId, FunctionRun>> =
+            HashMap::new();
+        for (_key, fr) in all_function_runs {
+            let request_key = format!("{}|{}|{}", fr.namespace, fr.application, fr.request_id);
+            fr_by_request
+                .entry(request_key)
+                .or_default()
+                .insert(fr.id.clone(), fr);
+        }
+
+        // Group function_calls by request key
+        let mut fc_by_request: HashMap<String, HashMap<FunctionCallId, FunctionCall>> =
+            HashMap::new();
+        for (key, fc) in all_function_calls {
+            // Key format: namespace|application|request_id|function_call_id
+            // Extract the request key (first 3 parts)
+            let request_key = key.rsplitn(2, '|').last().unwrap_or(&key).to_string();
+            fc_by_request
+                .entry(request_key)
+                .or_default()
+                .insert(fc.function_call_id.clone(), fc);
+        }
+
+        // Reconstruct full RequestCtx from PersistedRequestCtx + maps
+        let request_ctx_filtered: Vec<_> = all_persisted_request_ctx
+            .into_iter()
             .filter(|(_id, ctx)| ctx.outcome.is_none())
-            .map(|(_id, ctx)| (ctx.key().into(), Box::new(ctx.clone())))
+            .map(|(_id, persisted)| {
+                let key = persisted.key();
+                let frs = fr_by_request.remove(&key).unwrap_or_default();
+                let fcs = fc_by_request.remove(&key).unwrap_or_default();
+                let full_ctx = RequestCtx::from_persisted(persisted, frs, fcs);
+                (full_ctx.key().into(), Box::new(full_ctx))
+            })
             .collect();
 
         let mut request_ctx = imbl::OrdMap::new();
@@ -612,7 +652,8 @@ impl InMemoryState {
                     }
                 }
             }
-            RequestPayload::SchedulerUpdate((req, _)) => {
+            RequestPayload::SchedulerUpdate(payload) => {
+                let req = &payload.update;
                 // Note: Allocations are removed from allocations_by_executor in two places:
                 // 1. UpsertExecutor handler - when allocation output is ingested
                 // 2. remove_function_executors handling below - when FE is terminated

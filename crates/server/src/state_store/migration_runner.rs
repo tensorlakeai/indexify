@@ -15,14 +15,14 @@ use crate::{
             contexts::{MigrationContext, PrepareContext},
             registry::MigrationRegistry,
         },
-        serializer::{JsonEncode, JsonEncoder},
+        serializer::{StateStoreEncode, StateStoreEncoder},
         state_machine::IndexifyObjectsColumns,
     },
 };
 
 /// Main function to run all necessary migrations on a database at the given
 /// path
-pub fn run(path: &Path, config: RocksDBConfig) -> Result<StateMachineMetadata> {
+pub async fn run(path: &Path, config: RocksDBConfig) -> Result<StateMachineMetadata> {
     // Initialize prepare context
     let prepare_ctx = PrepareContext::new(path.to_path_buf(), config);
 
@@ -50,7 +50,7 @@ pub fn run(path: &Path, config: RocksDBConfig) -> Result<StateMachineMetadata> {
     };
 
     // Read current metadata
-    let mut sm_meta = read_sm_meta(&db)?;
+    let mut sm_meta = read_sm_meta(&db).await?;
     drop(db); // Close DB before migrations
 
     // Find applicable migrations
@@ -85,6 +85,7 @@ pub fn run(path: &Path, config: RocksDBConfig) -> Result<StateMachineMetadata> {
         // Each migration prepares the DB as needed
         let db = migration
             .prepare(&prepare_ctx)
+            .await
             .with_context(|| format!("Preparing DB for migration to v{to_version}"))?;
 
         // Apply migration in a transaction
@@ -96,15 +97,17 @@ pub fn run(path: &Path, config: RocksDBConfig) -> Result<StateMachineMetadata> {
         // Apply the migration
         migration
             .apply(&migration_ctx)
+            .await
             .with_context(|| format!("Applying migration to v{to_version}"))?;
 
         // Update metadata in the same transaction
         sm_meta.db_version = to_version;
-        migration_ctx.write_sm_meta(&sm_meta)?;
+        migration_ctx.write_sm_meta(&sm_meta).await?;
 
         info!("Committing migration to v{}", to_version);
         migration_ctx
             .commit()
+            .await
             .with_context(|| format!("Committing migration to v{to_version}"))?;
 
         // Close DB after each migration to ensure clean state
@@ -118,14 +121,40 @@ pub fn run(path: &Path, config: RocksDBConfig) -> Result<StateMachineMetadata> {
     Ok(sm_meta)
 }
 
-/// Read state machine metadata from the database
-pub fn read_sm_meta(db: &RocksDBDriver) -> Result<StateMachineMetadata> {
-    let meta = db.get(
-        IndexifyObjectsColumns::StateMachineMetadata.as_ref(),
-        b"sm_meta",
-    )?;
+/// Read state machine metadata from the database.
+///
+/// This must handle both legacy JSON format (pre-V13) and the current
+/// postcard format. The migration runner reads metadata BEFORE migrations
+/// run, so it can encounter JSON-encoded data that hasn't been converted yet.
+pub async fn read_sm_meta(db: &RocksDBDriver) -> Result<StateMachineMetadata> {
+    let meta = db
+        .get(
+            IndexifyObjectsColumns::StateMachineMetadata.as_ref(),
+            b"sm_meta",
+        )
+        .await?;
     match meta {
-        Some(meta) => Ok(JsonEncoder::decode(&meta)?),
+        Some(meta) => {
+            if meta.is_empty() {
+                return Ok(StateMachineMetadata {
+                    db_version: 0,
+                    last_change_idx: 0,
+                    last_usage_idx: 0,
+                    last_request_event_idx: 0,
+                });
+            }
+            // Try postcard (0x01 prefix) first, fall back to JSON for pre-V13 DBs
+            if meta[0] == 0x01 {
+                StateStoreEncoder::decode(&meta)
+            } else {
+                serde_json::from_slice(&meta).map_err(|e| {
+                    anyhow::anyhow!(
+                        "failed to decode StateMachineMetadata as JSON or postcard: {}",
+                        e
+                    )
+                })
+            }
+        }
         None => Ok(StateMachineMetadata {
             db_version: 0,
             last_change_idx: 0,
@@ -148,7 +177,7 @@ mod tests {
         metrics::StateStoreMetrics,
         state_store::{
             self,
-            driver::rocksdb::RocksDBConfig,
+            driver::{Writer, rocksdb::RocksDBConfig},
             migrations::migration_trait::Migration,
         },
     };
@@ -159,6 +188,7 @@ mod tests {
         name: &'static str,
     }
 
+    #[async_trait::async_trait]
     impl Migration for MockMigration {
         fn version(&self) -> u64 {
             self.version
@@ -168,12 +198,12 @@ mod tests {
             self.name
         }
 
-        fn prepare(&self, ctx: &PrepareContext) -> Result<RocksDBDriver> {
+        async fn prepare(&self, ctx: &PrepareContext) -> Result<RocksDBDriver> {
             // Simple mock - just open DB
             ctx.open_db()
         }
 
-        fn apply(&self, _ctx: &MigrationContext) -> Result<()> {
+        async fn apply(&self, _ctx: &MigrationContext) -> Result<()> {
             // No-op for test
             Ok(())
         }
@@ -183,8 +213,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_migration_new_db() -> Result<()> {
+    #[tokio::test]
+    async fn test_migration_new_db() -> Result<()> {
         let temp_dir = TempDir::new()?;
         let path = temp_dir.path();
 
@@ -198,7 +228,7 @@ mod tests {
         info!("Testing with migration: {}", mock_migration.name());
 
         // Run migrations on non-existent DB
-        let sm_meta = run(path, RocksDBConfig::default())?;
+        let sm_meta = run(path, RocksDBConfig::default()).await?;
 
         // Check migration resulted in latest version
         assert_eq!(
@@ -209,8 +239,8 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn test_migration_existing_db() -> Result<()> {
+    #[tokio::test]
+    async fn test_migration_existing_db() -> Result<()> {
         let temp_dir = TempDir::new()?;
         let path = temp_dir.path();
 
@@ -223,7 +253,7 @@ mod tests {
         let db =
             state_store::open_database(path.to_path_buf(), config, sm_column_families, metrics)?;
 
-        // Set initial version to 1
+        // Set initial version to 0
         let txn = db.transaction();
         let initial_meta = StateMachineMetadata {
             db_version: 0,
@@ -233,12 +263,12 @@ mod tests {
         };
 
         let mut ctx = MigrationContext::new(db, txn);
-        ctx.write_sm_meta(&initial_meta)?;
-        ctx.commit()?;
+        ctx.write_sm_meta(&initial_meta).await?;
+        ctx.commit().await?;
         drop(ctx);
 
         // Run migrations
-        let sm_meta = run(path, RocksDBConfig::default())?;
+        let sm_meta = run(path, RocksDBConfig::default()).await?;
 
         // Check migration resulted in latest version
         assert_eq!(

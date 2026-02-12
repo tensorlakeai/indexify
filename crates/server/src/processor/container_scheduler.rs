@@ -30,7 +30,7 @@ use crate::{
         SandboxId,
     },
     state_store::{
-        requests::{RequestPayload, SchedulerUpdateRequest},
+        requests::{RequestPayload, SchedulerUpdatePayload, SchedulerUpdateRequest},
         scanner::StateReader,
         state_machine::IndexifyObjectsColumns,
     },
@@ -170,8 +170,8 @@ impl ContainerScheduler {
             RequestPayload::DeleteApplicationRequest((request, _)) => {
                 self.delete_application(&request.namespace, &request.name);
             }
-            RequestPayload::SchedulerUpdate((request, _)) => {
-                self.update_scheduler_update(request);
+            RequestPayload::SchedulerUpdate(payload) => {
+                self.update_scheduler_update(&payload.update);
             }
             RequestPayload::DeregisterExecutor(request) => {
                 self.deregister_executor(&request.executor_id);
@@ -637,10 +637,9 @@ impl ContainerScheduler {
 
         // Apply vacuum updates (just marks containers for termination, doesn't free
         // resources)
-        self.update(&RequestPayload::SchedulerUpdate((
-            Box::new(update.clone()),
-            vec![],
-        )))?;
+        self.update(&RequestPayload::SchedulerUpdate(
+            SchedulerUpdatePayload::new(update.clone()),
+        ))?;
 
         // Try again after vacuum
         candidates = self.candidate_hosts(namespace, application, function, resources);

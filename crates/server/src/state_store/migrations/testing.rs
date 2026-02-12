@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{pin::Pin, sync::Arc};
 
 use anyhow::Result;
 use rocksdb::ColumnFamilyDescriptor;
@@ -13,7 +13,6 @@ use crate::{
     state_store::{
         self,
         driver::{
-            Reader,
             Writer,
             rocksdb::{RocksDBConfig, RocksDBDriver},
         },
@@ -39,11 +38,15 @@ impl MigrationTestBuilder {
     }
 
     /// Run the test with the given migration and setup/verify functions
-    pub fn run_test<M, S, V>(self, migration: &M, setup: S, verify: V) -> Result<()>
+    pub async fn run_test<M, S, V>(self, migration: &M, setup: S, verify: V) -> Result<()>
     where
         M: Migration,
-        S: FnOnce(&RocksDBDriver) -> Result<()>,
-        V: FnOnce(&RocksDBDriver) -> Result<()>,
+        S: for<'a> FnOnce(
+            &'a RocksDBDriver,
+        ) -> Pin<Box<dyn std::future::Future<Output = Result<()>> + 'a>>,
+        V: for<'a> FnOnce(
+            &'a RocksDBDriver,
+        ) -> Pin<Box<dyn std::future::Future<Output = Result<()>> + 'a>>,
     {
         // Create temporary database directory
         let temp_dir = TempDir::new()?;
@@ -61,24 +64,24 @@ impl MigrationTestBuilder {
         )?;
 
         // Run setup function to populate test data
-        setup(&db)?;
+        setup(&db).await?;
 
         // Close database
         drop(db);
 
         // Prepare the database for migration
         let prepare_ctx = PrepareContext::new(path.to_path_buf(), RocksDBConfig::default());
-        let db = migration.prepare(&prepare_ctx)?;
+        let db = migration.prepare(&prepare_ctx).await?;
 
         // Apply the migration
         let txn = db.transaction();
         let mut migration_ctx = MigrationContext::new(db.clone(), txn);
 
-        migration.apply(&migration_ctx)?;
-        migration_ctx.commit()?;
+        migration.apply(&migration_ctx).await?;
+        migration_ctx.commit().await?;
 
         // Run verification
-        verify(&db)?;
+        verify(&db).await?;
 
         Ok(())
     }
@@ -86,14 +89,17 @@ impl MigrationTestBuilder {
 
 #[cfg(test)]
 mod tests {
+    use async_trait::async_trait;
+
     use super::*;
-    use crate::state_store::state_machine::IndexifyObjectsColumns;
+    use crate::state_store::{driver::Reader, state_machine::IndexifyObjectsColumns};
 
     #[derive(Clone)]
     struct MockMigration {
         version_num: u64,
     }
 
+    #[async_trait]
     impl Migration for MockMigration {
         fn version(&self) -> u64 {
             self.version_num
@@ -103,17 +109,19 @@ mod tests {
             "Mock Migration"
         }
 
-        fn prepare(&self, ctx: &PrepareContext) -> Result<RocksDBDriver> {
+        async fn prepare(&self, ctx: &PrepareContext) -> Result<RocksDBDriver> {
             ctx.open_db()
         }
 
-        fn apply(&self, ctx: &MigrationContext) -> Result<()> {
+        async fn apply(&self, ctx: &MigrationContext) -> Result<()> {
             // Simple mock implementation that just puts a marker
-            ctx.txn.put(
-                IndexifyObjectsColumns::StateMachineMetadata.as_ref(),
-                b"migration_test",
-                format!("v{}", self.version_num).as_bytes(),
-            )?;
+            ctx.txn
+                .put(
+                    IndexifyObjectsColumns::StateMachineMetadata.as_ref(),
+                    b"migration_test",
+                    format!("v{}", self.version_num).as_bytes(),
+                )
+                .await?;
             Ok(())
         }
 
@@ -122,29 +130,31 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_migration_test_builder() -> Result<()> {
+    #[tokio::test]
+    async fn test_migration_test_builder() -> Result<()> {
         let migration = MockMigration { version_num: 43 };
 
         MigrationTestBuilder::new()
             .with_column_family(IndexifyObjectsColumns::StateMachineMetadata.as_ref())
             .run_test(
                 &migration,
-                |_db| {
-                    // Setup - nothing needed
-                    Ok(())
-                },
+                |_db| Box::pin(async { Ok(()) }),
                 |db| {
-                    // Verify migration was applied
-                    let result = db.get(
-                        IndexifyObjectsColumns::StateMachineMetadata.as_ref(),
-                        b"migration_test",
-                    )?;
+                    Box::pin(async move {
+                        // Verify migration was applied
+                        let result = db
+                            .get(
+                                IndexifyObjectsColumns::StateMachineMetadata.as_ref(),
+                                b"migration_test",
+                            )
+                            .await?;
 
-                    assert_eq!(result, Some(b"v43".to_vec()));
-                    Ok(())
+                        assert_eq!(result, Some(b"v43".to_vec()));
+                        Ok(())
+                    })
                 },
-            )?;
+            )
+            .await?;
 
         Ok(())
     }

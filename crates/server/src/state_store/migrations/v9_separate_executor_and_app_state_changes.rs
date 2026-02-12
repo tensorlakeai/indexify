@@ -1,6 +1,7 @@
 use std::io::{BufRead, Cursor};
 
 use anyhow::Result;
+use async_trait::async_trait;
 use tracing::info;
 
 use super::{
@@ -17,6 +18,7 @@ use crate::state_store::{
 #[derive(Clone)]
 pub struct V9SeparateExecutorAndAppStateChanges;
 
+#[async_trait]
 impl Migration for V9SeparateExecutorAndAppStateChanges {
     fn version(&self) -> u64 {
         9
@@ -26,73 +28,90 @@ impl Migration for V9SeparateExecutorAndAppStateChanges {
         "Separate executor and app state changes"
     }
 
-    fn prepare(&self, ctx: &PrepareContext) -> Result<RocksDBDriver> {
+    async fn prepare(&self, ctx: &PrepareContext) -> Result<RocksDBDriver> {
         let existing_cfs = ctx.list_cfs()?;
         ctx.reopen_with_cf_operations(|db| {
-            // Create fresh
-            if !existing_cfs.contains(&IndexifyObjectsColumns::ExecutorStateChanges.to_string()) {
-                info!("Creating executor state changes column family");
-                db.create(
-                    IndexifyObjectsColumns::ExecutorStateChanges,
-                    &Default::default(),
-                )?;
-            }
+            Box::pin(async move {
+                // Create fresh
+                if !existing_cfs.contains(&IndexifyObjectsColumns::ExecutorStateChanges.to_string())
+                {
+                    info!("Creating executor state changes column family");
+                    db.create(
+                        IndexifyObjectsColumns::ExecutorStateChanges.as_ref(),
+                        &Default::default(),
+                    )
+                    .await?;
+                }
 
-            if !existing_cfs.contains(&IndexifyObjectsColumns::ApplicationStateChanges.to_string())
-            {
-                info!("Creating app state changes column family");
-                db.create(
-                    IndexifyObjectsColumns::ApplicationStateChanges,
-                    &Default::default(),
-                )?;
-            }
+                if !existing_cfs
+                    .contains(&IndexifyObjectsColumns::ApplicationStateChanges.to_string())
+                {
+                    info!("Creating app state changes column family");
+                    db.create(
+                        IndexifyObjectsColumns::ApplicationStateChanges.as_ref(),
+                        &Default::default(),
+                    )
+                    .await?;
+                }
 
-            Ok(())
+                Ok(())
+            })
         })
+        .await
     }
 
-    fn apply(&self, ctx: &MigrationContext) -> Result<()> {
+    async fn apply(&self, ctx: &MigrationContext) -> Result<()> {
         let mut num_total_state_changes: usize = 0;
         let mut num_migrated_state_changes: usize = 0;
 
+        let mut entries: Vec<(Vec<u8>, Vec<u8>)> = Vec::new();
         ctx.iterate(
             &IndexifyObjectsColumns::UnprocessedStateChanges,
             |key, value| {
-                num_total_state_changes += 1;
+                entries.push((key.to_vec(), value.to_vec()));
+                Ok(())
+            },
+        )
+        .await?;
 
-                let parts = Cursor::new(key)
-                    .split(b'|')
-                    .map(|l| l.unwrap())
-                    .collect::<Vec<_>>();
-                if parts.len() != 2 {
-                    anyhow::bail!("unexpected key format: {}", str::from_utf8(key)?);
-                }
+        for (key, value) in &entries {
+            num_total_state_changes += 1;
 
-                let mut iter = parts.iter();
-                let (Some(prefix), Some(id)) = (iter.next(), iter.next()) else {
-                    anyhow::bail!("unexpected key format: {}", str::from_utf8(key)?);
-                };
+            let parts = Cursor::new(key)
+                .split(b'|')
+                .map(|l| l.unwrap())
+                .collect::<Vec<_>>();
+            if parts.len() != 2 {
+                anyhow::bail!("unexpected key format: {}", str::from_utf8(key)?);
+            }
 
-                if prefix == b"global" {
-                    ctx.txn.put(
+            let mut iter = parts.iter();
+            let (Some(prefix), Some(id)) = (iter.next(), iter.next()) else {
+                anyhow::bail!("unexpected key format: {}", str::from_utf8(key)?);
+            };
+
+            if prefix == b"global" {
+                ctx.txn
+                    .put(
                         IndexifyObjectsColumns::ExecutorStateChanges.as_ref(),
                         id,
                         value,
-                    )?;
-                } else if prefix.starts_with(b"ns_") {
-                    ctx.txn.put(
+                    )
+                    .await?;
+            } else if prefix.starts_with(b"ns_") {
+                ctx.txn
+                    .put(
                         IndexifyObjectsColumns::ApplicationStateChanges.as_ref(),
                         id,
                         value,
-                    )?;
-                } else {
-                    anyhow::bail!("unexpected key format: {}", str::from_utf8(key)?);
-                }
+                    )
+                    .await?;
+            } else {
+                anyhow::bail!("unexpected key format: {}", str::from_utf8(key)?);
+            }
 
-                num_migrated_state_changes += 1;
-                Ok(())
-            },
-        )?;
+            num_migrated_state_changes += 1;
+        }
 
         info!(
             "Migrate state changes to new tables: {} migrated/{} total",
@@ -122,13 +141,13 @@ mod tests {
         state_store::{
             driver::{Reader, Writer},
             migrations::testing::MigrationTestBuilder,
-            serializer::{JsonEncode, JsonEncoder},
+            serializer::{StateStoreEncode, StateStoreEncoder},
         },
         utils::get_epoch_time_in_ms,
     };
 
-    #[test]
-    fn test_v9_migration() -> Result<()> {
+    #[tokio::test]
+    async fn test_v9_migration() -> Result<()> {
         let migration = V9SeparateExecutorAndAppStateChanges;
 
         // Setup: Create several state changes
@@ -158,67 +177,73 @@ mod tests {
             .application(None)
             .build()?;
 
+        let app_sc_encoded = StateStoreEncoder::encode(&app_state_change)?;
+        let exec_sc_encoded = StateStoreEncoder::encode(&executor_state_change)?;
+        let app_ns = app_state_change.namespace.clone().unwrap_or_default();
+
         MigrationTestBuilder::new()
             .with_column_family(IndexifyObjectsColumns::UnprocessedStateChanges.as_ref())
             .run_test(
                 &migration,
                 |db| {
-                    let mut app_key = Vec::new();
-                    app_key.extend(
-                        format!(
-                            "ns_{}|",
-                            app_state_change.namespace.clone().unwrap_or_default()
+                    Box::pin(async move {
+                        let mut app_key = Vec::new();
+                        app_key.extend(format!("ns_{}|", app_ns).as_bytes());
+                        app_key.extend(1_u64.to_be_bytes());
+                        db.put(
+                            IndexifyObjectsColumns::UnprocessedStateChanges.as_ref(),
+                            &app_key,
+                            &app_sc_encoded,
                         )
-                        .as_bytes(),
-                    );
-                    app_key.extend(app_state_change.id.as_ref().to_be_bytes());
-                    db.put(
-                        IndexifyObjectsColumns::UnprocessedStateChanges.as_ref(),
-                        app_key,
-                        JsonEncoder::encode(&app_state_change)?,
-                    )?;
+                        .await?;
 
-                    let mut global_key = Vec::new();
-                    global_key.extend("global|".as_bytes());
-                    global_key.extend(executor_state_change.id.as_ref().to_be_bytes());
-                    db.put(
-                        IndexifyObjectsColumns::UnprocessedStateChanges.as_ref(),
-                        global_key,
-                        JsonEncoder::encode(&executor_state_change)?,
-                    )?;
+                        let mut global_key = Vec::new();
+                        global_key.extend("global|".as_bytes());
+                        global_key.extend(1_u64.to_be_bytes());
+                        db.put(
+                            IndexifyObjectsColumns::UnprocessedStateChanges.as_ref(),
+                            &global_key,
+                            &exec_sc_encoded,
+                        )
+                        .await?;
 
-                    Ok(())
+                        Ok(())
+                    })
                 },
                 |db| {
-                    // Verify: State changes are stored in the new tables
+                    Box::pin(async move {
+                        // Verify: State changes are stored in the new tables
 
-                    let change = db
-                        .get(
-                            IndexifyObjectsColumns::ApplicationStateChanges,
-                            1_u64.to_be_bytes(),
-                        )
-                        .unwrap()
-                        .expect("Failed to get application state change");
-                    let app_state_change: StateChange = JsonEncoder::decode(&change)?;
-                    assert_eq!(Some("test_ns"), app_state_change.namespace.as_deref());
-                    assert_eq!(Some("app_1"), app_state_change.application.as_deref());
-                    assert_eq!("request_id", app_state_change.object_id);
+                        let change = db
+                            .get(
+                                IndexifyObjectsColumns::ApplicationStateChanges.as_ref(),
+                                &1_u64.to_be_bytes(),
+                            )
+                            .await?
+                            .expect("Failed to get application state change");
+                        let app_state_change: StateChange = StateStoreEncoder::decode(&change)?;
+                        assert_eq!(Some("test_ns"), app_state_change.namespace.as_deref());
+                        assert_eq!(Some("app_1"), app_state_change.application.as_deref());
+                        assert_eq!("request_id", app_state_change.object_id);
 
-                    let change = db
-                        .get(
-                            IndexifyObjectsColumns::ExecutorStateChanges,
-                            1_u64.to_be_bytes(),
-                        )
-                        .unwrap()
-                        .expect("Failed to get executor state change");
-                    let executor_state_change: StateChange = JsonEncoder::decode(&change)?;
-                    assert_eq!(None, executor_state_change.namespace);
-                    assert_eq!(None, executor_state_change.application);
-                    assert_eq!("executor_id", executor_state_change.object_id);
+                        let change = db
+                            .get(
+                                IndexifyObjectsColumns::ExecutorStateChanges.as_ref(),
+                                &1_u64.to_be_bytes(),
+                            )
+                            .await?
+                            .expect("Failed to get executor state change");
+                        let executor_state_change: StateChange =
+                            StateStoreEncoder::decode(&change)?;
+                        assert_eq!(None, executor_state_change.namespace);
+                        assert_eq!(None, executor_state_change.application);
+                        assert_eq!("executor_id", executor_state_change.object_id);
 
-                    Ok(())
+                        Ok(())
+                    })
                 },
-            )?;
+            )
+            .await?;
 
         Ok(())
     }

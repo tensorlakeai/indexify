@@ -36,7 +36,7 @@ pub enum Error {
     JsonDecoderFailed { source: anyhow::Error },
 
     #[error("Failed to encode a new serialized record. error: {}", source)]
-    JsonEncoderFailed { source: anyhow::Error },
+    StateStoreEncoderFailed { source: anyhow::Error },
 
     #[error(
         "A request with the same id already exists. namespace: {namespace}, application: {application}, request_id: {request_id}"

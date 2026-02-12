@@ -8,7 +8,7 @@ build = "build.rs"
 resolver = "2"
 
 [features]
-default = []
+default = ["migrations"]
 migrations = []
 console-subscriber = ["dep:console-subscriber"]
 
@@ -25,7 +25,7 @@ serde.workspace = true
 serde-inline-default.workspace = true
 serde_json.workspace = true
 serde-saphyr.workspace = true
-ciborium.workspace = true
+postcard.workspace = true
 axum.workspace = true
 axum-server.workspace = true
 tower-http.workspace = true
