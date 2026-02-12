@@ -251,13 +251,7 @@ impl RocksDBDriver {
             metrics,
         })
     }
-}
 
-impl RocksDBDriver {
-    /// Returns a reference to the column family with the given name.
-    ///
-    /// This function doesn't need to be async, it just gets the value from an
-    /// internal map.
     fn column_family(&self, name: &str) -> &ColumnFamily {
         let Some(handle) = self.db.cf_handle(name) else {
             panic!("failed to get column family handle for {name}");
@@ -270,7 +264,6 @@ impl RocksDBDriver {
     unsafe fn extend_tx_lifetime(
         tx: rocksdb::Transaction<'_, TransactionDB>,
     ) -> rocksdb::Transaction<'static, TransactionDB> {
-        // SAFETY: guaranteed by the caller — the database Arc outlives the transaction.
         unsafe { std::mem::transmute(tx) }
     }
 
@@ -331,8 +324,8 @@ impl Writer for RocksDBDriver {
         let inner = unsafe { Self::extend_tx_lifetime(tx) };
 
         Arc::new(RocksDBTransaction {
-            db: self.clone(),
             tx: Mutex::new(Some(inner)),
+            db: self.clone(),
         })
     }
 
@@ -496,8 +489,9 @@ impl Reader for RocksDBDriver {
 impl Driver for RocksDBDriver {}
 
 pub(crate) struct RocksDBTransaction {
-    db: RocksDBDriver,
+    // tx must be declared before db so the transaction is dropped before the Arc<TransactionDB>.
     tx: Mutex<Option<Transaction<'static, TransactionDB>>>,
+    db: RocksDBDriver,
 }
 
 #[async_trait]
@@ -598,8 +592,8 @@ impl RocksDBDriver {
         let inner = unsafe { Self::extend_tx_lifetime(tx) };
 
         SyncTransaction {
-            db: self.clone(),
             tx: std::sync::Mutex::new(Some(inner)),
+            db: self.clone(),
         }
     }
 }
@@ -610,8 +604,9 @@ impl RocksDBDriver {
 /// used without an async runtime.
 #[cfg(feature = "migrations")]
 pub(crate) struct SyncTransaction {
-    db: RocksDBDriver,
+    // tx must be declared before db so the transaction is dropped before the Arc<TransactionDB>.
     tx: std::sync::Mutex<Option<rocksdb::Transaction<'static, TransactionDB>>>,
+    db: RocksDBDriver,
 }
 
 #[cfg(feature = "migrations")]
@@ -622,17 +617,6 @@ impl SyncTransaction {
             .take()
             .ok_or(DriverError::TransactionAlreadyCommitted)?;
         tx.commit().map_err(Error::into_generic)
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn get(&self, cf: &str, key: &[u8]) -> Result<Option<Vec<u8>>, DriverError> {
-        let cf = self.db.column_family(cf);
-        let guard = self.tx.lock().unwrap();
-        let tx = guard
-            .as_ref()
-            .ok_or(DriverError::TransactionAlreadyCommitted)?;
-        tx.get_for_update_cf(cf, key, true)
-            .map_err(Error::into_generic)
     }
 
     pub(crate) fn put(&self, cf: &str, key: &[u8], value: &[u8]) -> Result<(), DriverError> {
