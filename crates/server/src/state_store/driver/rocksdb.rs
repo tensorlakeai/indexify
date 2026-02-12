@@ -11,7 +11,6 @@ use rocksdb::{
 pub use rocksdb::{Direction, IteratorMode, Options as RocksDBOptions, ReadOptions};
 use serde::{Deserialize, Serialize};
 use serde_inline_default::serde_inline_default;
-#[allow(unused_imports)]
 use tracing::warn;
 
 use crate::{
@@ -33,7 +32,6 @@ pub enum Error {
     #[error(transparent)]
     GenericRocksDBFailure { source: RocksDBError },
 
-    #[allow(dead_code)]
     #[error("Failed to make the connection mutable")]
     MakeConnectionMutableFailed,
 }
@@ -267,6 +265,61 @@ impl RocksDBDriver {
 
         handle
     }
+
+    /// SAFETY: caller must ensure the database Arc outlives the transaction.
+    unsafe fn extend_tx_lifetime(
+        tx: rocksdb::Transaction<'_, TransactionDB>,
+    ) -> rocksdb::Transaction<'static, TransactionDB> {
+        // SAFETY: guaranteed by the caller — the database Arc outlives the transaction.
+        unsafe { std::mem::transmute(tx) }
+    }
+
+    pub(crate) fn get_sync(&self, cf: &str, key: &[u8]) -> Result<Option<Vec<u8>>, DriverError> {
+        let cf = self.column_family(cf);
+        self.db.get_cf(cf, key).map_err(Error::into_generic)
+    }
+
+    pub(crate) fn put_sync(&self, cf: &str, key: &[u8], value: &[u8]) -> Result<(), DriverError> {
+        let cf = self.column_family(cf);
+        self.db.put_cf(cf, key, value).map_err(Error::into_generic)
+    }
+
+    pub(crate) fn iter_sync(
+        &self,
+        cf: &str,
+        options: super::IterOptions,
+    ) -> Box<dyn Iterator<Item = Result<super::KVBytes, DriverError>> + '_> {
+        let super::IterOptions::RocksDB((opts, (token, direction))) = options;
+
+        let mode = match (&token, direction) {
+            (Some(t), Some(d)) => rocksdb::IteratorMode::From(t, d),
+            (Some(t), None) => rocksdb::IteratorMode::From(t, rocksdb::Direction::Forward),
+            (None, _) => rocksdb::IteratorMode::Start,
+        };
+
+        Box::new(
+            self.db
+                .iterator_cf_opt(self.column_family(cf), opts, mode)
+                .map(|item| item.map_err(Error::into_generic)),
+        )
+    }
+
+    #[allow(dead_code)] // called via Writer::drop (async_trait hides the call from dead-code analysis)
+    pub(crate) fn drop_cf_sync(&mut self, cf: &str) -> Result<(), DriverError> {
+        let mut_db = Arc::get_mut(&mut self.db).ok_or(Error::MakeConnectionMutableFailed)?;
+        mut_db.drop_cf(cf).map_err(Error::into_generic)
+    }
+
+    #[allow(dead_code)] // called via Writer::create (async_trait hides the call from dead-code analysis)
+    pub(crate) fn create_cf_sync(
+        &mut self,
+        cf: &str,
+        opts: &super::CreateOptions,
+    ) -> Result<(), DriverError> {
+        let super::CreateOptions::RocksDB(opts) = opts;
+        let mut_db = Arc::get_mut(&mut self.db).ok_or(Error::MakeConnectionMutableFailed)?;
+        mut_db.create_cf(cf, opts).map_err(Error::into_generic)
+    }
 }
 
 #[async_trait]
@@ -274,18 +327,8 @@ impl Writer for RocksDBDriver {
     fn transaction(&self) -> super::Transaction {
         let tx = self.db.transaction();
 
-        // The database reference must always outlive
-        // the transaction. If it doesn't then this
-        // is undefined behaviour. This unsafe block
-        // ensures that the transaction reference is
-        // static, but will cause a crash if the
-        // database is dropped prematurely.
-        let inner = unsafe {
-            std::mem::transmute::<
-                rocksdb::Transaction<'_, TransactionDB>,
-                rocksdb::Transaction<'static, TransactionDB>,
-            >(tx)
-        };
+        // SAFETY: the database Arc outlives the transaction.
+        let inner = unsafe { Self::extend_tx_lifetime(tx) };
 
         Arc::new(RocksDBTransaction {
             db: self.clone(),
@@ -297,27 +340,15 @@ impl Writer for RocksDBDriver {
         let attrs = &[KeyValue::new("driver", "rocksdb")];
         let _inc = Increment::inc(&self.metrics.driver_writes, attrs);
 
-        let cf = self.column_family(cf);
-        self.db.put_cf(cf, key, value).map_err(Error::into_generic)
+        self.put_sync(cf, key, value)
     }
 
     async fn drop(&mut self, cf: &str) -> Result<(), DriverError> {
-        // `drop` is used in migrations to remove old column families.
-        // Migrations run serially, so only one reference to the database should
-        // be held at a time.
-        // If that premise changes, we'll raise an error during migration.
-        let mut_db = Arc::get_mut(&mut self.db).ok_or(Error::MakeConnectionMutableFailed)?;
-        mut_db.drop_cf(cf).map_err(Error::into_generic)
+        self.drop_cf_sync(cf)
     }
 
     async fn create(&mut self, cf: &str, opts: &super::CreateOptions) -> Result<(), DriverError> {
-        // `create` is used in migrations to remove old column families.
-        // Migrations run serially, so only one reference to the database should
-        // be held at a time.
-        // If that premise changes, we'll raise an error during migration.
-        let super::CreateOptions::RocksDB(opts) = opts;
-        let mut_db = Arc::get_mut(&mut self.db).ok_or(Error::MakeConnectionMutableFailed)?;
-        mut_db.create_cf(cf, opts).map_err(Error::into_generic)
+        self.create_cf_sync(cf, opts)
     }
 }
 
@@ -327,8 +358,7 @@ impl Reader for RocksDBDriver {
         let attrs = &[KeyValue::new("driver", "rocksdb")];
         let _inc = Increment::inc(&self.metrics.driver_reads, attrs);
 
-        let cf = self.column_family(cf);
-        self.db.get_cf(cf, key).map_err(Error::into_generic)
+        self.get_sync(cf, key)
     }
 
     async fn list_existent_items(
@@ -459,19 +489,7 @@ impl Reader for RocksDBDriver {
         let attrs = &[KeyValue::new("driver", "rocksdb")];
         let _inc = Increment::inc(&self.metrics.driver_scans, attrs);
 
-        let super::IterOptions::RocksDB((opts, (token, direction))) = options;
-
-        let mode = match (&token, direction) {
-            (Some(t), Some(d)) => rocksdb::IteratorMode::From(t, d),
-            (Some(t), None) => rocksdb::IteratorMode::From(t, rocksdb::Direction::Forward),
-            (None, _) => rocksdb::IteratorMode::Start,
-        };
-
-        Box::new(
-            self.db
-                .iterator_cf_opt(self.column_family(cf), opts, mode)
-                .map(|item| item.map_err(Error::into_generic)),
-        )
+        self.iter_sync(cf, options)
     }
 }
 
@@ -568,74 +586,16 @@ impl super::InnerTransaction for RocksDBTransaction {
 }
 
 // ---------------------------------------------------------------------------
-// Synchronous API for migrations (feature = "migrations")
-// ---------------------------------------------------------------------------
-//
-// All RocksDB operations are inherently synchronous. The async trait
-// implementations above simply wrap these synchronous calls. The sync
-// variants below expose the same logic without async/await so that migration
-// code (which runs outside of a Tokio runtime) can use them directly.
+// Synchronous transaction for migrations (feature = "migrations")
 // ---------------------------------------------------------------------------
 
 #[cfg(feature = "migrations")]
-#[allow(dead_code)]
 impl RocksDBDriver {
-    pub(crate) fn get_sync(&self, cf: &str, key: &[u8]) -> Result<Option<Vec<u8>>, DriverError> {
-        let cf = self.column_family(cf);
-        self.db.get_cf(cf, key).map_err(Error::into_generic)
-    }
-
-    pub(crate) fn put_sync(&self, cf: &str, key: &[u8], value: &[u8]) -> Result<(), DriverError> {
-        let cf = self.column_family(cf);
-        self.db.put_cf(cf, key, value).map_err(Error::into_generic)
-    }
-
-    pub(crate) fn iter_sync(
-        &self,
-        cf: &str,
-        options: super::IterOptions,
-    ) -> Box<dyn Iterator<Item = Result<super::KVBytes, DriverError>> + '_> {
-        let super::IterOptions::RocksDB((opts, (token, direction))) = options;
-
-        let mode = match (&token, direction) {
-            (Some(t), Some(d)) => rocksdb::IteratorMode::From(t, d),
-            (Some(t), None) => rocksdb::IteratorMode::From(t, rocksdb::Direction::Forward),
-            (None, _) => rocksdb::IteratorMode::Start,
-        };
-
-        Box::new(
-            self.db
-                .iterator_cf_opt(self.column_family(cf), opts, mode)
-                .map(|item| item.map_err(Error::into_generic)),
-        )
-    }
-
-    pub(crate) fn drop_cf_sync(&mut self, cf: &str) -> Result<(), DriverError> {
-        let mut_db = Arc::get_mut(&mut self.db).ok_or(Error::MakeConnectionMutableFailed)?;
-        mut_db.drop_cf(cf).map_err(Error::into_generic)
-    }
-
-    pub(crate) fn create_cf_sync(
-        &mut self,
-        cf: &str,
-        opts: &super::CreateOptions,
-    ) -> Result<(), DriverError> {
-        let super::CreateOptions::RocksDB(opts) = opts;
-        let mut_db = Arc::get_mut(&mut self.db).ok_or(Error::MakeConnectionMutableFailed)?;
-        mut_db.create_cf(cf, opts).map_err(Error::into_generic)
-    }
-
     pub(crate) fn sync_transaction(&self) -> SyncTransaction {
         let tx = self.db.transaction();
 
-        // SAFETY: same as Writer::transaction — the database Arc outlives the
-        // transaction.
-        let inner = unsafe {
-            std::mem::transmute::<
-                rocksdb::Transaction<'_, TransactionDB>,
-                rocksdb::Transaction<'static, TransactionDB>,
-            >(tx)
-        };
+        // SAFETY: the database Arc outlives the transaction.
+        let inner = unsafe { Self::extend_tx_lifetime(tx) };
 
         SyncTransaction {
             db: self.clone(),
@@ -655,7 +615,6 @@ pub(crate) struct SyncTransaction {
 }
 
 #[cfg(feature = "migrations")]
-#[allow(dead_code)]
 impl SyncTransaction {
     pub(crate) fn commit(&self) -> Result<(), DriverError> {
         let mut guard = self.tx.lock().unwrap();
@@ -665,6 +624,7 @@ impl SyncTransaction {
         tx.commit().map_err(Error::into_generic)
     }
 
+    #[allow(dead_code)]
     pub(crate) fn get(&self, cf: &str, key: &[u8]) -> Result<Option<Vec<u8>>, DriverError> {
         let cf = self.db.column_family(cf);
         let guard = self.tx.lock().unwrap();
