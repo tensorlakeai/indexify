@@ -233,14 +233,13 @@ impl FunctionRunProcessor {
 
             // Check max_containers limit from the pool
             let pool_id = ContainerPoolId::for_function(
-                &function_run.namespace,
                 &function_run.application,
                 &function_run.name,
                 &function_run.version,
             );
             let pool_key = ContainerPoolKey::new(&function_run.namespace, &pool_id);
 
-            if let Some(pool) = container_scheduler.container_pools.get(&pool_key) &&
+            if let Some(pool) = container_scheduler.get_pool(&pool_key) &&
                 let Some(max) = pool.max_containers
             {
                 let fn_uri = FunctionURI {

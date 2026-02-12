@@ -761,7 +761,7 @@ impl ExecutorManager {
                 max_concurrency: Some(fe.max_concurrency),
                 sandbox_metadata,
                 container_type: Some(fe_type_pb.into()),
-                pool_id: Some(fe.pool_id.get().to_string()),
+                pool_id: fe.pool_id.as_ref().map(|p| p.get().to_string()),
             };
             function_executors_pb.push(fe_description_pb);
         }

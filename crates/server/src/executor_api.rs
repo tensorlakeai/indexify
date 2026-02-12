@@ -414,21 +414,16 @@ impl TryFrom<FunctionExecutorState> for data_model::Container {
         // set pool_id.
         let pool_id = description
             .and_then(|d| d.pool_id.clone())
-            .map(data_model::ContainerPoolId::new)
-            .unwrap_or_else(|| {
-                match container_type {
-                    ContainerType::Function => data_model::ContainerPoolId::for_function(
-                        &namespace,
-                        &application_name,
-                        &function_name,
-                        &version,
-                    ),
-                    ContainerType::Sandbox => {
-                        // For sandboxes, function_name is the sandbox_id
-                        data_model::ContainerPoolId::for_sandbox(&namespace, &function_name)
-                    }
-                }
-            });
+            .map(data_model::ContainerPoolId::new);
+        // Fallback for old executors that don't set pool_id:
+        let pool_id = pool_id.or_else(|| match container_type {
+            ContainerType::Function => Some(data_model::ContainerPoolId::for_function(
+                &application_name,
+                &function_name,
+                &version,
+            )),
+            ContainerType::Sandbox => None, // Standalone sandboxes have no pool
+        });
 
         ContainerBuilder::default()
             .id(ContainerId::new(id.clone()))

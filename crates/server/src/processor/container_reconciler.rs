@@ -107,10 +107,12 @@ impl ContainerReconciler {
                 continue;
             }
 
-            // Check 1: Pool must exist
-            let pool_exists = container_scheduler
-                .container_pools
-                .contains_key(&fe.pool_key());
+            // Check 1: Pool must exist. Standalone sandbox containers have
+            // pool_id=None and don't need a pool.
+            let pool_exists = match fe.pool_key() {
+                Some(key) => container_scheduler.get_pool(&key).is_some(),
+                None => true,
+            };
 
             // Check 2: If sandbox assigned, it must be Running
             let sandbox_valid = match &fe.sandbox_id {

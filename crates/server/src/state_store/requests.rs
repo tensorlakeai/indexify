@@ -166,6 +166,10 @@ pub struct SchedulerUpdateRequest {
     pub updated_pools: HashMap<ContainerPoolKey, ContainerPool>,
     pub deleted_pools: HashSet<ContainerPoolKey>,
     pub pool_deficits: Option<super::in_memory_state::ResourceProfileHistogram>,
+    /// Pools that the buffer reconciler found unsatisfiable (no resources).
+    /// Propagated to the real scheduler's blocked_pools for cross-cycle
+    /// persistence so these pools are skipped until resources become available.
+    pub newly_blocked_pools: HashSet<ContainerPoolKey>,
 }
 
 impl SchedulerUpdateRequest {
@@ -201,6 +205,7 @@ impl SchedulerUpdateRequest {
         if other.pool_deficits.is_some() {
             self.pool_deficits = other.pool_deficits;
         }
+        self.newly_blocked_pools.extend(other.newly_blocked_pools);
     }
 
     pub fn cancel_allocation(&mut self, allocation: &mut Allocation) {

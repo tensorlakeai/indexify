@@ -118,7 +118,7 @@ impl SandboxProcessor {
             }
 
             // No warm container available - check if we can create on-demand
-            if let Some(pool) = container_scheduler.container_pools.get(&container_pool_key) {
+            if let Some(pool) = container_scheduler.get_pool(&container_pool_key) {
                 let (claimed, warm) =
                     container_scheduler.count_pool_containers(&container_pool_key);
                 let current = claimed + warm;
