@@ -42,7 +42,7 @@ use crate::{
             rocksdb::{RocksDBConfig, RocksDBDriver},
         },
         in_memory_metrics::InMemoryStoreGauges,
-        serializer::{JsonEncode, JsonEncoder},
+        serializer::{StateStoreEncode, StateStoreEncoder},
     },
 };
 
@@ -312,17 +312,17 @@ impl IndexifyState {
                 .map_err(|e| anyhow!("error updating container scheduler: {e:?}"))?;
         }
 
-        if let RequestPayload::SchedulerUpdate((request, _)) = &request.payload {
+        if let RequestPayload::SchedulerUpdate(payload) = &request.payload {
             let impacted_executors = self
                 .executor_watches
                 .impacted_executors(
-                    &request.updated_function_runs,
-                    &request.updated_request_states,
+                    &payload.update.updated_function_runs,
+                    &payload.update.updated_request_states,
                 )
                 .await;
             changed_executors.extend(impacted_executors.into_iter().map(|e| e.into()));
 
-            for executor_id in request.updated_executor_states.keys() {
+            for executor_id in payload.update.updated_executor_states.keys() {
                 changed_executors.insert(executor_id.clone());
             }
         }
@@ -451,10 +451,10 @@ impl IndexifyState {
                 );
                 state_machine::create_request(&txn, invoke_application_request).await?;
             }
-            RequestPayload::SchedulerUpdate((request, processed_state_changes)) => {
+            RequestPayload::SchedulerUpdate(payload) => {
                 let scheduler_result = state_machine::handle_scheduler_update(
                     &txn,
-                    request,
+                    &payload.update,
                     Some(&self.usage_event_id_seq),
                     current_clock,
                 )
@@ -462,7 +462,8 @@ impl IndexifyState {
                 if scheduler_result.usage_recorded {
                     should_notify_usage_reporter = true;
                 }
-                state_machine::mark_state_changes_processed(&txn, processed_state_changes).await?;
+                state_machine::mark_state_changes_processed(&txn, &payload.processed_state_changes)
+                    .await?;
             }
             RequestPayload::CreateNameSpace(namespace_request) => {
                 state_machine::upsert_namespace(self.db.clone(), namespace_request, current_clock)
@@ -652,7 +653,7 @@ async fn read_sm_meta(db: &RocksDBDriver) -> Result<StateMachineMetadata> {
         )
         .await?;
     match meta {
-        Some(meta) => Ok(JsonEncoder::decode(&meta)?),
+        Some(meta) => Ok(StateStoreEncoder::decode(&meta)?),
         None => Ok(StateMachineMetadata {
             db_version: 0,
             last_change_idx: 0,
@@ -663,7 +664,7 @@ async fn read_sm_meta(db: &RocksDBDriver) -> Result<StateMachineMetadata> {
 }
 
 pub async fn write_sm_meta(txn: &Transaction, sm_meta: &StateMachineMetadata) -> Result<()> {
-    let serialized_meta = JsonEncoder::encode(sm_meta)?;
+    let serialized_meta = StateStoreEncoder::encode(sm_meta)?;
     txn.put(
         IndexifyObjectsColumns::StateMachineMetadata.as_ref(),
         b"sm_meta",
@@ -884,6 +885,8 @@ mod tests {
             "RequestStateChangeEvents",
             "Sandboxes",
             "ContainerPools",
+            "FunctionRuns",
+            "FunctionCalls",
         ];
 
         let columns_iter = columns
