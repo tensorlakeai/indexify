@@ -149,6 +149,7 @@ impl FunctionRunProcessor {
                                 crate::data_model::RequestFailureReason::ConstraintUnsatisfiable,
                             ));
                             update.add_function_run(failed_function_run.clone(), &mut ctx);
+                            update.add_request_state(&ctx);
                             // Mark as unsatisfiable so we skip other runs of same function
                             no_resources_for_fn.insert(fn_uri);
                         }
@@ -319,6 +320,7 @@ impl FunctionRunProcessor {
         });
 
         update.add_function_run(updated_function_run.clone(), ctx);
+        update.add_request_state(ctx);
         update.new_allocations.push(allocation.clone());
 
         // Increment num_allocations via updated_function_containers so

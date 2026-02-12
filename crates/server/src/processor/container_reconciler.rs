@@ -373,10 +373,8 @@ impl ContainerReconciler {
             // fix this.
             if is_completed {
                 ctx.outcome = fn_run_outcome.map(|o| o.into());
-                update
-                    .updated_request_states
-                    .insert(ctx.key(), *ctx.clone());
             }
+            update.add_request_state(&ctx);
         }
 
         Ok(update)

@@ -185,6 +185,13 @@ impl SchedulerUpdateRequest {
         self.updated_allocations.push(allocation.clone());
     }
 
+    /// Adds a function run to the request context and tracks it as updated.
+    ///
+    /// NOTE: This does NOT snapshot the RequestCtx. Callers MUST call
+    /// `add_request_state()` once before returning the SchedulerUpdateRequest
+    /// or before passing it to `in_memory_state.update_state()`.
+    /// This avoids O(N^2) cloning when adding many function runs to the same
+    /// request context (e.g., during 1000-item map-reduce).
     pub fn add_function_run(&mut self, function_run: FunctionRun, request_ctx: &mut RequestCtx) {
         request_ctx
             .function_runs
@@ -193,22 +200,25 @@ impl SchedulerUpdateRequest {
             .entry(request_ctx.key())
             .or_default()
             .insert(function_run.id.clone());
-        self.updated_request_states
-            .insert(request_ctx.key(), request_ctx.clone());
     }
 
+    /// Snapshots the current state of a RequestCtx into the update.
+    /// Call this once after all mutations are done, before the scheduler update
+    /// is consumed by `in_memory_state.update_state()` or persisted.
     pub fn add_request_state(&mut self, request_ctx: &RequestCtx) {
         self.updated_request_states
             .insert(request_ctx.key(), request_ctx.clone());
     }
 
+    /// Adds a function call to the request context.
+    ///
+    /// NOTE: This does NOT snapshot the RequestCtx. See `add_function_run()`
+    /// documentation for the snapshot contract.
     pub fn add_function_call(&mut self, function_call: FunctionCall, request_ctx: &mut RequestCtx) {
         request_ctx.function_calls.insert(
             function_call.function_call_id.clone(),
             function_call.clone(),
         );
-        self.updated_request_states
-            .insert(request_ctx.key(), request_ctx.clone());
     }
 
     pub fn unallocated_function_runs(&self) -> Vec<FunctionRun> {

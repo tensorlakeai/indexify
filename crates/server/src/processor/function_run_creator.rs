@@ -111,6 +111,7 @@ impl FunctionRunCreator {
             pending_function_calls,
             application_version,
         )?);
+        scheduler_update.add_request_state(&request_ctx);
         in_memory_state.update_state(
             self.clock,
             &RequestPayload::SchedulerUpdate((Box::new(scheduler_update.clone()), vec![])),
@@ -246,6 +247,7 @@ impl FunctionRunCreator {
                 app_version = %function_run.version,
                 "application version not found, stopping scheduling of child function runs",
             );
+            scheduler_update.add_request_state(&request_ctx);
             return Ok(scheduler_update);
         };
 
@@ -262,6 +264,7 @@ impl FunctionRunCreator {
         }
         scheduler_update.add_function_run(function_run.clone(), &mut request_ctx);
 
+        scheduler_update.add_request_state(&request_ctx);
         in_memory_state.update_state(
             self.clock,
             &RequestPayload::SchedulerUpdate((Box::new(scheduler_update.clone()), vec![])),
@@ -296,6 +299,7 @@ impl FunctionRunCreator {
                     scheduler_update.add_function_run(function_run.clone(), &mut request_ctx);
                 }
             }
+            scheduler_update.add_request_state(&request_ctx);
             return Ok(scheduler_update);
         }
 
@@ -323,6 +327,7 @@ impl FunctionRunCreator {
             pending_function_calls,
             &application_version,
         )?);
+        scheduler_update.add_request_state(&request_ctx);
         in_memory_state.update_state(
             self.clock,
             &RequestPayload::SchedulerUpdate((Box::new(scheduler_update.clone()), vec![])),
