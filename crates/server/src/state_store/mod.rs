@@ -644,7 +644,10 @@ impl IndexifyState {
     }
 }
 
-/// Read state machine metadata from the database
+/// Read state machine metadata from the database.
+///
+/// Falls back to JSON deserialization for databases that predate the postcard
+/// migration (v13).
 async fn read_sm_meta(db: &RocksDBDriver) -> Result<StateMachineMetadata> {
     let meta = db
         .get(
@@ -653,7 +656,14 @@ async fn read_sm_meta(db: &RocksDBDriver) -> Result<StateMachineMetadata> {
         )
         .await?;
     match meta {
-        Some(meta) => Ok(StateStoreEncoder::decode(&meta)?),
+        Some(meta) => StateStoreEncoder::decode(&meta).or_else(|_| {
+            serde_json::from_slice(&meta).map_err(|e| {
+                anyhow::anyhow!(
+                    "failed to decode StateMachineMetadata as postcard or JSON: {}",
+                    e
+                )
+            })
+        }),
         None => Ok(StateMachineMetadata {
             db_version: 0,
             last_change_idx: 0,
