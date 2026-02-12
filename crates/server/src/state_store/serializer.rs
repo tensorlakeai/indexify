@@ -3,7 +3,6 @@ use std::{any::type_name, fmt::Debug, sync::LazyLock};
 use anyhow::Result;
 use opentelemetry::metrics::Histogram;
 use serde::de::DeserializeOwned;
-#[allow(unused_imports)]
 use tracing::warn;
 
 /// Version byte prefix for binary-encoded values.
@@ -55,7 +54,7 @@ impl StateStoreEncode for StateStoreEncoder {
         Ok(buf)
     }
 
-    /// Decodes a value with a `0x01` version byte prefix (postcard).
+    /// Decodes a value with a `0x01` version byte prefix (postcard). /// Decodes a postcard value with a `0x01` version byte prefix.
     fn decode<T: DeserializeOwned>(bytes: &[u8]) -> Result<T> {
         if bytes.is_empty() {
             return Err(anyhow::anyhow!(
@@ -66,9 +65,10 @@ impl StateStoreEncode for StateStoreEncoder {
 
         if bytes[0] != BINARY_VERSION {
             return Err(anyhow::anyhow!(
-                "unexpected version byte {:#04x} when decoding type: {}",
+                "unexpected version byte {:#04x} when decoding type: {} (expected binary prefix {:#04x})",
                 bytes[0],
-                type_name::<T>()
+                type_name::<T>(),
+                BINARY_VERSION
             ));
         }
 
