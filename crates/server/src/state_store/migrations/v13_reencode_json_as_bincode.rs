@@ -93,8 +93,9 @@ impl Migration for V13ReencodeJsonAsBincode {
             PersistedRequestStateChangeEvent
         );
         reencode!(&IndexifyObjectsColumns::Sandboxes, Sandbox);
-        reencode!(&IndexifyObjectsColumns::FunctionPools, ContainerPool);
-        reencode!(&IndexifyObjectsColumns::SandboxPools, ContainerPool);
+        // ContainerPools is renamed to FunctionPools + SandboxPools in V15.
+        // At V13 time, only the old ContainerPools CF exists.
+        reencode!(&IndexifyObjectsColumns::ContainerPools, ContainerPool);
         // FunctionRuns and FunctionCalls CFs don't exist until V14 creates
         // them, and V14 writes them fresh in postcard format — skip here.
 

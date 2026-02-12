@@ -79,6 +79,11 @@ pub enum IndexifyObjectsColumns {
     // Sandboxes - Namespace|Application|SandboxId -> Sandbox
     Sandboxes,
 
+    // Legacy Container Pools CF — kept for V13 (re-encode) and V15 (split)
+    // migrations. Not used at runtime; V15 moves data to FunctionPools +
+    // SandboxPools and drops this CF.
+    ContainerPools,
+
     // Function Pools - Namespace|PoolId -> ContainerPool
     FunctionPools,
 

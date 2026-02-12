@@ -1379,12 +1379,18 @@ impl FunctionRunFailureReason {
     }
 
     pub fn should_count_against_function_run_retry_attempts(&self) -> bool {
-        // Explicit platform decisions and provable infrastructure
-        // failures don't count against retry attempts; everything
-        // else counts against retry attempts.
+        // Platform/infrastructure failures that are not the user's fault
+        // don't count against retry attempts. This ensures transient
+        // issues (port collisions, executor crashes, slow CI machines)
+        // get retried even when max_retries is 0.
         //
-        // Includes InternalError right now to prevent infinite retries
-        // with long lasting internal problems.
+        // Reasons that DON'T count (free retries):
+        //   FunctionExecutorTerminated, ExecutorRemoved,
+        //   ContainerStartupInternalError
+        //
+        // Reasons that DO count (user-attributable):
+        //   InternalError, FunctionError, FunctionTimeout, OutOfMemory,
+        //   ContainerStartupFunctionError, ContainerStartupFunctionTimeout
         matches!(
             self,
             FunctionRunFailureReason::InternalError |
@@ -1392,8 +1398,7 @@ impl FunctionRunFailureReason {
                 FunctionRunFailureReason::FunctionTimeout |
                 FunctionRunFailureReason::OutOfMemory |
                 FunctionRunFailureReason::ContainerStartupFunctionError |
-                FunctionRunFailureReason::ContainerStartupFunctionTimeout |
-                FunctionRunFailureReason::ContainerStartupInternalError
+                FunctionRunFailureReason::ContainerStartupFunctionTimeout
         )
     }
 }

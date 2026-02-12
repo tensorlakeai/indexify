@@ -601,6 +601,8 @@ impl ContainerScheduler {
                 }
                 self.mark_pool_dirty(pool_key);
             }
+            // Removed container frees resources — unblock all pools
+            self.unblock_all_pools();
         }
     }
 
@@ -1378,6 +1380,9 @@ impl ContainerScheduler {
             if let Some(pool_key) = pool_key {
                 self.mark_pool_dirty(pool_key);
             }
+            // Terminated container frees resources on its executor, which could
+            // satisfy any blocked pool — not just the one this container belonged to.
+            self.unblock_all_pools();
         } else {
             // Non-terminated: add to count/lookup indices
             self.containers_by_function_uri
