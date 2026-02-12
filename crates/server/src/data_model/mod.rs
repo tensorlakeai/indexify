@@ -2086,7 +2086,12 @@ pub struct AllocationOutputIngestedEvent {
     pub data_payload: Option<DataPayload>,
     pub graph_updates: Option<GraphUpdates>,
     pub request_exception: Option<DataPayload>,
-    pub allocation: Allocation,
+    /// Slim allocation fields — replaces the full `Allocation` object to avoid
+    /// serializing large `input_args` and `call_metadata` in state changes.
+    pub allocation_id: AllocationId,
+    pub allocation_target: AllocationTarget,
+    pub allocation_outcome: FunctionRunOutcome,
+    pub execution_duration_ms: Option<u64>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]

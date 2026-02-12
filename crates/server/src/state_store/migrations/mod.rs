@@ -18,4 +18,5 @@ mod v1_fake_migration;
 // Add new migrations mod here
 mod v10_allocation_output_event_format;
 mod v11_sandbox_data_model_changes;
+mod v12_slim_allocation_output_event;
 mod v9_separate_executor_and_app_state_changes;

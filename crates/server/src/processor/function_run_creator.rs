@@ -9,6 +9,7 @@ use tracing::{error, info, trace, warn};
 
 use crate::{
     data_model::{
+        Allocation,
         AllocationOutputIngestedEvent,
         ApplicationVersion,
         ComputeOp,
@@ -133,19 +134,18 @@ impl FunctionRunCreator {
             request_id = alloc_finished_event.request_id,
             fn = alloc_finished_event.function,
             fn_run_id = alloc_finished_event.function_call_id.to_string(),
-            allocation_id = alloc_finished_event.allocation.id.to_string(),
+            allocation_id = alloc_finished_event.allocation_id.to_string(),
             "handling allocation ingestion",
         );
         let mut scheduler_update = SchedulerUpdateRequest::default();
         if let Some(fc) = container_scheduler
             .function_containers
-            .get_mut(&alloc_finished_event.allocation.target.function_executor_id)
+            .get_mut(&alloc_finished_event.allocation_target.function_executor_id)
         {
-            fc.allocations.remove(&alloc_finished_event.allocation.id);
+            fc.allocations.remove(&alloc_finished_event.allocation_id);
             scheduler_update.containers.insert(
                 alloc_finished_event
-                    .allocation
-                    .target
+                    .allocation_target
                     .function_executor_id
                     .clone(),
                 fc.clone(),
@@ -193,15 +193,32 @@ impl FunctionRunCreator {
             return Ok(scheduler_update);
         };
 
-        let allocation = alloc_finished_event.allocation.clone();
-
-        if let Some(existing_allocation) = self
+        // Read the base allocation from DB and apply the executor-reported outcome.
+        // The allocation in the DB has FunctionRunOutcome::Unknown — we update it
+        // with the outcome, execution_duration_ms from the slim event fields.
+        let allocation_key = Allocation::key_from(
+            &alloc_finished_event.namespace,
+            &alloc_finished_event.application,
+            &alloc_finished_event.request_id,
+            &alloc_finished_event.allocation_id,
+        );
+        let Some(mut allocation) = self
             .indexify_state
             .reader()
-            .get_allocation(&allocation.key())
-            .await? &&
-            existing_allocation.is_terminal()
-        {
+            .get_allocation(&allocation_key)
+            .await?
+        else {
+            warn!(
+                allocation_id = %alloc_finished_event.allocation_id,
+                request_id = %alloc_finished_event.request_id,
+                namespace = %alloc_finished_event.namespace,
+                app = %alloc_finished_event.application,
+                "allocation not found in DB, skipping"
+            );
+            return Ok(scheduler_update);
+        };
+
+        if allocation.is_terminal() {
             warn!(
                 allocation_id = %allocation.id,
                 request_id = %allocation.request_id,
@@ -211,6 +228,10 @@ impl FunctionRunCreator {
             );
             return Ok(scheduler_update);
         }
+
+        // Apply executor-reported outcome to the allocation
+        allocation.outcome = alloc_finished_event.allocation_outcome.clone();
+        allocation.execution_duration_ms = alloc_finished_event.execution_duration_ms;
 
         // Idempotency: we only act on this alloc's task if the task is currently
         // running this alloc. This is because we handle allocation failures
