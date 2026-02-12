@@ -54,7 +54,7 @@ impl StateStoreEncode for StateStoreEncoder {
         Ok(buf)
     }
 
-    /// Decodes a value with a `0x01` version byte prefix (postcard). /// Decodes a postcard value with a `0x01` version byte prefix.
+    /// Decodes a postcard value with a `0x01` version byte prefix.
     fn decode<T: DeserializeOwned>(bytes: &[u8]) -> Result<T> {
         if bytes.is_empty() {
             return Err(anyhow::anyhow!(
