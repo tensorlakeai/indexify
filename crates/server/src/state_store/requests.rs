@@ -245,8 +245,7 @@ impl SchedulerUpdateRequest {
 
     /// Adds a function call to the request context and tracks it as updated.
     ///
-    /// NOTE: This does NOT snapshot the RequestCtx. See `add_function_run()`
-    /// documentation for the snapshot contract.
+    /// NOTE: This does NOT snapshot the RequestCtx.
     pub fn add_function_call(&mut self, function_call: FunctionCall, request_ctx: &mut RequestCtx) {
         let fc_id = function_call.function_call_id.clone();
         request_ctx

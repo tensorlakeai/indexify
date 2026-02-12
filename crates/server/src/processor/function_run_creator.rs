@@ -193,9 +193,6 @@ impl FunctionRunCreator {
             return Ok(scheduler_update);
         };
 
-        // Read the base allocation from DB and apply the executor-reported outcome.
-        // The allocation in the DB has FunctionRunOutcome::Unknown — we update it
-        // with the outcome, execution_duration_ms from the slim event fields.
         let allocation_key = Allocation::key_from(
             &alloc_finished_event.namespace,
             &alloc_finished_event.application,

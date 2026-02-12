@@ -20,13 +20,6 @@ use serde_inline_default::serde_inline_default;
 use strum::Display;
 use tracing::info;
 
-/// A wrapper around `serde_json::Value` that adapts serialization strategy
-/// based on the format.
-///
-/// - Human-readable formats (JSON): serializes as a raw JSON value, preserving
-///   backward compatibility with legacy data.
-/// - Binary formats (bincode): serializes the value as a JSON string, avoiding
-///   `deserialize_any` which binary formats don't support.
 #[derive(Debug, Clone, PartialEq)]
 pub struct JsonValue(pub serde_json::Value);
 
@@ -1200,8 +1193,6 @@ impl RequestCtx {
         }
     }
 
-    /// Reconstructs a full `RequestCtx` from a `PersistedRequestCtx` plus
-    /// separately-loaded function_runs and function_calls maps.
     pub fn from_persisted(
         persisted: PersistedRequestCtx,
         function_runs: HashMap<FunctionCallId, FunctionRun>,
@@ -1226,7 +1217,7 @@ impl RequestCtx {
 
 /// A persistence-optimized version of `RequestCtx` that does not embed
 /// function_runs or function_calls. Those are stored in their own column
-/// families. This avoids O(N^2) write amplification for large requests.
+/// families.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PersistedRequestCtx {
     pub namespace: String,
@@ -2237,8 +2228,6 @@ pub struct AllocationOutputIngestedEvent {
     pub data_payload: Option<DataPayload>,
     pub graph_updates: Option<GraphUpdates>,
     pub request_exception: Option<DataPayload>,
-    /// Slim allocation fields — replaces the full `Allocation` object to avoid
-    /// serializing large `input_args` and `call_metadata` in state changes.
     pub allocation_id: AllocationId,
     pub allocation_target: AllocationTarget,
     pub allocation_outcome: FunctionRunOutcome,
