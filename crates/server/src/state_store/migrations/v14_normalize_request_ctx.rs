@@ -1,6 +1,5 @@
-use std::collections::HashMap;
-
 use anyhow::Result;
+use async_trait::async_trait;
 use tracing::info;
 
 use super::{
@@ -8,7 +7,7 @@ use super::{
     migration_trait::Migration,
 };
 use crate::{
-    data_model::{FunctionCall, FunctionCallId, FunctionRun, PersistedRequestCtx, RequestCtx},
+    data_model::{FunctionCall, PersistedRequestCtx, RequestCtx},
     state_store::{
         driver::{Writer, rocksdb::RocksDBDriver},
         serializer::{StateStoreEncode, StateStoreEncoder},
@@ -31,6 +30,7 @@ use crate::{
 #[derive(Clone)]
 pub struct V14NormalizeRequestCtx;
 
+#[async_trait]
 impl Migration for V14NormalizeRequestCtx {
     fn version(&self) -> u64 {
         14
@@ -40,26 +40,28 @@ impl Migration for V14NormalizeRequestCtx {
         "Normalize FunctionRuns and FunctionCalls out of RequestCtx"
     }
 
-    fn prepare(&self, ctx: &PrepareContext) -> Result<RocksDBDriver> {
+    async fn prepare(&self, ctx: &PrepareContext) -> Result<RocksDBDriver> {
         // Create the new column families if they don't exist
+        let existing_cfs = ctx.list_cfs().unwrap_or_default();
         ctx.reopen_with_cf_operations(|db| {
-            let existing_cfs = ctx.list_cfs().unwrap_or_default();
+            Box::pin(async move {
+                let fr_cf = IndexifyObjectsColumns::FunctionRuns.to_string();
+                if !existing_cfs.contains(&fr_cf) {
+                    db.create(&fr_cf, &Default::default()).await?;
+                }
 
-            let fr_cf = IndexifyObjectsColumns::FunctionRuns.to_string();
-            if !existing_cfs.contains(&fr_cf) {
-                db.create(&fr_cf, &Default::default())?;
-            }
+                let fc_cf = IndexifyObjectsColumns::FunctionCalls.to_string();
+                if !existing_cfs.contains(&fc_cf) {
+                    db.create(&fc_cf, &Default::default()).await?;
+                }
 
-            let fc_cf = IndexifyObjectsColumns::FunctionCalls.to_string();
-            if !existing_cfs.contains(&fc_cf) {
-                db.create(&fc_cf, &Default::default())?;
-            }
-
-            Ok(())
+                Ok(())
+            })
         })
+        .await
     }
 
-    fn apply(&self, ctx: &MigrationContext) -> Result<()> {
+    async fn apply(&self, ctx: &MigrationContext) -> Result<()> {
         let mut total_requests: usize = 0;
         let mut total_function_runs: usize = 0;
         let mut total_function_calls: usize = 0;
@@ -69,7 +71,8 @@ impl Migration for V14NormalizeRequestCtx {
         ctx.iterate(&IndexifyObjectsColumns::RequestCtx, |key, value| {
             entries.push((key.to_vec(), value.to_vec()));
             Ok(())
-        })?;
+        })
+        .await?;
 
         for (key, value) in entries {
             // Try to decode as the old RequestCtx format (with embedded maps)
@@ -81,11 +84,13 @@ impl Migration for V14NormalizeRequestCtx {
             for function_run in old_ctx.function_runs.values() {
                 let fr_key = function_run.key();
                 let encoded = StateStoreEncoder::encode(function_run)?;
-                ctx.txn.put(
-                    IndexifyObjectsColumns::FunctionRuns.as_ref(),
-                    fr_key.as_bytes(),
-                    &encoded,
-                )?;
+                ctx.txn
+                    .put(
+                        IndexifyObjectsColumns::FunctionRuns.as_ref(),
+                        fr_key.as_bytes(),
+                        &encoded,
+                    )
+                    .await?;
                 total_function_runs += 1;
             }
 
@@ -98,11 +103,13 @@ impl Migration for V14NormalizeRequestCtx {
                     &function_call.function_call_id,
                 );
                 let encoded = StateStoreEncoder::encode(function_call)?;
-                ctx.txn.put(
-                    IndexifyObjectsColumns::FunctionCalls.as_ref(),
-                    fc_key.as_bytes(),
-                    &encoded,
-                )?;
+                ctx.txn
+                    .put(
+                        IndexifyObjectsColumns::FunctionCalls.as_ref(),
+                        fc_key.as_bytes(),
+                        &encoded,
+                    )
+                    .await?;
                 total_function_calls += 1;
             }
 
@@ -110,7 +117,8 @@ impl Migration for V14NormalizeRequestCtx {
             let persisted: PersistedRequestCtx = (&old_ctx).into();
             let encoded = StateStoreEncoder::encode(&persisted)?;
             ctx.txn
-                .put(IndexifyObjectsColumns::RequestCtx.as_ref(), &key, &encoded)?;
+                .put(IndexifyObjectsColumns::RequestCtx.as_ref(), &key, &encoded)
+                .await?;
         }
 
         info!(
@@ -129,6 +137,8 @@ impl Migration for V14NormalizeRequestCtx {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use super::*;
     use crate::{
         data_model::{
@@ -136,6 +146,7 @@ mod tests {
             DataPayloadBuilder,
             FunctionArgs,
             FunctionCallId,
+            FunctionRun,
             FunctionRunBuilder,
             FunctionRunStatus,
             RequestCtxBuilder,
@@ -146,8 +157,8 @@ mod tests {
         },
     };
 
-    #[test]
-    fn test_v14_normalizes_request_ctx() -> Result<()> {
+    #[tokio::test]
+    async fn test_v14_normalizes_request_ctx() -> Result<()> {
         let migration = V14NormalizeRequestCtx;
 
         // Build a RequestCtx with 2 function_runs and 2 function_calls
@@ -224,80 +235,92 @@ mod tests {
 
         let old_encoded = StateStoreEncoder::encode(&ctx)?;
         let ctx_key = ctx.key();
+        let ctx_key_clone = ctx_key.clone();
 
         MigrationTestBuilder::new()
             .with_column_family(IndexifyObjectsColumns::RequestCtx.as_ref())
             .run_test(
                 &migration,
                 |db| {
-                    // Insert old-format RequestCtx
-                    db.put(
-                        IndexifyObjectsColumns::RequestCtx.as_ref(),
-                        ctx_key.as_bytes(),
-                        &old_encoded,
-                    )?;
-                    Ok(())
-                },
-                |db| {
-                    // Verify PersistedRequestCtx in RequestCtx CF
-                    let result = db
-                        .get(
+                    Box::pin(async move {
+                        // Insert old-format RequestCtx
+                        db.put(
                             IndexifyObjectsColumns::RequestCtx.as_ref(),
                             ctx_key.as_bytes(),
-                        )?
-                        .expect("persisted request ctx should exist");
-                    let persisted: PersistedRequestCtx = StateStoreEncoder::decode(&result)?;
-                    assert_eq!(persisted.namespace, "ns");
-                    assert_eq!(persisted.application_name, "app");
-                    assert_eq!(persisted.request_id, "req1");
-                    assert_eq!(persisted.function_runs_count, 2);
-                    assert_eq!(persisted.function_calls_count, 2);
-
-                    // Verify FunctionRuns in FunctionRuns CF
-                    let fr1_key = "ns|app|req1|fc1";
-                    let fr1_result = db
-                        .get(
-                            IndexifyObjectsColumns::FunctionRuns.as_ref(),
-                            fr1_key.as_bytes(),
-                        )?
-                        .expect("function run 1 should exist");
-                    let fr1: FunctionRun = StateStoreEncoder::decode(&fr1_result)?;
-                    assert_eq!(fr1.name, "fn1");
-
-                    let fr2_key = "ns|app|req1|fc2";
-                    let fr2_result = db
-                        .get(
-                            IndexifyObjectsColumns::FunctionRuns.as_ref(),
-                            fr2_key.as_bytes(),
-                        )?
-                        .expect("function run 2 should exist");
-                    let fr2: FunctionRun = StateStoreEncoder::decode(&fr2_result)?;
-                    assert_eq!(fr2.name, "fn2");
-
-                    // Verify FunctionCalls in FunctionCalls CF
-                    let fc1_key = "ns|app|req1|fc1";
-                    let fc1_result = db
-                        .get(
-                            IndexifyObjectsColumns::FunctionCalls.as_ref(),
-                            fc1_key.as_bytes(),
-                        )?
-                        .expect("function call 1 should exist");
-                    let fc1: FunctionCall = StateStoreEncoder::decode(&fc1_result)?;
-                    assert_eq!(fc1.fn_name, "fn1");
-
-                    let fc2_key = "ns|app|req1|fc2";
-                    let fc2_result = db
-                        .get(
-                            IndexifyObjectsColumns::FunctionCalls.as_ref(),
-                            fc2_key.as_bytes(),
-                        )?
-                        .expect("function call 2 should exist");
-                    let fc2: FunctionCall = StateStoreEncoder::decode(&fc2_result)?;
-                    assert_eq!(fc2.fn_name, "fn2");
-
-                    Ok(())
+                            &old_encoded,
+                        )
+                        .await?;
+                        Ok(())
+                    })
                 },
-            )?;
+                |db| {
+                    Box::pin(async move {
+                        // Verify PersistedRequestCtx in RequestCtx CF
+                        let result = db
+                            .get(
+                                IndexifyObjectsColumns::RequestCtx.as_ref(),
+                                ctx_key_clone.as_bytes(),
+                            )
+                            .await?
+                            .expect("persisted request ctx should exist");
+                        let persisted: PersistedRequestCtx = StateStoreEncoder::decode(&result)?;
+                        assert_eq!(persisted.namespace, "ns");
+                        assert_eq!(persisted.application_name, "app");
+                        assert_eq!(persisted.request_id, "req1");
+                        assert_eq!(persisted.function_runs_count, 2);
+                        assert_eq!(persisted.function_calls_count, 2);
+
+                        // Verify FunctionRuns in FunctionRuns CF
+                        let fr1_key = "ns|app|req1|fc1";
+                        let fr1_result = db
+                            .get(
+                                IndexifyObjectsColumns::FunctionRuns.as_ref(),
+                                fr1_key.as_bytes(),
+                            )
+                            .await?
+                            .expect("function run 1 should exist");
+                        let fr1: FunctionRun = StateStoreEncoder::decode(&fr1_result)?;
+                        assert_eq!(fr1.name, "fn1");
+
+                        let fr2_key = "ns|app|req1|fc2";
+                        let fr2_result = db
+                            .get(
+                                IndexifyObjectsColumns::FunctionRuns.as_ref(),
+                                fr2_key.as_bytes(),
+                            )
+                            .await?
+                            .expect("function run 2 should exist");
+                        let fr2: FunctionRun = StateStoreEncoder::decode(&fr2_result)?;
+                        assert_eq!(fr2.name, "fn2");
+
+                        // Verify FunctionCalls in FunctionCalls CF
+                        let fc1_key = "ns|app|req1|fc1";
+                        let fc1_result = db
+                            .get(
+                                IndexifyObjectsColumns::FunctionCalls.as_ref(),
+                                fc1_key.as_bytes(),
+                            )
+                            .await?
+                            .expect("function call 1 should exist");
+                        let fc1: FunctionCall = StateStoreEncoder::decode(&fc1_result)?;
+                        assert_eq!(fc1.fn_name, "fn1");
+
+                        let fc2_key = "ns|app|req1|fc2";
+                        let fc2_result = db
+                            .get(
+                                IndexifyObjectsColumns::FunctionCalls.as_ref(),
+                                fc2_key.as_bytes(),
+                            )
+                            .await?
+                            .expect("function call 2 should exist");
+                        let fc2: FunctionCall = StateStoreEncoder::decode(&fc2_result)?;
+                        assert_eq!(fc2.fn_name, "fn2");
+
+                        Ok(())
+                    })
+                },
+            )
+            .await?;
 
         Ok(())
     }

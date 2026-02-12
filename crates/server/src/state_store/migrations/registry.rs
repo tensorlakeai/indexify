@@ -86,6 +86,8 @@ impl MigrationRegistry {
 
 #[cfg(test)]
 mod tests {
+    use async_trait::async_trait;
+
     use super::{super::contexts::MigrationContext, *};
 
     #[derive(Clone)]
@@ -94,6 +96,7 @@ mod tests {
         name_str: &'static str,
     }
 
+    #[async_trait]
     impl Migration for TestMigration {
         fn version(&self) -> u64 {
             self.version_num
@@ -103,7 +106,7 @@ mod tests {
             self.name_str
         }
 
-        fn apply(&self, _ctx: &MigrationContext) -> Result<()> {
+        async fn apply(&self, _ctx: &MigrationContext) -> Result<()> {
             Ok(())
         }
 

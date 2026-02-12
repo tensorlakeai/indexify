@@ -1,4 +1,5 @@
 use anyhow::Result;
+use async_trait::async_trait;
 use tracing::info;
 
 use super::{contexts::MigrationContext, migration_trait::Migration};
@@ -16,6 +17,7 @@ use crate::state_store::state_machine::IndexifyObjectsColumns;
 #[derive(Clone)]
 pub struct V10AllocationOutputEventFormat;
 
+#[async_trait]
 impl Migration for V10AllocationOutputEventFormat {
     fn version(&self) -> u64 {
         10
@@ -25,7 +27,7 @@ impl Migration for V10AllocationOutputEventFormat {
         "Update AllocationOutputIngestedEvent format"
     }
 
-    fn apply(&self, ctx: &MigrationContext) -> Result<()> {
+    async fn apply(&self, ctx: &MigrationContext) -> Result<()> {
         let mut num_total_state_changes: usize = 0;
         let mut num_deleted_state_changes: usize = 0;
         let mut keys_to_delete: Vec<Vec<u8>> = Vec::new();
@@ -53,14 +55,17 @@ impl Migration for V10AllocationOutputEventFormat {
 
                 Ok(())
             },
-        )?;
+        )
+        .await?;
 
         // Delete the old format state changes using the transaction
         for key in &keys_to_delete {
-            ctx.txn.delete(
-                IndexifyObjectsColumns::ApplicationStateChanges.as_ref(),
-                key,
-            )?;
+            ctx.txn
+                .delete(
+                    IndexifyObjectsColumns::ApplicationStateChanges.as_ref(),
+                    key,
+                )
+                .await?;
             num_deleted_state_changes += 1;
         }
 
@@ -80,10 +85,13 @@ impl Migration for V10AllocationOutputEventFormat {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state_store::migrations::testing::MigrationTestBuilder;
+    use crate::state_store::{
+        driver::{Reader, Writer},
+        migrations::testing::MigrationTestBuilder,
+    };
 
-    #[test]
-    fn test_v10_migration_deletes_old_format() -> anyhow::Result<()> {
+    #[tokio::test]
+    async fn test_v10_migration_deletes_old_format() -> anyhow::Result<()> {
         let migration = V10AllocationOutputEventFormat;
 
         // Create an old format state change (simulated as raw JSON)
@@ -109,32 +117,42 @@ mod tests {
             }
         }"#;
 
+        let old_format_bytes = old_format_json.as_bytes().to_vec();
+
         MigrationTestBuilder::new()
             .with_column_family(IndexifyObjectsColumns::ApplicationStateChanges.as_ref())
             .run_test(
                 &migration,
                 |db| {
-                    // Insert old format state change
-                    db.put(
-                        IndexifyObjectsColumns::ApplicationStateChanges.as_ref(),
-                        1_u64.to_be_bytes(),
-                        old_format_json.as_bytes(),
-                    )?;
-                    Ok(())
+                    Box::pin(async move {
+                        // Insert old format state change
+                        db.put(
+                            IndexifyObjectsColumns::ApplicationStateChanges.as_ref(),
+                            &1_u64.to_be_bytes(),
+                            &old_format_bytes,
+                        )
+                        .await?;
+                        Ok(())
+                    })
                 },
                 |db| {
-                    // Verify the old format state change was deleted
-                    let result = db.get(
-                        IndexifyObjectsColumns::ApplicationStateChanges,
-                        1_u64.to_be_bytes(),
-                    )?;
-                    assert!(
-                        result.is_none(),
-                        "Old format AllocationOutputsIngested should be deleted"
-                    );
-                    Ok(())
+                    Box::pin(async move {
+                        // Verify the old format state change was deleted
+                        let result = db
+                            .get(
+                                IndexifyObjectsColumns::ApplicationStateChanges.as_ref(),
+                                &1_u64.to_be_bytes(),
+                            )
+                            .await?;
+                        assert!(
+                            result.is_none(),
+                            "Old format AllocationOutputsIngested should be deleted"
+                        );
+                        Ok(())
+                    })
                 },
-            )?;
+            )
+            .await?;
 
         Ok(())
     }

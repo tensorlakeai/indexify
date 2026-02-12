@@ -36,7 +36,6 @@ use crate::{
     processor::container_scheduler::{ContainerScheduler, ContainerSchedulerGauges},
     state_store::{
         driver::{
-            Reader,
             Transaction,
             Writer,
             rocksdb::{RocksDBConfig, RocksDBDriver},
@@ -188,7 +187,7 @@ impl IndexifyState {
         // This is because the migration process may delete older column families.
         // If we open the db with all column families, it would fail to open.
         #[cfg(feature = "migrations")]
-        let sm_meta = migration_runner::run(&path, config.clone())?;
+        let sm_meta = migration_runner::run(&path, config.clone()).await?;
 
         let sm_column_families = IndexifyObjectsColumns::iter()
             .map(|cf| ColumnFamilyDescriptor::new(cf.to_string(), Options::default()));
@@ -644,7 +643,11 @@ impl IndexifyState {
     }
 }
 
-/// Read state machine metadata from the database
+/// Read state machine metadata from the database.
+///
+/// Handles both legacy JSON format (pre-V13) and the current postcard format,
+/// since this may be called on databases that haven't been migrated yet.
+#[cfg(not(feature = "migrations"))]
 async fn read_sm_meta(db: &RocksDBDriver) -> Result<StateMachineMetadata> {
     let meta = db
         .get(
@@ -653,7 +656,27 @@ async fn read_sm_meta(db: &RocksDBDriver) -> Result<StateMachineMetadata> {
         )
         .await?;
     match meta {
-        Some(meta) => Ok(StateStoreEncoder::decode(&meta)?),
+        Some(meta) => {
+            if meta.is_empty() {
+                return Ok(StateMachineMetadata {
+                    db_version: 0,
+                    last_change_idx: 0,
+                    last_usage_idx: 0,
+                    last_request_event_idx: 0,
+                });
+            }
+            // Try postcard (0x01 prefix) first, fall back to JSON for pre-V13 DBs
+            if meta[0] == 0x01 {
+                StateStoreEncoder::decode(&meta)
+            } else {
+                serde_json::from_slice(&meta).map_err(|e| {
+                    anyhow::anyhow!(
+                        "failed to decode StateMachineMetadata as JSON or postcard: {}",
+                        e
+                    )
+                })
+            }
+        }
         None => Ok(StateMachineMetadata {
             db_version: 0,
             last_change_idx: 0,

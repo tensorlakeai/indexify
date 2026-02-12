@@ -51,15 +51,18 @@ impl PrepareContext {
 
     /// Helper to perform column family operations and reopen DB
     #[allow(dead_code)]
-    pub fn reopen_with_cf_operations<F>(&self, operations: F) -> Result<RocksDBDriver>
+    pub async fn reopen_with_cf_operations<F>(&self, operations: F) -> Result<RocksDBDriver>
     where
-        F: FnOnce(&mut RocksDBDriver) -> Result<()>,
+        F: FnOnce(
+            &mut RocksDBDriver,
+        )
+            -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send + '_>>,
     {
         // Open DB
         let mut db = self.open_db()?;
 
         // Apply operations
-        operations(&mut db)?;
+        operations(&mut db).await?;
 
         // Close DB to finalize CF changes
         drop(db);
@@ -86,22 +89,29 @@ impl MigrationContext {
         Self { db, txn }
     }
 
-    pub fn commit(&mut self) -> Result<()> {
-        self.txn.commit()?;
+    pub async fn commit(&mut self) -> Result<()> {
+        self.txn.commit().await?;
         Ok(())
     }
 
     /// Write state machine metadata to the database
-    pub fn write_sm_meta(&self, sm_meta: &StateMachineMetadata) -> Result<()> {
-        state_store::write_sm_meta(&self.txn, sm_meta)
+    pub async fn write_sm_meta(&self, sm_meta: &StateMachineMetadata) -> Result<()> {
+        state_store::write_sm_meta(&self.txn, sm_meta).await
     }
 
     /// Iterate over all entries in a column family
-    pub fn iterate<F>(&self, column_family: &IndexifyObjectsColumns, mut callback: F) -> Result<()>
+    pub async fn iterate<F>(
+        &self,
+        column_family: &IndexifyObjectsColumns,
+        mut callback: F,
+    ) -> Result<()>
     where
         F: FnMut(&[u8], &[u8]) -> Result<()>,
     {
-        let iter = self.db.iter(column_family.as_ref(), Default::default());
+        let iter = self
+            .db
+            .iter(column_family.as_ref(), Default::default())
+            .await;
 
         for kv in iter {
             let (key, value) = kv?;
@@ -156,7 +166,7 @@ impl MigrationContext {
     }
 
     /// Helper to update a JSON object and write it back
-    pub fn _update_json<F>(
+    pub async fn _update_json<F>(
         &self,
         column_family: &IndexifyObjectsColumns,
         key: &[u8],
@@ -165,12 +175,14 @@ impl MigrationContext {
     where
         F: FnOnce(&mut Value) -> Result<bool>,
     {
-        if let Some(value_bytes) = self.db.get(column_family.as_ref(), key)? {
+        if let Some(value_bytes) = self.db.get(column_family.as_ref(), key).await? {
             let mut json = self._parse_json(&value_bytes)?;
 
             if updater(&mut json)? {
                 let updated_bytes = self._encode_json(&json)?;
-                self.txn.put(column_family.as_ref(), key, &updated_bytes)?;
+                self.txn
+                    .put(column_family.as_ref(), key, &updated_bytes)
+                    .await?;
                 return Ok(true);
             }
         }
@@ -187,14 +199,20 @@ impl MigrationContext {
     }
 
     /// Truncate all entries in a column family
-    pub fn _truncate_cf(&self, column_family: &IndexifyObjectsColumns) -> Result<usize> {
+    pub async fn _truncate_cf(&self, column_family: &IndexifyObjectsColumns) -> Result<usize> {
         let mut count = 0;
+        let mut keys_to_delete: Vec<Vec<u8>> = Vec::new();
 
         self.iterate(column_family, |key, _| {
-            self.txn.delete(column_family.as_ref(), key)?;
+            keys_to_delete.push(key.to_vec());
             count += 1;
             Ok(())
-        })?;
+        })
+        .await?;
+
+        for key in keys_to_delete {
+            self.txn.delete(column_family.as_ref(), &key).await?;
+        }
 
         Ok(count)
     }
@@ -207,10 +225,10 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
-    use crate::state_store::driver::Writer;
+    use crate::state_store::driver::{Reader, Writer};
 
-    #[test]
-    fn test_prepare_context() -> Result<()> {
+    #[tokio::test]
+    async fn test_prepare_context() -> Result<()> {
         let temp_dir = TempDir::new()?;
         let path = temp_dir.path().to_path_buf();
 
@@ -240,11 +258,15 @@ mod tests {
         assert!(cfs.contains(&"default".to_string()));
 
         // Test reopen with CF operations
-        let db = ctx.reopen_with_cf_operations(|db| {
-            db.drop("test_cf")?;
-            db.create("new_cf", &Default::default())?;
-            Ok(())
-        })?;
+        let db = ctx
+            .reopen_with_cf_operations(|db| {
+                Box::pin(async move {
+                    db.drop("test_cf").await?;
+                    db.create("new_cf", &Default::default()).await?;
+                    Ok(())
+                })
+            })
+            .await?;
 
         drop(db);
 
@@ -255,8 +277,8 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn test_migration_context() -> Result<()> {
+    #[tokio::test]
+    async fn test_migration_context() -> Result<()> {
         let temp_dir = TempDir::new()?;
         let path = temp_dir.path();
 
@@ -285,7 +307,7 @@ mod tests {
         let value = serde_json::to_vec(&test_json)?;
 
         let cf = IndexifyObjectsColumns::RequestCtx.as_ref();
-        db.put(cf, key, &value)?;
+        db.put(cf, key, &value).await?;
 
         // Create migration context
         let txn = db.transaction();
@@ -300,13 +322,14 @@ mod tests {
             ctx.ensure_json_field(json, "added_field", json!(42))?;
 
             Ok(true)
-        })?;
+        })
+        .await?;
 
-        ctx.commit()?;
+        ctx.commit().await?;
 
         // Verify changes
         let cf = IndexifyObjectsColumns::RequestCtx.as_ref();
-        let updated_bytes = db.get(cf, key)?.unwrap();
+        let updated_bytes = db.get(cf, key).await?.unwrap();
         let updated_json: Value = serde_json::from_slice(&updated_bytes)?;
 
         assert_eq!(updated_json["new_field"], "value");

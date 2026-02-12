@@ -1,4 +1,5 @@
 use anyhow::Result;
+use async_trait::async_trait;
 use tracing::info;
 
 use super::{contexts::MigrationContext, migration_trait::Migration};
@@ -17,6 +18,7 @@ use crate::state_store::state_machine::IndexifyObjectsColumns;
 #[derive(Clone)]
 pub struct V12SlimAllocationOutputEvent;
 
+#[async_trait]
 impl Migration for V12SlimAllocationOutputEvent {
     fn version(&self) -> u64 {
         12
@@ -26,7 +28,7 @@ impl Migration for V12SlimAllocationOutputEvent {
         "Slim AllocationOutputIngestedEvent format"
     }
 
-    fn apply(&self, ctx: &MigrationContext) -> Result<()> {
+    async fn apply(&self, ctx: &MigrationContext) -> Result<()> {
         let mut num_total_state_changes: usize = 0;
         let mut num_deleted_state_changes: usize = 0;
         let mut keys_to_delete: Vec<Vec<u8>> = Vec::new();
@@ -50,13 +52,16 @@ impl Migration for V12SlimAllocationOutputEvent {
 
                 Ok(())
             },
-        )?;
+        )
+        .await?;
 
         for key in &keys_to_delete {
-            ctx.txn.delete(
-                IndexifyObjectsColumns::ApplicationStateChanges.as_ref(),
-                key,
-            )?;
+            ctx.txn
+                .delete(
+                    IndexifyObjectsColumns::ApplicationStateChanges.as_ref(),
+                    key,
+                )
+                .await?;
             num_deleted_state_changes += 1;
         }
 
@@ -76,10 +81,13 @@ impl Migration for V12SlimAllocationOutputEvent {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state_store::migrations::testing::MigrationTestBuilder;
+    use crate::state_store::{
+        driver::{Reader, Writer},
+        migrations::testing::MigrationTestBuilder,
+    };
 
-    #[test]
-    fn test_v12_migration_deletes_old_format() -> anyhow::Result<()> {
+    #[tokio::test]
+    async fn test_v12_migration_deletes_old_format() -> anyhow::Result<()> {
         let migration = V12SlimAllocationOutputEvent;
 
         // Old format: has "allocation" field with full Allocation object
@@ -131,48 +139,62 @@ mod tests {
             }
         }"#;
 
+        let old_bytes = old_format_json.as_bytes().to_vec();
+        let new_bytes = new_format_json.as_bytes().to_vec();
+
         MigrationTestBuilder::new()
             .with_column_family(IndexifyObjectsColumns::ApplicationStateChanges.as_ref())
             .run_test(
                 &migration,
                 |db| {
-                    // Insert old format state change
-                    db.put(
-                        IndexifyObjectsColumns::ApplicationStateChanges.as_ref(),
-                        1_u64.to_be_bytes(),
-                        old_format_json.as_bytes(),
-                    )?;
-                    // Insert new format state change
-                    db.put(
-                        IndexifyObjectsColumns::ApplicationStateChanges.as_ref(),
-                        2_u64.to_be_bytes(),
-                        new_format_json.as_bytes(),
-                    )?;
-                    Ok(())
+                    Box::pin(async move {
+                        // Insert old format state change
+                        db.put(
+                            IndexifyObjectsColumns::ApplicationStateChanges.as_ref(),
+                            &1_u64.to_be_bytes(),
+                            &old_bytes,
+                        )
+                        .await?;
+                        // Insert new format state change
+                        db.put(
+                            IndexifyObjectsColumns::ApplicationStateChanges.as_ref(),
+                            &2_u64.to_be_bytes(),
+                            &new_bytes,
+                        )
+                        .await?;
+                        Ok(())
+                    })
                 },
                 |db| {
-                    // Old format should be deleted
-                    let result = db.get(
-                        IndexifyObjectsColumns::ApplicationStateChanges,
-                        1_u64.to_be_bytes(),
-                    )?;
-                    assert!(
-                        result.is_none(),
-                        "Old format AllocationOutputsIngested should be deleted"
-                    );
+                    Box::pin(async move {
+                        // Old format should be deleted
+                        let result = db
+                            .get(
+                                IndexifyObjectsColumns::ApplicationStateChanges.as_ref(),
+                                &1_u64.to_be_bytes(),
+                            )
+                            .await?;
+                        assert!(
+                            result.is_none(),
+                            "Old format AllocationOutputsIngested should be deleted"
+                        );
 
-                    // New format should be preserved
-                    let result = db.get(
-                        IndexifyObjectsColumns::ApplicationStateChanges,
-                        2_u64.to_be_bytes(),
-                    )?;
-                    assert!(
-                        result.is_some(),
-                        "New format AllocationOutputsIngested should be preserved"
-                    );
-                    Ok(())
+                        // New format should be preserved
+                        let result = db
+                            .get(
+                                IndexifyObjectsColumns::ApplicationStateChanges.as_ref(),
+                                &2_u64.to_be_bytes(),
+                            )
+                            .await?;
+                        assert!(
+                            result.is_some(),
+                            "New format AllocationOutputsIngested should be preserved"
+                        );
+                        Ok(())
+                    })
                 },
-            )?;
+            )
+            .await?;
 
         Ok(())
     }
