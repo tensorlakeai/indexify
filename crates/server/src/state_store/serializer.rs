@@ -5,8 +5,8 @@ use opentelemetry::metrics::Histogram;
 use serde::de::DeserializeOwned;
 use tracing::warn;
 
-/// Version byte prefix for CBOR-encoded values.
-const CBOR_VERSION: u8 = 0x01;
+/// Version byte prefix for bincode-encoded values.
+const BINCODE_VERSION: u8 = 0x01;
 
 /// Threshold above which a serialized value triggers a warning log.
 const LARGE_VALUE_THRESHOLD: usize = 100_000;
@@ -19,31 +19,33 @@ static VALUE_SIZE_HISTOGRAM: LazyLock<Histogram<u64>> = LazyLock::new(|| {
         .build()
 });
 
-pub struct JsonEncoder;
+pub struct StateStoreEncoder;
 
-pub trait JsonEncode {
+pub trait StateStoreEncode {
     fn encode<T: serde::Serialize + Debug>(value: &T) -> Result<Vec<u8>>;
     fn decode<T: DeserializeOwned>(bytes: &[u8]) -> Result<T>;
 }
 
-impl JsonEncode for JsonEncoder {
-    /// Encodes a value as CBOR with a version byte prefix.
+impl StateStoreEncode for StateStoreEncoder {
+    /// Encodes a value as bincode with a version byte prefix.
     ///
-    /// Format: [0x01] [CBOR payload]
+    /// Format: [0x01] [bincode payload]
     ///
     /// The version byte enables the decoder to distinguish between
-    /// CBOR-encoded (new) and JSON-encoded (legacy) values.
+    /// bincode-encoded (new) and JSON-encoded (legacy) values.
     fn encode<T: serde::Serialize + Debug>(value: &T) -> Result<Vec<u8>> {
-        let mut buf = vec![CBOR_VERSION];
-        ciborium::into_writer(value, &mut buf).map_err(|e| {
+        let payload = bincode::serialize(value).map_err(|e| {
             anyhow::anyhow!(
-                "error serializing to cbor: {}, type: {}, value: {:?}",
+                "error serializing to bincode: {}, type: {}, value: {:?}",
                 e,
                 type_name::<T>(),
                 value
             )
         })?;
-        let total_size = buf.len();
+        let total_size = 1 + payload.len();
+        let mut buf = Vec::with_capacity(total_size);
+        buf.push(BINCODE_VERSION);
+        buf.extend_from_slice(&payload);
         VALUE_SIZE_HISTOGRAM.record(total_size as u64, &[]);
         if total_size > LARGE_VALUE_THRESHOLD {
             warn!(
@@ -55,12 +57,7 @@ impl JsonEncode for JsonEncoder {
         Ok(buf)
     }
 
-    /// Decodes a value, supporting both CBOR (version-prefixed) and
-    /// legacy JSON formats.
-    ///
-    /// If the first byte is `0x01`, the remaining bytes are decoded as CBOR.
-    /// Otherwise, the entire byte slice is decoded as JSON (backward compat
-    /// with data written before the CBOR migration).
+    /// Decodes a bincode value with a `0x01` version byte prefix.
     fn decode<T: DeserializeOwned>(bytes: &[u8]) -> Result<T> {
         if bytes.is_empty() {
             return Err(anyhow::anyhow!(
@@ -69,24 +66,22 @@ impl JsonEncode for JsonEncoder {
             ));
         }
 
-        if bytes[0] == CBOR_VERSION {
-            ciborium::from_reader(&bytes[1..]).map_err(|e| {
-                anyhow::anyhow!(
-                    "error deserializing from cbor: {}, type: {}",
-                    e,
-                    type_name::<T>()
-                )
-            })
-        } else {
-            // Legacy JSON-encoded data (no version prefix)
-            serde_json::from_slice(bytes).map_err(|e| {
-                anyhow::anyhow!(
-                    "error deserializing from json bytes: {}, type: {}",
-                    e,
-                    type_name::<T>()
-                )
-            })
+        if bytes[0] != BINCODE_VERSION {
+            return Err(anyhow::anyhow!(
+                "unexpected version byte {:#04x} when decoding type: {} (expected bincode prefix {:#04x})",
+                bytes[0],
+                type_name::<T>(),
+                BINCODE_VERSION
+            ));
         }
+
+        bincode::deserialize(&bytes[1..]).map_err(|e| {
+            anyhow::anyhow!(
+                "error deserializing from bincode: {}, type: {}",
+                e,
+                type_name::<T>()
+            )
+        })
     }
 }
 
@@ -104,74 +99,81 @@ mod tests {
     }
 
     #[test]
-    fn test_cbor_round_trip() {
+    fn test_bincode_round_trip() {
         let original = TestStruct {
             name: "test".to_string(),
             value: 42,
             data: vec![1, 2, 3],
         };
 
-        let encoded = JsonEncoder::encode(&original).unwrap();
-        assert_eq!(encoded[0], CBOR_VERSION);
+        let encoded = StateStoreEncoder::encode(&original).unwrap();
+        assert_eq!(encoded[0], BINCODE_VERSION);
 
-        let decoded: TestStruct = JsonEncoder::decode(&encoded).unwrap();
+        let decoded: TestStruct = StateStoreEncoder::decode(&encoded).unwrap();
         assert_eq!(original, decoded);
     }
 
     #[test]
-    fn test_json_backward_compat() {
+    fn test_non_bincode_prefix_returns_error() {
+        // Data without the 0x01 bincode prefix should now return an error
         let original = TestStruct {
             name: "legacy".to_string(),
             value: 99,
             data: vec![4, 5, 6],
         };
-
-        // Simulate legacy JSON-encoded data (no version prefix)
         let json_bytes = serde_json::to_vec(&original).unwrap();
-        let decoded: TestStruct = JsonEncoder::decode(&json_bytes).unwrap();
-        assert_eq!(original, decoded);
+        let result = StateStoreEncoder::decode::<TestStruct>(&json_bytes);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("unexpected version byte"),
+        );
     }
 
     #[test]
-    fn test_cbor_smaller_than_json() {
+    fn test_bincode_smaller_than_json() {
         let value = TestStruct {
             name: "comparison".to_string(),
             value: 12345,
             data: vec![0; 100],
         };
 
-        let cbor_bytes = JsonEncoder::encode(&value).unwrap();
+        let bincode_bytes = StateStoreEncoder::encode(&value).unwrap();
         let json_bytes = serde_json::to_vec(&value).unwrap();
 
         assert!(
-            cbor_bytes.len() < json_bytes.len(),
-            "cbor ({} bytes) should be smaller than json ({} bytes)",
-            cbor_bytes.len(),
+            bincode_bytes.len() < json_bytes.len(),
+            "bincode ({} bytes) should be smaller than json ({} bytes)",
+            bincode_bytes.len(),
             json_bytes.len()
         );
     }
 
     #[test]
     fn test_empty_bytes_error() {
-        let result = JsonEncoder::decode::<TestStruct>(&[]);
+        let result = StateStoreEncoder::decode::<TestStruct>(&[]);
         assert!(result.is_err());
     }
 
     #[test]
-    fn test_cbor_with_serde_json_value() {
-        // Verify CBOR handles serde_json::Value (used by Function.return_type
-        // and ParameterMetadata.data_type), which requires deserialize_any.
+    fn test_bincode_with_json_value_wrapper() {
+        use crate::data_model::JsonValue;
+
+        // Verify bincode handles JsonValue (wraps serde_json::Value as string
+        // in binary formats to avoid deserialize_any).
         #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
         struct WithJsonValue {
-            data: serde_json::Value,
+            data: JsonValue,
         }
 
         let original = WithJsonValue {
-            data: serde_json::json!({"type": "string", "nullable": true}),
+            data: serde_json::json!({"type": "string", "nullable": true}).into(),
         };
 
-        let encoded = JsonEncoder::encode(&original).unwrap();
-        let decoded: WithJsonValue = JsonEncoder::decode(&encoded).unwrap();
+        let encoded = StateStoreEncoder::encode(&original).unwrap();
+        let decoded: WithJsonValue = StateStoreEncoder::decode(&encoded).unwrap();
         assert_eq!(original, decoded);
     }
 }

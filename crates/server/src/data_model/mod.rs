@@ -20,6 +20,58 @@ use serde_inline_default::serde_inline_default;
 use strum::Display;
 use tracing::info;
 
+/// A wrapper around `serde_json::Value` that adapts serialization strategy
+/// based on the format.
+///
+/// - Human-readable formats (JSON): serializes as a raw JSON value, preserving
+///   backward compatibility with legacy data.
+/// - Binary formats (bincode): serializes the value as a JSON string, avoiding
+///   `deserialize_any` which binary formats don't support.
+#[derive(Debug, Clone, PartialEq)]
+pub struct JsonValue(pub serde_json::Value);
+
+impl Serialize for JsonValue {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        if serializer.is_human_readable() {
+            self.0.serialize(serializer)
+        } else {
+            let json_string = serde_json::to_string(&self.0).map_err(serde::ser::Error::custom)?;
+            json_string.serialize(serializer)
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for JsonValue {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        if deserializer.is_human_readable() {
+            serde_json::Value::deserialize(deserializer).map(JsonValue)
+        } else {
+            let json_string = String::deserialize(deserializer)?;
+            serde_json::from_str(&json_string)
+                .map(JsonValue)
+                .map_err(serde::de::Error::custom)
+        }
+    }
+}
+
+impl From<serde_json::Value> for JsonValue {
+    fn from(v: serde_json::Value) -> Self {
+        JsonValue(v)
+    }
+}
+
+impl From<JsonValue> for serde_json::Value {
+    fn from(v: JsonValue) -> Self {
+        v.0
+    }
+}
+
 use crate::{
     config::DEFAULT_SANDBOX_IMAGE,
     data_model::clocks::VectorClock,
@@ -431,7 +483,7 @@ pub struct Function {
     #[serde(default)]
     pub parameters: Vec<ParameterMetadata>,
     #[serde(default)]
-    pub return_type: Option<serde_json::Value>,
+    pub return_type: Option<JsonValue>,
     #[serde_inline_default(1)]
     pub max_concurrency: u32,
     #[serde(default)]
@@ -467,7 +519,7 @@ pub struct ParameterMetadata {
     pub name: String,
     pub description: Option<String>,
     pub required: bool,
-    pub data_type: serde_json::Value,
+    pub data_type: JsonValue,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]

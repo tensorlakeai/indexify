@@ -42,7 +42,7 @@ use crate::{
             rocksdb::{RocksDBConfig, RocksDBDriver},
         },
         in_memory_metrics::InMemoryStoreGauges,
-        serializer::{JsonEncode, JsonEncoder},
+        serializer::{StateStoreEncode, StateStoreEncoder},
     },
 };
 
@@ -653,7 +653,7 @@ async fn read_sm_meta(db: &RocksDBDriver) -> Result<StateMachineMetadata> {
         )
         .await?;
     match meta {
-        Some(meta) => Ok(JsonEncoder::decode(&meta)?),
+        Some(meta) => Ok(StateStoreEncoder::decode(&meta)?),
         None => Ok(StateMachineMetadata {
             db_version: 0,
             last_change_idx: 0,
@@ -664,7 +664,7 @@ async fn read_sm_meta(db: &RocksDBDriver) -> Result<StateMachineMetadata> {
 }
 
 pub async fn write_sm_meta(txn: &Transaction, sm_meta: &StateMachineMetadata) -> Result<()> {
-    let serialized_meta = JsonEncoder::encode(sm_meta)?;
+    let serialized_meta = StateStoreEncoder::encode(sm_meta)?;
     txn.put(
         IndexifyObjectsColumns::StateMachineMetadata.as_ref(),
         b"sm_meta",

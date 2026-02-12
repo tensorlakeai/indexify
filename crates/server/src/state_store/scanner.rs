@@ -23,7 +23,7 @@ use crate::{
     metrics::{self, Timer},
     state_store::{
         driver::{IterOptions, RangeOptionsBuilder, Reader, rocksdb::RocksDBDriver},
-        serializer::{JsonEncode, JsonEncoder},
+        serializer::{StateStoreEncode, StateStoreEncoder},
     },
     utils::get_epoch_time_in_ms,
 };
@@ -72,7 +72,7 @@ impl StateReader {
         let result = self.db.list_existent_items(column.as_ref(), keys).await?;
         let mut items: Vec<V> = Vec::with_capacity(result.len());
         for v in result {
-            let de = JsonEncoder::decode(v.as_ref())?;
+            let de = StateStoreEncoder::decode(v.as_ref())?;
             items.push(de);
         }
 
@@ -108,7 +108,7 @@ impl StateReader {
             if !key.starts_with(key_prefix) {
                 break;
             }
-            let value = JsonEncoder::decode(&value)?;
+            let value = StateStoreEncoder::decode(&value)?;
             if items.len() < limit {
                 items.push(value);
             } else {
@@ -135,7 +135,7 @@ impl StateReader {
             Some(bytes) => bytes,
             None => return Ok(None),
         };
-        let result = JsonEncoder::decode::<T>(&result_bytes)
+        let result = StateStoreEncoder::decode::<T>(&result_bytes)
             .map_err(|e| anyhow::anyhow!("Deserialization error: {e}"))?;
 
         Ok(Some(result))
@@ -154,7 +154,7 @@ impl StateReader {
             )
             .await;
         for (_, value) in iter.flatten() {
-            let state_change = JsonEncoder::decode::<StateChange>(&value)?;
+            let state_change = StateStoreEncoder::decode::<StateChange>(&value)?;
             state_changes.push(state_change);
         }
 
@@ -166,7 +166,7 @@ impl StateReader {
             )
             .await;
         for (_, value) in iter.flatten() {
-            let state_change = JsonEncoder::decode::<StateChange>(&value)?;
+            let state_change = StateStoreEncoder::decode::<StateChange>(&value)?;
             state_changes.push(state_change);
         }
         Ok(state_changes)
@@ -275,8 +275,8 @@ impl StateReader {
                 .and_then(|(key, value)| {
                     let key = String::from_utf8(key.to_vec())
                         .map_err(|e| anyhow::anyhow!(e.to_string()))?;
-                    let value =
-                        JsonEncoder::decode(&value).map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                    let value = StateStoreEncoder::decode(&value)
+                        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
                     Ok((key, value))
                 })
         })
@@ -487,7 +487,7 @@ impl StateReader {
         if value.is_none() {
             return Ok(None);
         }
-        let request_ctx: RequestCtx = JsonEncoder::decode(&value.unwrap())
+        let request_ctx: RequestCtx = StateStoreEncoder::decode(&value.unwrap())
             .map_err(|e| anyhow!("unable to decode request ctx: {e}"))?;
         Ok(Some(request_ctx))
     }

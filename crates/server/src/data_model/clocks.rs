@@ -103,7 +103,7 @@ impl Serialize for VectorClock {
     {
         // Use serialize_some to match deserialize_option in the Deserialize impl.
         // In JSON, Some(5u64) serializes identically to 5, preserving backward
-        // compatibility. In binary formats like CBOR, this ensures symmetric
+        // compatibility. In binary formats like bincode, this ensures symmetric
         // serialize/deserialize behavior.
         let tick_value = self.tick();
         serializer.serialize_some(&tick_value)
