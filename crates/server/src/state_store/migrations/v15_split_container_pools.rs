@@ -88,12 +88,11 @@ impl Migration for V15SplitContainerPools {
             };
 
             // Decode the pool value (may be JSON or bincode from V13)
-            let mut pool: ContainerPool = StateStoreEncoder::decode(&value_bytes)?;
+            let mut pool: ContainerPool = StateStoreEncoder::decode(value_bytes)?;
 
-            if old_pool_id.starts_with(OLD_FN_PREFIX) {
+            if let Some(inner) = old_pool_id.strip_prefix(OLD_FN_PREFIX) {
                 // Function pool: old ID = "fn:{ns}:{app}:{fn}:{ver}"
                 // New ID = "{app}|{fn}|{ver}"
-                let inner = &old_pool_id[OLD_FN_PREFIX.len()..];
                 // Skip the namespace segment (first colon-separated part)
                 let new_pool_id = if let Some((_ns_part, rest)) = inner.split_once(':') {
                     // rest = "{app}:{fn}:{ver}" → replace colons with pipes

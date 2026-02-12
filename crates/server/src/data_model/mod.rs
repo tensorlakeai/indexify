@@ -1818,13 +1818,13 @@ impl From<&FunctionExecutorTerminationReason> for FunctionRunFailureReason {
                 FunctionRunFailureReason::FunctionExecutorTerminated
             }
             FunctionExecutorTerminationReason::StartupFailedInternalError => {
-                FunctionRunFailureReason::InternalError
+                FunctionRunFailureReason::ContainerStartupInternalError
             }
             FunctionExecutorTerminationReason::StartupFailedFunctionError => {
-                FunctionRunFailureReason::FunctionError
+                FunctionRunFailureReason::ContainerStartupFunctionError
             }
             FunctionExecutorTerminationReason::StartupFailedFunctionTimeout => {
-                FunctionRunFailureReason::FunctionTimeout
+                FunctionRunFailureReason::ContainerStartupFunctionTimeout
             }
             FunctionExecutorTerminationReason::Unhealthy => {
                 FunctionRunFailureReason::FunctionTimeout
