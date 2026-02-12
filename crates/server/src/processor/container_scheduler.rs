@@ -654,10 +654,17 @@ impl ContainerScheduler {
             return Ok(Some(update));
         }
 
-        // Consume resources
-        let _ = candidate
+        // Consume resources — returns the actual ContainerResources with the
+        // GPU config that matched the selected executor (e.g. H100 when the
+        // function lists [A100, H100] and the executor has an H100).
+        let consumed_resources = candidate
             .free_resources
             .consume_function_resources(resources)?;
+
+        // Update the container's resources so register_container / add_container
+        // uses the GPU that was actually matched, not just the first in the list.
+        let mut function_container = function_container;
+        function_container.resources = consumed_resources;
 
         // Register the container
         let container_update =
