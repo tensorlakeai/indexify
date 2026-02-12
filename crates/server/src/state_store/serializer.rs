@@ -3,6 +3,7 @@ use std::{any::type_name, fmt::Debug, sync::LazyLock};
 use anyhow::Result;
 use opentelemetry::metrics::Histogram;
 use serde::de::DeserializeOwned;
+#[allow(unused_imports)]
 use tracing::warn;
 
 /// Version byte prefix for binary-encoded values.
@@ -54,8 +55,7 @@ impl StateStoreEncode for StateStoreEncoder {
         Ok(buf)
     }
 
-    /// Decodes a value with a `0x01` version byte prefix (postcard), falling
-    /// back to JSON for legacy data that predates the postcard migration.
+    /// Decodes a value with a `0x01` version byte prefix (postcard).
     fn decode<T: DeserializeOwned>(bytes: &[u8]) -> Result<T> {
         if bytes.is_empty() {
             return Err(anyhow::anyhow!(
@@ -64,23 +64,19 @@ impl StateStoreEncode for StateStoreEncoder {
             ));
         }
 
-        if bytes[0] == BINARY_VERSION {
-            return postcard::from_bytes(&bytes[1..]).map_err(|e| {
-                anyhow::anyhow!(
-                    "error deserializing from postcard: {}, type: {}",
-                    e,
-                    type_name::<T>()
-                )
-            });
+        if bytes[0] != BINARY_VERSION {
+            return Err(anyhow::anyhow!(
+                "unexpected version byte {:#04x} when decoding type: {}",
+                bytes[0],
+                type_name::<T>()
+            ));
         }
 
-        // Legacy JSON-encoded data (predates the postcard migration).
-        serde_json::from_slice(bytes).map_err(|e| {
+        postcard::from_bytes(&bytes[1..]).map_err(|e| {
             anyhow::anyhow!(
-                "failed to decode type {} as postcard (missing {:#04x} prefix) or JSON: {}",
-                type_name::<T>(),
-                BINARY_VERSION,
-                e
+                "error deserializing from postcard: {}, type: {}",
+                e,
+                type_name::<T>()
             )
         })
     }
@@ -115,16 +111,22 @@ mod tests {
     }
 
     #[test]
-    fn test_legacy_json_fallback() {
-        // Data without the 0x01 binary prefix should fall back to JSON decoding
+    fn test_non_binary_prefix_returns_error() {
+        // Data without the 0x01 binary prefix should now return an error
         let original = TestStruct {
             name: "legacy".to_string(),
             value: 99,
             data: vec![4, 5, 6],
         };
         let json_bytes = serde_json::to_vec(&original).unwrap();
-        let decoded: TestStruct = StateStoreEncoder::decode(&json_bytes).unwrap();
-        assert_eq!(original, decoded);
+        let result = StateStoreEncoder::decode::<TestStruct>(&json_bytes);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("unexpected version byte"),
+        );
     }
 
     #[test]
