@@ -23,6 +23,8 @@ use tokio::sync::{RwLock, watch};
 const REQUEST_EVENT_CHANNEL_CAPACITY: usize = 10000;
 use tracing::{debug, error, info, span};
 
+#[cfg(not(feature = "migrations"))]
+use crate::state_store::driver::Reader;
 use crate::{
     config::ExecutorCatalogEntry,
     data_model::{
@@ -36,7 +38,6 @@ use crate::{
     processor::container_scheduler::{ContainerScheduler, ContainerSchedulerGauges},
     state_store::{
         driver::{
-            Reader,
             Transaction,
             Writer,
             rocksdb::{RocksDBConfig, RocksDBDriver},
@@ -645,6 +646,7 @@ impl IndexifyState {
 }
 
 /// Read state machine metadata from the database
+#[cfg(not(feature = "migrations"))]
 async fn read_sm_meta(db: &RocksDBDriver) -> Result<StateMachineMetadata> {
     let meta = db
         .get(

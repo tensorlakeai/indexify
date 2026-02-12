@@ -6,11 +6,7 @@ use tracing::info;
 use crate::{
     data_model::StateMachineMetadata,
     state_store::{
-        driver::{
-            Reader,
-            Writer,
-            rocksdb::{RocksDBConfig, RocksDBDriver},
-        },
+        driver::rocksdb::{RocksDBConfig, RocksDBDriver},
         migrations::{
             contexts::{MigrationContext, PrepareContext},
             registry::MigrationRegistry,
@@ -88,7 +84,7 @@ pub fn run(path: &Path, config: RocksDBConfig) -> Result<StateMachineMetadata> {
             .with_context(|| format!("Preparing DB for migration to v{to_version}"))?;
 
         // Apply migration in a transaction
-        let txn = db.transaction();
+        let txn = db.sync_transaction();
 
         // Create migration context
         let mut migration_ctx = MigrationContext::new(db.clone(), txn);
@@ -120,7 +116,7 @@ pub fn run(path: &Path, config: RocksDBConfig) -> Result<StateMachineMetadata> {
 
 /// Read state machine metadata from the database
 pub fn read_sm_meta(db: &RocksDBDriver) -> Result<StateMachineMetadata> {
-    let meta = db.get(
+    let meta = db.get_sync(
         IndexifyObjectsColumns::StateMachineMetadata.as_ref(),
         b"sm_meta",
     )?;
@@ -224,7 +220,7 @@ mod tests {
             state_store::open_database(path.to_path_buf(), config, sm_column_families, metrics)?;
 
         // Set initial version to 1
-        let txn = db.transaction();
+        let txn = db.sync_transaction();
         let initial_meta = StateMachineMetadata {
             db_version: 0,
             last_change_idx: 0,

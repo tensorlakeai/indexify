@@ -8,7 +8,7 @@ build = "build.rs"
 resolver = "2"
 
 [features]
-default = []
+default = ["migrations"]
 migrations = []
 console-subscriber = ["dep:console-subscriber"]
 

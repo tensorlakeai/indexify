@@ -12,11 +12,7 @@ use crate::{
     metrics::StateStoreMetrics,
     state_store::{
         self,
-        driver::{
-            Reader,
-            Writer,
-            rocksdb::{RocksDBConfig, RocksDBDriver},
-        },
+        driver::rocksdb::{RocksDBConfig, RocksDBDriver},
     },
 };
 
@@ -71,7 +67,7 @@ impl MigrationTestBuilder {
         let db = migration.prepare(&prepare_ctx)?;
 
         // Apply the migration
-        let txn = db.transaction();
+        let txn = db.sync_transaction();
         let mut migration_ctx = MigrationContext::new(db.clone(), txn);
 
         migration.apply(&migration_ctx)?;
@@ -136,7 +132,7 @@ mod tests {
                 },
                 |db| {
                     // Verify migration was applied
-                    let result = db.get(
+                    let result = db.get_sync(
                         IndexifyObjectsColumns::StateMachineMetadata.as_ref(),
                         b"migration_test",
                     )?;

@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use anyhow::Result;
 use tracing::info;
 
@@ -8,9 +6,9 @@ use super::{
     migration_trait::Migration,
 };
 use crate::{
-    data_model::{FunctionCall, FunctionCallId, FunctionRun, PersistedRequestCtx, RequestCtx},
+    data_model::{FunctionCall, PersistedRequestCtx, RequestCtx},
     state_store::{
-        driver::{Writer, rocksdb::RocksDBDriver},
+        driver::rocksdb::RocksDBDriver,
         serializer::{StateStoreEncode, StateStoreEncoder},
         state_machine::IndexifyObjectsColumns,
     },
@@ -47,12 +45,12 @@ impl Migration for V14NormalizeRequestCtx {
 
             let fr_cf = IndexifyObjectsColumns::FunctionRuns.to_string();
             if !existing_cfs.contains(&fr_cf) {
-                db.create(&fr_cf, &Default::default())?;
+                db.create_cf_sync(&fr_cf, &Default::default())?;
             }
 
             let fc_cf = IndexifyObjectsColumns::FunctionCalls.to_string();
             if !existing_cfs.contains(&fc_cf) {
-                db.create(&fc_cf, &Default::default())?;
+                db.create_cf_sync(&fc_cf, &Default::default())?;
             }
 
             Ok(())
@@ -129,21 +127,15 @@ impl Migration for V14NormalizeRequestCtx {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use super::*;
     use crate::{
         data_model::{
-            ComputeOp,
-            DataPayloadBuilder,
-            FunctionArgs,
-            FunctionCallId,
-            FunctionRunBuilder,
-            FunctionRunStatus,
-            RequestCtxBuilder,
+            ComputeOp, DataPayloadBuilder, FunctionCallId, FunctionRun, FunctionRunBuilder,
+            FunctionRunStatus, RequestCtxBuilder,
         },
-        state_store::{
-            driver::{Reader, Writer},
-            migrations::testing::MigrationTestBuilder,
-        },
+        state_store::migrations::testing::MigrationTestBuilder,
     };
 
     #[test]
@@ -169,7 +161,7 @@ mod tests {
             parent_function_call_id: Some(fc_id1.clone()),
         };
 
-        let payload = DataPayloadBuilder::default()
+        let _payload = DataPayloadBuilder::default()
             .path("test/path".to_string())
             .metadata_size(0)
             .offset(0)
@@ -231,7 +223,7 @@ mod tests {
                 &migration,
                 |db| {
                     // Insert old-format RequestCtx
-                    db.put(
+                    db.put_sync(
                         IndexifyObjectsColumns::RequestCtx.as_ref(),
                         ctx_key.as_bytes(),
                         &old_encoded,
@@ -241,7 +233,7 @@ mod tests {
                 |db| {
                     // Verify PersistedRequestCtx in RequestCtx CF
                     let result = db
-                        .get(
+                        .get_sync(
                             IndexifyObjectsColumns::RequestCtx.as_ref(),
                             ctx_key.as_bytes(),
                         )?
@@ -256,7 +248,7 @@ mod tests {
                     // Verify FunctionRuns in FunctionRuns CF
                     let fr1_key = "ns|app|req1|fc1";
                     let fr1_result = db
-                        .get(
+                        .get_sync(
                             IndexifyObjectsColumns::FunctionRuns.as_ref(),
                             fr1_key.as_bytes(),
                         )?
@@ -266,7 +258,7 @@ mod tests {
 
                     let fr2_key = "ns|app|req1|fc2";
                     let fr2_result = db
-                        .get(
+                        .get_sync(
                             IndexifyObjectsColumns::FunctionRuns.as_ref(),
                             fr2_key.as_bytes(),
                         )?
@@ -277,7 +269,7 @@ mod tests {
                     // Verify FunctionCalls in FunctionCalls CF
                     let fc1_key = "ns|app|req1|fc1";
                     let fc1_result = db
-                        .get(
+                        .get_sync(
                             IndexifyObjectsColumns::FunctionCalls.as_ref(),
                             fc1_key.as_bytes(),
                         )?
@@ -287,7 +279,7 @@ mod tests {
 
                     let fc2_key = "ns|app|req1|fc2";
                     let fc2_result = db
-                        .get(
+                        .get_sync(
                             IndexifyObjectsColumns::FunctionCalls.as_ref(),
                             fc2_key.as_bytes(),
                         )?

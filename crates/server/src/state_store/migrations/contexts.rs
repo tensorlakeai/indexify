@@ -9,11 +9,8 @@ use crate::{
     metrics::StateStoreMetrics,
     state_store::{
         self,
-        driver::{
-            Reader,
-            Transaction,
-            rocksdb::{RocksDBConfig, RocksDBDriver},
-        },
+        driver::rocksdb::{RocksDBConfig, RocksDBDriver, SyncTransaction},
+        serializer::{StateStoreEncode, StateStoreEncoder},
         state_machine::IndexifyObjectsColumns,
     },
 };
@@ -78,11 +75,11 @@ impl PrepareContext {
 /// Context for applying migration logic
 pub struct MigrationContext {
     pub db: RocksDBDriver,
-    pub txn: Transaction,
+    pub txn: SyncTransaction,
 }
 
 impl MigrationContext {
-    pub fn new(db: RocksDBDriver, txn: Transaction) -> Self {
+    pub fn new(db: RocksDBDriver, txn: SyncTransaction) -> Self {
         Self { db, txn }
     }
 
@@ -93,7 +90,13 @@ impl MigrationContext {
 
     /// Write state machine metadata to the database
     pub fn write_sm_meta(&self, sm_meta: &StateMachineMetadata) -> Result<()> {
-        state_store::write_sm_meta(&self.txn, sm_meta)
+        let serialized_meta = StateStoreEncoder::encode(sm_meta)?;
+        self.txn.put(
+            IndexifyObjectsColumns::StateMachineMetadata.as_ref(),
+            b"sm_meta",
+            &serialized_meta,
+        )?;
+        Ok(())
     }
 
     /// Iterate over all entries in a column family
@@ -101,7 +104,7 @@ impl MigrationContext {
     where
         F: FnMut(&[u8], &[u8]) -> Result<()>,
     {
-        let iter = self.db.iter(column_family.as_ref(), Default::default());
+        let iter = self.db.iter_sync(column_family.as_ref(), Default::default());
 
         for kv in iter {
             let (key, value) = kv?;
@@ -165,12 +168,13 @@ impl MigrationContext {
     where
         F: FnOnce(&mut Value) -> Result<bool>,
     {
-        if let Some(value_bytes) = self.db.get(column_family.as_ref(), key)? {
+        if let Some(value_bytes) = self.db.get_sync(column_family.as_ref(), key)? {
             let mut json = self._parse_json(&value_bytes)?;
 
             if updater(&mut json)? {
                 let updated_bytes = self._encode_json(&json)?;
-                self.txn.put(column_family.as_ref(), key, &updated_bytes)?;
+                self.txn
+                    .put(column_family.as_ref(), key, &updated_bytes)?;
                 return Ok(true);
             }
         }
@@ -207,7 +211,6 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
-    use crate::state_store::driver::Writer;
 
     #[test]
     fn test_prepare_context() -> Result<()> {
@@ -241,8 +244,8 @@ mod tests {
 
         // Test reopen with CF operations
         let db = ctx.reopen_with_cf_operations(|db| {
-            db.drop("test_cf")?;
-            db.create("new_cf", &Default::default())?;
+            db.drop_cf_sync("test_cf")?;
+            db.create_cf_sync("new_cf", &Default::default())?;
             Ok(())
         })?;
 
@@ -285,10 +288,10 @@ mod tests {
         let value = serde_json::to_vec(&test_json)?;
 
         let cf = IndexifyObjectsColumns::RequestCtx.as_ref();
-        db.put(cf, key, &value)?;
+        db.put_sync(cf, key, &value)?;
 
         // Create migration context
-        let txn = db.transaction();
+        let txn = db.sync_transaction();
         let mut ctx = MigrationContext::new(db.clone(), txn);
 
         // Test JSON operations
@@ -306,7 +309,7 @@ mod tests {
 
         // Verify changes
         let cf = IndexifyObjectsColumns::RequestCtx.as_ref();
-        let updated_bytes = db.get(cf, key)?.unwrap();
+        let updated_bytes = db.get_sync(cf, key)?.unwrap();
         let updated_json: Value = serde_json::from_slice(&updated_bytes)?;
 
         assert_eq!(updated_json["new_field"], "value");

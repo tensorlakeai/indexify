@@ -5,19 +5,13 @@ use bytes::Bytes;
 use futures::lock::Mutex;
 use opentelemetry::KeyValue;
 use rocksdb::{
-    ColumnFamily,
-    ColumnFamilyDescriptor,
-    DBCompactionStyle,
-    DBCompressionType,
-    Error as RocksDBError,
-    LogLevel,
-    Transaction,
-    TransactionDB,
-    TransactionDBOptions,
+    ColumnFamily, ColumnFamilyDescriptor, DBCompactionStyle, DBCompressionType,
+    Error as RocksDBError, LogLevel, Transaction, TransactionDB, TransactionDBOptions,
 };
 pub use rocksdb::{Direction, IteratorMode, Options as RocksDBOptions, ReadOptions};
 use serde::{Deserialize, Serialize};
 use serde_inline_default::serde_inline_default;
+#[allow(unused_imports)]
 use tracing::warn;
 
 use crate::{
@@ -570,5 +564,132 @@ impl super::InnerTransaction for RocksDBTransaction {
                 key.starts_with(prefix.as_ref())
             })
             .collect()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Synchronous API for migrations (feature = "migrations")
+// ---------------------------------------------------------------------------
+//
+// All RocksDB operations are inherently synchronous. The async trait
+// implementations above simply wrap these synchronous calls. The sync
+// variants below expose the same logic without async/await so that migration
+// code (which runs outside of a Tokio runtime) can use them directly.
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "migrations")]
+#[allow(dead_code)]
+impl RocksDBDriver {
+    pub(crate) fn get_sync(&self, cf: &str, key: &[u8]) -> Result<Option<Vec<u8>>, DriverError> {
+        let cf = self.column_family(cf);
+        self.db.get_cf(cf, key).map_err(Error::into_generic)
+    }
+
+    pub(crate) fn put_sync(&self, cf: &str, key: &[u8], value: &[u8]) -> Result<(), DriverError> {
+        let cf = self.column_family(cf);
+        self.db.put_cf(cf, key, value).map_err(Error::into_generic)
+    }
+
+    pub(crate) fn iter_sync(
+        &self,
+        cf: &str,
+        options: super::IterOptions,
+    ) -> Box<dyn Iterator<Item = Result<super::KVBytes, DriverError>> + '_> {
+        let super::IterOptions::RocksDB((opts, (token, direction))) = options;
+
+        let mode = match (&token, direction) {
+            (Some(t), Some(d)) => rocksdb::IteratorMode::From(t, d),
+            (Some(t), None) => rocksdb::IteratorMode::From(t, rocksdb::Direction::Forward),
+            (None, _) => rocksdb::IteratorMode::Start,
+        };
+
+        Box::new(
+            self.db
+                .iterator_cf_opt(self.column_family(cf), opts, mode)
+                .map(|item| item.map_err(Error::into_generic)),
+        )
+    }
+
+    pub(crate) fn drop_cf_sync(&mut self, cf: &str) -> Result<(), DriverError> {
+        let mut_db = Arc::get_mut(&mut self.db).ok_or(Error::MakeConnectionMutableFailed)?;
+        mut_db.drop_cf(cf).map_err(Error::into_generic)
+    }
+
+    pub(crate) fn create_cf_sync(
+        &mut self,
+        cf: &str,
+        opts: &super::CreateOptions,
+    ) -> Result<(), DriverError> {
+        let super::CreateOptions::RocksDB(opts) = opts;
+        let mut_db = Arc::get_mut(&mut self.db).ok_or(Error::MakeConnectionMutableFailed)?;
+        mut_db.create_cf(cf, opts).map_err(Error::into_generic)
+    }
+
+    pub(crate) fn sync_transaction(&self) -> SyncTransaction {
+        let tx = self.db.transaction();
+
+        // SAFETY: same as Writer::transaction — the database Arc outlives the
+        // transaction.
+        let inner = unsafe {
+            std::mem::transmute::<
+                rocksdb::Transaction<'_, TransactionDB>,
+                rocksdb::Transaction<'static, TransactionDB>,
+            >(tx)
+        };
+
+        SyncTransaction {
+            db: self.clone(),
+            tx: std::sync::Mutex::new(Some(inner)),
+        }
+    }
+}
+
+/// A synchronous transaction wrapper for use in migration code.
+///
+/// Uses `std::sync::Mutex` instead of `futures::lock::Mutex` so it can be
+/// used without an async runtime.
+#[cfg(feature = "migrations")]
+pub(crate) struct SyncTransaction {
+    db: RocksDBDriver,
+    tx: std::sync::Mutex<Option<rocksdb::Transaction<'static, TransactionDB>>>,
+}
+
+#[cfg(feature = "migrations")]
+#[allow(dead_code)]
+impl SyncTransaction {
+    pub(crate) fn commit(&self) -> Result<(), DriverError> {
+        let mut guard = self.tx.lock().unwrap();
+        let tx = guard
+            .take()
+            .ok_or(DriverError::TransactionAlreadyCommitted)?;
+        tx.commit().map_err(Error::into_generic)
+    }
+
+    pub(crate) fn get(&self, cf: &str, key: &[u8]) -> Result<Option<Vec<u8>>, DriverError> {
+        let cf = self.db.column_family(cf);
+        let guard = self.tx.lock().unwrap();
+        let tx = guard
+            .as_ref()
+            .ok_or(DriverError::TransactionAlreadyCommitted)?;
+        tx.get_for_update_cf(cf, key, true)
+            .map_err(Error::into_generic)
+    }
+
+    pub(crate) fn put(&self, cf: &str, key: &[u8], value: &[u8]) -> Result<(), DriverError> {
+        let cf = self.db.column_family(cf);
+        let guard = self.tx.lock().unwrap();
+        let tx = guard
+            .as_ref()
+            .ok_or(DriverError::TransactionAlreadyCommitted)?;
+        tx.put_cf(cf, key, value).map_err(Error::into_generic)
+    }
+
+    pub(crate) fn delete(&self, cf: &str, key: &[u8]) -> Result<(), DriverError> {
+        let cf = self.db.column_family(cf);
+        let guard = self.tx.lock().unwrap();
+        let tx = guard
+            .as_ref()
+            .ok_or(DriverError::TransactionAlreadyCommitted)?;
+        tx.delete_cf(cf, key).map_err(Error::into_generic)
     }
 }

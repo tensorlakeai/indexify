@@ -222,16 +222,19 @@ mod tests {
             .run_test(
                 &migration,
                 |db| {
-                    db.put(
+                    db.put_sync(
                         IndexifyObjectsColumns::Applications.as_ref(),
                         b"test_ns|app_1",
-                        serde_json::to_vec(&old_app_json)?,
+                        &serde_json::to_vec(&old_app_json)?,
                     )?;
                     Ok(())
                 },
                 |db| {
                     let result = db
-                        .get(IndexifyObjectsColumns::Applications, b"test_ns|app_1")?
+                        .get_sync(
+                            IndexifyObjectsColumns::Applications.as_ref(),
+                            b"test_ns|app_1",
+                        )?
                         .expect("Application should exist");
 
                     let json: Value = serde_json::from_slice(&result)?;

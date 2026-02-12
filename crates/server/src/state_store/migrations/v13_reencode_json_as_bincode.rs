@@ -200,13 +200,12 @@ where
 
 #[cfg(test)]
 mod tests {
+    use strum::IntoEnumIterator;
+
     use super::*;
     use crate::{
         data_model::NamespaceBuilder,
-        state_store::{
-            driver::{Reader, Writer},
-            migrations::testing::MigrationTestBuilder,
-        },
+        state_store::migrations::testing::MigrationTestBuilder,
     };
 
     #[test]
@@ -231,19 +230,21 @@ mod tests {
             .build()?;
         let bincode_bytes = StateStoreEncoder::encode(&ns2)?;
 
-        MigrationTestBuilder::new()
-            .with_column_family(IndexifyObjectsColumns::Namespaces.as_ref())
-            .run_test(
+        let mut builder = MigrationTestBuilder::new();
+        for cf in IndexifyObjectsColumns::iter() {
+            builder = builder.with_column_family(cf.as_ref());
+        }
+        builder.run_test(
                 &migration,
                 |db| {
                     // Insert JSON-encoded entry
-                    db.put(
+                    db.put_sync(
                         IndexifyObjectsColumns::Namespaces.as_ref(),
                         b"test_ns",
                         &json_bytes,
                     )?;
                     // Insert already-bincode entry
-                    db.put(
+                    db.put_sync(
                         IndexifyObjectsColumns::Namespaces.as_ref(),
                         b"already_bincode",
                         &bincode_bytes,
@@ -253,7 +254,10 @@ mod tests {
                 |db| {
                     // The JSON entry should now be bincode-encoded
                     let result = db
-                        .get(IndexifyObjectsColumns::Namespaces.as_ref(), b"test_ns")?
+                        .get_sync(
+                            IndexifyObjectsColumns::Namespaces.as_ref(),
+                            b"test_ns",
+                        )?
                         .expect("entry should exist");
                     assert_eq!(
                         result[0], BINARY_VERSION,
@@ -267,7 +271,7 @@ mod tests {
 
                     // The already-bincode entry should be unchanged
                     let result2 = db
-                        .get(
+                        .get_sync(
                             IndexifyObjectsColumns::Namespaces.as_ref(),
                             b"already_bincode",
                         )?

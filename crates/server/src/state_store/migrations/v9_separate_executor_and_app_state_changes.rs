@@ -8,7 +8,7 @@ use super::{
     migration_trait::Migration,
 };
 use crate::state_store::{
-    driver::{Writer, rocksdb::RocksDBDriver},
+    driver::rocksdb::RocksDBDriver,
     state_machine::IndexifyObjectsColumns,
 };
 
@@ -32,8 +32,8 @@ impl Migration for V9SeparateExecutorAndAppStateChanges {
             // Create fresh
             if !existing_cfs.contains(&IndexifyObjectsColumns::ExecutorStateChanges.to_string()) {
                 info!("Creating executor state changes column family");
-                db.create(
-                    IndexifyObjectsColumns::ExecutorStateChanges,
+                db.create_cf_sync(
+                    IndexifyObjectsColumns::ExecutorStateChanges.as_ref(),
                     &Default::default(),
                 )?;
             }
@@ -41,8 +41,8 @@ impl Migration for V9SeparateExecutorAndAppStateChanges {
             if !existing_cfs.contains(&IndexifyObjectsColumns::ApplicationStateChanges.to_string())
             {
                 info!("Creating app state changes column family");
-                db.create(
-                    IndexifyObjectsColumns::ApplicationStateChanges,
+                db.create_cf_sync(
+                    IndexifyObjectsColumns::ApplicationStateChanges.as_ref(),
                     &Default::default(),
                 )?;
             }
@@ -120,7 +120,6 @@ mod tests {
             StateChangeId,
         },
         state_store::{
-            driver::{Reader, Writer},
             migrations::testing::MigrationTestBuilder,
             serializer::{StateStoreEncode, StateStoreEncoder},
         },
@@ -172,19 +171,19 @@ mod tests {
                         .as_bytes(),
                     );
                     app_key.extend(app_state_change.id.as_ref().to_be_bytes());
-                    db.put(
+                    db.put_sync(
                         IndexifyObjectsColumns::UnprocessedStateChanges.as_ref(),
-                        app_key,
-                        StateStoreEncoder::encode(&app_state_change)?,
+                        &app_key,
+                        &StateStoreEncoder::encode(&app_state_change)?,
                     )?;
 
                     let mut global_key = Vec::new();
                     global_key.extend("global|".as_bytes());
                     global_key.extend(executor_state_change.id.as_ref().to_be_bytes());
-                    db.put(
+                    db.put_sync(
                         IndexifyObjectsColumns::UnprocessedStateChanges.as_ref(),
-                        global_key,
-                        StateStoreEncoder::encode(&executor_state_change)?,
+                        &global_key,
+                        &StateStoreEncoder::encode(&executor_state_change)?,
                     )?;
 
                     Ok(())
@@ -193,9 +192,9 @@ mod tests {
                     // Verify: State changes are stored in the new tables
 
                     let change = db
-                        .get(
-                            IndexifyObjectsColumns::ApplicationStateChanges,
-                            1_u64.to_be_bytes(),
+                        .get_sync(
+                            IndexifyObjectsColumns::ApplicationStateChanges.as_ref(),
+                            &1_u64.to_be_bytes(),
                         )
                         .unwrap()
                         .expect("Failed to get application state change");
@@ -205,9 +204,9 @@ mod tests {
                     assert_eq!("request_id", app_state_change.object_id);
 
                     let change = db
-                        .get(
-                            IndexifyObjectsColumns::ExecutorStateChanges,
-                            1_u64.to_be_bytes(),
+                        .get_sync(
+                            IndexifyObjectsColumns::ExecutorStateChanges.as_ref(),
+                            &1_u64.to_be_bytes(),
                         )
                         .unwrap()
                         .expect("Failed to get executor state change");

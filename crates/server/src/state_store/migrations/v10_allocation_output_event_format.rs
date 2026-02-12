@@ -115,18 +115,18 @@ mod tests {
                 &migration,
                 |db| {
                     // Insert old format state change
-                    db.put(
+                    db.put_sync(
                         IndexifyObjectsColumns::ApplicationStateChanges.as_ref(),
-                        1_u64.to_be_bytes(),
+                        &1_u64.to_be_bytes(),
                         old_format_json.as_bytes(),
                     )?;
                     Ok(())
                 },
                 |db| {
                     // Verify the old format state change was deleted
-                    let result = db.get(
-                        IndexifyObjectsColumns::ApplicationStateChanges,
-                        1_u64.to_be_bytes(),
+                    let result = db.get_sync(
+                        IndexifyObjectsColumns::ApplicationStateChanges.as_ref(),
+                        &1_u64.to_be_bytes(),
                     )?;
                     assert!(
                         result.is_none(),
