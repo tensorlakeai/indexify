@@ -101,7 +101,12 @@ impl Serialize for VectorClock {
     where
         S: serde::Serializer,
     {
-        serializer.serialize_u64(self.tick())
+        // Use serialize_some to match deserialize_option in the Deserialize impl.
+        // In JSON, Some(5u64) serializes identically to 5, preserving backward
+        // compatibility. In bincode, this writes a 1-byte Option discriminant
+        // followed by the u64, matching what deserialize_option expects.
+        let tick_value = self.tick();
+        serializer.serialize_some(&tick_value)
     }
 }
 
