@@ -33,7 +33,7 @@ use crate::{
     state_store::{
         IndexifyState,
         in_memory_state::InMemoryState,
-        requests::{RequestPayload, SchedulerUpdateRequest},
+        requests::{RequestPayload, SchedulerUpdatePayload, SchedulerUpdateRequest},
     },
 };
 
@@ -114,7 +114,7 @@ impl FunctionRunCreator {
         scheduler_update.add_request_state(&request_ctx);
         in_memory_state.update_state(
             self.clock,
-            &RequestPayload::SchedulerUpdate((Box::new(scheduler_update.clone()), vec![])),
+            &RequestPayload::SchedulerUpdate(SchedulerUpdatePayload::new(scheduler_update.clone())),
             "task_creator",
         )?;
         Ok(scheduler_update)
@@ -151,7 +151,8 @@ impl FunctionRunCreator {
                 fc.clone(),
             );
         }
-        let payload = RequestPayload::SchedulerUpdate((Box::new(scheduler_update.clone()), vec![]));
+        let payload =
+            RequestPayload::SchedulerUpdate(SchedulerUpdatePayload::new(scheduler_update.clone()));
         container_scheduler.update(&payload)?;
         in_memory_state.update_state(self.clock, &payload, "function_run_creator")?;
 
@@ -267,7 +268,7 @@ impl FunctionRunCreator {
         scheduler_update.add_request_state(&request_ctx);
         in_memory_state.update_state(
             self.clock,
-            &RequestPayload::SchedulerUpdate((Box::new(scheduler_update.clone()), vec![])),
+            &RequestPayload::SchedulerUpdate(SchedulerUpdatePayload::new(scheduler_update.clone())),
             "task_creator",
         )?;
 
@@ -330,7 +331,7 @@ impl FunctionRunCreator {
         scheduler_update.add_request_state(&request_ctx);
         in_memory_state.update_state(
             self.clock,
-            &RequestPayload::SchedulerUpdate((Box::new(scheduler_update.clone()), vec![])),
+            &RequestPayload::SchedulerUpdate(SchedulerUpdatePayload::new(scheduler_update.clone())),
             "task_creator",
         )?;
         Ok(scheduler_update)

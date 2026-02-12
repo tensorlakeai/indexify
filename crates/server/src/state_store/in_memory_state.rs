@@ -612,7 +612,8 @@ impl InMemoryState {
                     }
                 }
             }
-            RequestPayload::SchedulerUpdate((req, _)) => {
+            RequestPayload::SchedulerUpdate(payload) => {
+                let req = &payload.update;
                 // Note: Allocations are removed from allocations_by_executor in two places:
                 // 1. UpsertExecutor handler - when allocation output is ingested
                 // 2. remove_function_executors handling below - when FE is terminated

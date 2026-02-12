@@ -26,6 +26,7 @@ use crate::{
             DeleteContainerPoolRequest,
             DeleteRequestRequest,
             RequestPayload,
+            SchedulerUpdatePayload,
             SchedulerUpdateRequest,
             StateMachineUpdateRequest,
         },
@@ -470,10 +471,10 @@ impl ApplicationProcessor {
         scheduler_update.extend(buffer_update);
 
         Ok(StateMachineUpdateRequest {
-            payload: RequestPayload::SchedulerUpdate((
-                Box::new(scheduler_update),
-                vec![state_change.clone()],
-            )),
+            payload: RequestPayload::SchedulerUpdate(SchedulerUpdatePayload {
+                update: Box::new(scheduler_update),
+                processed_state_changes: vec![state_change.clone()],
+            }),
         })
     }
 }

@@ -50,8 +50,8 @@ impl StateMachineUpdateRequest {
             RequestPayload::InvokeApplication(req) => {
                 req.ctx.prepare_for_persistence(clock);
             }
-            RequestPayload::SchedulerUpdate((req, _)) => {
-                for request_ctx in req.updated_request_states.values_mut() {
+            RequestPayload::SchedulerUpdate(payload) => {
+                for request_ctx in payload.update.updated_request_states.values_mut() {
                     request_ctx.prepare_for_persistence(clock);
                 }
             }
@@ -78,7 +78,9 @@ impl StateMachineUpdateRequest {
             RequestPayload::TombstoneRequest(request) => {
                 state_changes::tombstone_request(state_change_id_seq, request)
             }
-            RequestPayload::SchedulerUpdate((request, _)) => Ok(request.state_changes.clone()),
+            RequestPayload::SchedulerUpdate(payload) => {
+                Ok(payload.update.new_state_changes.clone())
+            }
             RequestPayload::DeregisterExecutor(request) => Ok(request.state_changes.clone()),
             RequestPayload::UpsertExecutor(request) => Ok(request.state_changes.clone()),
             RequestPayload::CreateSandbox(request) => {
@@ -117,12 +119,36 @@ pub enum RequestPayload {
     UpdateContainerPool(UpdateContainerPoolRequest),
 
     // App Processor -> State Machine requests
-    SchedulerUpdate((Box<SchedulerUpdateRequest>, Vec<StateChange>)),
+    SchedulerUpdate(SchedulerUpdatePayload),
     DeleteApplicationRequest((DeleteApplicationRequest, Vec<StateChange>)),
     DeleteRequestRequest((DeleteRequestRequest, Vec<StateChange>)),
     TombstoneContainerPool(DeleteContainerPoolRequest),
     DeleteContainerPool((DeleteContainerPoolRequest, Vec<StateChange>)),
     ProcessStateChanges(Vec<StateChange>),
+}
+
+/// Wraps a SchedulerUpdateRequest together with the state changes it processed.
+///
+/// `update` contains the mutations to apply (new allocations, updated runs,
+/// etc.) along with any *new* state changes produced during processing.
+///
+/// `processed_state_changes` are the input state changes that were consumed to
+/// produce this update — they get marked as processed in the persistent store.
+#[derive(Debug, Clone)]
+pub struct SchedulerUpdatePayload {
+    pub update: Box<SchedulerUpdateRequest>,
+    pub processed_state_changes: Vec<StateChange>,
+}
+
+impl SchedulerUpdatePayload {
+    /// Creates a payload with no processed state changes (used for intermediate
+    /// scheduler updates that don't consume state changes from the queue).
+    pub fn new(update: SchedulerUpdateRequest) -> Self {
+        Self {
+            update: Box::new(update),
+            processed_state_changes: vec![],
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -134,7 +160,7 @@ pub struct SchedulerUpdateRequest {
     pub remove_executors: Vec<ExecutorId>,
     pub updated_executor_states: HashMap<ExecutorId, Box<ExecutorServerMetadata>>,
     pub containers: HashMap<ContainerId, Box<ContainerServerMetadata>>,
-    pub state_changes: Vec<StateChange>,
+    pub new_state_changes: Vec<StateChange>,
     pub updated_sandboxes: HashMap<SandboxKey, Sandbox>,
     pub updated_pools: HashMap<ContainerPoolKey, ContainerPool>,
     pub deleted_pools: HashSet<ContainerPoolKey>,
@@ -154,7 +180,7 @@ impl SchedulerUpdateRequest {
         }
         self.updated_request_states
             .extend(other.updated_request_states);
-        self.state_changes.extend(other.state_changes);
+        self.new_state_changes.extend(other.new_state_changes);
 
         self.remove_executors.extend(other.remove_executors);
         for (executor_id, executor_server_metadata) in other.updated_executor_states {

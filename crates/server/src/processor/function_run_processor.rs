@@ -24,7 +24,7 @@ use crate::{
     processor::container_scheduler::{self, ContainerScheduler},
     state_store::{
         in_memory_state::InMemoryState,
-        requests::{RequestPayload, SchedulerUpdateRequest},
+        requests::{RequestPayload, SchedulerUpdatePayload, SchedulerUpdateRequest},
     },
 };
 
@@ -286,7 +286,7 @@ impl FunctionRunProcessor {
                 try_create_container(in_memory_state, container_scheduler, function_run)?
         {
             let payload =
-                RequestPayload::SchedulerUpdate((Box::new(create_update.clone()), vec![]));
+                RequestPayload::SchedulerUpdate(SchedulerUpdatePayload::new(create_update.clone()));
             container_scheduler.update(&payload)?;
             in_memory_state.update_state(self.clock, &payload, "function_run_processor")?;
             update.extend(create_update);
@@ -352,13 +352,12 @@ impl FunctionRunProcessor {
 
         in_memory_state.update_state(
             self.clock,
-            &RequestPayload::SchedulerUpdate((Box::new(update.clone()), vec![])),
+            &RequestPayload::SchedulerUpdate(SchedulerUpdatePayload::new(update.clone())),
             "task_allocator",
         )?;
-        container_scheduler.update(&RequestPayload::SchedulerUpdate((
-            Box::new(update.clone()),
-            vec![],
-        )))?;
+        container_scheduler.update(&RequestPayload::SchedulerUpdate(
+            SchedulerUpdatePayload::new(update.clone()),
+        ))?;
         Ok(update)
     }
 }

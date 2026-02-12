@@ -312,17 +312,17 @@ impl IndexifyState {
                 .map_err(|e| anyhow!("error updating container scheduler: {e:?}"))?;
         }
 
-        if let RequestPayload::SchedulerUpdate((request, _)) = &request.payload {
+        if let RequestPayload::SchedulerUpdate(payload) = &request.payload {
             let impacted_executors = self
                 .executor_watches
                 .impacted_executors(
-                    &request.updated_function_runs,
-                    &request.updated_request_states,
+                    &payload.update.updated_function_runs,
+                    &payload.update.updated_request_states,
                 )
                 .await;
             changed_executors.extend(impacted_executors.into_iter().map(|e| e.into()));
 
-            for executor_id in request.updated_executor_states.keys() {
+            for executor_id in payload.update.updated_executor_states.keys() {
                 changed_executors.insert(executor_id.clone());
             }
         }
@@ -451,10 +451,10 @@ impl IndexifyState {
                 );
                 state_machine::create_request(&txn, invoke_application_request).await?;
             }
-            RequestPayload::SchedulerUpdate((request, processed_state_changes)) => {
+            RequestPayload::SchedulerUpdate(payload) => {
                 let scheduler_result = state_machine::handle_scheduler_update(
                     &txn,
-                    request,
+                    &payload.update,
                     Some(&self.usage_event_id_seq),
                     current_clock,
                 )
@@ -462,7 +462,8 @@ impl IndexifyState {
                 if scheduler_result.usage_recorded {
                     should_notify_usage_reporter = true;
                 }
-                state_machine::mark_state_changes_processed(&txn, processed_state_changes).await?;
+                state_machine::mark_state_changes_processed(&txn, &payload.processed_state_changes)
+                    .await?;
             }
             RequestPayload::CreateNameSpace(namespace_request) => {
                 state_machine::upsert_namespace(self.db.clone(), namespace_request, current_clock)
