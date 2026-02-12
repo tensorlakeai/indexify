@@ -101,8 +101,7 @@ impl Serialize for VectorClock {
     where
         S: serde::Serializer,
     {
-        let tick_value = self.tick();
-        serializer.serialize_some(&tick_value)
+        serializer.serialize_u64(self.tick())
     }
 }
 

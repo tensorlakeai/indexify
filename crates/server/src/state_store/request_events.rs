@@ -427,8 +427,7 @@ pub fn build_request_state_change_events(
             events
         }
         RequestPayload::UpsertExecutor(_) => vec![],
-        RequestPayload::SchedulerUpdate(payload) => {
-            let sched_update = &payload.update;
+        RequestPayload::SchedulerUpdate((sched_update, _)) => {
             let mut changes = Vec::new();
 
             // 1. FunctionRunCreated events first (runs must exist before being assigned)

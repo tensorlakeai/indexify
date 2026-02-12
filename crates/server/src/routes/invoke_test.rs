@@ -215,9 +215,10 @@ mod tests {
         state
             .indexify_state
             .write(crate::state_store::requests::StateMachineUpdateRequest {
-                payload: crate::state_store::requests::RequestPayload::SchedulerUpdate(
-                    crate::state_store::requests::SchedulerUpdatePayload::new(scheduler_update),
-                ),
+                payload: crate::state_store::requests::RequestPayload::SchedulerUpdate((
+                    Box::new(scheduler_update),
+                    vec![],
+                )),
             })
             .await?;
         Ok(())
@@ -759,9 +760,10 @@ mod tests {
         state
             .indexify_state
             .write(crate::state_store::requests::StateMachineUpdateRequest {
-                payload: crate::state_store::requests::RequestPayload::SchedulerUpdate(
-                    crate::state_store::requests::SchedulerUpdatePayload::new(scheduler_update),
-                ),
+                payload: crate::state_store::requests::RequestPayload::SchedulerUpdate((
+                    Box::new(scheduler_update),
+                    vec![],
+                )),
             })
             .await
             .unwrap();
