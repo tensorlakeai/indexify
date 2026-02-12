@@ -26,7 +26,8 @@ use crate::{
 /// After this migration:
 /// - Function pools in `FunctionPools` CF with pool ID `{app}|{fn}|{ver}`
 /// - Sandbox pools in `SandboxPools` CF with their original pool ID
-/// - `ContainerPools` CF emptied (kept for RocksDB compatibility, dropped later)
+/// - `ContainerPools` CF emptied (kept for RocksDB compatibility, dropped
+///   later)
 #[derive(Clone)]
 pub struct V15SplitContainerPools;
 
@@ -159,7 +160,12 @@ mod tests {
 
     use super::*;
     use crate::{
-        data_model::{ContainerPoolBuilder, ContainerPoolId, ContainerPoolType, ContainerResources},
+        data_model::{
+            ContainerPoolBuilder,
+            ContainerPoolId,
+            ContainerPoolType,
+            ContainerResources,
+        },
         state_store::{
             driver::{Reader, Writer},
             migrations::testing::MigrationTestBuilder,
@@ -235,46 +241,38 @@ mod tests {
                     Box::pin(async move {
                         // Old CF should be empty
                         let old_fn = db
-                            .get(
-                                IndexifyObjectsColumns::ContainerPools.as_ref(),
-                                fn_pool_key,
-                            )
+                            .get(IndexifyObjectsColumns::ContainerPools.as_ref(), fn_pool_key)
                             .await?;
-                        assert!(old_fn.is_none(), "old ContainerPools entry should be deleted");
+                        assert!(
+                            old_fn.is_none(),
+                            "old ContainerPools entry should be deleted"
+                        );
 
                         let old_sb = db
-                            .get(
-                                IndexifyObjectsColumns::ContainerPools.as_ref(),
-                                sb_pool_key,
-                            )
+                            .get(IndexifyObjectsColumns::ContainerPools.as_ref(), sb_pool_key)
                             .await?;
-                        assert!(old_sb.is_none(), "old ContainerPools entry should be deleted");
+                        assert!(
+                            old_sb.is_none(),
+                            "old ContainerPools entry should be deleted"
+                        );
 
                         // Function pool should be in FunctionPools with new key format
                         let new_fn_key = b"test_ns|my_app|my_fn|v1";
                         let fn_result = db
-                            .get(
-                                IndexifyObjectsColumns::FunctionPools.as_ref(),
-                                new_fn_key,
-                            )
+                            .get(IndexifyObjectsColumns::FunctionPools.as_ref(), new_fn_key)
                             .await?
                             .expect("function pool should exist in FunctionPools");
-                        let fn_decoded: ContainerPool =
-                            StateStoreEncoder::decode(&fn_result)?;
+                        let fn_decoded: ContainerPool = StateStoreEncoder::decode(&fn_result)?;
                         assert_eq!(fn_decoded.id.get(), "my_app|my_fn|v1");
                         assert_eq!(fn_decoded.namespace, "test_ns");
                         assert_eq!(fn_decoded.pool_type, ContainerPoolType::Function);
 
                         // Sandbox pool should be in SandboxPools with same key
                         let sb_result = db
-                            .get(
-                                IndexifyObjectsColumns::SandboxPools.as_ref(),
-                                sb_pool_key,
-                            )
+                            .get(IndexifyObjectsColumns::SandboxPools.as_ref(), sb_pool_key)
                             .await?
                             .expect("sandbox pool should exist in SandboxPools");
-                        let sb_decoded: ContainerPool =
-                            StateStoreEncoder::decode(&sb_result)?;
+                        let sb_decoded: ContainerPool = StateStoreEncoder::decode(&sb_result)?;
                         assert_eq!(sb_decoded.id.get(), "my_sandbox_pool");
                         assert_eq!(sb_decoded.namespace, "test_ns");
                         assert_eq!(sb_decoded.pool_type, ContainerPoolType::Sandbox);
