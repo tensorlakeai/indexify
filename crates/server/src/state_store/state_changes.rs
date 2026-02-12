@@ -154,7 +154,10 @@ pub fn task_outputs_ingested(
                         output_function_call_id: graph_updates.output_function_call_id.clone(),
                     }),
                 request_exception: request.request_exception.clone(),
-                allocation: request.allocation.clone(),
+                allocation_id: request.allocation.id.clone(),
+                allocation_target: request.allocation.target.clone(),
+                allocation_outcome: request.allocation.outcome.clone(),
+                execution_duration_ms: request.allocation.execution_duration_ms,
             },
         )))
         .created_at(get_epoch_time_in_ms())

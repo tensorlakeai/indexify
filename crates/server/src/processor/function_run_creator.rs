@@ -9,6 +9,7 @@ use tracing::{error, info, trace, warn};
 
 use crate::{
     data_model::{
+        Allocation,
         AllocationOutputIngestedEvent,
         ApplicationVersion,
         ComputeOp,
@@ -33,7 +34,7 @@ use crate::{
     state_store::{
         IndexifyState,
         in_memory_state::InMemoryState,
-        requests::{RequestPayload, SchedulerUpdateRequest},
+        requests::{RequestPayload, SchedulerUpdatePayload, SchedulerUpdateRequest},
     },
 };
 
@@ -111,9 +112,10 @@ impl FunctionRunCreator {
             pending_function_calls,
             application_version,
         )?);
+        scheduler_update.add_request_state(&request_ctx);
         in_memory_state.update_state(
             self.clock,
-            &RequestPayload::SchedulerUpdate((Box::new(scheduler_update.clone()), vec![])),
+            &RequestPayload::SchedulerUpdate(SchedulerUpdatePayload::new(scheduler_update.clone())),
             "task_creator",
         )?;
         Ok(scheduler_update)
@@ -132,25 +134,25 @@ impl FunctionRunCreator {
             request_id = alloc_finished_event.request_id,
             fn = alloc_finished_event.function,
             fn_run_id = alloc_finished_event.function_call_id.to_string(),
-            allocation_id = alloc_finished_event.allocation.id.to_string(),
+            allocation_id = alloc_finished_event.allocation_id.to_string(),
             "handling allocation ingestion",
         );
         let mut scheduler_update = SchedulerUpdateRequest::default();
         if let Some(fc) = container_scheduler
             .function_containers
-            .get_mut(&alloc_finished_event.allocation.target.function_executor_id)
+            .get_mut(&alloc_finished_event.allocation_target.function_executor_id)
         {
-            fc.allocations.remove(&alloc_finished_event.allocation.id);
+            fc.allocations.remove(&alloc_finished_event.allocation_id);
             scheduler_update.containers.insert(
                 alloc_finished_event
-                    .allocation
-                    .target
+                    .allocation_target
                     .function_executor_id
                     .clone(),
                 fc.clone(),
             );
         }
-        let payload = RequestPayload::SchedulerUpdate((Box::new(scheduler_update.clone()), vec![]));
+        let payload =
+            RequestPayload::SchedulerUpdate(SchedulerUpdatePayload::new(scheduler_update.clone()));
         container_scheduler.update(&payload)?;
         in_memory_state.update_state(self.clock, &payload, "function_run_creator")?;
 
@@ -191,15 +193,29 @@ impl FunctionRunCreator {
             return Ok(scheduler_update);
         };
 
-        let allocation = alloc_finished_event.allocation.clone();
-
-        if let Some(existing_allocation) = self
+        let allocation_key = Allocation::key_from(
+            &alloc_finished_event.namespace,
+            &alloc_finished_event.application,
+            &alloc_finished_event.request_id,
+            &alloc_finished_event.allocation_id,
+        );
+        let Some(mut allocation) = self
             .indexify_state
             .reader()
-            .get_allocation(&allocation.key())
-            .await? &&
-            existing_allocation.is_terminal()
-        {
+            .get_allocation(&allocation_key)
+            .await?
+        else {
+            warn!(
+                allocation_id = %alloc_finished_event.allocation_id,
+                request_id = %alloc_finished_event.request_id,
+                namespace = %alloc_finished_event.namespace,
+                app = %alloc_finished_event.application,
+                "allocation not found in DB, skipping"
+            );
+            return Ok(scheduler_update);
+        };
+
+        if allocation.is_terminal() {
             warn!(
                 allocation_id = %allocation.id,
                 request_id = %allocation.request_id,
@@ -209,6 +225,10 @@ impl FunctionRunCreator {
             );
             return Ok(scheduler_update);
         }
+
+        // Apply executor-reported outcome to the allocation
+        allocation.outcome = alloc_finished_event.allocation_outcome.clone();
+        allocation.execution_duration_ms = alloc_finished_event.execution_duration_ms;
 
         // Idempotency: we only act on this alloc's task if the task is currently
         // running this alloc. This is because we handle allocation failures
@@ -246,6 +266,7 @@ impl FunctionRunCreator {
                 app_version = %function_run.version,
                 "application version not found, stopping scheduling of child function runs",
             );
+            scheduler_update.add_request_state(&request_ctx);
             return Ok(scheduler_update);
         };
 
@@ -262,9 +283,10 @@ impl FunctionRunCreator {
         }
         scheduler_update.add_function_run(function_run.clone(), &mut request_ctx);
 
+        scheduler_update.add_request_state(&request_ctx);
         in_memory_state.update_state(
             self.clock,
-            &RequestPayload::SchedulerUpdate((Box::new(scheduler_update.clone()), vec![])),
+            &RequestPayload::SchedulerUpdate(SchedulerUpdatePayload::new(scheduler_update.clone())),
             "task_creator",
         )?;
 
@@ -296,6 +318,7 @@ impl FunctionRunCreator {
                     scheduler_update.add_function_run(function_run.clone(), &mut request_ctx);
                 }
             }
+            scheduler_update.add_request_state(&request_ctx);
             return Ok(scheduler_update);
         }
 
@@ -323,9 +346,10 @@ impl FunctionRunCreator {
             pending_function_calls,
             &application_version,
         )?);
+        scheduler_update.add_request_state(&request_ctx);
         in_memory_state.update_state(
             self.clock,
-            &RequestPayload::SchedulerUpdate((Box::new(scheduler_update.clone()), vec![])),
+            &RequestPayload::SchedulerUpdate(SchedulerUpdatePayload::new(scheduler_update.clone())),
             "task_creator",
         )?;
         Ok(scheduler_update)
@@ -339,10 +363,7 @@ impl FunctionRunCreator {
         let mut scheduler_update = SchedulerUpdateRequest::default();
         for function_call in &update.graph_updates {
             if let ComputeOp::FunctionCall(function_call) = function_call {
-                request_ctx.function_calls.insert(
-                    function_call.function_call_id.clone(),
-                    function_call.clone(),
-                );
+                scheduler_update.add_function_call(function_call.clone(), request_ctx);
             }
         }
         for function_call in &update.graph_updates {

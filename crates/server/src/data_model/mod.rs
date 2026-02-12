@@ -20,6 +20,51 @@ use serde_inline_default::serde_inline_default;
 use strum::Display;
 use tracing::info;
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct JsonValue(pub serde_json::Value);
+
+impl Serialize for JsonValue {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        if serializer.is_human_readable() {
+            self.0.serialize(serializer)
+        } else {
+            let json_string = serde_json::to_string(&self.0).map_err(serde::ser::Error::custom)?;
+            json_string.serialize(serializer)
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for JsonValue {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        if deserializer.is_human_readable() {
+            serde_json::Value::deserialize(deserializer).map(JsonValue)
+        } else {
+            let json_string = String::deserialize(deserializer)?;
+            serde_json::from_str(&json_string)
+                .map(JsonValue)
+                .map_err(serde::de::Error::custom)
+        }
+    }
+}
+
+impl From<serde_json::Value> for JsonValue {
+    fn from(v: serde_json::Value) -> Self {
+        JsonValue(v)
+    }
+}
+
+impl From<JsonValue> for serde_json::Value {
+    fn from(v: JsonValue) -> Self {
+        v.0
+    }
+}
+
 use crate::{
     config::DEFAULT_SANDBOX_IMAGE,
     data_model::clocks::VectorClock,
@@ -208,6 +253,21 @@ pub struct FunctionCall {
     pub fn_name: String,
     pub call_metadata: bytes::Bytes,
     pub parent_function_call_id: Option<FunctionCallId>,
+}
+
+impl FunctionCall {
+    pub fn key_for_request(
+        namespace: &str,
+        application: &str,
+        request_id: &str,
+        function_call_id: &FunctionCallId,
+    ) -> String {
+        format!("{namespace}|{application}|{request_id}|{function_call_id}")
+    }
+
+    pub fn key_prefix_for_request(namespace: &str, application: &str, request_id: &str) -> String {
+        format!("{namespace}|{application}|{request_id}|")
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -431,7 +491,7 @@ pub struct Function {
     #[serde(default)]
     pub parameters: Vec<ParameterMetadata>,
     #[serde(default)]
-    pub return_type: Option<serde_json::Value>,
+    pub return_type: Option<JsonValue>,
     #[serde_inline_default(1)]
     pub max_concurrency: u32,
     #[serde(default)]
@@ -467,7 +527,7 @@ pub struct ParameterMetadata {
     pub name: String,
     pub description: Option<String>,
     pub required: bool,
-    pub data_type: serde_json::Value,
+    pub data_type: JsonValue,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -1131,6 +1191,88 @@ impl RequestCtx {
         for function_run in self.function_runs.values_mut() {
             function_run.prepare_for_persistence(clock);
         }
+    }
+
+    pub fn from_persisted(
+        persisted: PersistedRequestCtx,
+        function_runs: HashMap<FunctionCallId, FunctionRun>,
+        function_calls: HashMap<FunctionCallId, FunctionCall>,
+    ) -> Self {
+        Self {
+            namespace: persisted.namespace,
+            application_name: persisted.application_name,
+            application_version: persisted.application_version,
+            request_id: persisted.request_id,
+            outcome: persisted.outcome,
+            created_at: persisted.created_at,
+            request_error: persisted.request_error,
+            created_at_clock: persisted.created_at_clock,
+            updated_at_clock: persisted.updated_at_clock,
+            function_runs,
+            function_calls,
+            child_function_calls: HashMap::new(),
+        }
+    }
+}
+
+/// A persistence-optimized version of `RequestCtx` that does not embed
+/// function_runs or function_calls. Those are stored in their own column
+/// families.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PersistedRequestCtx {
+    pub namespace: String,
+    pub application_name: String,
+    pub application_version: String,
+    pub request_id: String,
+    #[serde(default)]
+    pub outcome: Option<RequestOutcome>,
+    pub created_at: u64,
+    #[serde(default)]
+    pub request_error: Option<RequestError>,
+    #[serde(default)]
+    created_at_clock: Option<u64>,
+    #[serde(default)]
+    updated_at_clock: Option<u64>,
+    pub function_runs_count: usize,
+    pub function_calls_count: usize,
+}
+
+impl From<&RequestCtx> for PersistedRequestCtx {
+    fn from(ctx: &RequestCtx) -> Self {
+        Self {
+            namespace: ctx.namespace.clone(),
+            application_name: ctx.application_name.clone(),
+            application_version: ctx.application_version.clone(),
+            request_id: ctx.request_id.clone(),
+            outcome: ctx.outcome.clone(),
+            created_at: ctx.created_at,
+            request_error: ctx.request_error.clone(),
+            created_at_clock: ctx.created_at_clock,
+            updated_at_clock: ctx.updated_at_clock,
+            function_runs_count: ctx.function_runs.len(),
+            function_calls_count: ctx.function_calls.len(),
+        }
+    }
+}
+
+impl PersistedRequestCtx {
+    pub fn key(&self) -> String {
+        format!(
+            "{}|{}|{}",
+            self.namespace, self.application_name, self.request_id
+        )
+    }
+
+    pub fn secondary_index_key(&self) -> Vec<u8> {
+        let mut key = Vec::new();
+        key.extend_from_slice(self.namespace.as_bytes());
+        key.push(b'|');
+        key.extend_from_slice(self.application_name.as_bytes());
+        key.push(b'|');
+        key.extend_from_slice(&self.created_at.to_be_bytes());
+        key.push(b'|');
+        key.extend_from_slice(self.request_id.as_bytes());
+        key
     }
 }
 
@@ -2086,7 +2228,10 @@ pub struct AllocationOutputIngestedEvent {
     pub data_payload: Option<DataPayload>,
     pub graph_updates: Option<GraphUpdates>,
     pub request_exception: Option<DataPayload>,
-    pub allocation: Allocation,
+    pub allocation_id: AllocationId,
+    pub allocation_target: AllocationTarget,
+    pub allocation_outcome: FunctionRunOutcome,
+    pub execution_duration_ms: Option<u64>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]

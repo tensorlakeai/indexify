@@ -12,9 +12,10 @@ use crate::{
         AllocationUsageEvent,
         Application,
         ApplicationVersion,
-        FunctionCallId,
+        FunctionCall,
         FunctionRun,
         Namespace,
+        PersistedRequestCtx,
         RequestCtx,
         Sandbox,
         StateChange,
@@ -23,7 +24,7 @@ use crate::{
     metrics::{self, Timer},
     state_store::{
         driver::{IterOptions, RangeOptionsBuilder, Reader, rocksdb::RocksDBDriver},
-        serializer::{JsonEncode, JsonEncoder},
+        serializer::{StateStoreEncode, StateStoreEncoder},
     },
     utils::get_epoch_time_in_ms,
 };
@@ -72,7 +73,7 @@ impl StateReader {
         let result = self.db.list_existent_items(column.as_ref(), keys).await?;
         let mut items: Vec<V> = Vec::with_capacity(result.len());
         for v in result {
-            let de = JsonEncoder::decode(v.as_ref())?;
+            let de = StateStoreEncoder::decode(v.as_ref())?;
             items.push(de);
         }
 
@@ -108,7 +109,7 @@ impl StateReader {
             if !key.starts_with(key_prefix) {
                 break;
             }
-            let value = JsonEncoder::decode(&value)?;
+            let value = StateStoreEncoder::decode(&value)?;
             if items.len() < limit {
                 items.push(value);
             } else {
@@ -135,7 +136,7 @@ impl StateReader {
             Some(bytes) => bytes,
             None => return Ok(None),
         };
-        let result = JsonEncoder::decode::<T>(&result_bytes)
+        let result = StateStoreEncoder::decode::<T>(&result_bytes)
             .map_err(|e| anyhow::anyhow!("Deserialization error: {e}"))?;
 
         Ok(Some(result))
@@ -154,7 +155,7 @@ impl StateReader {
             )
             .await;
         for (_, value) in iter.flatten() {
-            let state_change = JsonEncoder::decode::<StateChange>(&value)?;
+            let state_change = StateStoreEncoder::decode::<StateChange>(&value)?;
             state_changes.push(state_change);
         }
 
@@ -166,7 +167,7 @@ impl StateReader {
             )
             .await;
         for (_, value) in iter.flatten() {
-            let state_change = JsonEncoder::decode::<StateChange>(&value)?;
+            let state_change = StateStoreEncoder::decode::<StateChange>(&value)?;
             state_changes.push(state_change);
         }
         Ok(state_changes)
@@ -275,8 +276,8 @@ impl StateReader {
                 .and_then(|(key, value)| {
                     let key = String::from_utf8(key.to_vec())
                         .map_err(|e| anyhow::anyhow!(e.to_string()))?;
-                    let value =
-                        JsonEncoder::decode(&value).map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                    let value = StateStoreEncoder::decode(&value)
+                        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
                     Ok((key, value))
                 })
         })
@@ -316,7 +317,7 @@ impl StateReader {
         cursor: Option<&[u8]>,
         limit: usize,
         direction: Option<CursorDirection>,
-    ) -> Result<(Vec<RequestCtx>, Option<Vec<u8>>, Option<Vec<u8>>)> {
+    ) -> Result<(Vec<PersistedRequestCtx>, Option<Vec<u8>>, Option<Vec<u8>>)> {
         let kvs = &[KeyValue::new("op", "list_requests")];
         let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
         let key_prefix = [namespace.as_bytes(), b"|", application.as_bytes(), b"|"].concat();
@@ -361,7 +362,7 @@ impl StateReader {
         }
 
         let requests = self
-            .get_rows_from_cf_multi_key::<RequestCtx>(
+            .get_rows_from_cf_multi_key::<PersistedRequestCtx>(
                 request_prefixes.iter().map(|v| v.as_slice()).collect(),
                 IndexifyObjectsColumns::RequestCtx,
             )
@@ -484,12 +485,47 @@ impl StateReader {
         let cf = IndexifyObjectsColumns::RequestCtx.as_ref();
         let key = RequestCtx::key_from(namespace, application, request_id);
         let value = self.db.get(cf, key.as_bytes()).await?;
-        if value.is_none() {
+        let Some(value) = value else {
             return Ok(None);
-        }
-        let request_ctx: RequestCtx = JsonEncoder::decode(&value.unwrap())
+        };
+        let persisted: PersistedRequestCtx = StateStoreEncoder::decode(&value)
             .map_err(|e| anyhow!("unable to decode request ctx: {e}"))?;
-        Ok(Some(request_ctx))
+
+        // Load function_runs from FunctionRuns CF
+        let fr_prefix = FunctionRun::key_prefix_for_request(namespace, application, request_id);
+        let (function_runs_vec, _) = self
+            .get_rows_from_cf_with_limits::<FunctionRun>(
+                fr_prefix.as_bytes(),
+                None,
+                IndexifyObjectsColumns::FunctionRuns,
+                None,
+            )
+            .await?;
+        let function_runs = function_runs_vec
+            .into_iter()
+            .map(|fr| (fr.id.clone(), fr))
+            .collect();
+
+        // Load function_calls from FunctionCalls CF
+        let fc_prefix = FunctionCall::key_prefix_for_request(namespace, application, request_id);
+        let (function_calls_vec, _) = self
+            .get_rows_from_cf_with_limits::<FunctionCall>(
+                fc_prefix.as_bytes(),
+                None,
+                IndexifyObjectsColumns::FunctionCalls,
+                None,
+            )
+            .await?;
+        let function_calls = function_calls_vec
+            .into_iter()
+            .map(|fc| (fc.function_call_id.clone(), fc))
+            .collect();
+
+        Ok(Some(RequestCtx::from_persisted(
+            persisted,
+            function_runs,
+            function_calls,
+        )))
     }
 
     pub async fn get_function_run(
@@ -499,17 +535,22 @@ impl StateReader {
         request_id: &str,
         function_call_id: &str,
     ) -> Option<FunctionRun> {
-        let request_ctx = match self.request_ctx(namespace, application, request_id).await {
-            Ok(Some(ctx)) => ctx,
+        // Direct point-get from FunctionRuns CF instead of loading entire RequestCtx
+        let fr_key = format!("{namespace}|{application}|{request_id}|{function_call_id}");
+        match self
+            .get_from_cf::<FunctionRun>(&IndexifyObjectsColumns::FunctionRuns, fr_key.as_bytes())
+            .await
+        {
+            Ok(Some(fr)) => Some(fr),
             Ok(None) => {
                 error!(
                     namespace,
                     application,
                     request_id,
                     function_call_id,
-                    "request_ctx not found in RocksDB for executor watch",
+                    "function_run not found in RocksDB for executor watch",
                 );
-                return None;
+                None
             }
             Err(e) => {
                 error!(
@@ -518,13 +559,11 @@ impl StateReader {
                     request_id,
                     function_call_id,
                     error = %e,
-                    "failed to read request_ctx from RocksDB for executor watch",
+                    "failed to read function_run from RocksDB for executor watch",
                 );
-                return None;
+                None
             }
-        };
-        let fc_id = FunctionCallId(function_call_id.to_string());
-        request_ctx.function_runs.get(&fc_id).cloned()
+        }
     }
 
     pub async fn get_sandbox(&self, namespace: &str, sandbox_id: &str) -> Result<Option<Sandbox>> {

@@ -24,7 +24,7 @@ use crate::{
     processor::container_scheduler::{self, ContainerScheduler},
     state_store::{
         in_memory_state::InMemoryState,
-        requests::{RequestPayload, SchedulerUpdateRequest},
+        requests::{RequestPayload, SchedulerUpdatePayload, SchedulerUpdateRequest},
     },
 };
 
@@ -149,6 +149,7 @@ impl FunctionRunProcessor {
                                 crate::data_model::RequestFailureReason::ConstraintUnsatisfiable,
                             ));
                             update.add_function_run(failed_function_run.clone(), &mut ctx);
+                            update.add_request_state(&ctx);
                             // Mark as unsatisfiable so we skip other runs of same function
                             no_resources_for_fn.insert(fn_uri);
                         }
@@ -285,7 +286,7 @@ impl FunctionRunProcessor {
                 try_create_container(in_memory_state, container_scheduler, function_run)?
         {
             let payload =
-                RequestPayload::SchedulerUpdate((Box::new(create_update.clone()), vec![]));
+                RequestPayload::SchedulerUpdate(SchedulerUpdatePayload::new(create_update.clone()));
             container_scheduler.update(&payload)?;
             in_memory_state.update_state(self.clock, &payload, "function_run_processor")?;
             update.extend(create_update);
@@ -319,6 +320,7 @@ impl FunctionRunProcessor {
         });
 
         update.add_function_run(updated_function_run.clone(), ctx);
+        update.add_request_state(ctx);
         update.new_allocations.push(allocation.clone());
 
         // Increment num_allocations via updated_function_containers so
@@ -350,13 +352,12 @@ impl FunctionRunProcessor {
 
         in_memory_state.update_state(
             self.clock,
-            &RequestPayload::SchedulerUpdate((Box::new(update.clone()), vec![])),
+            &RequestPayload::SchedulerUpdate(SchedulerUpdatePayload::new(update.clone())),
             "task_allocator",
         )?;
-        container_scheduler.update(&RequestPayload::SchedulerUpdate((
-            Box::new(update.clone()),
-            vec![],
-        )))?;
+        container_scheduler.update(&RequestPayload::SchedulerUpdate(
+            SchedulerUpdatePayload::new(update.clone()),
+        ))?;
         Ok(update)
     }
 }

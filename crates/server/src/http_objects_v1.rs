@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use crate::{
-    data_model::{self, ApplicationBuilder, RequestCtx},
+    data_model::{self, ApplicationBuilder, PersistedRequestCtx, RequestCtx},
     executor_api::executor_api_pb::DataPayloadEncoding,
     http_objects::{
         ApplicationFunction,
@@ -217,6 +217,18 @@ impl From<RequestCtx> for ShallowRequest {
             created_at: ctx.created_at.into(),
             outcome: ctx.outcome.map(|outcome| outcome.into()),
             function_runs_count: ctx.function_runs.len(),
+            application_version: ctx.application_version,
+        }
+    }
+}
+
+impl From<PersistedRequestCtx> for ShallowRequest {
+    fn from(ctx: PersistedRequestCtx) -> Self {
+        Self {
+            id: ctx.request_id,
+            created_at: ctx.created_at.into(),
+            outcome: ctx.outcome.map(|outcome| outcome.into()),
+            function_runs_count: ctx.function_runs_count,
             application_version: ctx.application_version,
         }
     }
