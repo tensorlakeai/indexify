@@ -22,7 +22,6 @@ use crate::{
         FunctionRun,
         FunctionRunOutcome,
         FunctionRunStatus,
-        RequestCtx,
         test_objects::tests::mock_blocking_function_call,
     },
     executor_api::executor_api_pb::Allocation as AllocationPb,
