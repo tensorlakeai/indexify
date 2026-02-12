@@ -1,10 +1,23 @@
-use std::{any::type_name, fmt::Debug};
+use std::{any::type_name, fmt::Debug, sync::LazyLock};
 
 use anyhow::Result;
+use opentelemetry::metrics::Histogram;
 use serde::de::DeserializeOwned;
+use tracing::warn;
 
 /// Version byte prefix for bincode-encoded values.
 const BINCODE_VERSION: u8 = 0x01;
+
+/// Threshold above which a serialized value triggers a warning log.
+const LARGE_VALUE_THRESHOLD: usize = 100_000;
+
+static VALUE_SIZE_HISTOGRAM: LazyLock<Histogram<u64>> = LazyLock::new(|| {
+    let meter = opentelemetry::global::meter("state_store");
+    meter
+        .u64_histogram("indexify.state_store.value_size_bytes")
+        .with_description("Size of serialized values written to the state store")
+        .build()
+});
 
 pub struct JsonEncoder;
 
@@ -29,7 +42,16 @@ impl JsonEncode for JsonEncoder {
                 value
             )
         })?;
-        let mut buf = Vec::with_capacity(1 + encoded.len());
+        let total_size = 1 + encoded.len();
+        VALUE_SIZE_HISTOGRAM.record(total_size as u64, &[]);
+        if total_size > LARGE_VALUE_THRESHOLD {
+            warn!(
+                size_bytes = total_size,
+                type_name = type_name::<T>(),
+                "large value written to state store"
+            );
+        }
+        let mut buf = Vec::with_capacity(total_size);
         buf.push(BINCODE_VERSION);
         buf.extend(encoded);
         Ok(buf)
