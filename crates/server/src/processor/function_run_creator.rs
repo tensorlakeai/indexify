@@ -366,10 +366,7 @@ impl FunctionRunCreator {
         let mut scheduler_update = SchedulerUpdateRequest::default();
         for function_call in &update.graph_updates {
             if let ComputeOp::FunctionCall(function_call) = function_call {
-                request_ctx.function_calls.insert(
-                    function_call.function_call_id.clone(),
-                    function_call.clone(),
-                );
+                scheduler_update.add_function_call(function_call.clone(), request_ctx);
             }
         }
         for function_call in &update.graph_updates {

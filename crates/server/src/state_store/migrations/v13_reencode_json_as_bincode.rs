@@ -10,6 +10,8 @@ use crate::{
         Application,
         ApplicationVersion,
         ContainerPool,
+        FunctionCall,
+        FunctionRun,
         GcUrl,
         Namespace,
         RequestCtx,
@@ -111,6 +113,16 @@ impl Migration for V13ReencodeJsonAsBincode {
             (
                 &IndexifyObjectsColumns::ContainerPools,
                 Box::new(reencode_cf::<ContainerPool>),
+            ),
+            // FunctionRuns and FunctionCalls CFs are empty at V13 but included
+            // for completeness when running all migrations from scratch.
+            (
+                &IndexifyObjectsColumns::FunctionRuns,
+                Box::new(reencode_cf::<FunctionRun>),
+            ),
+            (
+                &IndexifyObjectsColumns::FunctionCalls,
+                Box::new(reencode_cf::<FunctionCall>),
             ),
         ];
 

@@ -156,6 +156,7 @@ pub struct SchedulerUpdateRequest {
     pub new_allocations: Vec<Allocation>,
     pub updated_allocations: Vec<Allocation>,
     pub updated_function_runs: HashMap<String, HashSet<FunctionCallId>>,
+    pub updated_function_calls: HashMap<String, HashSet<FunctionCallId>>,
     pub updated_request_states: HashMap<String, RequestCtx>,
     pub remove_executors: Vec<ExecutorId>,
     pub updated_executor_states: HashMap<ExecutorId, Box<ExecutorServerMetadata>>,
@@ -177,6 +178,12 @@ impl SchedulerUpdateRequest {
                 .entry(ctx_key)
                 .or_default()
                 .extend(function_run_ids);
+        }
+        for (ctx_key, function_call_ids) in other.updated_function_calls {
+            self.updated_function_calls
+                .entry(ctx_key)
+                .or_default()
+                .extend(function_call_ids);
         }
         self.updated_request_states
             .extend(other.updated_request_states);
@@ -236,15 +243,19 @@ impl SchedulerUpdateRequest {
             .insert(request_ctx.key(), request_ctx.clone());
     }
 
-    /// Adds a function call to the request context.
+    /// Adds a function call to the request context and tracks it as updated.
     ///
     /// NOTE: This does NOT snapshot the RequestCtx. See `add_function_run()`
     /// documentation for the snapshot contract.
     pub fn add_function_call(&mut self, function_call: FunctionCall, request_ctx: &mut RequestCtx) {
-        request_ctx.function_calls.insert(
-            function_call.function_call_id.clone(),
-            function_call.clone(),
-        );
+        let fc_id = function_call.function_call_id.clone();
+        request_ctx
+            .function_calls
+            .insert(fc_id.clone(), function_call);
+        self.updated_function_calls
+            .entry(request_ctx.key())
+            .or_default()
+            .insert(fc_id);
     }
 
     pub fn unallocated_function_runs(&self) -> Vec<FunctionRun> {

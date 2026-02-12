@@ -885,6 +885,8 @@ mod tests {
             "RequestStateChangeEvents",
             "Sandboxes",
             "ContainerPools",
+            "FunctionRuns",
+            "FunctionCalls",
         ];
 
         let columns_iter = columns

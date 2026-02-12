@@ -262,6 +262,21 @@ pub struct FunctionCall {
     pub parent_function_call_id: Option<FunctionCallId>,
 }
 
+impl FunctionCall {
+    pub fn key_for_request(
+        namespace: &str,
+        application: &str,
+        request_id: &str,
+        function_call_id: &FunctionCallId,
+    ) -> String {
+        format!("{namespace}|{application}|{request_id}|{function_call_id}")
+    }
+
+    pub fn key_prefix_for_request(namespace: &str, application: &str, request_id: &str) -> String {
+        format!("{namespace}|{application}|{request_id}|")
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum FunctionArgs {
     FunctionRunOutput(FunctionCallId),
@@ -1183,6 +1198,90 @@ impl RequestCtx {
         for function_run in self.function_runs.values_mut() {
             function_run.prepare_for_persistence(clock);
         }
+    }
+
+    /// Reconstructs a full `RequestCtx` from a `PersistedRequestCtx` plus
+    /// separately-loaded function_runs and function_calls maps.
+    pub fn from_persisted(
+        persisted: PersistedRequestCtx,
+        function_runs: HashMap<FunctionCallId, FunctionRun>,
+        function_calls: HashMap<FunctionCallId, FunctionCall>,
+    ) -> Self {
+        Self {
+            namespace: persisted.namespace,
+            application_name: persisted.application_name,
+            application_version: persisted.application_version,
+            request_id: persisted.request_id,
+            outcome: persisted.outcome,
+            created_at: persisted.created_at,
+            request_error: persisted.request_error,
+            created_at_clock: persisted.created_at_clock,
+            updated_at_clock: persisted.updated_at_clock,
+            function_runs,
+            function_calls,
+            child_function_calls: HashMap::new(),
+        }
+    }
+}
+
+/// A persistence-optimized version of `RequestCtx` that does not embed
+/// function_runs or function_calls. Those are stored in their own column
+/// families. This avoids O(N^2) write amplification for large requests.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PersistedRequestCtx {
+    pub namespace: String,
+    pub application_name: String,
+    pub application_version: String,
+    pub request_id: String,
+    #[serde(default)]
+    pub outcome: Option<RequestOutcome>,
+    pub created_at: u64,
+    #[serde(default)]
+    pub request_error: Option<RequestError>,
+    #[serde(default)]
+    created_at_clock: Option<u64>,
+    #[serde(default)]
+    updated_at_clock: Option<u64>,
+    pub function_runs_count: usize,
+    pub function_calls_count: usize,
+}
+
+impl From<&RequestCtx> for PersistedRequestCtx {
+    fn from(ctx: &RequestCtx) -> Self {
+        Self {
+            namespace: ctx.namespace.clone(),
+            application_name: ctx.application_name.clone(),
+            application_version: ctx.application_version.clone(),
+            request_id: ctx.request_id.clone(),
+            outcome: ctx.outcome.clone(),
+            created_at: ctx.created_at,
+            request_error: ctx.request_error.clone(),
+            created_at_clock: ctx.created_at_clock,
+            updated_at_clock: ctx.updated_at_clock,
+            function_runs_count: ctx.function_runs.len(),
+            function_calls_count: ctx.function_calls.len(),
+        }
+    }
+}
+
+impl PersistedRequestCtx {
+    pub fn key(&self) -> String {
+        format!(
+            "{}|{}|{}",
+            self.namespace, self.application_name, self.request_id
+        )
+    }
+
+    pub fn secondary_index_key(&self) -> Vec<u8> {
+        let mut key = Vec::new();
+        key.extend_from_slice(self.namespace.as_bytes());
+        key.push(b'|');
+        key.extend_from_slice(self.application_name.as_bytes());
+        key.push(b'|');
+        key.extend_from_slice(&self.created_at.to_be_bytes());
+        key.push(b'|');
+        key.extend_from_slice(self.request_id.as_bytes());
+        key
     }
 }
 

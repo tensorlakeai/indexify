@@ -25,8 +25,11 @@ use crate::{
         ApplicationVersion,
         ChangeType,
         ContainerPool,
+        FunctionCall,
+        FunctionRun,
         GcUrlBuilder,
         NamespaceBuilder,
+        PersistedRequestCtx,
         RequestCtx,
         Sandbox,
         StateChange,
@@ -78,6 +81,12 @@ pub enum IndexifyObjectsColumns {
 
     // Container Pools - Namespace|PoolId -> ContainerPool
     ContainerPools,
+
+    // FunctionRuns - Namespace|Application|RequestId|FunctionCallId -> FunctionRun
+    FunctionRuns,
+
+    // FunctionCalls - Namespace|Application|RequestId|FunctionCallId -> FunctionCall
+    FunctionCalls,
 }
 
 pub(crate) async fn upsert_namespace(
@@ -157,10 +166,13 @@ pub async fn create_request(txn: &Transaction, req: &InvokeApplicationRequest) -
     // The request context has already been prepared with clocks by
     // StateMachineUpdateRequest::prepare_for_persistence before this function is
     // called.
+
+    // Write PersistedRequestCtx (without embedded function_runs/function_calls)
+    let persisted: PersistedRequestCtx = (&req.ctx).into();
     txn.put(
         IndexifyObjectsColumns::RequestCtx.as_ref(),
         request_key.as_bytes(),
-        &StateStoreEncoder::encode(&req.ctx)?,
+        &StateStoreEncoder::encode(&persisted)?,
     )
     .await
     .map_err(|err| {
@@ -171,6 +183,33 @@ pub async fn create_request(txn: &Transaction, req: &InvokeApplicationRequest) -
             &req.ctx.request_id,
         )
     })?;
+
+    // Write each FunctionRun to its own CF
+    for function_run in req.ctx.function_runs.values() {
+        let fr_key = function_run.key();
+        txn.put(
+            IndexifyObjectsColumns::FunctionRuns.as_ref(),
+            fr_key.as_bytes(),
+            &StateStoreEncoder::encode(function_run)?,
+        )
+        .await?;
+    }
+
+    // Write each FunctionCall to its own CF
+    for function_call in req.ctx.function_calls.values() {
+        let fc_key = FunctionCall::key_for_request(
+            &req.namespace,
+            &req.application_name,
+            &req.ctx.request_id,
+            &function_call.function_call_id,
+        );
+        txn.put(
+            IndexifyObjectsColumns::FunctionCalls.as_ref(),
+            fc_key.as_bytes(),
+            &StateStoreEncoder::encode(function_call)?,
+        )
+        .await?;
+    }
 
     txn.put(
         IndexifyObjectsColumns::RequestCtxSecondaryIndex.as_ref(),
@@ -311,8 +350,8 @@ pub(crate) async fn delete_request(
         )
         .await
         .map_err(|e| anyhow!("failed to get request: {e:?}"))?;
-    let request_ctx = match request_ctx {
-        Some(v) => StateStoreEncoder::decode::<RequestCtx>(&v)?,
+    let persisted_request_ctx = match request_ctx {
+        Some(v) => StateStoreEncoder::decode::<PersistedRequestCtx>(&v)?,
         None => {
             info!(
                 request_ctx_key = &request_ctx_key,
@@ -322,15 +361,29 @@ pub(crate) async fn delete_request(
             return Ok(());
         }
     };
+
+    // Scan FunctionRuns CF for this request to collect GC URLs
+    let fr_prefix =
+        FunctionRun::key_prefix_for_request(&req.namespace, &req.application, &req.request_id);
     let mut payload_urls: HashSet<String> = HashSet::new();
-    for (_, function_run) in request_ctx.function_runs.iter() {
+    let fr_cf = IndexifyObjectsColumns::FunctionRuns.as_ref();
+    let fr_iter = txn.iter(fr_cf, fr_prefix.clone().into_bytes()).await;
+    for kv in fr_iter {
+        let (key, value) = kv?;
+        if !key.starts_with(fr_prefix.as_bytes()) {
+            break;
+        }
+        let function_run = StateStoreEncoder::decode::<FunctionRun>(&value)?;
         for input_arg in function_run.input_args.iter() {
             payload_urls.insert(input_arg.data_payload.path.clone());
         }
         for output in function_run.output.iter() {
             payload_urls.insert(output.path.clone());
         }
+        // Delete the FunctionRun entry
+        txn.delete(fr_cf, &key).await?;
     }
+
     for payload_url in payload_urls {
         let mut gc_url = GcUrlBuilder::default()
             .url(payload_url)
@@ -344,6 +397,19 @@ pub(crate) async fn delete_request(
             &serialized_gc_url,
         )
         .await?;
+    }
+
+    // Delete all FunctionCalls for this request
+    let fc_prefix =
+        FunctionCall::key_prefix_for_request(&req.namespace, &req.application, &req.request_id);
+    let fc_cf = IndexifyObjectsColumns::FunctionCalls.as_ref();
+    let fc_iter = txn.iter(fc_cf, fc_prefix.clone().into_bytes()).await;
+    for kv in fc_iter {
+        let (key, _) = kv?;
+        if !key.starts_with(fc_prefix.as_bytes()) {
+            break;
+        }
+        txn.delete(fc_cf, &key).await?;
     }
 
     let allocation_prefix =
@@ -377,7 +443,7 @@ pub(crate) async fn delete_request(
     // Delete Request Context Secondary Index
     txn.delete(
         IndexifyObjectsColumns::RequestCtxSecondaryIndex.as_ref(),
-        &request_ctx.secondary_index_key(),
+        &persisted_request_ctx.secondary_index_key(),
     )
     .await?;
 
@@ -403,33 +469,47 @@ async fn update_requests_for_application(
 
     for kv in iter {
         let (key, val) = kv?;
-        let mut request_ctx: RequestCtx = StateStoreEncoder::decode(&val)?;
-        if request_ctx.application_version != application.version && request_ctx.outcome.is_none() {
+        let mut persisted: PersistedRequestCtx = StateStoreEncoder::decode(&val)?;
+        if persisted.application_version != application.version && persisted.outcome.is_none() {
             info!(
-                request_id = request_ctx.request_id,
-                app_version = request_ctx.application_version,
+                request_id = persisted.request_id,
+                app_version = persisted.application_version,
                 "updating request_ctx for request id: {} from version: {} to
     version: {}",
-                request_ctx.request_id,
-                request_ctx.application_version,
+                persisted.request_id,
+                persisted.application_version,
                 application.version
             );
-            request_ctx.application_version = application.version.clone();
-            for (_function_call_id, function_run) in request_ctx.function_runs.clone().iter_mut() {
+            persisted.application_version = application.version.clone();
+
+            // Scan FunctionRuns CF for this request and update versions
+            let fr_prefix = FunctionRun::key_prefix_for_request(
+                &persisted.namespace,
+                &application.name,
+                &persisted.request_id,
+            );
+            let fr_cf = IndexifyObjectsColumns::FunctionRuns.as_ref();
+            let fr_iter = txn.iter(fr_cf, fr_prefix.clone().into_bytes()).await;
+            for fr_kv in fr_iter {
+                let (fr_key, fr_val) = fr_kv?;
+                if !fr_key.starts_with(fr_prefix.as_bytes()) {
+                    break;
+                }
+                let mut function_run: FunctionRun = StateStoreEncoder::decode(&fr_val)?;
                 if function_run.version != application.version && function_run.outcome.is_none() {
                     function_run.version = application.version.clone();
-                    request_ctx
-                        .function_runs
-                        .insert(function_run.id.clone(), function_run.clone());
+                    txn.put(fr_cf, &fr_key, &StateStoreEncoder::encode(&function_run)?)
+                        .await?;
                 }
             }
-            request_ctx_to_update.insert(key, request_ctx);
+
+            request_ctx_to_update.insert(key, persisted);
         }
     }
 
     info!("upgrading request ctxs: {}", request_ctx_to_update.len());
-    for (request_id, request_ctx) in request_ctx_to_update {
-        let serialized_task = StateStoreEncoder::encode(&request_ctx)?;
+    for (request_id, persisted) in request_ctx_to_update {
+        let serialized_task = StateStoreEncoder::encode(&persisted)?;
         txn.put(
             IndexifyObjectsColumns::RequestCtx.as_ref(),
             &request_id,
@@ -532,7 +612,7 @@ pub async fn delete_application(
         .await
     {
         let (_key, value) = iter?;
-        let value = StateStoreEncoder::decode::<RequestCtx>(&value)?;
+        let value = StateStoreEncoder::decode::<PersistedRequestCtx>(&value)?;
         delete_request(
             txn,
             &DeleteRequestRequest {
@@ -710,16 +790,54 @@ pub(crate) async fn handle_scheduler_update(
                 "request completed"
             );
         }
-        // The request context has already been prepared with clocks by
-        // StateMachineUpdateRequest::prepare_for_persistence before this function is
-        // called.
-        let serialized_graph_ctx = StateStoreEncoder::encode(request_ctx)?;
+        // Write PersistedRequestCtx (without embedded function_runs/function_calls)
+        let persisted: PersistedRequestCtx = request_ctx.into();
+        let serialized_graph_ctx = StateStoreEncoder::encode(&persisted)?;
         txn.put(
             IndexifyObjectsColumns::RequestCtx.as_ref(),
             request_ctx.key().as_bytes(),
             &serialized_graph_ctx,
         )
         .await?;
+    }
+
+    // Write updated FunctionRuns individually
+    for (ctx_key, fr_ids) in &request.updated_function_runs {
+        if let Some(request_ctx) = request.updated_request_states.get(ctx_key) {
+            for fr_id in fr_ids {
+                if let Some(function_run) = request_ctx.function_runs.get(fr_id) {
+                    let fr_key = function_run.key();
+                    txn.put(
+                        IndexifyObjectsColumns::FunctionRuns.as_ref(),
+                        fr_key.as_bytes(),
+                        &StateStoreEncoder::encode(function_run)?,
+                    )
+                    .await?;
+                }
+            }
+        }
+    }
+
+    // Write updated FunctionCalls individually
+    for (ctx_key, fc_ids) in &request.updated_function_calls {
+        if let Some(request_ctx) = request.updated_request_states.get(ctx_key) {
+            for fc_id in fc_ids {
+                if let Some(function_call) = request_ctx.function_calls.get(fc_id) {
+                    let fc_key = FunctionCall::key_for_request(
+                        &request_ctx.namespace,
+                        &request_ctx.application_name,
+                        &request_ctx.request_id,
+                        &function_call.function_call_id,
+                    );
+                    txn.put(
+                        IndexifyObjectsColumns::FunctionCalls.as_ref(),
+                        fc_key.as_bytes(),
+                        &StateStoreEncoder::encode(function_call)?,
+                    )
+                    .await?;
+                }
+            }
+        }
     }
     for alloc in &request.updated_allocations {
         let upsert_result = upsert_allocation(txn, alloc, usage_event_id_seq, clock).await?;
