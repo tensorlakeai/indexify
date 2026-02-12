@@ -144,7 +144,6 @@ mod tests {
         data_model::{
             ComputeOp,
             DataPayloadBuilder,
-            FunctionArgs,
             FunctionCallId,
             FunctionRun,
             FunctionRunBuilder,
@@ -180,7 +179,7 @@ mod tests {
             parent_function_call_id: Some(fc_id1.clone()),
         };
 
-        let payload = DataPayloadBuilder::default()
+        let _payload = DataPayloadBuilder::default()
             .path("test/path".to_string())
             .metadata_size(0)
             .offset(0)

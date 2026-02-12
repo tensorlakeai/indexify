@@ -92,10 +92,7 @@ mod tests {
     use async_trait::async_trait;
 
     use super::*;
-    use crate::state_store::{
-        driver::{Reader, Writer},
-        state_machine::IndexifyObjectsColumns,
-    };
+    use crate::state_store::{driver::Reader, state_machine::IndexifyObjectsColumns};
 
     #[derive(Clone)]
     struct MockMigration {
