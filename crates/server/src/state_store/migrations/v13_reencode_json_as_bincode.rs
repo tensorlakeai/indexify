@@ -24,8 +24,8 @@ use crate::{
     },
 };
 
-/// Version byte prefix for bincode-encoded values.
-const BINCODE_VERSION: u8 = 0x01;
+/// Version byte prefix for binary-encoded values.
+const BINARY_VERSION: u8 = 0x01;
 
 /// Migration to re-encode any remaining JSON-encoded state store values as
 /// bincode.
@@ -153,7 +153,7 @@ where
     ctx.iterate(cf, |key, value| {
         total += 1;
 
-        if value.is_empty() || value[0] == BINCODE_VERSION {
+        if value.is_empty() || value[0] == BINARY_VERSION {
             // Already bincode-encoded or empty — skip.
             return Ok(());
         }
@@ -244,7 +244,7 @@ mod tests {
                         .get(IndexifyObjectsColumns::Namespaces.as_ref(), b"test_ns")?
                         .expect("entry should exist");
                     assert_eq!(
-                        result[0], BINCODE_VERSION,
+                        result[0], BINARY_VERSION,
                         "re-encoded entry should start with bincode version byte"
                     );
 
@@ -260,7 +260,7 @@ mod tests {
                             b"already_bincode",
                         )?
                         .expect("entry should exist");
-                    assert_eq!(result2[0], BINCODE_VERSION);
+                    assert_eq!(result2[0], BINARY_VERSION);
                     let decoded2: Namespace = StateStoreEncoder::decode(&result2)?;
                     assert_eq!(decoded2.name, "already_bincode");
 

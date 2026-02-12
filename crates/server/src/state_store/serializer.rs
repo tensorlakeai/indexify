@@ -5,8 +5,8 @@ use opentelemetry::metrics::Histogram;
 use serde::de::DeserializeOwned;
 use tracing::warn;
 
-/// Version byte prefix for bincode-encoded values.
-const BINCODE_VERSION: u8 = 0x01;
+/// Version byte prefix for binary-encoded values.
+const BINARY_VERSION: u8 = 0x01;
 
 /// Threshold above which a serialized value triggers a warning log.
 const LARGE_VALUE_THRESHOLD: usize = 100_000;
@@ -27,16 +27,13 @@ pub trait StateStoreEncode {
 }
 
 impl StateStoreEncode for StateStoreEncoder {
-    /// Encodes a value as bincode with a version byte prefix.
+    /// Encodes a value as postcard with a version byte prefix.
     ///
-    /// Format: [0x01] [bincode payload]
-    ///
-    /// The version byte enables the decoder to distinguish between
-    /// bincode-encoded (new) and JSON-encoded (legacy) values.
+    /// Format: [0x01] [postcard payload]
     fn encode<T: serde::Serialize + Debug>(value: &T) -> Result<Vec<u8>> {
-        let payload = bincode::serialize(value).map_err(|e| {
+        let payload = postcard::to_allocvec(value).map_err(|e| {
             anyhow::anyhow!(
-                "error serializing to bincode: {}, type: {}, value: {:?}",
+                "error serializing to postcard: {}, type: {}, value: {:?}",
                 e,
                 type_name::<T>(),
                 value
@@ -44,7 +41,7 @@ impl StateStoreEncode for StateStoreEncoder {
         })?;
         let total_size = 1 + payload.len();
         let mut buf = Vec::with_capacity(total_size);
-        buf.push(BINCODE_VERSION);
+        buf.push(BINARY_VERSION);
         buf.extend_from_slice(&payload);
         VALUE_SIZE_HISTOGRAM.record(total_size as u64, &[]);
         if total_size > LARGE_VALUE_THRESHOLD {
@@ -57,7 +54,7 @@ impl StateStoreEncode for StateStoreEncoder {
         Ok(buf)
     }
 
-    /// Decodes a bincode value with a `0x01` version byte prefix.
+    /// Decodes a postcard value with a `0x01` version byte prefix.
     fn decode<T: DeserializeOwned>(bytes: &[u8]) -> Result<T> {
         if bytes.is_empty() {
             return Err(anyhow::anyhow!(
@@ -66,18 +63,18 @@ impl StateStoreEncode for StateStoreEncoder {
             ));
         }
 
-        if bytes[0] != BINCODE_VERSION {
+        if bytes[0] != BINARY_VERSION {
             return Err(anyhow::anyhow!(
-                "unexpected version byte {:#04x} when decoding type: {} (expected bincode prefix {:#04x})",
+                "unexpected version byte {:#04x} when decoding type: {} (expected binary prefix {:#04x})",
                 bytes[0],
                 type_name::<T>(),
-                BINCODE_VERSION
+                BINARY_VERSION
             ));
         }
 
-        bincode::deserialize(&bytes[1..]).map_err(|e| {
+        postcard::from_bytes(&bytes[1..]).map_err(|e| {
             anyhow::anyhow!(
-                "error deserializing from bincode: {}, type: {}",
+                "error deserializing from postcard: {}, type: {}",
                 e,
                 type_name::<T>()
             )
@@ -99,7 +96,7 @@ mod tests {
     }
 
     #[test]
-    fn test_bincode_round_trip() {
+    fn test_postcard_round_trip() {
         let original = TestStruct {
             name: "test".to_string(),
             value: 42,
@@ -107,15 +104,15 @@ mod tests {
         };
 
         let encoded = StateStoreEncoder::encode(&original).unwrap();
-        assert_eq!(encoded[0], BINCODE_VERSION);
+        assert_eq!(encoded[0], BINARY_VERSION);
 
         let decoded: TestStruct = StateStoreEncoder::decode(&encoded).unwrap();
         assert_eq!(original, decoded);
     }
 
     #[test]
-    fn test_non_bincode_prefix_returns_error() {
-        // Data without the 0x01 bincode prefix should now return an error
+    fn test_non_binary_prefix_returns_error() {
+        // Data without the 0x01 binary prefix should now return an error
         let original = TestStruct {
             name: "legacy".to_string(),
             value: 99,
@@ -133,20 +130,20 @@ mod tests {
     }
 
     #[test]
-    fn test_bincode_smaller_than_json() {
+    fn test_postcard_smaller_than_json() {
         let value = TestStruct {
             name: "comparison".to_string(),
             value: 12345,
             data: vec![0; 100],
         };
 
-        let bincode_bytes = StateStoreEncoder::encode(&value).unwrap();
+        let postcard_bytes = StateStoreEncoder::encode(&value).unwrap();
         let json_bytes = serde_json::to_vec(&value).unwrap();
 
         assert!(
-            bincode_bytes.len() < json_bytes.len(),
-            "bincode ({} bytes) should be smaller than json ({} bytes)",
-            bincode_bytes.len(),
+            postcard_bytes.len() < json_bytes.len(),
+            "postcard ({} bytes) should be smaller than json ({} bytes)",
+            postcard_bytes.len(),
             json_bytes.len()
         );
     }
@@ -158,10 +155,10 @@ mod tests {
     }
 
     #[test]
-    fn test_bincode_with_json_value_wrapper() {
+    fn test_postcard_with_json_value_wrapper() {
         use crate::data_model::JsonValue;
 
-        // Verify bincode handles JsonValue (wraps serde_json::Value as string
+        // Verify postcard handles JsonValue (wraps serde_json::Value as string
         // in binary formats to avoid deserialize_any).
         #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
         struct WithJsonValue {
