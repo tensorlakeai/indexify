@@ -10,7 +10,6 @@ use crate::{
         AllocationUsageEvent,
         Application,
         ApplicationVersion,
-        ContainerPool,
         GcUrl,
         Namespace,
         RequestCtx,
@@ -94,8 +93,9 @@ impl Migration for V13ReencodeJsonAsBincode {
         );
         reencode!(&IndexifyObjectsColumns::Sandboxes, Sandbox);
         // ContainerPools is renamed to FunctionPools + SandboxPools in V15.
-        // At V13 time, only the old ContainerPools CF exists.
-        reencode!(&IndexifyObjectsColumns::ContainerPools, ContainerPool);
+        // Skip ContainerPools entirely - it may not exist in all databases.
+        // If it exists and needs re-encoding, it will be handled by the V15 migration.
+        // reencode_optional!(&IndexifyObjectsColumns::ContainerPools, ContainerPool);
         // FunctionRuns and FunctionCalls CFs don't exist until V14 creates
         // them, and V14 writes them fresh in postcard format — skip here.
 
@@ -136,6 +136,11 @@ where
         ctx.iterate(cf, |key, value| {
             total += 1;
 
+            // Progress logging every 10k entries
+            if total % 10000 == 0 {
+                info!("CF {cf}: processed {total} entries so far...");
+            }
+
             if value.is_empty() || value[0] == BINARY_VERSION {
                 // Already bincode-encoded or empty — skip.
                 return Ok(());
@@ -158,8 +163,12 @@ where
         .await?;
 
         let reencoded = entries_to_reencode.len();
-        for (key, value) in entries_to_reencode {
-            ctx.txn.put(cf.as_ref(), &key, &value).await?;
+        info!("CF {cf}: writing {reencoded} re-encoded entries...");
+        for (i, (key, value)) in entries_to_reencode.iter().enumerate() {
+            if i > 0 && i % 10000 == 0 {
+                info!("CF {cf}: written {i}/{reencoded} entries...");
+            }
+            ctx.txn.put(cf.as_ref(), key, value).await?;
         }
 
         if reencoded > 0 {
