@@ -28,6 +28,7 @@ use crate::{
     state_store::requests::{
         AllocationOutput,
         CreateContainerPoolRequest,
+        CreateOrUpdateApplicationRequest,
         CreateSandboxRequest,
         DeleteApplicationRequest,
         DeleteContainerPoolRequest,
@@ -287,4 +288,32 @@ pub fn delete_container_pool(
         .processed_at(None)
         .build()?;
     Ok(vec![state_change])
+}
+
+/// Generate CreateContainerPool state changes for each pool in a
+/// CreateOrUpdateApplication request. Without these, the application
+/// processor is never notified and the buffer reconciler never runs
+/// for newly deployed applications.
+pub fn create_or_update_application_pools(
+    last_change_id: &AtomicU64,
+    request: &CreateOrUpdateApplicationRequest,
+) -> Result<Vec<StateChange>> {
+    let mut changes = Vec::with_capacity(request.container_pools.len());
+    for pool in &request.container_pools {
+        let last_id = last_change_id.fetch_add(1, atomic::Ordering::Relaxed);
+        let state_change = StateChangeBuilder::default()
+            .namespace(Some(request.namespace.clone()))
+            .application(Some(request.application.name.clone()))
+            .change_type(ChangeType::CreateContainerPool(CreateContainerPoolEvent {
+                namespace: request.namespace.clone(),
+                pool_id: pool.id.clone(),
+            }))
+            .created_at(get_epoch_time_in_ms())
+            .object_id(pool.id.to_string())
+            .id(StateChangeId::new(last_id))
+            .processed_at(None)
+            .build()?;
+        changes.push(state_change);
+    }
+    Ok(changes)
 }

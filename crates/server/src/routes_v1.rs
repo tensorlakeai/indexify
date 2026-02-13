@@ -9,6 +9,7 @@ use axum::{
     routing::{delete, get, post, put},
 };
 use base64::prelude::*;
+use containers::list_application_containers;
 use download::download_request_error;
 use invoke::invoke_application_with_object_v1;
 use sandbox_pools::{
@@ -44,6 +45,7 @@ use crate::{
     http_objects_v1::{self, Application, ApplicationRequests, ApplicationsList},
     routes::{
         applications::{self, create_or_update_application},
+        containers,
         download::{
             self,
             v1_download_fn_output_payload,
@@ -92,6 +94,8 @@ use crate::{
             sandbox_pools::update_sandbox_pool,
             sandbox_pools::delete_sandbox_pool,
             sandbox_pools::create_pool_sandbox,
+            // Container endpoints
+            containers::list_application_containers,
         ),
         components(
             schemas(
@@ -122,6 +126,9 @@ use crate::{
                 sandbox_pools::SandboxPoolInfo,
                 sandbox_pools::ListSandboxPoolsResponse,
                 sandbox_pools::CreatePoolSandboxResponse,
+                // Container schemas
+                containers::ContainerInfo,
+                containers::ListContainersResponse,
             )
         ),
         tags(
@@ -175,6 +182,10 @@ fn v1_namespace_routes(route_state: RouteState) -> Router {
         .route(
             "/applications/{application}",
             get(get_application).with_state(route_state.clone()),
+        )
+        .route(
+            "/applications/{application}/containers",
+            get(list_application_containers).with_state(route_state.clone()),
         )
         .route(
             "/applications/{application}/requests",

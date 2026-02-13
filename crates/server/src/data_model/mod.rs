@@ -2024,6 +2024,11 @@ impl Container {
             .as_ref()
             .map(|pid| ContainerPoolKey::new(&self.namespace, pid))
     }
+
+    /// Get the created_at_clock value
+    pub fn created_at_clock(&self) -> Option<u64> {
+        self.created_at_clock
+    }
 }
 
 #[derive(Debug, Clone, Builder)]
