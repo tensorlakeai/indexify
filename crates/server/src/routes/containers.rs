@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use crate::{
-    data_model::{Container, ContainerServerMetadata, ContainerState},
+    data_model::{Application, Container, ContainerServerMetadata, ContainerState, FunctionURI},
     http_objects::IndexifyAPIError,
     routes::routes_state::RouteState,
 };
@@ -85,19 +85,38 @@ pub async fn list_application_containers(
     Path((namespace, application)): Path<(String, String)>,
     State(state): State<RouteState>,
 ) -> Result<Json<ListContainersResponse>, IndexifyAPIError> {
-    // Get container scheduler to access all containers
+    let in_memory_state = state.indexify_state.in_memory_state.read().await;
+
+    // Look up the application to get its functions and version
+    let app_key = Application::key_from(&namespace, &application);
+    let app = match in_memory_state.applications.get(&app_key) {
+        Some(app) => app,
+        None => return Ok(Json(ListContainersResponse { containers: vec![] })),
+    };
+
     let container_scheduler = state.indexify_state.container_scheduler.read().await;
 
-    // Filter containers by namespace and application
-    let containers: Vec<ContainerInfo> = container_scheduler
-        .function_containers
-        .iter()
-        .filter(|(_, metadata)| {
-            let container = &metadata.function_container;
-            container.namespace == namespace && container.application_name == application
-        })
-        .map(|(_, metadata)| ContainerInfo::from_container(&metadata.function_container, metadata))
-        .collect();
+    // For each function, look up containers via the function URI index
+    let mut containers = Vec::new();
+    for function_name in app.functions.keys() {
+        let fn_uri = FunctionURI {
+            namespace: namespace.clone(),
+            application: application.clone(),
+            function: function_name.clone(),
+            version: app.version.clone(),
+        };
+
+        if let Some(container_ids) = container_scheduler.containers_by_function_uri.get(&fn_uri) {
+            for container_id in container_ids {
+                if let Some(metadata) = container_scheduler.function_containers.get(container_id) {
+                    containers.push(ContainerInfo::from_container(
+                        &metadata.function_container,
+                        metadata,
+                    ));
+                }
+            }
+        }
+    }
 
     Ok(Json(ListContainersResponse { containers }))
 }
