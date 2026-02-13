@@ -377,7 +377,8 @@ pub struct AllocationCreated {
     pub function_run_id: String,
     pub allocation_id: String,
     pub executor_id: String,
-    pub function_executor_id: String,
+    #[serde(default)]
+    pub container_id: String,
     #[serde(default)]
     pub created_at: DateTime<Utc>,
 }
@@ -400,7 +401,7 @@ impl RequestEventMetadata for AllocationCreated {
     }
 
     fn function_executor_id(&self) -> Option<&str> {
-        Some(&self.function_executor_id)
+        Some(&self.container_id)
     }
 
     fn function_run_id(&self) -> Option<&str> {
@@ -424,7 +425,8 @@ pub struct AllocationCompleted {
     pub function_run_id: String,
     pub allocation_id: String,
     pub outcome: FunctionRunOutcomeSummary,
-    pub function_executor_id: String,
+    #[serde(default)]
+    pub container_id: String,
     #[serde(default)]
     pub created_at: DateTime<Utc>,
 }
@@ -447,7 +449,7 @@ impl RequestEventMetadata for AllocationCompleted {
     }
 
     fn function_executor_id(&self) -> Option<&str> {
-        Some(&self.function_executor_id)
+        Some(&self.container_id)
     }
 
     fn function_run_id(&self) -> Option<&str> {
@@ -592,11 +594,7 @@ pub fn build_request_state_change_events(
                         function_name: allocation.function.clone(),
                         function_run_id: allocation.function_call_id.to_string(),
                         executor_id: allocation.target.executor_id.get().to_string(),
-                        function_executor_id: allocation
-                            .target
-                            .function_executor_id
-                            .get()
-                            .to_string(),
+                        container_id: allocation.target.function_executor_id.get().to_string(),
                         allocation_id: allocation.id.to_string(),
                         created_at: Utc::now(),
                     },
@@ -615,11 +613,7 @@ pub fn build_request_state_change_events(
                             function_run_id: allocation.function_call_id.to_string(),
                             allocation_id: allocation.id.to_string(),
                             outcome: (&allocation.outcome).into(),
-                            function_executor_id: allocation
-                                .target
-                                .function_executor_id
-                                .get()
-                                .to_string(),
+                            container_id: allocation.target.function_executor_id.get().to_string(),
                             created_at: Utc::now(),
                         },
                     ));
@@ -774,7 +768,7 @@ mod tests {
             function_run_id: "run-456".to_string(),
             allocation_id: "alloc-789".to_string(),
             executor_id: "executor-001".to_string(),
-            function_executor_id: "container-001".to_string(),
+            container_id: "container-001".to_string(),
             created_at: Utc::now(),
         };
 
@@ -801,7 +795,7 @@ mod tests {
             function_run_id: "run-789".to_string(),
             allocation_id: "alloc-456".to_string(),
             outcome: FunctionRunOutcomeSummary::Success,
-            function_executor_id: "container-001".to_string(),
+            container_id: "container-001".to_string(),
             created_at: Utc::now(),
         };
 

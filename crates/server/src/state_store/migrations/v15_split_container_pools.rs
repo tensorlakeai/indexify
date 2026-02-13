@@ -102,6 +102,12 @@ impl Migration for V15SplitContainerPools {
         let existing_cfs = ctx.list_cfs().unwrap_or_default();
         ctx.reopen_with_cf_operations(|db| {
             Box::pin(async move {
+                // Ensure ContainerPools exists (may be missing in some backups)
+                let container_cf = IndexifyObjectsColumns::ContainerPools.to_string();
+                if !existing_cfs.contains(&container_cf) {
+                    db.create(&container_cf, &Default::default()).await?;
+                }
+
                 let fn_cf = IndexifyObjectsColumns::FunctionPools.to_string();
                 if !existing_cfs.contains(&fn_cf) {
                     db.create(&fn_cf, &Default::default()).await?;
