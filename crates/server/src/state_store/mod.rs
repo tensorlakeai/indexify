@@ -908,6 +908,8 @@ mod tests {
             "RequestStateChangeEvents",
             "Sandboxes",
             "ContainerPools",
+            "FunctionPools",
+            "SandboxPools",
             "FunctionRuns",
             "FunctionCalls",
         ];

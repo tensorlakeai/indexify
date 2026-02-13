@@ -79,8 +79,16 @@ pub enum IndexifyObjectsColumns {
     // Sandboxes - Namespace|Application|SandboxId -> Sandbox
     Sandboxes,
 
-    // Container Pools - Namespace|PoolId -> ContainerPool
+    // Legacy Container Pools CF — kept for V13 (re-encode) and V15 (split)
+    // migrations. Not used at runtime; V15 moves data to FunctionPools +
+    // SandboxPools and drops this CF.
     ContainerPools,
+
+    // Function Pools - Namespace|PoolId -> ContainerPool
+    FunctionPools,
+
+    // Sandbox Pools - Namespace|PoolId -> ContainerPool
+    SandboxPools,
 
     // FunctionRuns - Namespace|Application|RequestId|FunctionCallId -> FunctionRun
     FunctionRuns,
@@ -575,11 +583,8 @@ pub(crate) async fn create_or_update_application(
         update_requests_for_application(txn, &application).await?;
     }
 
-    let pool_key_prefix = format!(
-        "{}|fn:{}:{}:",
-        application.namespace, application.namespace, application.name
-    );
-    delete_container_pools_by_prefix(txn, &pool_key_prefix).await?;
+    let pool_key_prefix = format!("{}|{}|", application.namespace, application.name);
+    delete_function_pools_by_prefix(txn, &pool_key_prefix).await?;
 
     for pool in container_pools {
         let mut pool = pool.clone();
@@ -655,8 +660,8 @@ pub async fn delete_application(
             .await?;
     }
 
-    let pool_key_prefix = format!("{}|fn:{}:{}:", namespace, namespace, name);
-    delete_container_pools_by_prefix(txn, &pool_key_prefix).await?;
+    let pool_key_prefix = format!("{}|{}|", namespace, name);
+    delete_function_pools_by_prefix(txn, &pool_key_prefix).await?;
 
     Ok(())
 }
@@ -692,12 +697,12 @@ pub(crate) async fn upsert_container_pool(
     pool.prepare_for_persistence(clock);
     let key = pool.key().key();
     let serialized = StateStoreEncoder::encode(&pool)?;
-    txn.put(
-        IndexifyObjectsColumns::ContainerPools.as_ref(),
-        key.as_bytes(),
-        &serialized,
-    )
-    .await?;
+    let cf = if pool.is_function_pool() {
+        IndexifyObjectsColumns::FunctionPools
+    } else {
+        IndexifyObjectsColumns::SandboxPools
+    };
+    txn.put(cf.as_ref(), key.as_bytes(), &serialized).await?;
     debug!(
         namespace = %pool.namespace,
         pool_id = %pool.id,
@@ -713,8 +718,15 @@ pub(crate) async fn delete_container_pool(
     pool_id: &str,
 ) -> Result<()> {
     let key = format!("{}|{}", namespace, pool_id);
+    // Try both CFs — the pool type isn't threaded through the delete event/request,
+    // and a key only exists in one CF, so the extra delete is a harmless no-op.
     txn.delete(
-        IndexifyObjectsColumns::ContainerPools.as_ref(),
+        IndexifyObjectsColumns::FunctionPools.as_ref(),
+        key.as_bytes(),
+    )
+    .await?;
+    txn.delete(
+        IndexifyObjectsColumns::SandboxPools.as_ref(),
         key.as_bytes(),
     )
     .await?;
@@ -723,11 +735,11 @@ pub(crate) async fn delete_container_pool(
 }
 
 #[tracing::instrument(skip(txn))]
-pub(crate) async fn delete_container_pools_by_prefix(
+pub(crate) async fn delete_function_pools_by_prefix(
     txn: &Transaction,
     key_prefix: &str,
 ) -> Result<()> {
-    let cf = IndexifyObjectsColumns::ContainerPools.as_ref();
+    let cf = IndexifyObjectsColumns::FunctionPools.as_ref();
     let iter = txn.iter(cf, key_prefix.as_bytes().to_vec()).await;
 
     for kv in iter {

@@ -273,16 +273,14 @@ impl ExecutorManager {
             if hash_changed {
                 true
             } else {
-                // Force update if executor is not in the container scheduler.
-                // This handles the case where a stale TombStoneExecutor removed
-                // the executor after it re-registered.
-                !self
-                    .indexify_state
-                    .container_scheduler
-                    .read()
-                    .await
-                    .executors
-                    .contains_key(&executor.id)
+                // Force update if executor is not in the container scheduler
+                // or was tombstoned — so it can re-register and trigger
+                // ExecutorUpserted to reschedule pending work.
+                let cs = self.indexify_state.container_scheduler.read().await;
+                match cs.executors.get(&executor.id) {
+                    Some(e) => e.tombstoned,
+                    None => true,
+                }
             }
         };
 
@@ -761,7 +759,7 @@ impl ExecutorManager {
                 max_concurrency: Some(fe.max_concurrency),
                 sandbox_metadata,
                 container_type: Some(fe_type_pb.into()),
-                pool_id: Some(fe.pool_id.get().to_string()),
+                pool_id: fe.pool_id.as_ref().map(|p| p.get().to_string()),
             };
             function_executors_pb.push(fe_description_pb);
         }

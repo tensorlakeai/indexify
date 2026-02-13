@@ -44,7 +44,7 @@ mod tests {
     ///
     /// This creates the pool via CreateContainerPoolRequest, which:
     /// 1. Persists the pool to storage
-    /// 2. Updates container_scheduler.container_pools
+    /// 2. Updates container_scheduler.function_pools or sandbox_pools
     /// 3. Generates a CreateContainerPool state change event
     ///
     /// After calling this, you must call `process_all_state_changes()` to
@@ -480,7 +480,7 @@ mod tests {
                 .function_containers
                 .iter()
                 .find(|(_, meta)| {
-                    meta.function_container.pool_id == pool_id &&
+                    meta.function_container.pool_id.as_ref() == Some(&pool_id) &&
                         meta.function_container.sandbox_id.is_none()
                 })
                 .map(|(id, meta)| (id.clone(), meta.function_container.clone()));
@@ -491,7 +491,8 @@ mod tests {
             );
             let (_, container) = warm_container.unwrap();
             assert_eq!(
-                container.pool_id, pool_id,
+                container.pool_id,
+                Some(pool_id.clone()),
                 "Warm container should have pool_id set"
             );
             assert!(
@@ -544,7 +545,8 @@ mod tests {
                 "Claimed container should have sandbox_id set"
             );
             assert_eq!(
-                container.pool_id, pool_id,
+                container.pool_id,
+                Some(pool_id.clone()),
                 "Claimed container should still have pool_id set"
             );
         }

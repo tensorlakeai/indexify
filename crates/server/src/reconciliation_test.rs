@@ -338,8 +338,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_fe_retry_attempt_used_on_startup_failed_internal_error() -> Result<()> {
-        test_function_executor_retry_attempt_used(
+    async fn test_fe_retry_attempt_not_used_on_startup_failed_internal_error() -> Result<()> {
+        test_function_executor_retry_attempt_not_used(
             FunctionExecutorTerminationReason::StartupFailedInternalError,
             TEST_FN_MAX_RETRIES,
         )
@@ -347,9 +347,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_fe_retry_attempt_used_on_startup_failed_internal_error_no_retries() -> Result<()>
-    {
-        test_function_executor_retry_attempt_used(
+    async fn test_fe_retry_attempt_not_used_on_startup_failed_internal_error_no_retries()
+    -> Result<()> {
+        test_function_executor_retry_attempt_not_used(
             FunctionExecutorTerminationReason::StartupFailedInternalError,
             0,
         )

@@ -1818,13 +1818,13 @@ impl From<&FunctionExecutorTerminationReason> for FunctionRunFailureReason {
                 FunctionRunFailureReason::FunctionExecutorTerminated
             }
             FunctionExecutorTerminationReason::StartupFailedInternalError => {
-                FunctionRunFailureReason::InternalError
+                FunctionRunFailureReason::ContainerStartupInternalError
             }
             FunctionExecutorTerminationReason::StartupFailedFunctionError => {
-                FunctionRunFailureReason::FunctionError
+                FunctionRunFailureReason::ContainerStartupFunctionError
             }
             FunctionExecutorTerminationReason::StartupFailedFunctionTimeout => {
-                FunctionRunFailureReason::FunctionTimeout
+                FunctionRunFailureReason::ContainerStartupFunctionTimeout
             }
             FunctionExecutorTerminationReason::Unhealthy => {
                 FunctionRunFailureReason::FunctionTimeout
@@ -1971,9 +1971,12 @@ pub struct Container {
     #[serde(default)]
     pub sandbox_id: Option<SandboxId>,
     /// The pool this container belongs to.
-    /// Every container belongs to a pool (function pool, shared sandbox pool,
-    /// or individual sandbox pool).
-    pub pool_id: ContainerPoolId,
+    /// Some(pool_id) for function and shared sandbox pool containers.
+    /// None for standalone sandbox containers (created on-demand, 1:1 with a
+    /// sandbox).
+    #[builder(default)]
+    #[serde(default)]
+    pub pool_id: Option<ContainerPoolId>,
     #[builder(default)]
     #[serde(default)]
     created_at_clock: Option<u64>,
@@ -2009,12 +2012,17 @@ impl Container {
 
     /// Check if this container belongs to the given pool
     pub fn belongs_to_pool(&self, pool_key: &ContainerPoolKey) -> bool {
-        self.pool_id == pool_key.pool_id && self.namespace == pool_key.namespace
+        self.pool_id
+            .as_ref()
+            .is_some_and(|pid| *pid == pool_key.pool_id && self.namespace == pool_key.namespace)
     }
 
     /// Get the pool key for this container.
-    pub fn pool_key(&self) -> ContainerPoolKey {
-        ContainerPoolKey::new(&self.namespace, &self.pool_id)
+    /// Returns None for standalone sandbox containers that have no pool.
+    pub fn pool_key(&self) -> Option<ContainerPoolKey> {
+        self.pool_id
+            .as_ref()
+            .map(|pid| ContainerPoolKey::new(&self.namespace, pid))
     }
 }
 
@@ -2205,6 +2213,7 @@ impl ExecutorMetadata {
         self.state = update.state;
         self.state_hash = update.state_hash;
         self.clock = update.clock;
+        self.tombstoned = false;
     }
 }
 
@@ -2815,10 +2824,11 @@ pub struct DeleteContainerPoolEvent {
 // ================================
 
 /// Unique identifier for a container pool.
-/// Pool IDs use prefixes to indicate type:
-/// - `fn:{ns}:{app}:{fn}:{ver}` for function pools
-/// - `sb:{ns}:{sandbox_id}` for individual sandbox pools
-/// - User-provided for shared sandbox pools
+/// Pool IDs contain only the meaningful identifier (no type prefix):
+/// - `{app}|{fn}|{ver}` for function pools (stored in FunctionPools CF)
+/// - `{sandbox_id}` for synthetic sandbox tracking (in-memory only)
+/// - `{nanoid}` for user-created shared sandbox pools (stored in SandboxPools
+///   CF)
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ContainerPoolId(String);
 
@@ -2831,20 +2841,14 @@ impl ContainerPoolId {
         &self.0
     }
 
-    /// Create pool ID for a function
-    pub fn for_function(namespace: &str, app: &str, function: &str, version: &str) -> Self {
-        Self(format!("fn:{}:{}:{}:{}", namespace, app, function, version))
+    /// Create pool ID for a function: `{app}|{fn}|{ver}`
+    pub fn for_function(app: &str, function: &str, version: &str) -> Self {
+        Self(format!("{}|{}|{}", app, function, version))
     }
 
-    /// Create pool ID for a sandbox (used when sandbox doesn't have an explicit
-    /// pool_id)
-    pub fn for_sandbox(namespace: &str, sandbox_id: &str) -> Self {
-        Self(format!("sandbox:{}:{}", namespace, sandbox_id))
-    }
-
-    /// Returns true if this is a function pool (auto-created for functions)
-    pub fn is_function_pool(&self) -> bool {
-        self.0.starts_with("fn:")
+    /// Create pool ID for a user-created sandbox pool
+    pub fn for_pool() -> Self {
+        Self(nanoid!())
     }
 }
 
@@ -2863,12 +2867,6 @@ impl From<&str> for ContainerPoolId {
 impl From<String> for ContainerPoolId {
     fn from(s: String) -> Self {
         Self(s)
-    }
-}
-
-impl Default for ContainerPoolId {
-    fn default() -> Self {
-        Self(nanoid!())
     }
 }
 
@@ -2904,12 +2902,25 @@ impl From<&ContainerPool> for ContainerPoolKey {
     }
 }
 
+/// Whether a pool is for functions or sandboxes.
+/// Determines which CF it's stored in and how the buffer reconciler handles it.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum ContainerPoolType {
+    Function,
+    Sandbox,
+}
+
 /// A pool of containers for functions or sandboxes.
 /// Pools define container templates and scaling settings (min/max/buffer).
 #[derive(Debug, Clone, Serialize, Deserialize, Builder)]
 pub struct ContainerPool {
     pub id: ContainerPoolId,
     pub namespace: String,
+
+    /// Whether this is a function pool or sandbox pool
+    #[builder(default = "ContainerPoolType::Sandbox")]
+    #[serde(default = "ContainerPool::default_pool_type")]
+    pub pool_type: ContainerPoolType,
 
     /// Docker image for containers in this pool
     pub image: String,
@@ -2974,6 +2985,15 @@ impl ContainerPool {
     /// Default maximum containers per function pool
     pub const DEFAULT_MAX_CONTAINERS: u32 = 10;
 
+    /// Default for serde deserialization of old data without pool_type
+    fn default_pool_type() -> ContainerPoolType {
+        ContainerPoolType::Sandbox
+    }
+
+    pub fn is_function_pool(&self) -> bool {
+        self.pool_type == ContainerPoolType::Function
+    }
+
     pub fn key(&self) -> ContainerPoolKey {
         ContainerPoolKey::from(self)
     }
@@ -2999,7 +3019,7 @@ impl ContainerPool {
             );
         }
         // Function pools don't require an image (they use code payloads)
-        if self.image.is_empty() && !self.id.is_function_pool() {
+        if self.image.is_empty() && !self.is_function_pool() {
             anyhow::bail!("image is required");
         }
         if self.resources.cpu_ms_per_sec == 0 {
@@ -3021,12 +3041,12 @@ impl ContainerPool {
     ) -> Self {
         ContainerPoolBuilder::default()
             .id(ContainerPoolId::for_function(
-                namespace,
                 app_name,
                 &function.name,
                 version,
             ))
             .namespace(namespace.to_string())
+            .pool_type(ContainerPoolType::Function)
             .image(String::new()) // Function pools don't use images
             .resources(ContainerResources {
                 cpu_ms_per_sec: function.resources.cpu_ms_per_sec,
@@ -3530,8 +3550,7 @@ mod tests {
         };
         let max_concurrency = 4;
 
-        let pool_id =
-            ContainerPoolId::for_function(&namespace, &application_name, &function_name, &version);
+        let pool_id = ContainerPoolId::for_function(&application_name, &function_name, &version);
 
         let mut builder = ContainerBuilder::default();
         builder
@@ -3543,7 +3562,7 @@ mod tests {
             .state(state.clone())
             .resources(resources.clone())
             .max_concurrency(max_concurrency)
-            .pool_id(pool_id);
+            .pool_id(Some(pool_id));
 
         let fe = builder.build().expect("Should build FunctionExecutor");
 
@@ -3614,7 +3633,7 @@ mod tests {
                     gpu: None,
                 })
                 .max_concurrency(2)
-                .pool_id(ContainerPoolId::for_function("ns", "graph", "fn", "1"))
+                .pool_id(Some(ContainerPoolId::for_function("graph", "fn", "1")))
                 .build()
                 .expect("Should build FunctionExecutor"),
         )]);

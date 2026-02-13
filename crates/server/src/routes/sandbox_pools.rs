@@ -2,7 +2,6 @@ use axum::{
     Json,
     extract::{Path, State},
 };
-use nanoid::nanoid;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -209,7 +208,7 @@ pub async fn create_sandbox_pool(
     State(state): State<RouteState>,
     Json(request): Json<CreateSandboxPoolRequest>,
 ) -> Result<Json<CreateSandboxPoolResponse>, IndexifyAPIError> {
-    let pool_id = ContainerPoolId::new(nanoid!());
+    let pool_id = ContainerPoolId::for_pool();
 
     let pool = build_pool(
         pool_id.clone(),
@@ -260,7 +259,7 @@ pub async fn list_sandbox_pools(
     let scheduler = state.indexify_state.container_scheduler.read().await;
 
     let pools: Vec<SandboxPoolInfo> = scheduler
-        .container_pools
+        .sandbox_pools
         .iter()
         .filter(|(key, _)| key.namespace == namespace)
         .map(|(_, pool)| SandboxPoolInfo::from_pool(pool))
@@ -288,7 +287,7 @@ pub async fn get_sandbox_pool(
 
     let scheduler = state.indexify_state.container_scheduler.read().await;
     let pool = scheduler
-        .container_pools
+        .sandbox_pools
         .get(&pool_key)
         .ok_or_else(|| IndexifyAPIError::not_found("Sandbox pool not found"))?;
 
@@ -345,7 +344,7 @@ pub async fn update_sandbox_pool(
     let created_at = {
         let scheduler = state.indexify_state.container_scheduler.read().await;
         scheduler
-            .container_pools
+            .sandbox_pools
             .get(&pool_key)
             .ok_or_else(|| IndexifyAPIError::not_found("Sandbox pool not found"))?
             .created_at
@@ -403,7 +402,7 @@ pub async fn create_pool_sandbox(
     // Look up the pool to get its configuration
     let scheduler = state.indexify_state.container_scheduler.read().await;
     let pool = scheduler
-        .container_pools
+        .sandbox_pools
         .get(&pool_key)
         .ok_or_else(|| IndexifyAPIError::not_found("Sandbox pool not found"))?;
 
@@ -466,7 +465,7 @@ pub async fn delete_sandbox_pool(
 
     // Check if pool exists
     let scheduler = state.indexify_state.container_scheduler.read().await;
-    if !scheduler.container_pools.contains_key(&pool_key) {
+    if !scheduler.sandbox_pools.contains_key(&pool_key) {
         return Err(IndexifyAPIError::not_found("Sandbox pool not found"));
     }
     drop(scheduler);

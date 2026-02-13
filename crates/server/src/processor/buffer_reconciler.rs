@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use anyhow::Result;
 use tracing::warn;
 
@@ -21,8 +23,12 @@ impl BufferReconciler {
         Self
     }
 
-    /// Main entry point: reconcile all pool buffers
-    /// Called at the end of each state change processing cycle
+    /// Main entry point: reconcile pool buffers for dirty pools only.
+    /// Called at the end of each state change processing cycle.
+    ///
+    /// Only processes pools whose container count or config changed since the
+    /// last reconciliation (dirty pools). Pools that previously failed to get
+    /// resources (blocked pools) are skipped until resources become available.
     ///
     /// ## buffer_containers Semantics
     ///
@@ -43,15 +49,26 @@ impl BufferReconciler {
     ) -> Result<SchedulerUpdateRequest> {
         let mut update = SchedulerUpdateRequest::default();
 
-        // Clone pools to avoid borrow conflicts when mutating container_scheduler
-        let pools: Vec<Box<ContainerPool>> = container_scheduler
-            .container_pools
-            .values()
-            .cloned()
+        // Only process pools that changed since last reconciliation
+        let dirty_pools = container_scheduler.take_dirty_pools();
+
+        // Look up each dirty pool, skipping blocked pools and tombstoned pools
+        let pools: Vec<ContainerPool> = dirty_pools
+            .iter()
+            .filter(|key| !container_scheduler.blocked_pools.contains(key))
+            .filter_map(|key| container_scheduler.get_pool(key).cloned())
             .collect();
+
+        // Track pools that can't be satisfied within this reconciliation cycle
+        let mut blocked: HashSet<ContainerPoolKey> = HashSet::new();
 
         // Phase 1: Ensure minimums are met (highest priority)
         for pool in &pools {
+            let pool_key = ContainerPoolKey::from(pool);
+            if blocked.contains(&pool_key) {
+                continue;
+            }
+
             let min = pool.min_containers.unwrap_or(0);
             let max = pool.max_containers.unwrap_or(u32::MAX);
             // Don't exceed max even when meeting min (handles invalid min > max config)
@@ -69,11 +86,19 @@ impl BufferReconciler {
                         true,
                     ) {
                         Ok(Some(u)) => {
+                            let placed = u.containers.values().any(|c| {
+                                !matches!(c.desired_state, ContainerState::Terminated { .. })
+                            });
                             container_scheduler.apply_container_update(&u);
                             update.extend(u);
+                            if !placed {
+                                blocked.insert(pool_key.clone());
+                                break;
+                            }
                         }
                         Ok(None) => {
                             warn!(pool_id = %pool.id.get(), "Cannot meet min - no resources");
+                            blocked.insert(pool_key.clone());
                             break;
                         }
                         Err(e) => {
@@ -90,6 +115,11 @@ impl BufferReconciler {
             let mut any_created = false;
 
             for pool in &pools {
+                let pool_key = ContainerPoolKey::from(pool);
+                if blocked.contains(&pool_key) {
+                    continue;
+                }
+
                 let buffer = pool.buffer_containers.unwrap_or(0);
                 let max = pool.max_containers.unwrap_or(u32::MAX);
                 let (active, idle) = self.count_pool_containers(pool, container_scheduler);
@@ -115,10 +145,12 @@ impl BufferReconciler {
                             update.extend(u);
                             if placed {
                                 any_created = true;
+                            } else {
+                                blocked.insert(pool_key);
                             }
                         }
                         Ok(None) => {
-                            // No resources available, continue to next pool
+                            blocked.insert(pool_key);
                         }
                         Err(e) => {
                             warn!(pool_id = %pool.id.get(), error = %e, "Error filling buffer");
@@ -142,20 +174,24 @@ impl BufferReconciler {
             let (active, idle) = self.count_pool_containers(pool, container_scheduler);
             let current_total = active + idle;
 
-            // If buffer is explicitly set, target = active + buffer (at least min)
-            // If buffer is not set, preserve existing containers for warm starts
-            let target_total = if let Some(buffer) = pool.buffer_containers {
-                (active + buffer).max(min)
-            } else {
-                current_total.max(min)
-            };
-            let effective_limit = target_total.min(max);
+            let pool_key = ContainerPoolKey::from(pool);
+            if !blocked.contains(&pool_key) {
+                // If buffer is explicitly set, target = active + buffer (at least min)
+                // If buffer is not set, preserve existing containers for warm starts
+                let target_total = if let Some(buffer) = pool.buffer_containers {
+                    (active + buffer).max(min)
+                } else {
+                    current_total.max(min)
+                };
+                let effective_limit = target_total.min(max);
 
-            // Trim excess idle containers
-            if current_total > effective_limit && idle > 0 {
-                let excess = (current_total - effective_limit).min(idle);
-                let trim_update = self.trim_idle_containers(pool, excess, container_scheduler)?;
-                update.extend(trim_update);
+                // Trim excess idle containers
+                if current_total > effective_limit && idle > 0 {
+                    let excess = (current_total - effective_limit).min(idle);
+                    let trim_update =
+                        self.trim_idle_containers(pool, excess, container_scheduler)?;
+                    update.extend(trim_update);
+                }
             }
 
             // Compute deficit for this pool (uses buffer=0 when None for deficit reporting)
@@ -170,6 +206,13 @@ impl BufferReconciler {
 
         update.pool_deficits = Some(deficits);
 
+        // Propagate blocked pools to the scheduler for cross-cycle persistence
+        // and include in update for propagation to the real scheduler
+        container_scheduler
+            .blocked_pools
+            .extend(blocked.iter().cloned());
+        update.newly_blocked_pools = blocked;
+
         Ok(update)
     }
 
@@ -179,7 +222,7 @@ impl BufferReconciler {
         pool: &ContainerPool,
         container_scheduler: &ContainerScheduler,
     ) -> (u32, u32) {
-        if pool.id.is_function_pool() {
+        if pool.is_function_pool() {
             // For function pools, parse the function URI and count function containers
             if let Some(fn_uri) = self.parse_function_pool_uri(pool) {
                 container_scheduler.count_active_idle_containers(&fn_uri)
@@ -201,7 +244,7 @@ impl BufferReconciler {
         container_scheduler: &mut ContainerScheduler,
         is_critical: bool,
     ) -> Result<Option<SchedulerUpdateRequest>> {
-        if pool.id.is_function_pool() {
+        if pool.is_function_pool() {
             // For function pools, look up the function and create a function container
             let Some(fn_uri) = self.parse_function_pool_uri(pool) else {
                 return Ok(None);
@@ -244,7 +287,7 @@ impl BufferReconciler {
     ) -> Result<SchedulerUpdateRequest> {
         let mut update = SchedulerUpdateRequest::default();
 
-        let containers = if pool.id.is_function_pool() {
+        let containers = if pool.is_function_pool() {
             if let Some(fn_uri) = self.parse_function_pool_uri(pool) {
                 container_scheduler.select_idle_containers(&fn_uri, count)
             } else {
@@ -266,26 +309,23 @@ impl BufferReconciler {
     }
 
     /// Parse function pool ID to extract FunctionURI
-    /// Pool ID format: fn:{namespace}:{app}:{function}:{version}
+    /// Pool ID format: {app}|{function}|{version}
+    /// Namespace comes from pool.namespace (not embedded in the ID).
     fn parse_function_pool_uri(
         &self,
         pool: &ContainerPool,
     ) -> Option<crate::data_model::FunctionURI> {
         let id = pool.id.get();
-        if !id.starts_with("fn:") {
-            return None;
-        }
-
-        let parts: Vec<&str> = id[3..].splitn(4, ':').collect();
-        if parts.len() != 4 {
+        let parts: Vec<&str> = id.splitn(3, '|').collect();
+        if parts.len() != 3 {
             return None;
         }
 
         Some(crate::data_model::FunctionURI {
-            namespace: parts[0].to_string(),
-            application: parts[1].to_string(),
-            function: parts[2].to_string(),
-            version: parts[3].to_string(),
+            namespace: pool.namespace.clone(),
+            application: parts[0].to_string(),
+            function: parts[1].to_string(),
+            version: parts[2].to_string(),
         })
     }
 }
