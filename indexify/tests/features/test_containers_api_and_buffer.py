@@ -55,10 +55,7 @@ def _get_containers(application_name: str) -> List[dict]:
 
 def _delete_application(application_name: str) -> None:
     """Delete an application to free its containers and resources."""
-    url = (
-        f"{_API_URL}/v1/namespaces/{_NAMESPACE}"
-        f"/applications/{application_name}"
-    )
+    url = f"{_API_URL}/v1/namespaces/{_NAMESPACE}" f"/applications/{application_name}"
     resp = http_requests.delete(url, timeout=10)
     resp.raise_for_status()
 
@@ -205,9 +202,7 @@ class TestContainerAutoscaling(unittest.TestCase):
         ]
         for field in required_string_fields:
             self.assertIn(field, container, f"missing field: {field}")
-            self.assertIsInstance(
-                container[field], str, f"{field} should be str"
-            )
+            self.assertIsInstance(container[field], str, f"{field} should be str")
 
         if container.get("created_at_clock") is not None:
             self.assertIsInstance(container["created_at_clock"], int)
@@ -270,9 +265,7 @@ class TestContainerAutoscaling(unittest.TestCase):
         # Verify containers exist before deletion.
         containers = _get_containers(buffer_test_app.__name__)
         active = _active_containers(containers)
-        self.assertGreater(
-            len(active), 0, "expected containers before deletion"
-        )
+        self.assertGreater(len(active), 0, "expected containers before deletion")
 
         print(f"\nDeleting application '{buffer_test_app.__name__}'...")
         _delete_application(buffer_test_app.__name__)
@@ -282,9 +275,7 @@ class TestContainerAutoscaling(unittest.TestCase):
 
         containers = _get_containers(buffer_test_app.__name__)
         active = _active_containers(containers)
-        self.assertEqual(
-            len(active), 0, "containers should be gone after app deletion"
-        )
+        self.assertEqual(len(active), 0, "containers should be gone after app deletion")
 
 
 class TestContainersAPIMisc(unittest.TestCase):
