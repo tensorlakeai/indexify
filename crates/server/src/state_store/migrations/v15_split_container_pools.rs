@@ -1,5 +1,6 @@
 use anyhow::Result;
 use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
 use tracing::info;
 
 use super::{
@@ -7,13 +8,63 @@ use super::{
     migration_trait::Migration,
 };
 use crate::{
-    data_model::ContainerPool,
+    data_model::{
+        ContainerPool,
+        ContainerPoolBuilder,
+        ContainerPoolId,
+        ContainerPoolType,
+        ContainerResources,
+        NetworkPolicy,
+    },
     state_store::{
         driver::{Writer, rocksdb::RocksDBDriver},
         serializer::{StateStoreEncode, StateStoreEncoder},
         state_machine::IndexifyObjectsColumns,
     },
 };
+
+/// Legacy ContainerPool layout matching the postcard schema written by V13.
+/// Does NOT have the `pool_type` field that was added later.
+#[derive(Debug, Deserialize, Serialize)]
+struct LegacyContainerPool {
+    id: ContainerPoolId,
+    namespace: String,
+    image: String,
+    resources: ContainerResources,
+    entrypoint: Option<Vec<String>>,
+    network_policy: Option<NetworkPolicy>,
+    secret_names: Vec<String>,
+    timeout_secs: u64,
+    min_containers: Option<u32>,
+    max_containers: Option<u32>,
+    buffer_containers: Option<u32>,
+    created_at: u64,
+    created_at_clock: Option<u64>,
+    updated_at_clock: Option<u64>,
+}
+
+impl LegacyContainerPool {
+    /// Convert to the current ContainerPool with the given new ID and pool
+    /// type.
+    fn into_pool(self, new_id: ContainerPoolId, pool_type: ContainerPoolType) -> ContainerPool {
+        ContainerPoolBuilder::default()
+            .id(new_id)
+            .namespace(self.namespace)
+            .pool_type(pool_type)
+            .image(self.image)
+            .resources(self.resources)
+            .entrypoint(self.entrypoint)
+            .network_policy(self.network_policy)
+            .secret_names(self.secret_names)
+            .timeout_secs(self.timeout_secs)
+            .min_containers(self.min_containers)
+            .max_containers(self.max_containers)
+            .buffer_containers(self.buffer_containers)
+            .created_at(self.created_at)
+            .build()
+            .expect("all required fields provided")
+    }
+}
 
 /// Migration to split the single `ContainerPools` column family into
 /// `FunctionPools` and `SandboxPools`, and rewrite pool ID format.
@@ -33,6 +84,9 @@ pub struct V15SplitContainerPools;
 
 /// The old function pool ID prefix used before this migration.
 const OLD_FN_PREFIX: &str = "fn:";
+
+/// Synthetic standalone sandbox pool ID prefix — these are discarded.
+const OLD_SANDBOX_PREFIX: &str = "sandbox:";
 
 #[async_trait]
 impl Migration for V15SplitContainerPools {
@@ -68,6 +122,7 @@ impl Migration for V15SplitContainerPools {
         let mut total: usize = 0;
         let mut fn_pools: usize = 0;
         let mut sb_pools: usize = 0;
+        let mut discarded: usize = 0;
 
         // Collect all entries from the old ContainerPools CF
         let mut entries: Vec<(Vec<u8>, Vec<u8>)> = Vec::new();
@@ -87,10 +142,15 @@ impl Migration for V15SplitContainerPools {
                 continue;
             };
 
-            // Decode the pool value (may be JSON or bincode from V13)
-            let mut pool: ContainerPool = StateStoreEncoder::decode(value_bytes)?;
+            if old_pool_id.starts_with(OLD_SANDBOX_PREFIX) {
+                // Synthetic standalone sandbox pool — discard, no real pool object
+                // existed for these.
+                discarded += 1;
+            } else if let Some(inner) = old_pool_id.strip_prefix(OLD_FN_PREFIX) {
+                // Decode using legacy layout (no pool_type field) since the old
+                // postcard data was written before pool_type was added.
+                let legacy: LegacyContainerPool = StateStoreEncoder::decode(value_bytes)?;
 
-            if let Some(inner) = old_pool_id.strip_prefix(OLD_FN_PREFIX) {
                 // Function pool: old ID = "fn:{ns}:{app}:{fn}:{ver}"
                 // New ID = "{app}|{fn}|{ver}"
                 // Skip the namespace segment (first colon-separated part)
@@ -105,8 +165,10 @@ impl Migration for V15SplitContainerPools {
                     old_pool_id.to_string()
                 };
 
-                pool.id = crate::data_model::ContainerPoolId::new(new_pool_id.clone());
-                pool.pool_type = crate::data_model::ContainerPoolType::Function;
+                let pool = legacy.into_pool(
+                    ContainerPoolId::new(new_pool_id.clone()),
+                    ContainerPoolType::Function,
+                );
                 let new_key = format!("{}|{}", namespace, new_pool_id);
                 let encoded = StateStoreEncoder::encode(&pool)?;
                 ctx.txn
@@ -118,8 +180,12 @@ impl Migration for V15SplitContainerPools {
                     .await?;
                 fn_pools += 1;
             } else {
-                // Sandbox pool: keep ID as-is, just move to SandboxPools CF
-                pool.pool_type = crate::data_model::ContainerPoolType::Sandbox;
+                // User-created sandbox pool: keep ID as-is, move to SandboxPools CF
+                let legacy: LegacyContainerPool = StateStoreEncoder::decode(value_bytes)?;
+                let pool = legacy.into_pool(
+                    ContainerPoolId::new(old_pool_id.to_string()),
+                    ContainerPoolType::Sandbox,
+                );
                 let new_key = format!("{}|{}", namespace, old_pool_id);
                 let encoded = StateStoreEncoder::encode(&pool)?;
                 ctx.txn
@@ -142,7 +208,7 @@ impl Migration for V15SplitContainerPools {
         }
 
         info!(
-            "V15 split ContainerPools: {total} total, {fn_pools} function pools, {sb_pools} sandbox pools"
+            "V15 split ContainerPools: {total} total, {fn_pools} function pools, {sb_pools} sandbox pools, {discarded} discarded standalone sandbox pools"
         );
 
         Ok(())
@@ -159,12 +225,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        data_model::{
-            ContainerPoolBuilder,
-            ContainerPoolId,
-            ContainerPoolType,
-            ContainerResources,
-        },
+        data_model::{ContainerPoolId, ContainerPoolType, ContainerResources},
         state_store::{
             driver::{Reader, Writer},
             migrations::testing::MigrationTestBuilder,
@@ -176,37 +237,53 @@ mod tests {
     async fn test_v15_splits_container_pools() -> Result<()> {
         let migration = V15SplitContainerPools;
 
-        // Create a function pool in the old format
-        let fn_pool = ContainerPoolBuilder::default()
-            .id(ContainerPoolId::new(
-                "fn:test_ns:my_app:my_fn:v1".to_string(),
-            ))
-            .namespace("test_ns".to_string())
-            .pool_type(ContainerPoolType::Sandbox) // old default, will be corrected
-            .image(String::new())
-            .resources(ContainerResources {
+        // Encode using the LEGACY layout (no pool_type) to match real production data
+        let fn_pool = LegacyContainerPool {
+            id: ContainerPoolId::new("fn:test_ns:my_app:my_fn:v1".to_string()),
+            namespace: "test_ns".to_string(),
+            image: String::new(),
+            resources: ContainerResources {
                 cpu_ms_per_sec: 1000,
                 memory_mb: 256,
                 gpu: None,
                 ephemeral_disk_mb: 0,
-            })
-            .build()?;
+            },
+            entrypoint: None,
+            network_policy: None,
+            secret_names: vec![],
+            timeout_secs: 0,
+            min_containers: None,
+            max_containers: None,
+            buffer_containers: None,
+            created_at: 1000,
+            created_at_clock: None,
+            updated_at_clock: None,
+        };
         let fn_pool_bytes = StateStoreEncoder::encode(&fn_pool)?;
         let fn_pool_key = b"test_ns|fn:test_ns:my_app:my_fn:v1";
 
         // Create a sandbox pool in the old format (no fn: prefix)
-        let sb_pool = ContainerPoolBuilder::default()
-            .id(ContainerPoolId::new("my_sandbox_pool".to_string()))
-            .namespace("test_ns".to_string())
-            .pool_type(ContainerPoolType::Sandbox)
-            .image("my-image:latest".to_string())
-            .resources(ContainerResources {
+        let sb_pool = LegacyContainerPool {
+            id: ContainerPoolId::new("my_sandbox_pool".to_string()),
+            namespace: "test_ns".to_string(),
+            image: "my-image:latest".to_string(),
+            resources: ContainerResources {
                 cpu_ms_per_sec: 500,
                 memory_mb: 128,
                 gpu: None,
                 ephemeral_disk_mb: 0,
-            })
-            .build()?;
+            },
+            entrypoint: None,
+            network_policy: None,
+            secret_names: vec![],
+            timeout_secs: 0,
+            min_containers: None,
+            max_containers: None,
+            buffer_containers: None,
+            created_at: 2000,
+            created_at_clock: None,
+            updated_at_clock: None,
+        };
         let sb_pool_bytes = StateStoreEncoder::encode(&sb_pool)?;
         let sb_pool_key = b"test_ns|my_sandbox_pool";
 
