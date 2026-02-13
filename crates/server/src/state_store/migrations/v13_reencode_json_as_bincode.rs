@@ -137,7 +137,7 @@ where
             total += 1;
 
             // Progress logging every 10k entries
-            if total % 10000 == 0 {
+            if total.is_multiple_of(10000) {
                 info!("CF {cf}: processed {total} entries so far...");
             }
 
@@ -165,7 +165,7 @@ where
         let reencoded = entries_to_reencode.len();
         info!("CF {cf}: writing {reencoded} re-encoded entries...");
         for (i, (key, value)) in entries_to_reencode.iter().enumerate() {
-            if i > 0 && i % 10000 == 0 {
+            if i > 0 && i.is_multiple_of(10000) {
                 info!("CF {cf}: written {i}/{reencoded} entries...");
             }
             ctx.txn.put(cf.as_ref(), key, value).await?;
