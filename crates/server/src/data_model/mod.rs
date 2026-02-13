@@ -2213,6 +2213,7 @@ impl ExecutorMetadata {
         self.state = update.state;
         self.state_hash = update.state_hash;
         self.clock = update.clock;
+        self.tombstoned = false;
     }
 }
 
