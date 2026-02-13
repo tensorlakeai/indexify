@@ -5,10 +5,29 @@ mod tests {
     use serde_json::json;
 
     use crate::{
+        data_model::{
+            ContainerResources,
+            FunctionRunOutcome,
+            SandboxBuilder,
+            SandboxId,
+            SandboxStatus,
+            test_objects::tests::{
+                TEST_EXECUTOR_ID,
+                TEST_NAMESPACE,
+                mock_executor_metadata,
+                mock_sandbox_executor_metadata,
+            },
+        },
         http_objects_v1::ApplicationMetadata,
         metrics,
         routes::routes_state::RouteState,
-        testing::TestService,
+        routes_internal::list_executors,
+        state_store::{
+            requests::{CreateSandboxRequest, RequestPayload, StateMachineUpdateRequest},
+            test_state_store::with_simple_application,
+        },
+        testing::{FinalizeFunctionRunArgs, TestService, allocation_key_from_proto},
+        utils::get_epoch_time_in_ns,
     };
 
     async fn create_test_route_state() -> RouteState {
@@ -315,6 +334,224 @@ mod tests {
             app.tags.get("environment").map(|s| s.as_str()),
             Some("test"),
             "environment tag should match"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_executor_ready_for_teardown_idle_executor() {
+        let test_srv = TestService::new().await.unwrap();
+
+        // Create an idle executor (no allocations, no sandboxes)
+        let executor_id = format!("{}-idle", TEST_EXECUTOR_ID);
+        let executor = mock_executor_metadata(executor_id.clone().into());
+        test_srv.create_executor(executor).await.unwrap();
+
+        // Process state changes to ensure executor is registered
+        test_srv.process_all_state_changes().await.unwrap();
+
+        // Create route state
+        let route_state = RouteState {
+            indexify_state: test_srv.service.indexify_state.clone(),
+            blob_storage: test_srv.service.blob_storage_registry.clone(),
+            executor_manager: test_srv.service.executor_manager.clone(),
+            metrics: std::sync::Arc::new(crate::metrics::api_io_stats::Metrics::new()),
+            config: test_srv.service.config.clone(),
+        };
+
+        // Call list_executors
+        let result = list_executors(axum::extract::State(route_state))
+            .await
+            .unwrap();
+
+        // Find our executor
+        let executor_metadata = result
+            .0
+            .iter()
+            .find(|e| e.id == executor_id)
+            .expect("Executor should be in the list");
+
+        // Idle executor should be ready for teardown
+        assert!(
+            executor_metadata.ready_for_teardown,
+            "Idle executor should be ready for teardown"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_executor_ready_for_teardown_with_running_allocation() {
+        let test_srv = TestService::new().await.unwrap();
+        let indexify_state = test_srv.service.indexify_state.clone();
+
+        // Create an application and executor
+        with_simple_application(&indexify_state).await;
+        let executor_id = TEST_EXECUTOR_ID.to_string();
+        let executor = mock_executor_metadata(executor_id.clone().into());
+        test_srv.create_executor(executor).await.unwrap();
+
+        // Process state changes to get an allocation
+        test_srv.process_all_state_changes().await.unwrap();
+
+        // Create route state
+        let route_state = RouteState {
+            indexify_state: indexify_state.clone(),
+            blob_storage: test_srv.service.blob_storage_registry.clone(),
+            executor_manager: test_srv.service.executor_manager.clone(),
+            metrics: std::sync::Arc::new(crate::metrics::api_io_stats::Metrics::new()),
+            config: test_srv.service.config.clone(),
+        };
+
+        // Call list_executors
+        let result = crate::routes_internal::list_executors(axum::extract::State(route_state))
+            .await
+            .unwrap();
+
+        // Find our executor
+        let executor_metadata = result
+            .0
+            .iter()
+            .find(|e| e.id == executor_id)
+            .expect("Executor should be in the list");
+
+        // Executor with running allocation should NOT be ready for teardown
+        assert!(
+            !executor_metadata.ready_for_teardown,
+            "Executor with running allocation should NOT be ready for teardown"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_executor_ready_for_teardown_with_terminal_allocations() {
+        let test_srv = TestService::new().await.unwrap();
+        let indexify_state = test_srv.service.indexify_state.clone();
+
+        // Create an application and executor
+        with_simple_application(&indexify_state).await;
+        let executor_id = TEST_EXECUTOR_ID.to_string();
+        let executor = mock_executor_metadata(executor_id.clone().into());
+        let mut test_executor = test_srv.create_executor(executor).await.unwrap();
+
+        // Process state changes to get an allocation
+        test_srv.process_all_state_changes().await.unwrap();
+
+        // Mark the function executor as running
+        test_executor
+            .mark_function_executors_as_running()
+            .await
+            .unwrap();
+
+        // Complete the allocation
+        let desired_state = test_executor.desired_state().await;
+        assert_eq!(
+            desired_state.allocations.len(),
+            1,
+            "Should have one allocation"
+        );
+
+        let allocation = &desired_state.allocations[0];
+        test_executor
+            .finalize_allocation(
+                allocation,
+                FinalizeFunctionRunArgs::new(allocation_key_from_proto(allocation), None, None)
+                    .function_run_outcome(FunctionRunOutcome::Success),
+            )
+            .await
+            .unwrap();
+
+        test_srv.process_all_state_changes().await.unwrap();
+
+        // Create route state
+        let route_state = RouteState {
+            indexify_state: indexify_state.clone(),
+            blob_storage: test_srv.service.blob_storage_registry.clone(),
+            executor_manager: test_srv.service.executor_manager.clone(),
+            metrics: std::sync::Arc::new(crate::metrics::api_io_stats::Metrics::new()),
+            config: test_srv.service.config.clone(),
+        };
+
+        // Call list_executors
+        let result = crate::routes_internal::list_executors(axum::extract::State(route_state))
+            .await
+            .unwrap();
+
+        // Find our executor
+        let executor_metadata = result
+            .0
+            .iter()
+            .find(|e| e.id == executor_id)
+            .expect("Executor should be in the list");
+
+        // Executor with only terminal allocations should be ready for teardown
+        assert!(
+            executor_metadata.ready_for_teardown,
+            "Executor with only terminal allocations should be ready for teardown"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_executor_ready_for_teardown_with_sandbox() {
+        let test_srv = TestService::new().await.unwrap();
+        let indexify_state = test_srv.service.indexify_state.clone();
+
+        // Create a sandbox-capable executor
+        let executor_id = format!("{}-sandbox", TEST_EXECUTOR_ID);
+        let executor = mock_sandbox_executor_metadata(executor_id.clone().into());
+        test_srv.create_executor(executor).await.unwrap();
+
+        // Create a sandbox
+        let sandbox_id = SandboxId::default();
+        let sandbox = SandboxBuilder::default()
+            .id(sandbox_id.clone())
+            .namespace(TEST_NAMESPACE.to_string())
+            .image("test-image:latest".to_string())
+            .status(SandboxStatus::Pending)
+            .creation_time_ns(get_epoch_time_in_ns())
+            .resources(ContainerResources {
+                cpu_ms_per_sec: 100,
+                memory_mb: 256,
+                ephemeral_disk_mb: 1024,
+                gpu: None,
+            })
+            .secret_names(vec![])
+            .timeout_secs(600)
+            .build()
+            .unwrap();
+
+        let request = StateMachineUpdateRequest {
+            payload: RequestPayload::CreateSandbox(CreateSandboxRequest {
+                sandbox: sandbox.clone(),
+            }),
+        };
+
+        indexify_state.write(request).await.unwrap();
+
+        // Process state changes to allocate sandbox to executor
+        test_srv.process_all_state_changes().await.unwrap();
+
+        // Create route state
+        let route_state = RouteState {
+            indexify_state: indexify_state.clone(),
+            blob_storage: test_srv.service.blob_storage_registry.clone(),
+            executor_manager: test_srv.service.executor_manager.clone(),
+            metrics: std::sync::Arc::new(crate::metrics::api_io_stats::Metrics::new()),
+            config: test_srv.service.config.clone(),
+        };
+
+        // Call list_executors
+        let result = crate::routes_internal::list_executors(axum::extract::State(route_state))
+            .await
+            .unwrap();
+
+        // Find our executor
+        let executor_metadata = result
+            .0
+            .iter()
+            .find(|e| e.id == executor_id)
+            .expect("Executor should be in the list");
+
+        // Executor with sandbox should NOT be ready for teardown
+        assert!(
+            !executor_metadata.ready_for_teardown,
+            "Executor with sandbox should NOT be ready for teardown"
         );
     }
 }
