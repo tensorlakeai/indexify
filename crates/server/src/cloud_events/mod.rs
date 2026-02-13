@@ -57,11 +57,6 @@ pub fn create_batched_export_request(
             ),
         ];
 
-        let resource = Resource {
-            attributes,
-            ..Default::default()
-        };
-
         let scope = InstrumentationScope {
             name: format!("ai.tensorlake.request.id:{}", request_id),
             ..Default::default()
@@ -71,6 +66,11 @@ pub fn create_batched_export_request(
         for event in events {
             log_records.push(create_log_record(event)?);
         }
+
+        let resource = Resource {
+            attributes,
+            ..Default::default()
+        };
 
         resource_logs.push(ResourceLogs {
             resource: Some(resource),
@@ -94,7 +94,7 @@ fn create_log_record(update: &RequestStateChangeEvent) -> Result<LogRecord, anyh
     let now = Utc::now();
     let timestamp = now.timestamp_nanos_opt().expect("DateTime out of range") as u64;
 
-    let attributes = vec![
+    let mut attributes = vec![
         key_value_string("specversion", "1.0"),
         key_value_string("id", &Uuid::new_v4().to_string()),
         key_value_string("type", "ai.tensorlake.progress_update"),
@@ -105,6 +105,35 @@ fn create_log_record(update: &RequestStateChangeEvent) -> Result<LogRecord, anyh
             value: Some(data),
         },
     ];
+
+    let mut meta_values = Vec::new();
+
+    if let Some(id) = update.allocation_id() {
+        meta_values.push(key_value_string_array("allocations", id));
+    } else {
+        meta_values.push(key_value_array("allocations", vec![]));
+    }
+
+    if let Some(id) = update.function_run_id() {
+        meta_values.push(key_value_string_array("function_runs", id));
+    } else {
+        meta_values.push(key_value_array("function_runs", vec![]));
+    }
+
+    // Add function_executor_id to function_run_metadata so each event can have its
+    // own. This will be separated later by log writer.
+    if let Some(id) = update.function_executor_id() {
+        meta_values.push(key_value_string("function_executor_id", id));
+    }
+
+    attributes.push(KeyValue {
+        key: "ai.tensorlake.function_run_metadata".to_string(),
+        value: Some(AnyValue {
+            value: Some(Value::KvlistValue(KeyValueList {
+                values: meta_values,
+            })),
+        }),
+    });
 
     Ok(LogRecord {
         time_unix_nano: timestamp,
@@ -130,6 +159,24 @@ fn key_value_string(key: &str, value: &str) -> KeyValue {
         key: key.to_string(),
         value: Some(AnyValue {
             value: Some(Value::StringValue(value.to_string())),
+        }),
+    }
+}
+
+fn key_value_string_array(key: &str, value: &str) -> KeyValue {
+    key_value_array(
+        key,
+        vec![AnyValue {
+            value: Some(Value::StringValue(value.to_string())),
+        }],
+    )
+}
+
+fn key_value_array(key: &str, values: Vec<AnyValue>) -> KeyValue {
+    KeyValue {
+        key: key.to_string(),
+        value: Some(AnyValue {
+            value: Some(Value::ArrayValue(ArrayValue { values })),
         }),
     }
 }
@@ -391,6 +438,7 @@ mod tests {
             function_run_id: "run-456".to_string(),
             allocation_id: "alloc-789".to_string(),
             executor_id: "executor-001".to_string(),
+            function_executor_id: "container-001".to_string(),
             created_at: now,
         });
 
@@ -442,6 +490,7 @@ mod tests {
             function_name: "my-function".to_string(),
             function_run_id: "run-789".to_string(),
             allocation_id: "alloc-456".to_string(),
+            function_executor_id: "container-001".to_string(),
             outcome: FunctionRunOutcomeSummary::Success,
             created_at: now,
         });
