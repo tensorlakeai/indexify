@@ -336,6 +336,8 @@ impl ContainerScheduler {
             }
         }
 
+        let had_containers_to_terminate = !containers_to_remove.is_empty();
+
         // Remove terminated containers from all indices and mark pools dirty
         for (pool_key, fn_uri, container_id, was_warm) in containers_to_remove {
             if let Some(ref pool_key) = pool_key {
@@ -378,6 +380,13 @@ impl ContainerScheduler {
         for pool_key in pools_to_remove {
             self.function_pools.remove(&pool_key);
             self.mark_pool_dirty(pool_key);
+        }
+
+        // Terminating containers will eventually free executor resources.
+        // Unblock all pools so the buffer reconciler retries placement on the
+        // next cycle after the executor confirms termination.
+        if had_containers_to_terminate {
+            self.unblock_all_pools();
         }
     }
 
