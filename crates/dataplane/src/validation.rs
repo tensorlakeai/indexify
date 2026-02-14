@@ -8,6 +8,7 @@ use proto_api::executor_api_pb::{
     Allocation,
     DataPayload,
     FunctionExecutorDescription,
+    FunctionExecutorType,
     FunctionRef,
 };
 
@@ -16,6 +17,17 @@ pub fn validate_fe_description(desc: &FunctionExecutorDescription) -> Result<(),
     if desc.id.is_none() {
         return Err("missing id".into());
     }
+
+    // Sandbox containers don't require function, application, or allocation fields
+    let is_sandbox = desc
+        .container_type
+        .map(|t| FunctionExecutorType::try_from(t) == Ok(FunctionExecutorType::Sandbox))
+        .unwrap_or(false);
+
+    if is_sandbox {
+        return Ok(());
+    }
+
     let func = desc
         .function
         .as_ref()
@@ -201,5 +213,25 @@ mod tests {
         let mut alloc = valid_allocation();
         alloc.args[0].uri = None;
         assert!(validate_allocation(&alloc).is_err());
+    }
+
+    #[test]
+    fn test_sandbox_fe_description_valid_without_application() {
+        // Sandbox containers don't have application code payloads
+        let desc = FunctionExecutorDescription {
+            id: Some("sandbox-1".into()),
+            container_type: Some(FunctionExecutorType::Sandbox.into()),
+            ..Default::default()
+        };
+        assert!(validate_fe_description(&desc).is_ok());
+    }
+
+    #[test]
+    fn test_sandbox_fe_description_requires_id() {
+        let desc = FunctionExecutorDescription {
+            container_type: Some(FunctionExecutorType::Sandbox.into()),
+            ..Default::default()
+        };
+        assert!(validate_fe_description(&desc).is_err());
     }
 }
