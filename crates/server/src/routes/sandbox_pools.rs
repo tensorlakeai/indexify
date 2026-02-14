@@ -102,7 +102,7 @@ pub struct SandboxPoolInfo {
     pub resources: ContainerResourcesInfo,
     pub min_containers: Option<u32>,
     pub max_containers: Option<u32>,
-    pub buffer_containers: Option<u32>,
+    pub warm_containers: Option<u32>,
     pub timeout_secs: u64,
     pub created_at: u64,
 }
@@ -120,7 +120,7 @@ impl SandboxPoolInfo {
             },
             min_containers: pool.min_containers,
             max_containers: pool.max_containers,
-            buffer_containers: pool.buffer_containers,
+            warm_containers: pool.buffer_containers,
             timeout_secs: pool.timeout_secs,
             created_at: pool.created_at,
         }
