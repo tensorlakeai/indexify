@@ -8,9 +8,11 @@ Tests the full lifecycle:
 4. Deleting the application cleans up all containers
 """
 
+import json
 import os
 import time
 import unittest
+import urllib.request
 from typing import List
 
 from tensorlake.applications import (
@@ -43,24 +45,19 @@ _NAMESPACE = "default"
 
 def _get_containers(application_name: str) -> List[dict]:
     """Call the containers API for the given application."""
-    import requests as http_requests
-
     url = (
         f"{_API_URL}/v1/namespaces/{_NAMESPACE}"
         f"/applications/{application_name}/containers"
     )
-    resp = http_requests.get(url, timeout=10)
-    resp.raise_for_status()
-    return resp.json().get("containers", [])
+    resp = urllib.request.urlopen(url, timeout=10)
+    return json.loads(resp.read()).get("containers", [])
 
 
 def _delete_application(application_name: str) -> None:
     """Delete an application to free its containers and resources."""
-    import requests as http_requests
-
-    url = f"{_API_URL}/v1/namespaces/{_NAMESPACE}" f"/applications/{application_name}"
-    resp = http_requests.delete(url, timeout=10)
-    resp.raise_for_status()
+    url = f"{_API_URL}/v1/namespaces/{_NAMESPACE}/applications/{application_name}"
+    req = urllib.request.Request(url, method="DELETE")
+    urllib.request.urlopen(req, timeout=10)
 
 
 def _active_containers(containers: List[dict]) -> List[dict]:
