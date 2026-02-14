@@ -98,6 +98,9 @@ impl StateMachineUpdateRequest {
             RequestPayload::TombstoneContainerPool(request) => {
                 state_changes::delete_container_pool(state_change_id_seq, request)
             }
+            RequestPayload::CreateOrUpdateApplication(request) => {
+                state_changes::create_or_update_application_pools(state_change_id_seq, request)
+            }
             _ => Ok(Vec::new()), // Handle other request types as needed
         }
     }

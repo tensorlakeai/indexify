@@ -336,6 +336,18 @@ impl IndexifyState {
                 }
             }
         }
+        // Notify executors when an application is deleted so they terminate
+        // containers immediately rather than waiting for the stream to reconnect.
+        if let RequestPayload::DeleteApplicationRequest((delete_req, _)) = &request.payload {
+            let container_scheduler = self.container_scheduler.read().await;
+            for (_, meta) in container_scheduler.function_containers.iter() {
+                if meta.function_container.namespace == delete_req.namespace &&
+                    meta.function_container.application_name == delete_req.name
+                {
+                    changed_executors.insert(meta.executor_id.clone());
+                }
+            }
+        }
         if let RequestPayload::UpsertExecutor(req) = &request.payload &&
             !req.watch_function_calls.is_empty()
         {
