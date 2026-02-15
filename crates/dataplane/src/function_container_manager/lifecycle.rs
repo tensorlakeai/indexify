@@ -53,7 +53,6 @@ pub(super) async fn start_container_with_daemon(
             cpu_millicores: r.cpu_ms_per_sec.map(|v| v as u64),
             memory_bytes: r.memory_bytes,
             gpu_device_ids: None,
-            gpu_count: None,
         });
 
     // Start the container with the daemon as PID 1.

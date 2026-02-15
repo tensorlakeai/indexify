@@ -560,9 +560,6 @@ impl FunctionExecutorController {
                 } else {
                     None
                 };
-                // Always pass gpu_count as fallback in case the allocator
-                // couldn't discover GPUs (nvidia-smi not in PATH, etc.).
-                let gpu_count_opt = if gpu_count > 0 { Some(gpu_count) } else { None };
                 self.description
                     .resources
                     .as_ref()
@@ -570,7 +567,6 @@ impl FunctionExecutorController {
                         cpu_millicores: r.cpu_ms_per_sec.map(|v| v as u64),
                         memory_bytes: r.memory_bytes,
                         gpu_device_ids,
-                        gpu_count: gpu_count_opt,
                     })
             },
             labels: vec![],

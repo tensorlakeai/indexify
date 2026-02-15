@@ -31,11 +31,7 @@ pub struct ResourceLimits {
     /// `cpu_ms_per_sec` from the server proto.
     pub cpu_millicores: Option<u64>,
     /// Specific GPU UUIDs to pass to the container via Docker DeviceRequest.
-    /// When set, uses device_ids for precise GPU pinning.
     pub gpu_device_ids: Option<Vec<String>>,
-    /// Fallback GPU count when UUIDs are not available (e.g., nvidia-smi
-    /// not on PATH). Uses Docker DeviceRequest.count instead.
-    pub gpu_count: Option<u32>,
 }
 
 /// Configuration for starting a process.

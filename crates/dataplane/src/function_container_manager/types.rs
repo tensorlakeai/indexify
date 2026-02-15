@@ -49,6 +49,7 @@ pub(super) enum ContainerState {
 /// Helper struct for structured logging of container info.
 pub(super) struct ContainerInfo<'a> {
     pub container_id: &'a str,
+    pub executor_id: &'a str,
     pub namespace: &'a str,
     pub app: &'a str,
     pub fn_name: &'a str,
@@ -57,7 +58,7 @@ pub(super) struct ContainerInfo<'a> {
 }
 
 impl<'a> ContainerInfo<'a> {
-    pub fn from_description(desc: &'a FunctionExecutorDescription) -> Self {
+    pub fn from_description(desc: &'a FunctionExecutorDescription, executor_id: &'a str) -> Self {
         let container_id = desc.id.as_deref().unwrap_or("");
         let (namespace, app, fn_name, app_version) = desc
             .function
@@ -78,6 +79,7 @@ impl<'a> ContainerInfo<'a> {
 
         Self {
             container_id,
+            executor_id,
             namespace,
             app,
             fn_name,
@@ -94,10 +96,11 @@ impl<'a> ContainerInfo<'a> {
         tracing::info_span!(
             "container",
             container_id = %self.container_id,
+            executor_id = %self.executor_id,
             namespace = %self.namespace,
             app = %self.app,
-            fn_name = %self.fn_name,
-            app_version = %self.app_version,
+            fn = %self.fn_name,
+            version = %self.app_version,
             sandbox_id = ?self.sandbox_id,
         )
     }
@@ -110,6 +113,7 @@ impl<'a> ContainerInfo<'a> {
 /// A managed function executor container.
 pub(super) struct ManagedContainer {
     pub description: FunctionExecutorDescription,
+    pub executor_id: String,
     pub state: ContainerState,
     /// When the container was created (for latency tracking)
     pub created_at: Instant,
@@ -139,7 +143,7 @@ impl ManagedContainer {
     }
 
     pub fn info(&self) -> ContainerInfo<'_> {
-        ContainerInfo::from_description(&self.description)
+        ContainerInfo::from_description(&self.description, &self.executor_id)
     }
 
     // -- State transition methods ---------------------------------------------
