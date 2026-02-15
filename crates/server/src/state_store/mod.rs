@@ -324,6 +324,14 @@ impl IndexifyState {
             for executor_id in payload.update.updated_executor_states.keys() {
                 changed_executors.insert(executor_id.clone());
             }
+
+            // Notify executors that have containers with updated state so they
+            // receive a fresh desired_state push.  Without this, changes like
+            // container terminations (e.g. sandbox deletion) would go unnoticed
+            // until the next heartbeat reconciliation.
+            for container_meta in payload.update.containers.values() {
+                changed_executors.insert(container_meta.executor_id.clone());
+            }
         }
         // Notify executors when a container pool is deleted so they terminate
         // containers immediately rather than waiting for the next poll cycle.
