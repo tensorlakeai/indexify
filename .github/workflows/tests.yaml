@@ -497,7 +497,7 @@ jobs:
           log-output: true
           log-output-if: true
       - name: Install poetry
-        run: pipx install --force 'poetry==2.0.0'
+        run: pip install 'poetry==2.0.0'
       - name: Setup Python
         uses: actions/setup-python@v6
         with:
