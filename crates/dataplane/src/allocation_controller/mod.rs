@@ -314,9 +314,9 @@ impl AllocationController {
                     AllocationState::Running {
                         finalization_ctx, ..
                     } => finalization_ctx,
-                    AllocationState::Preparing { .. }
-                    | AllocationState::WaitingForContainer
-                    | AllocationState::WaitingForSlot => FinalizationContext::default(),
+                    AllocationState::Preparing { .. } |
+                    AllocationState::WaitingForContainer |
+                    AllocationState::WaitingForSlot => FinalizationContext::default(),
                     other => {
                         alloc.state = other;
                         continue;
@@ -332,4 +332,5 @@ impl AllocationController {
 
 // Pull in the Instrument trait for tracing spans on futures.
 use tracing::Instrument;
+
 use crate::driver::ProcessHandle;

@@ -149,10 +149,7 @@ impl AllocationController {
         };
 
         // Fail all allocations for this FE
-        self.fail_allocations_for_fe(
-            fe_id,
-            AllocationFailureReason::FunctionExecutorTerminated,
-        );
+        self.fail_allocations_for_fe(fe_id, AllocationFailureReason::FunctionExecutorTerminated);
 
         // Return GPUs
         let gpu_allocator = self.config.gpu_allocator.clone();
@@ -187,7 +184,11 @@ impl AllocationController {
 
         info!(fe_id = %fe_id, max_concurrency = max_concurrency, gpus = ?allocated_gpu_uuids, "Creating container");
 
-        self.config.metrics.counters.function_executor_creates.add(1, &[]);
+        self.config
+            .metrics
+            .counters
+            .function_executor_creates
+            .add(1, &[]);
         self.config
             .metrics
             .up_down_counters
@@ -231,20 +232,16 @@ impl AllocationController {
 
         tokio::spawn(async move {
             let result = tokio::spawn(
-                start_fe_process_and_initialize(
-                    config,
-                    desc_for_task,
-                    gpu_uuids_for_task,
-                )
-                .instrument(tracing::info_span!(
-                    "fe_startup",
-                    container_id = %fe_id_for_task,
-                    executor_id = %executor_id,
-                    namespace = %namespace,
-                    app = %app,
-                    fn_name = %fn_name,
-                    version = %version,
-                )),
+                start_fe_process_and_initialize(config, desc_for_task, gpu_uuids_for_task)
+                    .instrument(tracing::info_span!(
+                        "fe_startup",
+                        container_id = %fe_id_for_task,
+                        executor_id = %executor_id,
+                        namespace = %namespace,
+                        app = %app,
+                        fn_name = %fn_name,
+                        version = %version,
+                    )),
             )
             .await;
 
@@ -368,7 +365,7 @@ impl AllocationController {
                 let fe = self.containers.get_mut(&fe_id).unwrap();
                 fe.state = ContainerState::Running {
                     handle,
-                    client,
+                    client: Box::new(client),
                     health_checker_cancel: health_cancel,
                 };
 
@@ -387,7 +384,11 @@ impl AllocationController {
                     error = %e,
                     "Container startup failed: Starting -> Terminated"
                 );
-                self.config.metrics.counters.function_executor_create_errors.add(1, &[]);
+                self.config
+                    .metrics
+                    .counters
+                    .function_executor_create_errors
+                    .add(1, &[]);
                 self.config
                     .metrics
                     .histograms
@@ -410,7 +411,8 @@ impl AllocationController {
                 fe.state = ContainerState::Terminated { reason };
 
                 // Fail WaitingForContainer allocations
-                let failure_reason = crate::function_executor::proto_convert::termination_to_failure_reason(reason);
+                let failure_reason =
+                    crate::function_executor::proto_convert::termination_to_failure_reason(reason);
                 self.fail_allocations_for_fe(&fe_id, failure_reason);
 
                 // Return GPUs
@@ -452,7 +454,11 @@ impl AllocationController {
 
         // Extract handle for killing (if Running)
         let handle_to_kill = match &fe.state {
-            ContainerState::Running { handle, health_checker_cancel, .. } => {
+            ContainerState::Running {
+                handle,
+                health_checker_cancel,
+                ..
+            } => {
                 health_checker_cancel.cancel();
                 Some(handle.clone())
             }

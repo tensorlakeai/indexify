@@ -3,8 +3,7 @@
 //! Defines the container and allocation state machines that drive the
 //! unified function execution architecture.
 
-use std::fmt;
-use std::time::Instant;
+use std::{fmt, time::Instant};
 
 use proto_api::executor_api_pb::{
     Allocation as ServerAllocation,
@@ -16,10 +15,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::{
     driver::ProcessHandle,
-    function_executor::{
-        events::FinalizationContext,
-        fe_client::FunctionExecutorGrpcClient,
-    },
+    function_executor::{events::FinalizationContext, fe_client::FunctionExecutorGrpcClient},
 };
 
 // ---------------------------------------------------------------------------
@@ -34,7 +30,7 @@ pub(super) enum ContainerState {
     /// Container is running, ready to accept allocations.
     Running {
         handle: ProcessHandle,
-        client: FunctionExecutorGrpcClient,
+        client: Box<FunctionExecutorGrpcClient>,
         health_checker_cancel: CancellationToken,
     },
     /// Container has terminated (crash, shutdown, OOM, etc.)
@@ -61,9 +57,7 @@ pub(super) struct ManagedFE {
 #[allow(dead_code)]
 pub(super) enum AllocationState {
     /// Downloading/preparing inputs (tokio task running).
-    Preparing {
-        cancel_token: CancellationToken,
-    },
+    Preparing { cancel_token: CancellationToken },
     /// Inputs ready, waiting for target FE container to become Running.
     WaitingForContainer,
     /// Inputs ready, container running, but concurrency limit reached.
@@ -74,9 +68,7 @@ pub(super) enum AllocationState {
         finalization_ctx: FinalizationContext,
     },
     /// Finalizing output blobs (tokio task running).
-    Finalizing {
-        result: ServerAllocationResult,
-    },
+    Finalizing { result: ServerAllocationResult },
     /// Terminal.
     Done,
 }
@@ -135,10 +127,22 @@ impl FELogCtx {
     pub fn from_description(desc: &FunctionExecutorDescription) -> Self {
         let func_ref = desc.function.as_ref();
         Self {
-            namespace: func_ref.and_then(|f| f.namespace.as_deref()).unwrap_or("").to_string(),
-            app: func_ref.and_then(|f| f.application_name.as_deref()).unwrap_or("").to_string(),
-            version: func_ref.and_then(|f| f.application_version.as_deref()).unwrap_or("").to_string(),
-            fn_name: func_ref.and_then(|f| f.function_name.as_deref()).unwrap_or("").to_string(),
+            namespace: func_ref
+                .and_then(|f| f.namespace.as_deref())
+                .unwrap_or("")
+                .to_string(),
+            app: func_ref
+                .and_then(|f| f.application_name.as_deref())
+                .unwrap_or("")
+                .to_string(),
+            version: func_ref
+                .and_then(|f| f.application_version.as_deref())
+                .unwrap_or("")
+                .to_string(),
+            fn_name: func_ref
+                .and_then(|f| f.function_name.as_deref())
+                .unwrap_or("")
+                .to_string(),
             container_id: desc.id.clone().unwrap_or_default(),
         }
     }
@@ -150,7 +154,6 @@ pub(super) struct AllocLogCtx {
     pub app: String,
     pub version: String,
     pub fn_name: String,
-    pub allocation_id: String,
     pub request_id: String,
 }
 
@@ -158,11 +161,22 @@ impl AllocLogCtx {
     pub fn from_allocation(alloc: &ServerAllocation) -> Self {
         let func_ref = alloc.function.as_ref();
         Self {
-            namespace: func_ref.and_then(|f| f.namespace.as_deref()).unwrap_or("").to_string(),
-            app: func_ref.and_then(|f| f.application_name.as_deref()).unwrap_or("").to_string(),
-            version: func_ref.and_then(|f| f.application_version.as_deref()).unwrap_or("").to_string(),
-            fn_name: func_ref.and_then(|f| f.function_name.as_deref()).unwrap_or("").to_string(),
-            allocation_id: alloc.allocation_id.clone().unwrap_or_default(),
+            namespace: func_ref
+                .and_then(|f| f.namespace.as_deref())
+                .unwrap_or("")
+                .to_string(),
+            app: func_ref
+                .and_then(|f| f.application_name.as_deref())
+                .unwrap_or("")
+                .to_string(),
+            version: func_ref
+                .and_then(|f| f.application_version.as_deref())
+                .unwrap_or("")
+                .to_string(),
+            fn_name: func_ref
+                .and_then(|f| f.function_name.as_deref())
+                .unwrap_or("")
+                .to_string(),
             request_id: alloc.request_id.clone().unwrap_or_default(),
         }
     }

@@ -59,9 +59,10 @@ impl AllocationController {
             self.config.metrics.counters.allocations_fetched.add(1, &[]);
 
             // If FE doesn't exist or is Terminated, fail immediately
-            let fe_exists_and_alive = self.containers.get(&fe_id).is_some_and(|fe| {
-                !matches!(fe.state, ContainerState::Terminated { .. })
-            });
+            let fe_exists_and_alive = self
+                .containers
+                .get(&fe_id)
+                .is_some_and(|fe| !matches!(fe.state, ContainerState::Terminated { .. }));
 
             if !fe_exists_and_alive {
                 let lctx = AllocLogCtx::from_allocation(&allocation);
@@ -215,9 +216,7 @@ impl AllocationController {
                         // WaitingForSlot is a simple marker; the data is looked up
                         // at schedule time from prepared_data.
                         let finalization_ctx = FinalizationContext {
-                            request_error_blob_handle: prepared
-                                .request_error_blob_handle
-                                .clone(),
+                            request_error_blob_handle: prepared.request_error_blob_handle.clone(),
                             output_blob_handles: Vec::new(),
                             fe_result: None,
                         };
@@ -243,9 +242,7 @@ impl AllocationController {
                             .or_default()
                             .push_back(allocation_id.clone());
                         let finalization_ctx = FinalizationContext {
-                            request_error_blob_handle: prepared
-                                .request_error_blob_handle
-                                .clone(),
+                            request_error_blob_handle: prepared.request_error_blob_handle.clone(),
                             output_blob_handles: Vec::new(),
                             fe_result: None,
                         };
@@ -264,8 +261,7 @@ impl AllocationController {
                             reason = ?reason,
                             "Allocation prepared but container terminated: Preparing -> Finalizing(failure)"
                         );
-                        let failure_reason =
-                            proto_convert::termination_to_failure_reason(*reason);
+                        let failure_reason = proto_convert::termination_to_failure_reason(*reason);
                         let result =
                             proto_convert::make_failure_result(&alloc.allocation, failure_reason);
                         let ctx = FinalizationContext {
@@ -316,11 +312,7 @@ impl AllocationController {
                     &alloc.allocation,
                     AllocationFailureReason::InternalError,
                 );
-                self.start_finalization(
-                    &allocation_id,
-                    result,
-                    FinalizationContext::default(),
-                );
+                self.start_finalization(&allocation_id, result, FinalizationContext::default());
             }
         }
     }
@@ -367,14 +359,12 @@ impl AllocationController {
 
                 // Verify state is WaitingForSlot or WaitingForContainer
                 match &alloc.state {
-                    AllocationState::WaitingForSlot |
-                    AllocationState::WaitingForContainer => {}
+                    AllocationState::WaitingForSlot | AllocationState::WaitingForContainer => {}
                     _ => continue, // Stale entry
                 }
 
                 // Get prepared data
-                let Some((prepared, finalization_ctx)) =
-                    self.prepared_data.remove(&alloc_id)
+                let Some((prepared, finalization_ctx)) = self.prepared_data.remove(&alloc_id)
                 else {
                     warn!(allocation_id = %alloc_id, "No prepared data for scheduled allocation");
                     let result = proto_convert::make_failure_result(
@@ -436,8 +426,7 @@ impl AllocationController {
                 let alloc_id_clone = alloc_id.clone();
                 let alloc_id_span = alloc_id.clone();
                 let metrics = self.config.metrics.clone();
-                let allocation_timeout =
-                    Duration::from_millis(allocation_timeout_ms as u64);
+                let allocation_timeout = Duration::from_millis(allocation_timeout_ms as u64);
 
                 let ctx = AllocationContext {
                     server_channel: self.config.server_channel.clone(),
@@ -448,7 +437,7 @@ impl AllocationController {
 
                 let allocation = alloc.allocation.clone();
                 let request_id = allocation.request_id.clone().unwrap_or_default();
-                let client_clone = client.clone();
+                let client_clone = (*client).clone();
 
                 tokio::spawn(
                     async move {
@@ -480,7 +469,6 @@ impl AllocationController {
                     )),
                 );
             }
-
         }
     }
 
@@ -510,7 +498,9 @@ impl AllocationController {
         let outcome_label = match &outcome {
             AllocationOutcome::Completed { .. } => "completed",
             AllocationOutcome::Cancelled { .. } => "cancelled",
-            AllocationOutcome::Failed { likely_fe_crash, .. } if *likely_fe_crash => "failed(fe_crash)",
+            AllocationOutcome::Failed {
+                likely_fe_crash, ..
+            } if *likely_fe_crash => "failed(fe_crash)",
             AllocationOutcome::Failed { .. } => "failed",
         };
         info!(
@@ -649,10 +639,11 @@ impl AllocationController {
         let _ = self.config.result_tx.send(result);
 
         // Keep the allocation in Done state — do NOT remove it.
-        // The server may re-send this allocation before it processes the result.
-        // Keeping it in the map lets add_allocations() skip it via contains_key().
-        // Done allocations are cleaned up in cleanup_done_allocations() when the
-        // server stops sending them.
+        // The server may re-send this allocation before it processes the
+        // result. Keeping it in the map lets add_allocations() skip it
+        // via contains_key(). Done allocations are cleaned up in
+        // cleanup_done_allocations() when the server stops sending
+        // them.
     }
 
     /// Start finalization for an allocation.
@@ -760,11 +751,7 @@ impl AllocationController {
         }
 
         // Fail all non-terminal allocations
-        let alloc_ids: Vec<String> = self
-            .allocations
-            .keys()
-            .cloned()
-            .collect();
+        let alloc_ids: Vec<String> = self.allocations.keys().cloned().collect();
 
         for alloc_id in alloc_ids {
             let Some(alloc) = self.allocations.get_mut(&alloc_id) else {
@@ -783,7 +770,9 @@ impl AllocationController {
                 finalization_ctx
             } else {
                 match std::mem::replace(&mut alloc.state, AllocationState::Done) {
-                    AllocationState::Running { finalization_ctx, .. } => finalization_ctx,
+                    AllocationState::Running {
+                        finalization_ctx, ..
+                    } => finalization_ctx,
                     _ => FinalizationContext::default(),
                 }
             };
@@ -810,9 +799,11 @@ impl AllocationController {
 
         // Wait for in-flight finalizations to complete (with timeout)
         let drain_deadline = tokio::time::Instant::now() + Duration::from_secs(10);
-        while self.allocations.values().any(|a| {
-            matches!(a.state, AllocationState::Finalizing { .. })
-        }) {
+        while self
+            .allocations
+            .values()
+            .any(|a| matches!(a.state, AllocationState::Finalizing { .. }))
+        {
             tokio::select! {
                 _ = tokio::time::sleep_until(drain_deadline) => {
                     warn!("Timed out waiting for finalizations during shutdown");

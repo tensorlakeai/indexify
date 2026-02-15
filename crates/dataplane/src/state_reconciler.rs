@@ -59,11 +59,8 @@ impl StateReconciler {
         cancel_token: CancellationToken,
         state_change_notify: Arc<Notify>,
     ) -> Self {
-        let ac_handle = AllocationController::spawn(
-            spawn_config,
-            cancel_token,
-            state_change_notify.clone(),
-        );
+        let ac_handle =
+            AllocationController::spawn(spawn_config, cancel_token, state_change_notify.clone());
         Self {
             allocation_controller: ac_handle,
             container_manager,
@@ -73,7 +70,8 @@ impl StateReconciler {
 
     /// Reconcile desired state by partitioning FEs into the two execution
     /// paths and bundling allocations with function FEs for atomic delivery:
-    /// - **Function** FEs + allocations → AllocationController (`ACCommand::Reconcile`)
+    /// - **Function** FEs + allocations → AllocationController
+    ///   (`ACCommand::Reconcile`)
     /// - **Sandbox** FEs → Docker container manager (`sync`)
     pub async fn reconcile(
         &mut self,
@@ -136,9 +134,7 @@ impl StateReconciler {
     /// Get the watcher notify for waking up the heartbeat loop when watches
     /// change.
     pub fn watcher_notify(&self) -> Arc<Notify> {
-        self.allocation_controller
-            .watcher_registry
-            .watcher_notify()
+        self.allocation_controller.watcher_registry.watcher_notify()
     }
 
     /// Get the notify for waking up the heartbeat loop when state changes (FEs

@@ -1,48 +1,8 @@
-//! Event types for the FunctionExecutorController event-driven state machine.
+//! Event types for function executor allocation lifecycle.
 
-use proto_api::executor_api_pb::{
-    Allocation as ServerAllocation,
-    AllocationResult as ServerAllocationResult,
-    FunctionExecutorTerminationReason,
-};
+use proto_api::executor_api_pb::AllocationResult as ServerAllocationResult;
 
 use crate::blob_ops::MultipartUploadHandle;
-
-/// Events from background tasks → FEController event loop.
-#[allow(clippy::large_enum_variant)]
-pub enum FEEvent {
-    /// FE subprocess terminated (health check failure, process died, etc.).
-    FunctionExecutorTerminated {
-        fe_id: String,
-        reason: FunctionExecutorTerminationReason,
-    },
-    /// Allocation preparation completed (inputs downloaded, blobs created).
-    AllocationPreparationFinished {
-        allocation_id: String,
-        result: anyhow::Result<PreparedAllocation>,
-    },
-    /// Signal to schedule the next runnable allocation.
-    ScheduleAllocationExecution,
-    /// Allocation execution completed on the FE.
-    AllocationExecutionFinished {
-        allocation_id: String,
-        result: AllocationOutcome,
-    },
-    /// Post-execution blob finalization completed.
-    AllocationFinalizationFinished {
-        allocation_id: String,
-        is_success: bool,
-    },
-}
-
-/// Commands from StateReconciler → FEController.
-#[allow(clippy::large_enum_variant)]
-pub enum FECommand {
-    /// Add a new allocation to this FE.
-    AddAllocation(ServerAllocation),
-    /// Shut down this FE gracefully.
-    Shutdown,
-}
 
 /// Prepared allocation ready for execution on the FE.
 pub struct PreparedAllocation {

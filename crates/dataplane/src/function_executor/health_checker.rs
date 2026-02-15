@@ -8,45 +8,17 @@
 use std::{sync::Arc, time::Duration};
 
 use proto_api::executor_api_pb::FunctionExecutorTerminationReason;
-use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
-use super::{events::FEEvent, fe_client::FunctionExecutorGrpcClient};
+use super::fe_client::FunctionExecutorGrpcClient;
 use crate::driver::{ProcessDriver, ProcessHandle};
 
 const HEALTH_CHECK_INTERVAL: Duration = Duration::from_secs(5);
 const HEALTH_CHECK_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// Runs periodic health checks against a function executor subprocess.
-/// Sends a `FunctionExecutorTerminated` event if health check fails.
-///
-/// Uses two checks:
-/// 1. gRPC health check (with timeout) — detects FE-level issues
-/// 2. Container liveness via process driver — detects OOM kills, crashes
-pub async fn run_health_checker(
-    client: FunctionExecutorGrpcClient,
-    driver: Arc<dyn ProcessDriver>,
-    process_handle: ProcessHandle,
-    event_tx: mpsc::UnboundedSender<FEEvent>,
-    cancel_token: CancellationToken,
-    fe_id: String,
-) {
-    if let Some(reason) =
-        run_health_check_loop(client, driver, process_handle, cancel_token, &fe_id).await
-    {
-        let _ = event_tx.send(FEEvent::FunctionExecutorTerminated {
-            fe_id,
-            reason,
-        });
-    }
-}
-
 /// Core health check loop. Returns the termination reason when the FE dies.
 /// Returns `None` if cancelled.
-///
-/// This is the shared implementation used by both the old per-FE controller
-/// (`FEEvent`) and the new `AllocationController` (`ACEvent`).
 pub async fn run_health_check_loop(
     mut client: FunctionExecutorGrpcClient,
     driver: Arc<dyn ProcessDriver>,
