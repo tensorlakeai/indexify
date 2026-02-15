@@ -30,6 +30,8 @@ pub struct ResourceLimits {
     /// CPU limit in millicores (1000 = 1 CPU core), equivalent to
     /// `cpu_ms_per_sec` from the server proto.
     pub cpu_millicores: Option<u64>,
+    /// Number of GPUs to allocate to the container.
+    pub gpu_count: Option<u32>,
 }
 
 /// Configuration for starting a process.

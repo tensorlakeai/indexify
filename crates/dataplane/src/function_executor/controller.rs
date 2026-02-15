@@ -528,6 +528,7 @@ impl FunctionExecutorController {
                     crate::driver::ResourceLimits {
                         cpu_millicores: r.cpu_ms_per_sec.map(|v| v as u64),
                         memory_bytes: r.memory_bytes,
+                        gpu_count: None,
                     }
                 }),
                 labels: vec![],

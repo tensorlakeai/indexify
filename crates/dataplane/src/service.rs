@@ -794,9 +794,20 @@ async fn wait_for_shutdown_signal() -> &'static str {
 fn create_process_driver(config: &DataplaneConfig) -> Result<Arc<dyn ProcessDriver>> {
     match &config.driver {
         DriverConfig::ForkExec => Ok(Arc::new(ForkExecDriver::new())),
-        DriverConfig::Docker { address } => match address {
-            Some(addr) => Ok(Arc::new(DockerDriver::with_address(addr)?)),
-            None => Ok(Arc::new(DockerDriver::new()?)),
+        DriverConfig::Docker {
+            address,
+            runtime,
+            network,
+        } => match address {
+            Some(addr) => Ok(Arc::new(DockerDriver::with_address(
+                addr,
+                runtime.clone(),
+                network.clone(),
+            )?)),
+            None => Ok(Arc::new(DockerDriver::new(
+                runtime.clone(),
+                network.clone(),
+            )?)),
         },
     }
 }

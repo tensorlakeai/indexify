@@ -72,6 +72,15 @@ pub enum DriverConfig {
         /// If not specified, uses Docker's default socket location.
         #[serde(default)]
         address: Option<String>,
+        /// OCI runtime to use for containers (e.g., "runsc" for gVisor).
+        /// If not specified, uses Docker's default runtime (typically runc).
+        #[serde(default)]
+        runtime: Option<String>,
+        /// Docker network mode for containers (e.g., "bridge", "host",
+        /// or a custom network name).
+        /// If not specified, uses Docker's default network mode.
+        #[serde(default)]
+        network: Option<String>,
     },
 }
 
@@ -591,6 +600,74 @@ resource_overrides:
         assert_eq!(overrides.cpu_count, Some(2));
         assert_eq!(overrides.memory_bytes, Some(4294967296));
         assert_eq!(overrides.disk_bytes, None);
+    }
+
+    #[test]
+    fn test_docker_driver_with_runtime() {
+        let yaml = r#"
+env: local
+server_addr: "http://localhost:8901"
+driver:
+  type: docker
+  runtime: runsc
+"#;
+        let config = DataplaneConfig::from_yaml_str(yaml).unwrap();
+        match &config.driver {
+            DriverConfig::Docker {
+                runtime, network, ..
+            } => {
+                assert_eq!(runtime.as_deref(), Some("runsc"));
+                assert_eq!(network.as_deref(), None);
+            }
+            _ => panic!("Expected Docker driver"),
+        }
+    }
+
+    #[test]
+    fn test_docker_driver_with_network() {
+        let yaml = r#"
+env: local
+server_addr: "http://localhost:8901"
+driver:
+  type: docker
+  network: host
+"#;
+        let config = DataplaneConfig::from_yaml_str(yaml).unwrap();
+        match &config.driver {
+            DriverConfig::Docker {
+                network, runtime, ..
+            } => {
+                assert_eq!(network.as_deref(), Some("host"));
+                assert_eq!(runtime.as_deref(), None);
+            }
+            _ => panic!("Expected Docker driver"),
+        }
+    }
+
+    #[test]
+    fn test_docker_driver_with_all_options() {
+        let yaml = r#"
+env: local
+server_addr: "http://localhost:8901"
+driver:
+  type: docker
+  address: "unix:///var/run/docker.sock"
+  runtime: runsc
+  network: my-network
+"#;
+        let config = DataplaneConfig::from_yaml_str(yaml).unwrap();
+        match &config.driver {
+            DriverConfig::Docker {
+                address,
+                runtime,
+                network,
+            } => {
+                assert_eq!(address.as_deref(), Some("unix:///var/run/docker.sock"));
+                assert_eq!(runtime.as_deref(), Some("runsc"));
+                assert_eq!(network.as_deref(), Some("my-network"));
+            }
+            _ => panic!("Expected Docker driver"),
+        }
     }
 
     #[test]

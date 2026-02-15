@@ -1,0 +1,118 @@
+name: Dataplane GPU Tests
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'crates/dataplane/**'
+      - 'indexify/tests/dataplane_gvisor/test_nvidia_gpu.py'
+      - '.github/workflows/dataplane_gpu_tests.yaml'
+  pull_request:
+    paths:
+      - 'crates/dataplane/**'
+      - 'indexify/tests/dataplane_gvisor/test_nvidia_gpu.py'
+      - '.github/workflows/dataplane_gpu_tests.yaml'
+
+env:
+  CARGO_TERM_COLOR: always
+  TENSORLAKE_API_URL: http://localhost:8900
+  DATAPLANE_RUNTIME: runsc
+  GITHUB_RUNNER_GPU_TEST: 1
+
+jobs:
+  gpu_tests:
+    name: "Dataplane GPU Tests (gVisor + T4)"
+    runs-on: nvidia-gpu
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: true
+
+      - name: Get runner info
+        run: |
+          echo "uname:"
+          uname -a
+          echo "free:"
+          free -h
+          echo "nvidia-smi:"
+          nvidia-smi --version
+          nvidia-smi
+
+      - name: Install Docker + gVisor
+        run: |
+          # Install Docker
+          sudo apt-get install -y apt-transport-https ca-certificates curl gnupg
+          sudo install -m 0755 -d /etc/apt/keyrings
+          sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list
+          # Install gVisor
+          sudo curl -fsSL https://gvisor.dev/archive.key -o /usr/share/keyrings/gvisor-archive-keyring.key
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/gvisor-archive-keyring.key] https://storage.googleapis.com/gvisor/releases release main" | sudo tee /etc/apt/sources.list.d/gvisor.list
+          sudo apt-get update -y
+          sudo apt-get install -y docker-ce docker-ce-cli containerd.io runsc
+          # Configure Docker with gVisor runtime and GPU support (nvproxy)
+          sudo runsc install
+          sudo tee /etc/docker/daemon.json > /dev/null << 'EOF'
+          {
+            "runtimes": {
+              "runsc": {
+                "path": "/usr/bin/runsc",
+                "runtimeArgs": ["--nvproxy"]
+              }
+            }
+          }
+          EOF
+          sudo systemctl restart docker
+          # Verify gVisor works
+          sudo docker run --rm --runtime runsc alpine dmesg 2>&1 | grep -q gVisor
+
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+
+      - name: Build dataplane
+        run: cargo build -p indexify-dataplane
+
+      - name: Build server
+        run: cargo build -p indexify-server
+
+      - name: Install poetry
+        run: pipx install --force 'poetry==2.0.0'
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.10'
+          cache: 'poetry'
+
+      - name: Build tensorlake
+        run: cd tensorlake && make build
+
+      - name: Start Indexify Server
+        uses: JarvusInnovations/background-action@v1
+        with:
+          run: |
+            DATAPLANE_FUNCTIONS_ENABLED=true RUST_LOG=info ./target/debug/indexify-server &
+            echo $! > /tmp/indexify-server.pid &
+          wait-on: tcp:localhost:8900
+          tail: true
+          wait-for: 30s
+
+      - name: Start dataplane with gVisor
+        run: |
+          export PATH=$(cd tensorlake && poetry env info --path)/bin:$PATH
+          ./target/debug/indexify-dataplane --config indexify/tests/dataplane_gvisor_config.yaml &
+          echo $! > /tmp/indexify-dataplane.pid
+          sleep 10
+
+      - name: Run GPU tests only
+        run: |
+          export PATH=$(cd tensorlake && poetry env info --path)/bin:$PATH
+          cd indexify/tests/dataplane_gvisor
+          python3 test_nvidia_gpu.py
+
+      - name: Terminate processes
+        if: always()
+        run: |
+          pkill -SIGTERM -F /tmp/indexify-server.pid || true
+          pkill -SIGTERM -F /tmp/indexify-dataplane.pid || true
+          pkill -f function-executor || true

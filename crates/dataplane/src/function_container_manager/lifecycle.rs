@@ -44,10 +44,15 @@ pub(super) async fn start_container_with_daemon(
 
     // Extract resource limits from the function executor description
     let resources = desc.resources.as_ref().map(|r| {
+        let gpu_count = r.gpu.as_ref().and_then(|g| {
+            let count = g.count.unwrap_or(0) as u32;
+            if count > 0 { Some(count) } else { None }
+        });
         crate::driver::ResourceLimits {
             // cpu_ms_per_sec is equivalent to millicores (1000 = 1 CPU)
             cpu_millicores: r.cpu_ms_per_sec.map(|v| v as u64),
             memory_bytes: r.memory_bytes,
+            gpu_count,
         }
     });
 

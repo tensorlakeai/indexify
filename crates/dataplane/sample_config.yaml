@@ -38,7 +38,9 @@ driver:
   type: docker
   # For docker driver:
   # type: docker
-  # socket_path: "/var/run/docker.sock"
+  # address: "unix:///var/run/docker.sock"
+  # runtime: runsc     # OCI runtime (e.g., runsc for gVisor)
+  # network: bridge    # Docker network mode
 
 # HTTP proxy configuration for sandbox routing
 # Receives requests from sandbox-proxy with Tensorlake-Sandbox-Id header

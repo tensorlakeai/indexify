@@ -4,7 +4,14 @@ use anyhow::{Context, Result};
 use async_trait::async_trait;
 use bollard::{
     Docker,
-    models::{ContainerCreateBody, ContainerStateStatusEnum, HostConfig, ResourcesUlimits},
+    models::{
+        ContainerCreateBody,
+        ContainerStateStatusEnum,
+        DeviceRequest,
+        HostConfig,
+        HostConfigLogConfig,
+        ResourcesUlimits,
+    },
     query_parameters::{
         CreateContainerOptions,
         CreateImageOptions,
@@ -26,21 +33,32 @@ use super::{
     ProcessHandle,
     ProcessType,
 };
-use crate::daemon_binary;
+use crate::{
+    daemon_binary,
+    retry::{Backoff, retry_with_backoff},
+};
 
 /// Container path for the daemon binary.
 const CONTAINER_DAEMON_PATH: &str = "/indexify-daemon";
 
 pub struct DockerDriver {
     docker: Docker,
+    /// OCI runtime to use for containers (e.g., "runsc" for gVisor).
+    runtime: Option<String>,
+    /// Docker network mode for containers.
+    network: Option<String>,
 }
 
 impl DockerDriver {
     /// Create a new DockerDriver connecting to the default Docker socket.
-    pub fn new() -> Result<Self> {
+    pub fn new(runtime: Option<String>, network: Option<String>) -> Result<Self> {
         let docker =
             Docker::connect_with_local_defaults().context("Failed to connect to Docker daemon")?;
-        Ok(Self { docker })
+        Ok(Self {
+            docker,
+            runtime,
+            network,
+        })
     }
 
     /// Create a DockerDriver connecting to a specific Docker address.
@@ -49,7 +67,11 @@ impl DockerDriver {
     /// - Unix socket: `unix:///var/run/docker.sock` or `/var/run/docker.sock`
     /// - HTTP: `http://localhost:2375` or `tcp://localhost:2375`
     /// - HTTPS: `https://localhost:2376` (requires TLS setup)
-    pub fn with_address(address: &str) -> Result<Self> {
+    pub fn with_address(
+        address: &str,
+        runtime: Option<String>,
+        network: Option<String>,
+    ) -> Result<Self> {
         let docker = if address.starts_with("http://") || address.starts_with("tcp://") {
             // HTTP connection
             let addr = address
@@ -72,7 +94,11 @@ impl DockerDriver {
             Docker::connect_with_socket(socket_path, 120, bollard::API_DEFAULT_VERSION)
                 .context("Failed to connect to Docker daemon via Unix socket")?
         };
-        Ok(Self { docker })
+        Ok(Self {
+            docker,
+            runtime,
+            network,
+        })
     }
 
     /// Check if an image exists locally.
@@ -164,7 +190,7 @@ impl DockerDriver {
 
 impl Default for DockerDriver {
     fn default() -> Self {
-        Self::new().expect("Failed to create default DockerDriver")
+        Self::new(None, None).expect("Failed to create default DockerDriver")
     }
 }
 
@@ -206,11 +232,35 @@ fn build_ulimits() -> Vec<ResourcesUlimits> {
     ]
 }
 
+fn build_log_config() -> HostConfigLogConfig {
+    let mut config = HashMap::new();
+    config.insert("max-size".to_string(), "10m".to_string());
+    config.insert("max-file".to_string(), "3".to_string());
+    config.insert("compress".to_string(), "true".to_string());
+    config.insert("mode".to_string(), "non-blocking".to_string());
+    HostConfigLogConfig {
+        typ: Some("local".to_string()),
+        config: Some(config),
+    }
+}
+
+fn build_device_requests(gpu_count: u32) -> Vec<DeviceRequest> {
+    vec![DeviceRequest {
+        driver: Some("nvidia".to_string()),
+        count: Some(gpu_count as i64),
+        capabilities: Some(vec![vec!["gpu".to_string()]]),
+        ..Default::default()
+    }]
+}
+
 fn build_host_config_resources(resources: &Option<super::ResourceLimits>) -> HostConfig {
+    let log_config = Some(build_log_config());
+
     let Some(resources) = resources else {
         return HostConfig {
             shm_size: Some(SHMEM_SIZE),
             ulimits: Some(build_ulimits()),
+            log_config,
             ..Default::default()
         };
     };
@@ -225,17 +275,25 @@ fn build_host_config_resources(resources: &Option<super::ResourceLimits>) -> Hos
         (None, None)
     };
 
+    let device_requests = resources
+        .gpu_count
+        .filter(|&c| c > 0)
+        .map(build_device_requests);
+
     HostConfig {
         memory,
         cpu_period,
         cpu_quota,
         shm_size: Some(SHMEM_SIZE),
         ulimits: Some(build_ulimits()),
+        log_config,
+        device_requests,
         ..Default::default()
     }
 }
 
 /// Internal specification for creating a Docker container.
+#[derive(Clone)]
 struct ContainerSpec {
     container_name: String,
     image: String,
@@ -285,6 +343,31 @@ impl DockerDriver {
         Ok((spec.container_name, container_ip))
     }
 
+    /// Wrapper around `create_and_start_container` that cleans up a partially
+    /// created container on failure before retrying.
+    async fn create_and_start_container_with_cleanup(
+        &self,
+        spec: &ContainerSpec,
+    ) -> Result<(String, String)> {
+        match self.create_and_start_container(spec.clone()).await {
+            Ok(result) => Ok(result),
+            Err(e) => {
+                // Best-effort cleanup of partially created container
+                let _ = self
+                    .docker
+                    .remove_container(
+                        &spec.container_name,
+                        Some(RemoveContainerOptions {
+                            force: true,
+                            ..Default::default()
+                        }),
+                    )
+                    .await;
+                Err(e)
+            }
+        }
+    }
+
     /// Build a ContainerSpec for a function executor container.
     fn build_function_spec(&self, config: &ProcessConfig, image: &str) -> ContainerSpec {
         let container_name = format!("indexify-{}", config.id);
@@ -307,6 +390,10 @@ impl DockerDriver {
             Some(vec![config.command.clone()])
         };
 
+        let mut host_config = build_host_config_resources(&config.resources);
+        host_config.runtime = self.runtime.clone();
+        host_config.network_mode = self.network.clone();
+
         ContainerSpec {
             container_name,
             image: image.to_string(),
@@ -315,7 +402,7 @@ impl DockerDriver {
             env,
             labels,
             working_dir: config.working_dir.clone(),
-            host_config: build_host_config_resources(&config.resources),
+            host_config,
         }
     }
 
@@ -356,6 +443,8 @@ impl DockerDriver {
 
         let mut host_config = build_host_config_resources(&config.resources);
         host_config.binds = Some(binds);
+        host_config.runtime = self.runtime.clone();
+        host_config.network_mode = self.network.clone();
 
         Ok(ContainerSpec {
             container_name,
@@ -404,7 +493,17 @@ impl ProcessDriver for DockerDriver {
                 }
             };
 
-        let (container_name, container_ip) = self.create_and_start_container(spec).await?;
+        let (container_name, container_ip) = retry_with_backoff(
+            2, // 3 total attempts
+            Backoff::Exponential {
+                initial: std::time::Duration::from_millis(100),
+                max: std::time::Duration::from_secs(10),
+            },
+            "container_create",
+            || self.create_and_start_container_with_cleanup(&spec),
+            |e: &anyhow::Error| is_server_error(e),
+        )
+        .await?;
 
         let daemon_addr = format!("{}:{}", container_ip, grpc_port);
         let http_addr = http_port.map(|p| format!("{}:{}", container_ip, p));
@@ -554,4 +653,16 @@ impl ProcessDriver for DockerDriver {
 
         Ok(names)
     }
+}
+
+/// Check if an error is a Docker server error (HTTP 5xx) that's worth retrying.
+fn is_server_error(err: &anyhow::Error) -> bool {
+    for cause in err.chain() {
+        if let Some(bollard::errors::Error::DockerResponseServerError { status_code, .. }) =
+            cause.downcast_ref::<bollard::errors::Error>()
+        {
+            return *status_code >= 500;
+        }
+    }
+    false
 }
