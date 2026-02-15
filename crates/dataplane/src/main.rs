@@ -11,6 +11,7 @@ mod daemon_client;
 mod driver;
 mod function_container_manager;
 mod function_executor;
+mod gpu_allocator;
 mod grpc;
 mod http_proxy;
 mod metrics;

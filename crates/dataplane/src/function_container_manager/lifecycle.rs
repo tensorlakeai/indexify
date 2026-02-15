@@ -42,17 +42,14 @@ pub(super) async fn start_container_with_daemon(
         anyhow::bail!("Cannot determine image: no sandbox_metadata.image, pool_id, or sandbox_id")
     };
 
-    // Extract resource limits from the function executor description
+    // Extract resource limits from the function executor description.
+    // Note: sandbox containers don't currently support GPU passthrough.
+    // GPU allocation is handled by the FE controller for function containers.
     let resources = desc.resources.as_ref().map(|r| {
-        let gpu_count = r.gpu.as_ref().and_then(|g| {
-            let count = g.count.unwrap_or(0);
-            if count > 0 { Some(count) } else { None }
-        });
         crate::driver::ResourceLimits {
-            // cpu_ms_per_sec is equivalent to millicores (1000 = 1 CPU)
             cpu_millicores: r.cpu_ms_per_sec.map(|v| v as u64),
             memory_bytes: r.memory_bytes,
-            gpu_count,
+            gpu_device_ids: None,
         }
     });
 

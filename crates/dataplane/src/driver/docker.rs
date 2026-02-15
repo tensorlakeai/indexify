@@ -250,10 +250,10 @@ fn build_log_config() -> HostConfigLogConfig {
     }
 }
 
-fn build_device_requests(gpu_count: u32) -> Vec<DeviceRequest> {
+fn build_device_requests(device_ids: &[String]) -> Vec<DeviceRequest> {
     vec![DeviceRequest {
         driver: Some("nvidia".to_string()),
-        count: Some(gpu_count as i64),
+        device_ids: Some(device_ids.to_vec()),
         capabilities: Some(vec![vec!["gpu".to_string()]]),
         ..Default::default()
     }]
@@ -282,9 +282,10 @@ fn build_host_config_resources(resources: &Option<super::ResourceLimits>) -> Hos
     };
 
     let device_requests = resources
-        .gpu_count
-        .filter(|&c| c > 0)
-        .map(build_device_requests);
+        .gpu_device_ids
+        .as_ref()
+        .filter(|ids| !ids.is_empty())
+        .map(|ids| build_device_requests(ids));
 
     HostConfig {
         memory,

@@ -66,6 +66,7 @@ impl std::error::Error for InitTimedOut {}
 pub struct FESpawnConfig {
     pub driver: Arc<dyn ProcessDriver>,
     pub image_resolver: Arc<dyn ImageResolver>,
+    pub gpu_allocator: Arc<crate::gpu_allocator::GpuAllocator>,
     pub result_tx: mpsc::UnboundedSender<ServerAllocationResult>,
     pub server_channel: Channel,
     pub blob_store: Arc<BlobStore>,
@@ -290,6 +291,8 @@ pub struct FunctionExecutorController {
     watcher_registry: WatcherRegistry,
     // Token to cancel the health checker when the process is killed
     fe_process_cancel_token: Option<CancellationToken>,
+    // GPU UUIDs allocated from the GpuAllocator (returned on termination)
+    allocated_gpu_uuids: Vec<String>,
 }
 
 impl FunctionExecutorController {
@@ -343,6 +346,7 @@ impl FunctionExecutorController {
             cancel_token,
             watcher_registry,
             fe_process_cancel_token: None,
+            allocated_gpu_uuids: Vec::new(),
         };
 
         tokio::spawn(
@@ -530,17 +534,33 @@ impl FunctionExecutorController {
                 ],
                 env,
                 working_dir: None,
-                resources: self.description.resources.as_ref().map(|r| {
-                    let gpu_count = r.gpu.as_ref().and_then(|g| {
-                        let count = g.count.unwrap_or(0);
-                        if count > 0 { Some(count) } else { None }
-                    });
-                    crate::driver::ResourceLimits {
-                        cpu_millicores: r.cpu_ms_per_sec.map(|v| v as u64),
-                        memory_bytes: r.memory_bytes,
-                        gpu_count,
-                    }
-                }),
+                resources: {
+                    let gpu_count = self.description.resources.as_ref()
+                        .and_then(|r| r.gpu.as_ref())
+                        .and_then(|g| g.count)
+                        .unwrap_or(0);
+                    let gpu_device_ids = if gpu_count > 0 {
+                        match self.config.gpu_allocator.allocate(gpu_count) {
+                            Ok(uuids) => {
+                                self.allocated_gpu_uuids = uuids.clone();
+                                Some(uuids)
+                            }
+                            Err(e) => {
+                                warn!(gpu_count = gpu_count, error = %e, "GPU allocation failed");
+                                None
+                            }
+                        }
+                    } else {
+                        None
+                    };
+                    self.description.resources.as_ref().map(|r| {
+                        crate::driver::ResourceLimits {
+                            cpu_millicores: r.cpu_ms_per_sec.map(|v| v as u64),
+                            memory_bytes: r.memory_bytes,
+                            gpu_device_ids,
+                        }
+                    })
+                },
                 labels: vec![],
             };
 
@@ -1267,6 +1287,14 @@ impl FunctionExecutorController {
         if let Some(handle) = &self.handle {
             let _ = self.config.driver.kill(handle).await;
         }
+
+        // Return allocated GPUs to the pool
+        if !self.allocated_gpu_uuids.is_empty() {
+            self.config
+                .gpu_allocator
+                .deallocate(&std::mem::take(&mut self.allocated_gpu_uuids));
+        }
+
         self.transition_to_terminated(reason);
     }
 

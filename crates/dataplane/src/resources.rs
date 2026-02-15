@@ -1,9 +1,4 @@
 //! Host resource probing for containerized environments.
-//!
-//! This module is used by the service binary but not exported from the library,
-//! hence the allow(dead_code) annotation.
-
-#![allow(dead_code)]
 
 use std::{fs, path::Path, process::Command};
 
@@ -133,7 +128,7 @@ fn detect_nvidia_gpus() -> Option<GpuResources> {
 
 /// Map nvidia-smi product name to GPUModel enum.
 /// Matches Python executor's nvidia_gpu.py _product_name_to_model().
-fn product_name_to_gpu_model(product_name: &str) -> GpuModel {
+pub fn product_name_to_gpu_model(product_name: &str) -> GpuModel {
     if product_name.starts_with("NVIDIA A100") && product_name.contains("80GB") {
         GpuModel::NvidiaA10080gb
     } else if product_name.starts_with("NVIDIA A100") && product_name.contains("40GB") {

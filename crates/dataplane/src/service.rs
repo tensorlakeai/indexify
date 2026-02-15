@@ -120,9 +120,12 @@ impl Service {
         let (result_tx, result_rx) = mpsc::unbounded_channel();
         let state_change_notify = Arc::new(Notify::new());
 
+        let gpu_allocator = Arc::new(crate::gpu_allocator::GpuAllocator::new());
+
         let spawn_config = FESpawnConfig {
             driver: driver.clone(),
             image_resolver,
+            gpu_allocator,
             result_tx,
             server_channel: channel.clone(),
             blob_store,
