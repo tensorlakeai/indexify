@@ -13,7 +13,7 @@ from tensorlake.applications.remote.deploy import deploy_applications
 
 @application()
 @function()
-def get_ulimits(_: str) -> Dict[str, List[str]]:
+def get_ulimits(_: str) -> Dict[str, List[int]]:
     limits = {}
     resources = [
         ("core", resource.RLIMIT_CORE),
