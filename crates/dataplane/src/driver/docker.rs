@@ -250,10 +250,19 @@ fn build_log_config() -> HostConfigLogConfig {
     }
 }
 
-fn build_device_requests(device_ids: &[String]) -> Vec<DeviceRequest> {
+fn build_device_requests_by_id(device_ids: &[String]) -> Vec<DeviceRequest> {
     vec![DeviceRequest {
         driver: Some("nvidia".to_string()),
         device_ids: Some(device_ids.to_vec()),
+        capabilities: Some(vec![vec!["gpu".to_string()]]),
+        ..Default::default()
+    }]
+}
+
+fn build_device_requests_by_count(count: u32) -> Vec<DeviceRequest> {
+    vec![DeviceRequest {
+        driver: Some("nvidia".to_string()),
+        count: Some(count as i64),
         capabilities: Some(vec![vec!["gpu".to_string()]]),
         ..Default::default()
     }]
@@ -281,11 +290,14 @@ fn build_host_config_resources(resources: &Option<super::ResourceLimits>) -> Hos
         (None, None)
     };
 
-    let device_requests = resources
-        .gpu_device_ids
-        .as_ref()
-        .filter(|ids| !ids.is_empty())
-        .map(|ids| build_device_requests(ids));
+    // Prefer specific GPU UUIDs (pinning), fall back to count-based allocation.
+    let device_requests = if let Some(ids) = resources.gpu_device_ids.as_ref().filter(|ids| !ids.is_empty()) {
+        Some(build_device_requests_by_id(ids))
+    } else if let Some(count) = resources.gpu_count.filter(|&c| c > 0) {
+        Some(build_device_requests_by_count(count))
+    } else {
+        None
+    };
 
     HostConfig {
         memory,

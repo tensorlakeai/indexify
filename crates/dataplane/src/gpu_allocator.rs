@@ -34,14 +34,20 @@ impl GpuAllocator {
     /// or fails.
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
-        let gpus = discover_gpus().unwrap_or_default();
-        if !gpus.is_empty() {
-            info!(
-                gpu_count = gpus.len(),
-                gpus = ?gpus.iter().map(|g| format!("{} ({})", g.product_name, g.uuid)).collect::<Vec<_>>(),
-                "GPU allocator initialized"
-            );
-        }
+        let gpus = match discover_gpus() {
+            Ok(gpus) => {
+                info!(
+                    gpu_count = gpus.len(),
+                    gpus = ?gpus.iter().map(|g| format!("{} ({})", g.product_name, g.uuid)).collect::<Vec<_>>(),
+                    "GPU allocator: discovered GPUs via nvidia-smi"
+                );
+                gpus
+            }
+            Err(e) => {
+                warn!(error = %e, "GPU allocator: nvidia-smi discovery failed, no GPU pinning available");
+                Vec::new()
+            }
+        };
         Self {
             free_gpus: Mutex::new(gpus.clone()),
             all_gpus: gpus,
@@ -94,7 +100,12 @@ fn discover_gpus() -> Result<Vec<GpuInfo>> {
         .output()?;
 
     if !output.status.success() {
-        bail!("nvidia-smi failed with status {}", output.status);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        bail!(
+            "nvidia-smi failed with status {}: {}",
+            output.status,
+            stderr.trim()
+        );
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);

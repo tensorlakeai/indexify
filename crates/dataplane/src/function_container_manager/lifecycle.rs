@@ -26,8 +26,9 @@ pub(super) async fn start_container_with_daemon(
     driver: &Arc<dyn ProcessDriver>,
     image_resolver: &Arc<dyn ImageResolver>,
     desc: &FunctionExecutorDescription,
+    executor_id: &str,
 ) -> anyhow::Result<(ProcessHandle, DaemonClient)> {
-    let info = ContainerInfo::from_description(desc);
+    let info = ContainerInfo::from_description(desc, executor_id);
 
     // Prefer image from sandbox_metadata (server-provided)
     let image = if let Some(ref meta) = desc.sandbox_metadata &&
@@ -52,6 +53,7 @@ pub(super) async fn start_container_with_daemon(
             cpu_millicores: r.cpu_ms_per_sec.map(|v| v as u64),
             memory_bytes: r.memory_bytes,
             gpu_device_ids: None,
+            gpu_count: None,
         });
 
     // Start the container with the daemon as PID 1.
@@ -112,7 +114,9 @@ pub(super) async fn start_container_with_daemon(
     {
         tracing::warn!(
             container_id = %info.container_id,
-            container_id = %handle.id,
+            executor_id = %info.executor_id,
+            namespace = %info.namespace,
+            container_handle_id = %handle.id,
             error = %e,
             "Failed to apply network rules (continuing anyway)"
         );
@@ -127,7 +131,9 @@ pub(super) async fn start_container_with_daemon(
 
     tracing::info!(
         container_id = %info.container_id,
-        container_id = %handle.id,
+        executor_id = %info.executor_id,
+        namespace = %info.namespace,
+        container_handle_id = %handle.id,
         daemon_addr = %daemon_addr,
         "Container started, connecting to daemon"
     );
@@ -141,7 +147,9 @@ pub(super) async fn start_container_with_daemon(
 
     tracing::info!(
         container_id = %info.container_id,
-        container_id = %handle.id,
+        executor_id = %info.executor_id,
+        namespace = %info.namespace,
+        container_handle_id = %handle.id,
         "Daemon ready, waiting for HTTP API commands"
     );
 

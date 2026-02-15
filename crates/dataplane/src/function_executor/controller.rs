@@ -331,6 +331,11 @@ impl FunctionExecutorController {
             .and_then(|f| f.function_name.as_deref())
             .unwrap_or("")
             .to_string();
+        let version = func_ref
+            .and_then(|f| f.application_version.as_deref())
+            .unwrap_or("")
+            .to_string();
+        let executor_id = config.executor_id.clone();
 
         let mut controller = Self {
             description,
@@ -353,7 +358,7 @@ impl FunctionExecutorController {
             async move {
                 controller.run().await;
             }
-            .instrument(tracing::info_span!("fe_controller", fe_id = %fe_id, namespace = %namespace, app = %app, fn_name = %fn_name)),
+            .instrument(tracing::info_span!("fe_controller", container_id = %fe_id, executor_id = %executor_id, namespace = %namespace, app = %app, fn = %fn_name, version = %version)),
         );
 
         FEControllerHandle {
@@ -555,6 +560,9 @@ impl FunctionExecutorController {
                 } else {
                     None
                 };
+                // Always pass gpu_count as fallback in case the allocator
+                // couldn't discover GPUs (nvidia-smi not in PATH, etc.).
+                let gpu_count_opt = if gpu_count > 0 { Some(gpu_count) } else { None };
                 self.description
                     .resources
                     .as_ref()
@@ -562,6 +570,7 @@ impl FunctionExecutorController {
                         cpu_millicores: r.cpu_ms_per_sec.map(|v| v as u64),
                         memory_bytes: r.memory_bytes,
                         gpu_device_ids,
+                        gpu_count: gpu_count_opt,
                     })
             },
             labels: vec![],
