@@ -5,22 +5,16 @@
 //! DeviceRequest.device_ids rather than a count, which avoids contention
 //! when multiple containers need GPUs simultaneously.
 
-use std::process::Command;
-use std::sync::Mutex;
+use std::{process::Command, sync::Mutex};
 
 use anyhow::{Result, bail};
-use proto_api::executor_api_pb::GpuModel;
 use tracing::{info, warn};
-
-use crate::resources::product_name_to_gpu_model;
 
 /// Information about a single NVIDIA GPU on the host.
 #[derive(Debug, Clone)]
 pub struct GpuInfo {
-    pub index: String,
     pub uuid: String,
     pub product_name: String,
-    pub model: GpuModel,
 }
 
 /// Thread-safe allocator that tracks GPU assignment by UUID.
@@ -38,6 +32,7 @@ impl GpuAllocator {
     ///
     /// Returns an allocator with zero GPUs if nvidia-smi is not available
     /// or fails.
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         let gpus = discover_gpus().unwrap_or_default();
         if !gpus.is_empty() {
@@ -90,11 +85,6 @@ impl GpuAllocator {
             }
         }
     }
-
-    /// Total number of GPUs on the host.
-    pub fn total_count(&self) -> usize {
-        self.all_gpus.len()
-    }
 }
 
 /// Discover NVIDIA GPUs by running nvidia-smi.
@@ -121,10 +111,8 @@ fn discover_gpus() -> Result<Vec<GpuInfo>> {
             continue;
         }
         gpus.push(GpuInfo {
-            index: parts[0].to_string(),
             uuid: parts[2].to_string(),
             product_name: parts[1].to_string(),
-            model: product_name_to_gpu_model(parts[1]),
         });
     }
 
@@ -142,17 +130,14 @@ mod tests {
             all_gpus: vec![],
             free_gpus: Mutex::new(vec![]),
         };
-        assert_eq!(alloc.total_count(), 0);
         assert!(alloc.allocate(1).is_err());
     }
 
     #[test]
     fn test_allocate_and_deallocate() {
         let gpu = GpuInfo {
-            index: "0".to_string(),
             uuid: "GPU-abc-123".to_string(),
             product_name: "Tesla T4".to_string(),
-            model: GpuModel::NvidiaTeslaT4,
         };
         let alloc = GpuAllocator {
             all_gpus: vec![gpu.clone()],
@@ -178,16 +163,12 @@ mod tests {
     fn test_allocate_multiple() {
         let gpus = vec![
             GpuInfo {
-                index: "0".to_string(),
                 uuid: "GPU-aaa".to_string(),
                 product_name: "Tesla T4".to_string(),
-                model: GpuModel::NvidiaTeslaT4,
             },
             GpuInfo {
-                index: "1".to_string(),
                 uuid: "GPU-bbb".to_string(),
                 product_name: "Tesla T4".to_string(),
-                model: GpuModel::NvidiaTeslaT4,
             },
         ];
         let alloc = GpuAllocator {

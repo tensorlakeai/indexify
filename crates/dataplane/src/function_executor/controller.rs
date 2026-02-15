@@ -522,47 +522,50 @@ impl FunctionExecutorController {
             ("INDEXIFY_FE_ID".to_string(), fe_id.clone()),
         ];
 
-        let config =
-            ProcessConfig {
-                id: fe_id.clone(),
-                process_type: ProcessType::Function,
-                image,
-                command: self.config.fe_binary_path.clone(),
-                args: vec![
-                    format!("--executor-id={}", self.config.executor_id),
-                    format!("--function-executor-id={}", fe_id),
-                ],
-                env,
-                working_dir: None,
-                resources: {
-                    let gpu_count = self.description.resources.as_ref()
-                        .and_then(|r| r.gpu.as_ref())
-                        .and_then(|g| g.count)
-                        .unwrap_or(0);
-                    let gpu_device_ids = if gpu_count > 0 {
-                        match self.config.gpu_allocator.allocate(gpu_count) {
-                            Ok(uuids) => {
-                                self.allocated_gpu_uuids = uuids.clone();
-                                Some(uuids)
-                            }
-                            Err(e) => {
-                                warn!(gpu_count = gpu_count, error = %e, "GPU allocation failed");
-                                None
-                            }
+        let config = ProcessConfig {
+            id: fe_id.clone(),
+            process_type: ProcessType::Function,
+            image,
+            command: self.config.fe_binary_path.clone(),
+            args: vec![
+                format!("--executor-id={}", self.config.executor_id),
+                format!("--function-executor-id={}", fe_id),
+            ],
+            env,
+            working_dir: None,
+            resources: {
+                let gpu_count = self
+                    .description
+                    .resources
+                    .as_ref()
+                    .and_then(|r| r.gpu.as_ref())
+                    .and_then(|g| g.count)
+                    .unwrap_or(0);
+                let gpu_device_ids = if gpu_count > 0 {
+                    match self.config.gpu_allocator.allocate(gpu_count) {
+                        Ok(uuids) => {
+                            self.allocated_gpu_uuids = uuids.clone();
+                            Some(uuids)
                         }
-                    } else {
-                        None
-                    };
-                    self.description.resources.as_ref().map(|r| {
-                        crate::driver::ResourceLimits {
-                            cpu_millicores: r.cpu_ms_per_sec.map(|v| v as u64),
-                            memory_bytes: r.memory_bytes,
-                            gpu_device_ids,
+                        Err(e) => {
+                            warn!(gpu_count = gpu_count, error = %e, "GPU allocation failed");
+                            None
                         }
+                    }
+                } else {
+                    None
+                };
+                self.description
+                    .resources
+                    .as_ref()
+                    .map(|r| crate::driver::ResourceLimits {
+                        cpu_millicores: r.cpu_ms_per_sec.map(|v| v as u64),
+                        memory_bytes: r.memory_bytes,
+                        gpu_device_ids,
                     })
-                },
-                labels: vec![],
-            };
+            },
+            labels: vec![],
+        };
 
         let handle = self.config.driver.start(config).await?;
         self.handle = Some(handle);
@@ -1251,10 +1254,8 @@ impl FunctionExecutorController {
                 if let Some(info) = self.tracker.get_mut(alloc_id) &&
                     matches!(info.phase, AllocationPhase::Runnable { .. })
                 {
-                    let result = proto_convert::make_failure_result(
-                        &info.allocation,
-                        failure_reason,
-                    );
+                    let result =
+                        proto_convert::make_failure_result(&info.allocation, failure_reason);
                     let ctx = info.take_finalization_ctx();
                     drain_items.push((alloc_id.clone(), result, ctx));
                 }
@@ -1269,10 +1270,8 @@ impl FunctionExecutorController {
                 if let Some(info) = self.tracker.get_mut(alloc_id) &&
                     matches!(info.phase, AllocationPhase::Running { .. })
                 {
-                    let result = proto_convert::make_failure_result(
-                        &info.allocation,
-                        failure_reason,
-                    );
+                    let result =
+                        proto_convert::make_failure_result(&info.allocation, failure_reason);
                     let ctx = info.take_finalization_ctx();
                     drain_items.push((alloc_id.clone(), result, ctx));
                 }

@@ -45,13 +45,14 @@ pub(super) async fn start_container_with_daemon(
     // Extract resource limits from the function executor description.
     // Note: sandbox containers don't currently support GPU passthrough.
     // GPU allocation is handled by the FE controller for function containers.
-    let resources = desc.resources.as_ref().map(|r| {
-        crate::driver::ResourceLimits {
+    let resources = desc
+        .resources
+        .as_ref()
+        .map(|r| crate::driver::ResourceLimits {
             cpu_millicores: r.cpu_ms_per_sec.map(|v| v as u64),
             memory_bytes: r.memory_bytes,
             gpu_device_ids: None,
-        }
-    });
+        });
 
     // Start the container with the daemon as PID 1.
     // If entrypoint is provided in sandbox_metadata, pass it to the daemon to start
