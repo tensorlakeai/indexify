@@ -42,6 +42,10 @@ driver:
   # runtime: runsc     # OCI runtime (e.g., runsc for gVisor)
   # network: bridge    # Docker network mode
 
+# Default container image for function containers.
+# Used as a fallback when no external image resolution service is configured.
+# default_function_image: "python:3.10-slim"
+
 # HTTP proxy configuration for sandbox routing
 # Receives requests from sandbox-proxy with Tensorlake-Sandbox-Id header
 http_proxy:

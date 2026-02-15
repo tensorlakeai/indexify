@@ -324,6 +324,11 @@ pub struct DataplaneConfig {
     /// Override probed host resources.
     #[serde(default)]
     pub resource_overrides: Option<ResourceOverrides>,
+    /// Default container image for function containers.
+    /// Used as a fallback by the default image resolver when no external
+    /// image resolution service is configured.
+    #[serde(default)]
+    pub default_function_image: Option<String>,
 }
 
 /// Resource overrides to replace probed host resources.
@@ -391,6 +396,7 @@ impl Default for DataplaneConfig {
             labels: std::collections::HashMap::new(),
             monitoring: MonitoringConfig::default(),
             resource_overrides: None,
+            default_function_image: None,
         }
     }
 }

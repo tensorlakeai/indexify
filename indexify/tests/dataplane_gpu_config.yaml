@@ -5,4 +5,4 @@ driver:
   runtime: runsc
 monitoring:
   port: 7100
-default_function_image: "indexify-test-function:latest"
+default_function_image: "indexify-test-function-gpu:latest"

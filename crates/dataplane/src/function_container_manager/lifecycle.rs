@@ -45,7 +45,7 @@ pub(super) async fn start_container_with_daemon(
     // Extract resource limits from the function executor description
     let resources = desc.resources.as_ref().map(|r| {
         let gpu_count = r.gpu.as_ref().and_then(|g| {
-            let count = g.count.unwrap_or(0) as u32;
+            let count = g.count.unwrap_or(0);
             if count > 0 { Some(count) } else { None }
         });
         crate::driver::ResourceLimits {

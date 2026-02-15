@@ -33,10 +33,7 @@ use super::{
     ProcessHandle,
     ProcessType,
 };
-use crate::{
-    daemon_binary,
-    retry::{Backoff, retry_with_backoff},
-};
+use crate::daemon_binary;
 
 /// Container path for the daemon binary.
 const CONTAINER_DAEMON_PATH: &str = "/indexify-daemon";
@@ -293,7 +290,6 @@ fn build_host_config_resources(resources: &Option<super::ResourceLimits>) -> Hos
 }
 
 /// Internal specification for creating a Docker container.
-#[derive(Clone)]
 struct ContainerSpec {
     container_name: String,
     image: String,
@@ -343,42 +339,18 @@ impl DockerDriver {
         Ok((spec.container_name, container_ip))
     }
 
-    /// Wrapper around `create_and_start_container` that cleans up a partially
-    /// created container on failure before retrying.
-    async fn create_and_start_container_with_cleanup(
-        &self,
-        spec: &ContainerSpec,
-    ) -> Result<(String, String)> {
-        match self.create_and_start_container(spec.clone()).await {
-            Ok(result) => Ok(result),
-            Err(e) => {
-                // Best-effort cleanup of partially created container
-                let _ = self
-                    .docker
-                    .remove_container(
-                        &spec.container_name,
-                        Some(RemoveContainerOptions {
-                            force: true,
-                            ..Default::default()
-                        }),
-                    )
-                    .await;
-                Err(e)
-            }
-        }
+    /// Build a base HostConfig with resource limits and driver-level settings
+    /// (runtime, network, log rotation).
+    fn build_host_config(&self, resources: &Option<super::ResourceLimits>) -> HostConfig {
+        let mut host_config = build_host_config_resources(resources);
+        host_config.runtime = self.runtime.clone();
+        host_config.network_mode = self.network.clone();
+        host_config
     }
 
     /// Build a ContainerSpec for a function executor container.
     fn build_function_spec(&self, config: &ProcessConfig, image: &str) -> ContainerSpec {
-        let container_name = format!("indexify-{}", config.id);
         let fe_grpc_port: u16 = 9600;
-
-        let env: Vec<String> = config
-            .env
-            .iter()
-            .map(|(k, v)| format!("{}={}", k, v))
-            .collect();
-        let labels: HashMap<String, String> = config.labels.iter().cloned().collect();
 
         let mut cmd: Vec<String> = config.args.clone();
         cmd.push("--address".to_string());
@@ -390,41 +362,29 @@ impl DockerDriver {
             Some(vec![config.command.clone()])
         };
 
-        let mut host_config = build_host_config_resources(&config.resources);
-        host_config.runtime = self.runtime.clone();
-        host_config.network_mode = self.network.clone();
-
         ContainerSpec {
-            container_name,
+            container_name: format!("indexify-{}", config.id),
             image: image.to_string(),
             entrypoint,
             cmd,
-            env,
-            labels,
+            env: format_env(&config.env),
+            labels: config.labels.iter().cloned().collect(),
             working_dir: config.working_dir.clone(),
-            host_config,
+            host_config: self.build_host_config(&config.resources),
         }
     }
 
     /// Build a ContainerSpec for a sandbox container with daemon injection.
     fn build_sandbox_spec(&self, config: &ProcessConfig, image: &str) -> Result<ContainerSpec> {
-        let container_name = format!("indexify-{}", config.id);
-
         let daemon_binary_path =
             daemon_binary::get_daemon_path().context("Daemon binary not available")?;
 
-        let binds = vec![format!(
+        let mut host_config = self.build_host_config(&config.resources);
+        host_config.binds = Some(vec![format!(
             "{}:{}:ro",
             daemon_binary_path.display(),
             CONTAINER_DAEMON_PATH
-        )];
-
-        let env: Vec<String> = config
-            .env
-            .iter()
-            .map(|(k, v)| format!("{}={}", k, v))
-            .collect();
-        let labels: HashMap<String, String> = config.labels.iter().cloned().collect();
+        )]);
 
         let mut cmd: Vec<String> = vec![
             "--port".to_string(),
@@ -441,18 +401,13 @@ impl DockerDriver {
             cmd.extend(config.args.clone());
         }
 
-        let mut host_config = build_host_config_resources(&config.resources);
-        host_config.binds = Some(binds);
-        host_config.runtime = self.runtime.clone();
-        host_config.network_mode = self.network.clone();
-
         Ok(ContainerSpec {
-            container_name,
+            container_name: format!("indexify-{}", config.id),
             image: image.to_string(),
             entrypoint: Some(vec![CONTAINER_DAEMON_PATH.to_string()]),
             cmd,
-            env,
-            labels,
+            env: format_env(&config.env),
+            labels: config.labels.iter().cloned().collect(),
             working_dir: config.working_dir.clone(),
             host_config,
         })
@@ -493,17 +448,7 @@ impl ProcessDriver for DockerDriver {
                 }
             };
 
-        let (container_name, container_ip) = retry_with_backoff(
-            2, // 3 total attempts
-            Backoff::Exponential {
-                initial: std::time::Duration::from_millis(100),
-                max: std::time::Duration::from_secs(10),
-            },
-            "container_create",
-            || self.create_and_start_container_with_cleanup(&spec),
-            |e: &anyhow::Error| is_server_error(e),
-        )
-        .await?;
+        let (container_name, container_ip) = self.create_and_start_container(spec).await?;
 
         let daemon_addr = format!("{}:{}", container_ip, grpc_port);
         let http_addr = http_port.map(|p| format!("{}:{}", container_ip, p));
@@ -655,14 +600,6 @@ impl ProcessDriver for DockerDriver {
     }
 }
 
-/// Check if an error is a Docker server error (HTTP 5xx) that's worth retrying.
-fn is_server_error(err: &anyhow::Error) -> bool {
-    for cause in err.chain() {
-        if let Some(bollard::errors::Error::DockerResponseServerError { status_code, .. }) =
-            cause.downcast_ref::<bollard::errors::Error>()
-        {
-            return *status_code >= 500;
-        }
-    }
-    false
+fn format_env(env: &[(String, String)]) -> Vec<String> {
+    env.iter().map(|(k, v)| format!("{}={}", k, v)).collect()
 }

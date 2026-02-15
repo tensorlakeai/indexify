@@ -93,7 +93,9 @@ impl Service {
         let metrics = Arc::new(DataplaneMetrics::new());
 
         let driver = create_process_driver(&config)?;
-        let image_resolver: Arc<dyn ImageResolver> = Arc::new(DefaultImageResolver::new());
+        let image_resolver: Arc<dyn ImageResolver> = Arc::new(DefaultImageResolver::new(
+            config.default_function_image.clone(),
+        ));
 
         let state_file = Arc::new(
             StateFile::new(&config.state_file)

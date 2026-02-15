@@ -774,7 +774,7 @@ mod tests {
 
     #[test]
     fn test_default_image_resolver_no_image() {
-        let resolver = DefaultImageResolver::new();
+        let resolver = DefaultImageResolver::new(None);
         let result = resolver.sandbox_image_for_pool("ns", "pool-1");
         assert!(result.is_err());
         assert!(
@@ -858,7 +858,7 @@ mod tests {
 
     async fn create_test_manager() -> (Arc<MockProcessDriver>, FunctionContainerManager) {
         let driver = Arc::new(MockProcessDriver::new());
-        let resolver = Arc::new(DefaultImageResolver::new());
+        let resolver = Arc::new(DefaultImageResolver::new(None));
         let metrics = create_test_metrics();
         let state_file = create_test_state_file().await;
         let manager = FunctionContainerManager::new(

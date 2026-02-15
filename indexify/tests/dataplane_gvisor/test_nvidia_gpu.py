@@ -2,7 +2,6 @@ import unittest
 from typing import Dict, List
 
 from tensorlake.applications import (
-    Image,
     Request,
     application,
     function,
@@ -11,23 +10,12 @@ from tensorlake.applications import (
 from tensorlake.applications.remote.deploy import deploy_applications
 from testing import running_on_github_gpu_runner
 
-PYTORCH_CUDA_IMAGE = (
-    Image(name="testing/pytorch-cuda", tag="latest")
-    .run("apt-get update && apt-get install -y python3-pip")
-    .run(
-        "pip3 install torch torchvision torchaudio",
-    )
-)
-# Install test dependencies needed by function code at runtime.
-for _pkg in ["pydantic"]:
-    PYTORCH_CUDA_IMAGE.run(f"pip install {_pkg}")
-
 GPU_SPEC = ["T4:1"]
 GPU_COUNT = 1
 
 
 @application()
-@function(image=PYTORCH_CUDA_IMAGE, gpu=GPU_SPEC)
+@function(gpu=GPU_SPEC)
 def nvidia_smi_gpu_query(_: str) -> str:
     import subprocess
 
@@ -49,7 +37,7 @@ def nvidia_smi_gpu_query(_: str) -> str:
 
 
 @application()
-@function(image=PYTORCH_CUDA_IMAGE, gpu=GPU_SPEC)
+@function(gpu=GPU_SPEC)
 def pytorch_cuda_is_available(_: str) -> bool:
     import torch
 
@@ -57,7 +45,7 @@ def pytorch_cuda_is_available(_: str) -> bool:
 
 
 @application()
-@function(image=PYTORCH_CUDA_IMAGE, gpu=GPU_SPEC)
+@function(gpu=GPU_SPEC)
 def pytorch_cuda_device_count(_: str) -> int:
     import torch
 
@@ -65,7 +53,7 @@ def pytorch_cuda_device_count(_: str) -> int:
 
 
 @application()
-@function(image=PYTORCH_CUDA_IMAGE, gpu=GPU_SPEC)
+@function(gpu=GPU_SPEC)
 def pytorch_compute_tensor(use_gpu: bool) -> Dict[str, List[List[int]]]:
     import torch
 
@@ -79,7 +67,7 @@ def pytorch_compute_tensor(use_gpu: bool) -> Dict[str, List[List[int]]]:
 
 
 @application()
-@function(image=PYTORCH_CUDA_IMAGE, gpu=None)
+@function()
 def pytorch_cuda_device_count_no_gpu(_: str) -> int:
     import torch
 
