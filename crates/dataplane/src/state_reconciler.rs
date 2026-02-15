@@ -249,8 +249,8 @@ impl StateReconciler {
 /// Wait for an FE controller's state to reach Terminated.
 async fn wait_for_terminated(state_rx: &mut tokio::sync::watch::Receiver<FunctionExecutorState>) {
     loop {
-        if let Some(status) = state_rx.borrow().status
-            && status == FunctionExecutorStatus::Terminated as i32
+        if let Some(status) = state_rx.borrow().status &&
+            status == FunctionExecutorStatus::Terminated as i32
         {
             return;
         }
