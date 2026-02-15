@@ -17,25 +17,25 @@ env:
   TENSORLAKE_API_URL: http://localhost:8900
 
 jobs:
-#  lint_server:
-#    name: Lint Indexify Server
-#    runs-on: ubuntu-latest
-#    steps:
-#      - name: Install protobuf package
-#        run: sudo apt update && sudo apt install -y protobuf-compiler
-#      - uses: actions/checkout@v6
-#      - name: Setup Rust
-#        uses: actions-rust-lang/setup-rust-toolchain@v1
-#        with:
-#          components: clippy, rustfmt
-#          cache-directories: |
-#            target
-#      - name: Install Just
-#        uses: extractions/setup-just@v3
-#      - name: Check formatting of indexify-server
-#        run: just check-rust
-#      - name: Check linting of indexify-server
-#        run: just lint-rust
+  lint_server:
+    name: Lint Indexify Server
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install protobuf package
+        run: sudo apt update && sudo apt install -y protobuf-compiler
+      - uses: actions/checkout@v6
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          components: clippy, rustfmt
+          cache-directories: |
+            target
+      - name: Install Just
+        uses: extractions/setup-just@v3
+      - name: Check formatting of indexify-server
+        run: just check-rust
+      - name: Check linting of indexify-server
+        run: just lint-rust
 
   build_server:
     name: Build Indexify Server
@@ -70,267 +70,267 @@ jobs:
           name: indexify-dataplane
           path: target/debug/indexify-dataplane
 
-#  lint_python_packages:
-#    name: Lint Python packages
-#    runs-on: ubuntu-latest
-#    steps:
-#      - uses: actions/checkout@v6
-#        with:
-#          submodules: true
-#      - name: Install poetry
-#        run: pipx install --force 'poetry==2.0.0'
-#      - name: Setup Python
-#        uses: actions/setup-python@v6
-#        with:
-#          python-version: '3.10'
-#          cache: 'poetry'
-#      - name: Build and lint indexify
-#        run: cd indexify && make build && make check
+  lint_python_packages:
+    name: Lint Python packages
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: true
+      - name: Install poetry
+        run: pipx install --force 'poetry==2.0.0'
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.10'
+          cache: 'poetry'
+      - name: Build and lint indexify
+        run: cd indexify && make build && make check
 
-#  acceptance_tests:
-#    name: Run Acceptance Tests
-#    needs: [build_server, lint_python_packages]
-#    runs-on: ubuntu-latest
-#    timeout-minutes: 30
-#    steps:
-#      - uses: actions/checkout@v6
-#        with:
-#          submodules: true
-#      - name: Download indexify-server
-#        uses: actions/download-artifact@v7
-#        with:
-#          name: indexify-server
-#      - name: Start Background Indexify Server
-#        uses: JarvusInnovations/background-action@v1
-#        with:
-#          run: |
-#            chmod u+x ./indexify-server
-#            RUST_LOG=info ./indexify-server &
-#            echo $! > /tmp/indexify-server.pid &
-#          wait-on: |
-#            tcp:localhost:8900
-#          tail: true
-#          wait-for: 30s
-#          log-output: true
-#          log-output-if: true
-#      - name: Install poetry
-#        run: pipx install --force 'poetry==2.0.0'
-#      - name: Setup Python
-#        uses: actions/setup-python@v6
-#        with:
-#          python-version: '3.10'
-#          cache: 'poetry'
-#      - name: Build tensorlake
-#        run: cd tensorlake && make build
-#      - name: Build indexify
-#        run: cd indexify && make build
-#      - name: Start Background Indexify Executor
-#        uses: JarvusInnovations/background-action@v1
-#        with:
-#          run: |
-#            cd indexify
-#            poetry run indexify-cli executor &
-#            echo $! > /tmp/indexify-executor.pid &
-#          wait-on: |
-#            tcp:localhost:7000
-#          tail: true
-#          wait-for: 10s
-#          log-output: true
-#          log-output-if: true
-#      - name: Wait for readiness
-#        run: |
-#          serverReady=false
-#          counter=0
-#          while [ "$serverReady" != true ]; do
-#            output=$(curl --silent --fail http://localhost:8900/internal/executors | jq '. | length' 2>/dev/null)
-#            if [[ $? -eq 0 && "$output" -ge 1 ]]; then
-#                echo "Server ready with executors."
-#                serverReady=true
-#            else
-#                echo 'Waiting for executors to join server...'
-#                counter=$((counter+1))
-#                if [ $counter -gt 6 ]; then
-#                    echo "Timeout waiting for executors to join server."
-#                    exit 1
-#                fi
-#                sleep 5
-#            fi
-#          done
-#      - name: Run Indexify default tests and Tensorlake SDK tests
-#        run: make test
-#        working-directory: indexify
-#      - name: Terminate processes
-#        if: always()
-#        run: |
-#          pkill -SIGTERM -F /tmp/indexify-server.pid || true
-#          pkill -SIGTERM -F /tmp/indexify-executor.pid || true
-#      - name: Wait for processes termination
-#        if: always()
-#        run: |
-#          pid_files="/tmp/indexify-server.pid /tmp/indexify-executor.pid"
-#          for pid_file in $pid_files; do
-#            while pkill -0 -F "$pid_file" 2>/dev/null; do
-#              echo "waiting for process $pid_file to exit..."
-#              sleep 1
-#            done
-#          done
-#      - name: Validate that all processes terminated
-#        if: always()
-#        run: |
-#          if pgrep -f indexify; then
-#            echo "Error: Some Indexify processes are still running."
-#            ps aux | grep indexify
-#            exit 1
-#          fi
+  acceptance_tests:
+    name: Run Acceptance Tests
+    needs: [build_server, lint_python_packages]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: true
+      - name: Download indexify-server
+        uses: actions/download-artifact@v7
+        with:
+          name: indexify-server
+      - name: Start Background Indexify Server
+        uses: JarvusInnovations/background-action@v1
+        with:
+          run: |
+            chmod u+x ./indexify-server
+            RUST_LOG=info ./indexify-server &
+            echo $! > /tmp/indexify-server.pid &
+          wait-on: |
+            tcp:localhost:8900
+          tail: true
+          wait-for: 30s
+          log-output: true
+          log-output-if: true
+      - name: Install poetry
+        run: pipx install --force 'poetry==2.0.0'
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.10'
+          cache: 'poetry'
+      - name: Build tensorlake
+        run: cd tensorlake && make build
+      - name: Build indexify
+        run: cd indexify && make build
+      - name: Start Background Indexify Executor
+        uses: JarvusInnovations/background-action@v1
+        with:
+          run: |
+            cd indexify
+            poetry run indexify-cli executor &
+            echo $! > /tmp/indexify-executor.pid &
+          wait-on: |
+            tcp:localhost:7000
+          tail: true
+          wait-for: 10s
+          log-output: true
+          log-output-if: true
+      - name: Wait for readiness
+        run: |
+          serverReady=false
+          counter=0
+          while [ "$serverReady" != true ]; do
+            output=$(curl --silent --fail http://localhost:8900/internal/executors | jq '. | length' 2>/dev/null)
+            if [[ $? -eq 0 && "$output" -ge 1 ]]; then
+                echo "Server ready with executors."
+                serverReady=true
+            else
+                echo 'Waiting for executors to join server...'
+                counter=$((counter+1))
+                if [ $counter -gt 6 ]; then
+                    echo "Timeout waiting for executors to join server."
+                    exit 1
+                fi
+                sleep 5
+            fi
+          done
+      - name: Run Indexify default tests and Tensorlake SDK tests
+        run: make test
+        working-directory: indexify
+      - name: Terminate processes
+        if: always()
+        run: |
+          pkill -SIGTERM -F /tmp/indexify-server.pid || true
+          pkill -SIGTERM -F /tmp/indexify-executor.pid || true
+      - name: Wait for processes termination
+        if: always()
+        run: |
+          pid_files="/tmp/indexify-server.pid /tmp/indexify-executor.pid"
+          for pid_file in $pid_files; do
+            while pkill -0 -F "$pid_file" 2>/dev/null; do
+              echo "waiting for process $pid_file to exit..."
+              sleep 1
+            done
+          done
+      - name: Validate that all processes terminated
+        if: always()
+        run: |
+          if pgrep -f indexify; then
+            echo "Error: Some Indexify processes are still running."
+            ps aux | grep indexify
+            exit 1
+          fi
 
-#  map_reduce_benchmark:
-#    name: Run Map Reduce Benchmark
-#    needs: [build_server, lint_python_packages]
-#    runs-on: ubuntu-latest
-#    timeout-minutes: 30
-#    permissions:
-#      contents: read
-#    steps:
-#      - uses: actions/checkout@v6
-#      - name: Download indexify-server
-#        uses: actions/download-artifact@v7
-#        with:
-#          name: indexify-server
-#      - name: Start Background Indexify Server
-#        uses: JarvusInnovations/background-action@v1
-#        with:
-#          run: |
-#            chmod u+x ./indexify-server
-#            RUST_LOG=info ./indexify-server &
-#            echo $! > /tmp/indexify-server.pid &
-#          wait-on: |
-#            tcp:localhost:8900
-#          tail: false
-#          wait-for: 30s
-#          log-output: false
-#          log-output-if: false
-#      - name: Install poetry
-#        run: pipx install --force 'poetry==2.0.0'
-#      - name: Setup Python
-#        uses: actions/setup-python@v6
-#        with:
-#          python-version: '3.10'
-#          cache: 'poetry'
-#      - name: Build indexify
-#        run: cd indexify && make build
-#      - name: Start Background Indexify Executor
-#        uses: JarvusInnovations/background-action@v1
-#        with:
-#          run: |
-#            cd indexify
-#            poetry run indexify-cli executor &
-#            echo $! > /tmp/indexify-executor.pid &
-#          wait-on: |
-#            tcp:localhost:7000
-#          tail: false
-#          wait-for: 10s
-#          log-output: false
-#          log-output-if: false
-#      - name: Run Map Reduce Benchmark
-#        run: |
-#          cd indexify
-#          poetry run python3 benchmarks/map_reduce/main.py --maps-count 500 --num-requests 1 --failure-threshold-seconds 900
-#      - name: Terminate processes
-#        if: always()
-#        run: |
-#          pkill -SIGTERM -F /tmp/indexify-server.pid || true
-#          pkill -SIGTERM -F /tmp/indexify-executor.pid || true
-#      - name: Wait for processes termination
-#        if: always()
-#        run: |
-#          pid_files="/tmp/indexify-server.pid /tmp/indexify-executor.pid"
-#          for pid_file in $pid_files; do
-#            while pkill -0 -F "$pid_file" 2>/dev/null; do
-#              echo "waiting for process $pid_file to exit..."
-#              sleep 1
-#            done
-#          done
-#      - name: Validate that all processes terminated
-#        if: always()
-#        run: |
-#          if pgrep -f indexify; then
-#            echo "Error: Some Indexify processes are still running."
-#            ps aux | grep indexify
-#            exit 1
-#          fi
+  map_reduce_benchmark:
+    name: Run Map Reduce Benchmark
+    needs: [build_server, lint_python_packages]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+      - name: Download indexify-server
+        uses: actions/download-artifact@v7
+        with:
+          name: indexify-server
+      - name: Start Background Indexify Server
+        uses: JarvusInnovations/background-action@v1
+        with:
+          run: |
+            chmod u+x ./indexify-server
+            RUST_LOG=info ./indexify-server &
+            echo $! > /tmp/indexify-server.pid &
+          wait-on: |
+            tcp:localhost:8900
+          tail: false
+          wait-for: 30s
+          log-output: false
+          log-output-if: false
+      - name: Install poetry
+        run: pipx install --force 'poetry==2.0.0'
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.10'
+          cache: 'poetry'
+      - name: Build indexify
+        run: cd indexify && make build
+      - name: Start Background Indexify Executor
+        uses: JarvusInnovations/background-action@v1
+        with:
+          run: |
+            cd indexify
+            poetry run indexify-cli executor &
+            echo $! > /tmp/indexify-executor.pid &
+          wait-on: |
+            tcp:localhost:7000
+          tail: false
+          wait-for: 10s
+          log-output: false
+          log-output-if: false
+      - name: Run Map Reduce Benchmark
+        run: |
+          cd indexify
+          poetry run python3 benchmarks/map_reduce/main.py --maps-count 500 --num-requests 1 --failure-threshold-seconds 900
+      - name: Terminate processes
+        if: always()
+        run: |
+          pkill -SIGTERM -F /tmp/indexify-server.pid || true
+          pkill -SIGTERM -F /tmp/indexify-executor.pid || true
+      - name: Wait for processes termination
+        if: always()
+        run: |
+          pid_files="/tmp/indexify-server.pid /tmp/indexify-executor.pid"
+          for pid_file in $pid_files; do
+            while pkill -0 -F "$pid_file" 2>/dev/null; do
+              echo "waiting for process $pid_file to exit..."
+              sleep 1
+            done
+          done
+      - name: Validate that all processes terminated
+        if: always()
+        run: |
+          if pgrep -f indexify; then
+            echo "Error: Some Indexify processes are still running."
+            ps aux | grep indexify
+            exit 1
+          fi
 
-#  acceptance_tests_dataplane:
-#    name: Run Acceptance Tests (Dataplane)
-#    needs: [build_server]
-#    runs-on: ubuntu-latest
-#    timeout-minutes: 30
-#    permissions:
-#      contents: read
-#    steps:
-#      - uses: actions/checkout@v6
-#        with:
-#          submodules: true
-#      - name: Download indexify-server
-#        uses: actions/download-artifact@v7
-#        with:
-#          name: indexify-server
-#      - name: Download indexify-dataplane
-#        uses: actions/download-artifact@v7
-#        with:
-#          name: indexify-dataplane
-#      - name: Start Background Indexify Server
-#        uses: JarvusInnovations/background-action@v1
-#        with:
-#          run: |
-#            chmod u+x ./indexify-server
-#            DATAPLANE_FUNCTIONS_ENABLED=true RUST_LOG=info ./indexify-server &
-#            echo $! > /tmp/indexify-server.pid &
-#          wait-on: |
-#            tcp:localhost:8900
-#          tail: true
-#          wait-for: 30s
-#          log-output: true
-#          log-output-if: true
-#      - name: Install poetry
-#        run: pipx install --force 'poetry==2.0.0'
-#      - name: Setup Python
-#        uses: actions/setup-python@v6
-#        with:
-#          python-version: '3.10'
-#          cache: 'poetry'
-#      - name: Build tensorlake
-#        run: cd tensorlake && make build
-#      - name: Run Indexify Dataplane tests
-#        run: |
-#          chmod u+x ./indexify-dataplane
-#          export DATAPLANE_BIN=$(pwd)/indexify-dataplane
-#          export PATH=$(cd tensorlake && poetry env info --path)/bin:$PATH
-#          cd indexify/tests
-#          bash run_tests_dataplane.sh
-#      - name: Terminate processes
-#        if: always()
-#        run: |
-#          pkill -SIGTERM -F /tmp/indexify-server.pid || true
-#          pkill -f indexify-dataplane || true
-#          pkill -f function-executor || true
-#      - name: Wait for processes termination
-#        if: always()
-#        run: |
-#          for i in $(seq 1 10); do
-#            if ! pgrep -f 'indexify-server|indexify-dataplane|function-executor' >/dev/null 2>&1; then
-#              break
-#            fi
-#            echo "Waiting for processes to exit..."
-#            sleep 1
-#          done
-#      - name: Validate that all processes terminated
-#        if: always()
-#        run: |
-#          if pgrep -f indexify; then
-#            echo "Error: Some Indexify processes are still running."
-#            ps aux | grep indexify
-#            exit 1
-#          fi
+  acceptance_tests_dataplane:
+    name: Run Acceptance Tests (Dataplane)
+    needs: [build_server]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: true
+      - name: Download indexify-server
+        uses: actions/download-artifact@v7
+        with:
+          name: indexify-server
+      - name: Download indexify-dataplane
+        uses: actions/download-artifact@v7
+        with:
+          name: indexify-dataplane
+      - name: Start Background Indexify Server
+        uses: JarvusInnovations/background-action@v1
+        with:
+          run: |
+            chmod u+x ./indexify-server
+            DATAPLANE_FUNCTIONS_ENABLED=true RUST_LOG=info ./indexify-server &
+            echo $! > /tmp/indexify-server.pid &
+          wait-on: |
+            tcp:localhost:8900
+          tail: true
+          wait-for: 30s
+          log-output: true
+          log-output-if: true
+      - name: Install poetry
+        run: pipx install --force 'poetry==2.0.0'
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.10'
+          cache: 'poetry'
+      - name: Build tensorlake
+        run: cd tensorlake && make build
+      - name: Run Indexify Dataplane tests
+        run: |
+          chmod u+x ./indexify-dataplane
+          export DATAPLANE_BIN=$(pwd)/indexify-dataplane
+          export PATH=$(cd tensorlake && poetry env info --path)/bin:$PATH
+          cd indexify/tests
+          bash run_tests_dataplane.sh
+      - name: Terminate processes
+        if: always()
+        run: |
+          pkill -SIGTERM -F /tmp/indexify-server.pid || true
+          pkill -f indexify-dataplane || true
+          pkill -f function-executor || true
+      - name: Wait for processes termination
+        if: always()
+        run: |
+          for i in $(seq 1 10); do
+            if ! pgrep -f 'indexify-server|indexify-dataplane|function-executor' >/dev/null 2>&1; then
+              break
+            fi
+            echo "Waiting for processes to exit..."
+            sleep 1
+          done
+      - name: Validate that all processes terminated
+        if: always()
+        run: |
+          if pgrep -f indexify; then
+            echo "Error: Some Indexify processes are still running."
+            ps aux | grep indexify
+            exit 1
+          fi
 
   acceptance_tests_dataplane_gvisor:
     name: Run Acceptance Tests (Dataplane + gVisor)
@@ -571,106 +571,106 @@ jobs:
             exit 1
           fi
 
-#  map_reduce_benchmark_dataplane:
-#    name: Run Map Reduce Benchmark (Dataplane)
-#    needs: [build_server]
-#    runs-on: ubuntu-latest
-#    timeout-minutes: 30
-#    permissions:
-#      contents: read
-#    steps:
-#      - uses: actions/checkout@v6
-#        with:
-#          submodules: true
-#      - name: Download indexify-server
-#        uses: actions/download-artifact@v7
-#        with:
-#          name: indexify-server
-#      - name: Download indexify-dataplane
-#        uses: actions/download-artifact@v7
-#        with:
-#          name: indexify-dataplane
-#      - name: Start Background Indexify Server
-#        uses: JarvusInnovations/background-action@v1
-#        with:
-#          run: |
-#            chmod u+x ./indexify-server
-#            DATAPLANE_FUNCTIONS_ENABLED=true RUST_LOG=info ./indexify-server &
-#            echo $! > /tmp/indexify-server.pid &
-#          wait-on: |
-#            tcp:localhost:8900
-#          tail: false
-#          wait-for: 30s
-#          log-output: false
-#          log-output-if: false
-#      - name: Install poetry
-#        run: pipx install --force 'poetry==2.0.0'
-#      - name: Setup Python
-#        uses: actions/setup-python@v6
-#        with:
-#          python-version: '3.10'
-#          cache: 'poetry'
-#      - name: Build tensorlake
-#        run: cd tensorlake && make build
-#      - name: Start Background Indexify Dataplane
-#        uses: JarvusInnovations/background-action@v1
-#        with:
-#          run: |
-#            chmod u+x ./indexify-dataplane
-#            export PATH=$(cd tensorlake && poetry env info --path)/bin:$PATH
-#            ./indexify-dataplane --config indexify/tests/dataplane_config.yaml &
-#            echo $! > /tmp/indexify-dataplane.pid &
-#          wait-on: |
-#            tcp:localhost:8095
-#          tail: false
-#          wait-for: 30s
-#          log-output: false
-#          log-output-if: false
-#      - name: Wait for readiness
-#        run: |
-#          serverReady=false
-#          counter=0
-#          while [ "$serverReady" != true ]; do
-#            output=$(curl --silent --fail http://localhost:8900/internal/executors | jq '. | length' 2>/dev/null)
-#            if [[ $? -eq 0 && "$output" -ge 1 ]]; then
-#                echo "Server ready with executors."
-#                serverReady=true
-#            else
-#                echo 'Waiting for executors to join server...'
-#                counter=$((counter+1))
-#                if [ $counter -gt 12 ]; then
-#                    echo "Timeout waiting for executors to join server."
-#                    exit 1
-#                fi
-#                sleep 5
-#            fi
-#          done
-#      - name: Run Map Reduce Benchmark
-#        run: |
-#          export PATH=$(cd tensorlake && poetry env info --path)/bin:$PATH
-#          cd indexify/benchmarks/map_reduce
-#          python3 main.py --maps-count 500 --num-requests 1 --failure-threshold-seconds 900
-#      - name: Terminate processes
-#        if: always()
-#        run: |
-#          pkill -SIGTERM -F /tmp/indexify-server.pid || true
-#          pkill -SIGTERM -F /tmp/indexify-dataplane.pid || true
-#          pkill -f function-executor || true
-#      - name: Wait for processes termination
-#        if: always()
-#        run: |
-#          for i in $(seq 1 10); do
-#            if ! pgrep -f 'indexify-server|indexify-dataplane|function-executor' >/dev/null 2>&1; then
-#              break
-#            fi
-#            echo "Waiting for processes to exit..."
-#            sleep 1
-#          done
-#      - name: Validate that all processes terminated
-#        if: always()
-#        run: |
-#          if pgrep -f indexify; then
-#            echo "Error: Some Indexify processes are still running."
-#            ps aux | grep indexify
-#            exit 1
-#          fi
+  map_reduce_benchmark_dataplane:
+    name: Run Map Reduce Benchmark (Dataplane)
+    needs: [build_server]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: true
+      - name: Download indexify-server
+        uses: actions/download-artifact@v7
+        with:
+          name: indexify-server
+      - name: Download indexify-dataplane
+        uses: actions/download-artifact@v7
+        with:
+          name: indexify-dataplane
+      - name: Start Background Indexify Server
+        uses: JarvusInnovations/background-action@v1
+        with:
+          run: |
+            chmod u+x ./indexify-server
+            DATAPLANE_FUNCTIONS_ENABLED=true RUST_LOG=info ./indexify-server &
+            echo $! > /tmp/indexify-server.pid &
+          wait-on: |
+            tcp:localhost:8900
+          tail: false
+          wait-for: 30s
+          log-output: false
+          log-output-if: false
+      - name: Install poetry
+        run: pipx install --force 'poetry==2.0.0'
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.10'
+          cache: 'poetry'
+      - name: Build tensorlake
+        run: cd tensorlake && make build
+      - name: Start Background Indexify Dataplane
+        uses: JarvusInnovations/background-action@v1
+        with:
+          run: |
+            chmod u+x ./indexify-dataplane
+            export PATH=$(cd tensorlake && poetry env info --path)/bin:$PATH
+            ./indexify-dataplane --config indexify/tests/dataplane_config.yaml &
+            echo $! > /tmp/indexify-dataplane.pid &
+          wait-on: |
+            tcp:localhost:8095
+          tail: false
+          wait-for: 30s
+          log-output: false
+          log-output-if: false
+      - name: Wait for readiness
+        run: |
+          serverReady=false
+          counter=0
+          while [ "$serverReady" != true ]; do
+            output=$(curl --silent --fail http://localhost:8900/internal/executors | jq '. | length' 2>/dev/null)
+            if [[ $? -eq 0 && "$output" -ge 1 ]]; then
+                echo "Server ready with executors."
+                serverReady=true
+            else
+                echo 'Waiting for executors to join server...'
+                counter=$((counter+1))
+                if [ $counter -gt 12 ]; then
+                    echo "Timeout waiting for executors to join server."
+                    exit 1
+                fi
+                sleep 5
+            fi
+          done
+      - name: Run Map Reduce Benchmark
+        run: |
+          export PATH=$(cd tensorlake && poetry env info --path)/bin:$PATH
+          cd indexify/benchmarks/map_reduce
+          python3 main.py --maps-count 500 --num-requests 1 --failure-threshold-seconds 900
+      - name: Terminate processes
+        if: always()
+        run: |
+          pkill -SIGTERM -F /tmp/indexify-server.pid || true
+          pkill -SIGTERM -F /tmp/indexify-dataplane.pid || true
+          pkill -f function-executor || true
+      - name: Wait for processes termination
+        if: always()
+        run: |
+          for i in $(seq 1 10); do
+            if ! pgrep -f 'indexify-server|indexify-dataplane|function-executor' >/dev/null 2>&1; then
+              break
+            fi
+            echo "Waiting for processes to exit..."
+            sleep 1
+          done
+      - name: Validate that all processes terminated
+        if: always()
+        run: |
+          if pgrep -f indexify; then
+            echo "Error: Some Indexify processes are still running."
+            ps aux | grep indexify
+            exit 1
+          fi
