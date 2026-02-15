@@ -26,6 +26,7 @@ use proto_api::executor_api_pb::{
     FunctionCallWatch,
     FunctionExecutorDescription,
     FunctionExecutorState,
+    FunctionExecutorStatus,
     FunctionExecutorType,
 };
 use tokio::sync::Notify;
@@ -99,6 +100,10 @@ impl StateReconciler {
     }
 
     /// Reconcile function-type FEs with FE controllers.
+    ///
+    /// Removals are fully awaited (container killed, resources freed) before
+    /// new controllers are created. This guarantees resources like GPUs are
+    /// returned to the pool before new FEs attempt to allocate them.
     async fn reconcile_function_fes(&mut self, desired: Vec<FunctionExecutorDescription>) {
         let desired_ids: HashMap<String, FunctionExecutorDescription> = desired
             .into_iter()
@@ -110,14 +115,40 @@ impl StateReconciler {
 
         let mut changed = false;
 
-        // Remove controllers for FEs no longer in desired state
+        // Remove controllers for FEs no longer in desired state.
+        // We send Shutdown and then wait for each controller to reach
+        // Terminated so that resources (GPUs, container) are fully released
+        // before we create any new controllers.
         let current_ids: Vec<String> = self.fe_controllers.keys().cloned().collect();
+        let mut removed_handles: Vec<(String, FEControllerHandle)> = Vec::new();
         for id in current_ids {
             if !desired_ids.contains_key(&id) {
                 info!(fe_id = %id, "Removing function executor controller");
                 if let Some(handle) = self.fe_controllers.remove(&id) {
                     let _ = handle.command_tx.send(FECommand::Shutdown);
+                    removed_handles.push((id, handle));
                     changed = true;
+                }
+            }
+        }
+
+        // Wait for all removed controllers to fully terminate (container
+        // killed, GPUs deallocated) before creating new ones.
+        for (id, mut handle) in removed_handles {
+            let wait_result = tokio::time::timeout(
+                std::time::Duration::from_secs(30),
+                wait_for_terminated(&mut handle.state_rx),
+            )
+            .await;
+            match wait_result {
+                Ok(()) => {
+                    debug!(fe_id = %id, "Function executor fully terminated");
+                }
+                Err(_) => {
+                    tracing::warn!(
+                        fe_id = %id,
+                        "Timed out waiting for function executor to terminate"
+                    );
                 }
             }
         }
@@ -211,6 +242,22 @@ impl StateReconciler {
         for (id, handle) in self.fe_controllers.drain() {
             debug!(fe_id = %id, "Shutting down FE controller");
             let _ = handle.command_tx.send(FECommand::Shutdown);
+        }
+    }
+}
+
+/// Wait for an FE controller's state to reach Terminated.
+async fn wait_for_terminated(state_rx: &mut tokio::sync::watch::Receiver<FunctionExecutorState>) {
+    loop {
+        if let Some(status) = state_rx.borrow().status
+            && status == FunctionExecutorStatus::Terminated as i32
+        {
+            return;
+        }
+        // Wait for the next state change
+        if state_rx.changed().await.is_err() {
+            // Sender dropped — controller task exited, resources are freed
+            return;
         }
     }
 }

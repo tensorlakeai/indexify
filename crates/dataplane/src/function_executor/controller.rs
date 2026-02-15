@@ -1292,7 +1292,8 @@ impl FunctionExecutorController {
             let _ = self.config.driver.kill(handle).await;
         }
 
-        // Return allocated GPUs to the pool
+        // Return allocated GPUs to the pool after the container is killed,
+        // since the GPU is physically in use until the container is dead.
         if !self.allocated_gpu_uuids.is_empty() {
             self.config
                 .gpu_allocator
