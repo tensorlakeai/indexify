@@ -464,32 +464,28 @@ pub async fn delete_sandbox_pool(
     let pool_key = ContainerPoolKey::new(&namespace, &pool_id_obj);
 
     // Check if pool exists
-    let scheduler = state.indexify_state.container_scheduler.read().await;
-    if !scheduler.sandbox_pools.contains_key(&pool_key) {
-        return Err(IndexifyAPIError::not_found("Sandbox pool not found"));
+    {
+        let scheduler = state.indexify_state.container_scheduler.read().await;
+        if !scheduler.sandbox_pools.contains_key(&pool_key) {
+            return Err(IndexifyAPIError::not_found("Sandbox pool not found"));
+        }
     }
-    drop(scheduler);
 
     // Check if any sandboxes are using this pool
-    let in_memory = state.indexify_state.in_memory_state.read().await;
-    let active_sandboxes: Vec<_> = in_memory
-        .sandboxes
-        .values()
-        .filter(|s| {
+    let active_sandboxes = {
+        let in_memory = state.indexify_state.in_memory_state.read().await;
+        in_memory.sandboxes.values().any(|s| {
             s.pool_id.as_ref() == Some(&pool_id_obj) &&
                 s.namespace == namespace &&
                 s.status != data_model::SandboxStatus::Terminated
         })
-        .collect();
-
-    if !active_sandboxes.is_empty() {
+    };
+    if active_sandboxes {
         return Err(IndexifyAPIError::conflict(&format!(
-            "Cannot delete pool '{}': {} active sandbox(es) are using it",
-            pool_id,
-            active_sandboxes.len()
+            "Cannot delete pool '{}': active sandbox(es) are using it",
+            pool_id
         )));
     }
-    drop(in_memory);
 
     // Write TombstoneContainerPool to state store - this emits a state change
     // which will terminate containers, then issue the actual delete
