@@ -40,6 +40,8 @@ jobs:
   build_server:
     name: Build Indexify Server
     runs-on: namespace-profile-indexify-builder
+    permissions:
+      contents: read
     steps:
       - name: Install protobuf package
         run: sudo apt update && sudo apt install -y protobuf-compiler
