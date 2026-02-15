@@ -458,20 +458,15 @@ jobs:
         uses: actions/download-artifact@v7
         with:
           name: indexify-dataplane
-      - name: Install Docker + gVisor
+      - name: Install gVisor
         run: |
-          # Install Docker
-          sudo apt-get install -y apt-transport-https ca-certificates curl gnupg
-          sudo install -m 0755 -d /etc/apt/keyrings
-          sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
-          echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list
-          # Install gVisor
-          sudo curl -fsSL https://gvisor.dev/archive.key -o /usr/share/keyrings/gvisor-archive-keyring.key
-          echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/gvisor-archive-keyring.key] https://storage.googleapis.com/gvisor/releases release main" | sudo tee /etc/apt/sources.list.d/gvisor.list
+          # GPU runner already has Docker — only install gVisor
+          ARCH="$(dpkg --print-architecture)"
+          curl -fsSL https://gvisor.dev/archive.key | sudo gpg --dearmor -o /usr/share/keyrings/gvisor-archive-keyring.gpg
+          echo "deb [arch=${ARCH} signed-by=/usr/share/keyrings/gvisor-archive-keyring.gpg] https://storage.googleapis.com/gvisor/releases release main" | sudo tee /etc/apt/sources.list.d/gvisor.list > /dev/null
           sudo apt-get update -y
-          sudo apt-get install -y docker-ce docker-ce-cli containerd.io runsc
+          sudo apt-get install -y runsc
           # Configure Docker with gVisor runtime and GPU support (nvproxy)
-          sudo runsc install
           sudo tee /etc/docker/daemon.json > /dev/null << 'EOF'
           {
             "runtimes": {
