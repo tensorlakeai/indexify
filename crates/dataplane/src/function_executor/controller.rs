@@ -257,6 +257,10 @@ impl AllocationTracker {
         self.running_set.remove(id);
     }
 
+    fn drain_running(&mut self) -> Vec<String> {
+        self.running_set.drain().collect()
+    }
+
     fn running_count(&self) -> usize {
         self.running_set.len()
     }
@@ -990,6 +994,12 @@ impl FunctionExecutorController {
             return;
         };
 
+        // If the allocation is no longer in Running phase, terminate() already
+        // drained it and started finalization. Skip to avoid double-reporting.
+        if !matches!(info.phase, AllocationPhase::Running { .. }) {
+            return;
+        }
+
         // Take finalization_ctx from Running phase
         let mut finalization_ctx = info.take_finalization_ctx();
 
@@ -1202,12 +1212,16 @@ impl FunctionExecutorController {
         // Cancel all allocation tokens
         self.tracker.cancel_all_tokens();
 
-        // Drain runnable allocations through finalization so blob handles are
-        // cleaned up. Only needed on FE crash — on graceful shutdown, Running
-        // allocations will see cancellation and finalize themselves.
+        // Drain allocations through finalization so blob handles are cleaned
+        // up and failure results reach the server. Only needed on FE crash —
+        // on graceful shutdown, Running allocations see cancellation and
+        // finalize themselves.
         if drain_runnable {
+            let failure_reason = proto_convert::termination_to_failure_reason(reason);
+
+            // Drain Runnable allocations (queued but not yet executing).
             let runnable_ids = self.tracker.drain_runnable();
-            let mut runnable_items: Vec<(String, ServerAllocationResult, FinalizationContext)> =
+            let mut drain_items: Vec<(String, ServerAllocationResult, FinalizationContext)> =
                 Vec::new();
             for alloc_id in &runnable_ids {
                 if let Some(info) = self.tracker.get_mut(alloc_id) &&
@@ -1215,13 +1229,32 @@ impl FunctionExecutorController {
                 {
                     let result = proto_convert::make_failure_result(
                         &info.allocation,
-                        AllocationFailureReason::FunctionExecutorTerminated,
+                        failure_reason,
                     );
                     let ctx = info.take_finalization_ctx();
-                    runnable_items.push((alloc_id.clone(), result, ctx));
+                    drain_items.push((alloc_id.clone(), result, ctx));
                 }
             }
-            for (alloc_id, result, ctx) in runnable_items {
+
+            // Drain Running allocations (actively executing on the dead FE).
+            // The allocation runner tasks are still alive (stuck on gRPC calls
+            // to the dead container) so we send failure results immediately
+            // rather than waiting for them to time out.
+            let running_ids = self.tracker.drain_running();
+            for alloc_id in &running_ids {
+                if let Some(info) = self.tracker.get_mut(alloc_id) &&
+                    matches!(info.phase, AllocationPhase::Running { .. })
+                {
+                    let result = proto_convert::make_failure_result(
+                        &info.allocation,
+                        failure_reason,
+                    );
+                    let ctx = info.take_finalization_ctx();
+                    drain_items.push((alloc_id.clone(), result, ctx));
+                }
+            }
+
+            for (alloc_id, result, ctx) in drain_items {
                 self.start_finalization(&alloc_id, result, ctx);
             }
         }
