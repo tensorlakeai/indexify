@@ -15,7 +15,33 @@ if [ -z "$DATAPLANE_BIN" ] || [ ! -x "$DATAPLANE_BIN" ]; then
     exit 1
 fi
 
-$DATAPLANE_BIN --config dataplane_gvisor_config.yaml &
+# The server stores blobs at {cwd}/indexify_storage by default.
+# SERVER_WORK_DIR should point to the directory where indexify-server was started.
+SERVER_WORK_DIR="${SERVER_WORK_DIR:-$(cd ../../ && pwd)}"
+BLOB_STORE_DIR="${SERVER_WORK_DIR}/indexify_storage"
+
+# Generate config with bind mount so containers can access the blob store.
+# The mount uses the same path inside and outside the container so that
+# file:// URIs from the server resolve correctly.
+CONFIG_FILE="/tmp/dataplane_gvisor_config.yaml"
+cat > "$CONFIG_FILE" << EOF
+env: local
+server_addr: "http://localhost:8901"
+driver:
+  type: docker
+  runtime: runsc
+  binds:
+    - "${BLOB_STORE_DIR}:${BLOB_STORE_DIR}"
+monitoring:
+  port: 7100
+default_function_image: "indexify-test-function:latest"
+EOF
+
+echo "Generated dataplane config:"
+cat "$CONFIG_FILE"
+echo ""
+
+$DATAPLANE_BIN --config "$CONFIG_FILE" &
 DATAPLANE_PID=$!
 echo "Started dataplane (gVisor) PID: $DATAPLANE_PID"
 sleep 10  # Wait for connection + container readiness

@@ -398,6 +398,7 @@ jobs:
         run: |
           chmod u+x ./indexify-dataplane
           export DATAPLANE_BIN=$(pwd)/indexify-dataplane
+          export SERVER_WORK_DIR=$(pwd)
           export PATH=$(cd tensorlake && poetry env info --path)/bin:$PATH
           cd indexify/tests
           bash run_tests_dataplane_gvisor.sh
@@ -516,7 +517,20 @@ jobs:
         run: |
           chmod u+x ./indexify-dataplane
           export PATH=$(cd tensorlake && poetry env info --path)/bin:$PATH
-          ./indexify-dataplane --config indexify/tests/dataplane_gpu_config.yaml &
+          BLOB_STORE_DIR="$(pwd)/indexify_storage"
+          cat > /tmp/dataplane_gpu_config.yaml << EOF
+          env: local
+          server_addr: "http://localhost:8901"
+          driver:
+            type: docker
+            runtime: runsc
+            binds:
+              - "${BLOB_STORE_DIR}:${BLOB_STORE_DIR}"
+          monitoring:
+            port: 7100
+          default_function_image: "indexify-test-function-gpu:latest"
+          EOF
+          ./indexify-dataplane --config /tmp/dataplane_gpu_config.yaml &
           echo $! > /tmp/indexify-dataplane.pid
           sleep 10
       - name: Run GPU tests

@@ -81,6 +81,12 @@ pub enum DriverConfig {
         /// If not specified, uses Docker's default network mode.
         #[serde(default)]
         network: Option<String>,
+        /// Volume bind mounts for function executor containers.
+        /// Format: "host_path:container_path" or "host_path:container_path:ro".
+        /// Useful for mounting the blob store directory when using local
+        /// filesystem storage.
+        #[serde(default)]
+        binds: Vec<String>,
     },
 }
 
@@ -667,6 +673,7 @@ driver:
                 address,
                 runtime,
                 network,
+                ..
             } => {
                 assert_eq!(address.as_deref(), Some("unix:///var/run/docker.sock"));
                 assert_eq!(runtime.as_deref(), Some("runsc"));

@@ -44,17 +44,24 @@ pub struct DockerDriver {
     runtime: Option<String>,
     /// Docker network mode for containers.
     network: Option<String>,
+    /// Volume bind mounts for function executor containers.
+    binds: Vec<String>,
 }
 
 impl DockerDriver {
     /// Create a new DockerDriver connecting to the default Docker socket.
-    pub fn new(runtime: Option<String>, network: Option<String>) -> Result<Self> {
+    pub fn new(
+        runtime: Option<String>,
+        network: Option<String>,
+        binds: Vec<String>,
+    ) -> Result<Self> {
         let docker =
             Docker::connect_with_local_defaults().context("Failed to connect to Docker daemon")?;
         Ok(Self {
             docker,
             runtime,
             network,
+            binds,
         })
     }
 
@@ -68,6 +75,7 @@ impl DockerDriver {
         address: &str,
         runtime: Option<String>,
         network: Option<String>,
+        binds: Vec<String>,
     ) -> Result<Self> {
         let docker = if address.starts_with("http://") || address.starts_with("tcp://") {
             // HTTP connection
@@ -95,6 +103,7 @@ impl DockerDriver {
             docker,
             runtime,
             network,
+            binds,
         })
     }
 
@@ -187,7 +196,7 @@ impl DockerDriver {
 
 impl Default for DockerDriver {
     fn default() -> Self {
-        Self::new(None, None).expect("Failed to create default DockerDriver")
+        Self::new(None, None, Vec::new()).expect("Failed to create default DockerDriver")
     }
 }
 
@@ -340,11 +349,15 @@ impl DockerDriver {
     }
 
     /// Build a base HostConfig with resource limits and driver-level settings
-    /// (runtime, network, log rotation).
+    /// (runtime, network, log rotation, binds).
     fn build_host_config(&self, resources: &Option<super::ResourceLimits>) -> HostConfig {
         let mut host_config = build_host_config_resources(resources);
         host_config.runtime = self.runtime.clone();
         host_config.network_mode = self.network.clone();
+        if !self.binds.is_empty() {
+            let existing = host_config.binds.get_or_insert_with(Vec::new);
+            existing.extend(self.binds.clone());
+        }
         host_config
     }
 

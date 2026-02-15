@@ -800,15 +800,18 @@ fn create_process_driver(config: &DataplaneConfig) -> Result<Arc<dyn ProcessDriv
             address,
             runtime,
             network,
+            binds,
         } => match address {
             Some(addr) => Ok(Arc::new(DockerDriver::with_address(
                 addr,
                 runtime.clone(),
                 network.clone(),
+                binds.clone(),
             )?)),
             None => Ok(Arc::new(DockerDriver::new(
                 runtime.clone(),
                 network.clone(),
+                binds.clone(),
             )?)),
         },
     }

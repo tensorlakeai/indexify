@@ -41,6 +41,8 @@ driver:
   # address: "unix:///var/run/docker.sock"
   # runtime: runsc     # OCI runtime (e.g., runsc for gVisor)
   # network: bridge    # Docker network mode
+  # binds:             # Volume bind mounts for containers
+  #   - "/host/path:/container/path:ro"
 
 # Default container image for function containers.
 # Used as a fallback when no external image resolution service is configured.
