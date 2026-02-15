@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use anyhow::Context;
 use clap::Parser;
 
+mod allocation_controller;
 mod blob_ops;
 mod code_cache;
 mod config;

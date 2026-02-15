@@ -1329,7 +1329,7 @@ impl FunctionExecutorController {
 
 /// Execute a future while recording latency, decrementing an in-progress
 /// counter, and optionally incrementing an error counter.
-async fn timed_phase<T>(
+pub(crate) async fn timed_phase<T>(
     latency: &opentelemetry::metrics::Histogram<f64>,
     in_progress: &opentelemetry::metrics::UpDownCounter<i64>,
     errors: Option<&opentelemetry::metrics::Counter<u64>>,
@@ -1349,7 +1349,7 @@ async fn timed_phase<T>(
 }
 
 /// Record allocation outcome metrics.
-fn record_allocation_metrics(
+pub(crate) fn record_allocation_metrics(
     result: &ServerAllocationResult,
     counters: &crate::metrics::DataplaneCounters,
 ) {

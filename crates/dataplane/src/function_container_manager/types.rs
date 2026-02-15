@@ -55,6 +55,7 @@ pub(super) struct ContainerInfo<'a> {
     pub fn_name: &'a str,
     pub app_version: &'a str,
     pub sandbox_id: Option<&'a str>,
+    pub pool_id: Option<&'a str>,
 }
 
 impl<'a> ContainerInfo<'a> {
@@ -76,6 +77,7 @@ impl<'a> ContainerInfo<'a> {
             .sandbox_metadata
             .as_ref()
             .and_then(|m| m.sandbox_id.as_deref());
+        let pool_id = desc.pool_id.as_deref();
 
         Self {
             container_id,
@@ -85,6 +87,7 @@ impl<'a> ContainerInfo<'a> {
             fn_name,
             app_version,
             sandbox_id,
+            pool_id,
         }
     }
 
@@ -102,6 +105,7 @@ impl<'a> ContainerInfo<'a> {
             fn = %self.fn_name,
             version = %self.app_version,
             sandbox_id = ?self.sandbox_id,
+            pool_id = ?self.pool_id,
         )
     }
 }

@@ -750,23 +750,33 @@ async fn try_reconcile(
         .cloned()
         .collect();
 
-    let mut reconciler = state_reconciler.lock().await;
-    reconciler.reconcile(valid_fes).await;
+    // Validate and collect allocations with their FE IDs
+    let allocations: Vec<_> = state
+        .allocations
+        .iter()
+        .filter(|a| {
+            if let Err(e) = validation::validate_allocation(a) {
+                tracing::warn!(
+                    allocation_id = ?a.allocation_id,
+                    error = %e,
+                    "Skipping invalid Allocation"
+                );
+                false
+            } else {
+                true
+            }
+        })
+        .filter_map(|a| {
+            a.function_executor_id
+                .as_ref()
+                .map(|fe_id| (fe_id.clone(), a.clone()))
+        })
+        .collect();
 
-    // Route allocations to their FE controllers, skip invalid ones
-    for allocation in &state.allocations {
-        if let Err(e) = validation::validate_allocation(allocation) {
-            tracing::warn!(
-                allocation_id = ?allocation.allocation_id,
-                error = %e,
-                "Skipping invalid Allocation"
-            );
-            continue;
-        }
-        if let Some(fe_id) = &allocation.function_executor_id {
-            reconciler.add_allocation(fe_id, allocation.clone());
-        }
-    }
+    let mut reconciler = state_reconciler.lock().await;
+
+    // Bundle FE descriptions + allocations for atomic reconciliation
+    reconciler.reconcile(valid_fes, allocations).await;
 
     // Route function call results to registered watchers
     if !state.function_call_results.is_empty() {
