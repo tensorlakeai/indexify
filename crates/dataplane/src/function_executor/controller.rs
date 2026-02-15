@@ -531,10 +531,14 @@ impl FunctionExecutorController {
                 env,
                 working_dir: None,
                 resources: self.description.resources.as_ref().map(|r| {
+                    let gpu_count = r.gpu.as_ref().and_then(|g| {
+                        let count = g.count.unwrap_or(0);
+                        if count > 0 { Some(count) } else { None }
+                    });
                     crate::driver::ResourceLimits {
                         cpu_millicores: r.cpu_ms_per_sec.map(|v| v as u64),
                         memory_bytes: r.memory_bytes,
-                        gpu_count: None,
+                        gpu_count,
                     }
                 }),
                 labels: vec![],
