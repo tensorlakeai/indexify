@@ -496,13 +496,12 @@ jobs:
           wait-for: 30s
           log-output: true
           log-output-if: true
-      - name: Install poetry
-        run: pip install --break-system-packages 'poetry==2.0.0'
       - name: Setup Python
         uses: actions/setup-python@v6
         with:
           python-version: '3.10'
-          cache: 'poetry'
+      - name: Install poetry
+        run: pip install 'poetry==2.0.0'
       - name: Build tensorlake
         run: cd tensorlake && make build
       - name: Build test function GPU image
