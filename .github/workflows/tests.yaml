@@ -460,13 +460,17 @@ jobs:
           name: indexify-dataplane
       - name: Install gVisor
         run: |
-          # GPU runner already has Docker — only install gVisor
-          ARCH="$(dpkg --print-architecture)"
-          curl -fsSL https://gvisor.dev/archive.key | sudo gpg --dearmor -o /usr/share/keyrings/gvisor-archive-keyring.gpg
-          echo "deb [arch=${ARCH} signed-by=/usr/share/keyrings/gvisor-archive-keyring.gpg] https://storage.googleapis.com/gvisor/releases release main" | sudo tee /etc/apt/sources.list.d/gvisor.list > /dev/null
+          # GPU runner already has Docker — only install gVisor.
+          # Remove any pre-existing Docker repo that conflicts.
+          sudo rm -f /etc/apt/sources.list.d/archive_uri-https_download_docker_com_linux_ubuntu-*.list
+          sudo install -m 0755 -d /usr/share/keyrings
+          sudo curl -fsSL https://gvisor.dev/archive.key -o /usr/share/keyrings/gvisor-archive-keyring.key
+          sudo chmod a+r /usr/share/keyrings/gvisor-archive-keyring.key
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/gvisor-archive-keyring.key] https://storage.googleapis.com/gvisor/releases release main" | sudo tee /etc/apt/sources.list.d/gvisor.list > /dev/null
           sudo apt-get update -y
           sudo apt-get install -y runsc
           # Configure Docker with gVisor runtime and GPU support (nvproxy)
+          sudo runsc install
           sudo tee /etc/docker/daemon.json > /dev/null << 'EOF'
           {
             "runtimes": {
