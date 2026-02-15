@@ -28,26 +28,16 @@ pub struct GpuAllocator {
 }
 
 impl GpuAllocator {
-    /// Create a new allocator, discovering GPUs via nvidia-smi.
+    /// Create a new allocator from a pre-discovered list of GPUs.
     ///
-    /// Returns an allocator with zero GPUs if nvidia-smi is not available
-    /// or fails.
-    #[allow(clippy::new_without_default)]
-    pub fn new() -> Self {
-        let gpus = match discover_gpus() {
-            Ok(gpus) => {
-                info!(
-                    gpu_count = gpus.len(),
-                    gpus = ?gpus.iter().map(|g| format!("{} ({})", g.product_name, g.uuid)).collect::<Vec<_>>(),
-                    "GPU allocator: discovered GPUs via nvidia-smi"
-                );
-                gpus
-            }
-            Err(e) => {
-                warn!(error = %e, "GPU allocator: nvidia-smi discovery failed, no GPU pinning available");
-                Vec::new()
-            }
-        };
+    /// The GPUs should be discovered once at startup via [`discover_gpus`]
+    /// and shared with the resource reporter.
+    pub fn new(gpus: Vec<GpuInfo>) -> Self {
+        info!(
+            gpu_count = gpus.len(),
+            gpus = ?gpus.iter().map(|g| format!("{} ({})", g.product_name, g.uuid)).collect::<Vec<_>>(),
+            "GPU allocator initialized"
+        );
         Self {
             free_gpus: Mutex::new(gpus.clone()),
             all_gpus: gpus,
@@ -94,7 +84,27 @@ impl GpuAllocator {
 }
 
 /// Discover NVIDIA GPUs by running nvidia-smi.
-fn discover_gpus() -> Result<Vec<GpuInfo>> {
+///
+/// Called once at startup; the result is shared between the resource
+/// reporter (heartbeat) and the GPU allocator (container pinning).
+pub fn discover_gpus() -> Vec<GpuInfo> {
+    match discover_gpus_inner() {
+        Ok(gpus) => {
+            info!(
+                gpu_count = gpus.len(),
+                gpus = ?gpus.iter().map(|g| format!("{} ({})", g.product_name, g.uuid)).collect::<Vec<_>>(),
+                "Discovered GPUs via nvidia-smi"
+            );
+            gpus
+        }
+        Err(e) => {
+            warn!(error = %e, "nvidia-smi discovery failed, no GPUs available");
+            Vec::new()
+        }
+    }
+}
+
+fn discover_gpus_inner() -> Result<Vec<GpuInfo>> {
     let output = Command::new("nvidia-smi")
         .args(["--query-gpu=index,name,uuid", "--format=csv,noheader"])
         .output()?;

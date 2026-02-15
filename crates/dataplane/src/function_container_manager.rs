@@ -371,8 +371,13 @@ impl FunctionContainerManager {
 
         tokio::spawn(
             async move {
-                let result =
-                    lifecycle::start_container_with_daemon(&driver, &image_resolver, &desc, &executor_id_lifecycle).await;
+                let result = lifecycle::start_container_with_daemon(
+                    &driver,
+                    &image_resolver,
+                    &desc,
+                    &executor_id_lifecycle,
+                )
+                .await;
                 lifecycle::handle_container_startup_result(
                     id,
                     desc,

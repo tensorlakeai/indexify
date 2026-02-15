@@ -402,6 +402,11 @@ jobs:
           export PATH=$(cd tensorlake && poetry env info --path)/bin:$PATH
           cd indexify/tests
           bash run_tests_dataplane_gvisor.sh
+      - name: Dump dataplane logs
+        if: always()
+        run: |
+          echo "=== Dataplane logs ==="
+          cat /tmp/indexify-dataplane.log 2>/dev/null || echo "(no dataplane log file)"
       - name: Terminate processes
         if: always()
         run: |
@@ -528,7 +533,7 @@ jobs:
             port: 7100
           default_function_image: "indexify-test-function-gpu:latest"
           EOF
-          ./indexify-dataplane --config /tmp/dataplane_gpu_config.yaml &
+          RUST_LOG=info ./indexify-dataplane --config /tmp/dataplane_gpu_config.yaml > /tmp/indexify-dataplane.log 2>&1 &
           echo $! > /tmp/indexify-dataplane.pid
           sleep 10
       - name: Run GPU tests
@@ -536,6 +541,11 @@ jobs:
           export PATH=$(cd tensorlake && poetry env info --path)/bin:$PATH
           cd indexify/tests/dataplane_gvisor
           python3 test_nvidia_gpu.py
+      - name: Dump dataplane logs
+        if: always()
+        run: |
+          echo "=== Dataplane logs ==="
+          cat /tmp/indexify-dataplane.log 2>/dev/null || echo "(no dataplane log file)"
       - name: Terminate processes
         if: always()
         run: |

@@ -1,11 +1,11 @@
 //! Host resource probing for containerized environments.
 
-use std::{fs, path::Path, process::Command};
+use std::{fs, path::Path};
 
 use proto_api::executor_api_pb::{GpuModel, GpuResources, HostResources};
 use sysinfo::{Disks, System};
 
-use crate::metrics::ResourceAvailability;
+use crate::{gpu_allocator::GpuInfo, metrics::ResourceAvailability};
 
 /// Path prefix for host-mounted proc filesystem when running in a container.
 /// Mount with: -v /proc:/host/proc:ro
@@ -60,65 +60,16 @@ fn parse_meminfo_available(path: &str) -> Option<u64> {
     None
 }
 
-/// Check if nvidia-smi is available on the system.
-fn nvidia_smi_available() -> bool {
-    Command::new("nvidia-smi")
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
-}
-
-/// Detect NVIDIA GPUs using nvidia-smi.
-///
-/// Runs `nvidia-smi --query-gpu=index,name,uuid --format=csv,noheader` and
-/// parses the output to determine GPU count and model. Matches the Python
-/// executor's nvidia_gpu.py detection logic.
-fn detect_nvidia_gpus() -> Option<GpuResources> {
-    if !nvidia_smi_available() {
+/// Convert pre-discovered GPU info into the proto `GpuResources` for heartbeat
+/// reporting.
+fn gpu_resources_from_info(gpus: &[GpuInfo]) -> Option<GpuResources> {
+    if gpus.is_empty() {
         return None;
     }
 
-    let output = Command::new("nvidia-smi")
-        .args(["--query-gpu=index,name,uuid", "--format=csv,noheader"])
-        .output()
-        .ok()?;
-
-    if !output.status.success() {
-        tracing::warn!("nvidia-smi query failed with status {}", output.status);
-        return None;
-    }
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let lines: Vec<&str> = stdout.lines().filter(|l| !l.trim().is_empty()).collect();
-
-    if lines.is_empty() {
-        return None;
-    }
-
-    let count = lines.len() as u32;
-
-    // Detect model from the first GPU's product name.
+    let count = gpus.len() as u32;
     // All GPUs on a host are typically the same model.
-    let model = lines
-        .first()
-        .and_then(|line| {
-            let parts: Vec<&str> = line.split(',').map(|s| s.trim()).collect();
-            // Format: "index, product_name, uuid"
-            if parts.len() >= 2 {
-                Some(product_name_to_gpu_model(parts[1]))
-            } else {
-                None
-            }
-        })
-        .unwrap_or(GpuModel::Unknown);
-
-    tracing::info!(
-        gpu_count = count,
-        gpu_model = ?model,
-        "Detected NVIDIA GPUs"
-    );
+    let model = product_name_to_gpu_model(&gpus[0].product_name);
 
     Some(GpuResources {
         count: Some(count),
@@ -149,6 +100,9 @@ pub fn product_name_to_gpu_model(product_name: &str) -> GpuModel {
 
 /// Probe total host resources (used for heartbeat reporting).
 ///
+/// `gpus` should be discovered once at startup via
+/// [`gpu_allocator::discover_gpus`] and shared with the GPU allocator.
+///
 /// When running in a container, reads from host-mounted filesystems at
 /// `/host/proc` to get actual host resources. Falls back to sysinfo.
 ///
@@ -156,8 +110,8 @@ pub fn product_name_to_gpu_model(product_name: &str) -> GpuModel {
 /// ```text
 /// -v /proc:/host/proc:ro -v /sys:/host/sys:ro
 /// ```
-pub fn probe_host_resources() -> HostResources {
-    let gpu = detect_nvidia_gpus();
+pub fn probe_host_resources(gpus: &[GpuInfo]) -> HostResources {
+    let gpu = gpu_resources_from_info(gpus);
     let mut sys = System::new();
 
     let (cpu_count, memory_bytes) = if is_host_mounted() {
@@ -292,10 +246,11 @@ model name	: Intel(R) Core(TM) i7
 
     #[test]
     fn test_probe_host_resources_runs() {
-        // Just verify it doesn't panic
-        let resources = probe_host_resources();
+        // Just verify it doesn't panic (pass empty GPUs for test portability)
+        let resources = probe_host_resources(&[]);
         assert!(resources.cpu_count.is_some());
         assert!(resources.memory_bytes.is_some());
+        assert!(resources.gpu.is_none());
     }
 
     #[test]

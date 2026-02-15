@@ -41,9 +41,10 @@ echo "Generated dataplane config:"
 cat "$CONFIG_FILE"
 echo ""
 
-$DATAPLANE_BIN --config "$CONFIG_FILE" &
+DATAPLANE_LOG="/tmp/indexify-dataplane.log"
+RUST_LOG=info $DATAPLANE_BIN --config "$CONFIG_FILE" > "$DATAPLANE_LOG" 2>&1 &
 DATAPLANE_PID=$!
-echo "Started dataplane (gVisor) PID: $DATAPLANE_PID"
+echo "Started dataplane (gVisor) PID: $DATAPLANE_PID  (logs: $DATAPLANE_LOG)"
 sleep 10  # Wait for connection + container readiness
 
 tests_exit_code=0

@@ -69,7 +69,8 @@ pub struct Service {
 impl Service {
     pub async fn new(config: DataplaneConfig) -> Result<Self> {
         let channel = create_channel(&config).await?;
-        let mut host_resources = probe_host_resources();
+        let discovered_gpus = crate::gpu_allocator::discover_gpus();
+        let mut host_resources = probe_host_resources(&discovered_gpus);
 
         // Apply resource overrides from config.
         if let Some(overrides) = &config.resource_overrides {
@@ -89,6 +90,15 @@ impl Service {
                 "Applied resource overrides from config"
             );
         }
+
+        tracing::info!(
+            cpu_count = ?host_resources.cpu_count,
+            memory_bytes = ?host_resources.memory_bytes,
+            disk_bytes = ?host_resources.disk_bytes,
+            gpu_count = discovered_gpus.len(),
+            gpu_model = ?host_resources.gpu.as_ref().and_then(|g| g.model),
+            "Host resources discovered"
+        );
 
         let metrics = Arc::new(DataplaneMetrics::new());
 
@@ -120,7 +130,7 @@ impl Service {
         let (result_tx, result_rx) = mpsc::unbounded_channel();
         let state_change_notify = Arc::new(Notify::new());
 
-        let gpu_allocator = Arc::new(crate::gpu_allocator::GpuAllocator::new());
+        let gpu_allocator = Arc::new(crate::gpu_allocator::GpuAllocator::new(discovered_gpus));
 
         let spawn_config = FESpawnConfig {
             driver: driver.clone(),
