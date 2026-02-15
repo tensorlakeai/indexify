@@ -1,0 +1,7 @@
+env: local
+server_addr: "http://localhost:8901"
+driver:
+  type: docker
+  runtime: runsc
+monitoring:
+  port: 7100

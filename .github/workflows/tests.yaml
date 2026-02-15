@@ -432,6 +432,100 @@ jobs:
             exit 1
           fi
 
+  sandbox_tests_dataplane:
+    name: Run Sandbox Tests (Dataplane + gVisor)
+    needs: [build_server]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: true
+      - name: Download indexify-server
+        uses: actions/download-artifact@v7
+        with:
+          name: indexify-server
+      - name: Download indexify-dataplane
+        uses: actions/download-artifact@v7
+        with:
+          name: indexify-dataplane
+      - name: Install gVisor
+        run: |
+          sudo curl -fsSL https://gvisor.dev/archive.key -o /usr/share/keyrings/gvisor-archive-keyring.key
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/gvisor-archive-keyring.key] https://storage.googleapis.com/gvisor/releases release main" | sudo tee /etc/apt/sources.list.d/gvisor.list
+          sudo apt-get update -y
+          sudo apt-get install -y runsc
+          sudo runsc install
+          sudo tee /etc/docker/daemon.json > /dev/null << 'EOF'
+          {"runtimes": {"runsc": {"path": "/usr/bin/runsc"}}}
+          EOF
+          sudo systemctl restart docker
+          sudo docker run --rm --runtime runsc alpine dmesg 2>&1 | grep -q gVisor
+      - name: Start Background Indexify Server
+        uses: JarvusInnovations/background-action@v1
+        with:
+          run: |
+            chmod u+x ./indexify-server
+            DATAPLANE_FUNCTIONS_ENABLED=true RUST_LOG=info ./indexify-server &
+            echo $! > /tmp/indexify-server.pid &
+          wait-on: |
+            tcp:localhost:8900
+          tail: true
+          wait-for: 30s
+          log-output: true
+          log-output-if: true
+      - name: Install poetry
+        run: pipx install --force 'poetry==2.0.0'
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.10'
+          cache: 'poetry'
+      - name: Build tensorlake
+        run: cd tensorlake && make build
+      - name: Start dataplane with gVisor
+        run: |
+          chmod u+x ./indexify-dataplane
+          RUST_LOG=info ./indexify-dataplane --config indexify/tests/dataplane_sandbox_config.yaml > /tmp/indexify-dataplane.log 2>&1 &
+          echo $! > /tmp/indexify-dataplane.pid
+          sleep 10
+      - name: Run sandbox tests
+        run: |
+          export PATH=$(cd tensorlake && poetry env info --path)/bin:$PATH
+          cd tensorlake/tests/sandbox
+          python3 test_lifecycle.py
+      - name: Dump dataplane logs
+        if: always()
+        run: |
+          echo "=== Dataplane logs ==="
+          cat /tmp/indexify-dataplane.log 2>/dev/null || echo "(no dataplane log file)"
+      - name: Terminate processes
+        if: always()
+        run: |
+          pkill -SIGTERM -F /tmp/indexify-server.pid || true
+          pkill -SIGTERM -F /tmp/indexify-dataplane.pid || true
+          pkill -f function-executor || true
+      - name: Wait for processes termination
+        if: always()
+        run: |
+          for i in $(seq 1 10); do
+            if ! pgrep -f 'indexify-server|indexify-dataplane|function-executor' >/dev/null 2>&1; then
+              break
+            fi
+            echo "Waiting for processes to exit..."
+            sleep 1
+          done
+      - name: Validate that all processes terminated
+        if: always()
+        run: |
+          if pgrep -f indexify; then
+            echo "Error: Some Indexify processes are still running."
+            ps aux | grep indexify
+            exit 1
+          fi
+
   gpu_tests_dataplane:
     name: Run GPU Tests (Dataplane + gVisor + T4)
     needs: [build_server]
