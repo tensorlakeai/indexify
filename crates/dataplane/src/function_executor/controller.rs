@@ -401,6 +401,8 @@ impl FunctionExecutorController {
         let event_tx = self.event_tx.clone();
         tokio::spawn(health_checker::run_health_checker(
             client,
+            self.config.driver.clone(),
+            self.handle.clone().expect("handle set after start_process"),
             event_tx,
             process_token,
             fe_id,
