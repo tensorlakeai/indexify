@@ -339,12 +339,42 @@ impl DockerDriver {
         self.docker
             .create_container(Some(create_options), container_config)
             .await
-            .context("Failed to create container")?;
+            .with_context(|| format!("Failed to create container {}", spec.container_name))?;
 
-        self.docker
+        if let Err(e) = self
+            .docker
             .start_container(&spec.container_name, None::<StartContainerOptions>)
             .await
-            .context("Failed to start container")?;
+        {
+            // Container was created but failed to start — try to get logs
+            let logs = self
+                .get_container_logs_by_name(&spec.container_name, 50)
+                .await;
+            let log_context = if logs.is_empty() {
+                String::new()
+            } else {
+                format!("\nContainer logs:\n{logs}")
+            };
+
+            // Clean up the failed container
+            let _ = self
+                .docker
+                .remove_container(
+                    &spec.container_name,
+                    Some(RemoveContainerOptions {
+                        force: true,
+                        ..Default::default()
+                    }),
+                )
+                .await;
+
+            return Err(e).with_context(|| {
+                format!(
+                    "Failed to start container {}{}",
+                    spec.container_name, log_context
+                )
+            });
+        }
 
         let container_ip = self
             .get_container_ip(&spec.container_name)
@@ -365,6 +395,40 @@ impl DockerDriver {
             existing.extend(self.binds.clone());
         }
         host_config
+    }
+
+    /// Get container logs by name (for error diagnostics when we don't have a
+    /// ProcessHandle yet).
+    async fn get_container_logs_by_name(&self, container_name: &str, tail: u32) -> String {
+        use bollard::query_parameters::LogsOptions;
+
+        let options = LogsOptions {
+            stdout: true,
+            stderr: true,
+            tail: tail.to_string(),
+            ..Default::default()
+        };
+
+        let mut stream = self.docker.logs(container_name, Some(options));
+        let mut output = String::new();
+        const MAX_LOG_BYTES: usize = 4096;
+
+        while let Some(result) = stream.next().await {
+            match result {
+                Ok(log_output) => {
+                    let line = log_output.to_string();
+                    if output.len() + line.len() > MAX_LOG_BYTES {
+                        output.push_str(&line[..MAX_LOG_BYTES.saturating_sub(output.len())]);
+                        output.push_str("\n... (truncated)");
+                        break;
+                    }
+                    output.push_str(&line);
+                }
+                _ => break,
+            }
+        }
+
+        output
     }
 
     /// Build a ContainerSpec for a function executor container.

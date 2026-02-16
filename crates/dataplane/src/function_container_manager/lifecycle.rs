@@ -264,7 +264,7 @@ pub(super) async fn handle_container_startup_result(
                 parent: &span,
                 container_type = %container_type,
                 startup_duration_ms = %startup_duration_ms,
-                error = %e,
+                error = format!("{:#}", e),
                 event = "container_startup_failed",
                 "Failed to start container"
             );
