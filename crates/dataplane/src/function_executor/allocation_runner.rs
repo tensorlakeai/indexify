@@ -170,7 +170,7 @@ impl AllocationRunner {
         } else {
             let _ = self.client.delete_allocation(&self.allocation_id).await;
             (reason, None)
-        }; 60e48595 (fix race conditions when process crashes)
+        };
         AllocationOutcome::Failed {
             reason,
             error_message: error_message.into(),
