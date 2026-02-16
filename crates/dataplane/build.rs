@@ -35,11 +35,12 @@ fn main() {
         .map(|v| v == "1" || v.to_lowercase() == "true")
         .unwrap_or(false);
 
-    // When DAEMON_STATIC=1 (set in Dockerfile), build with musl for a static
-    // binary that works in any container regardless of the base image's libc.
+    // Build statically with musl so the daemon works in any container
+    // regardless of the base image's libc (e.g., Alpine uses musl, not glibc).
+    // Defaults to true on Linux; can be forced off with DAEMON_STATIC=0.
     let daemon_static = env::var("DAEMON_STATIC")
         .map(|v| v == "1" || v.to_lowercase() == "true")
-        .unwrap_or(false);
+        .unwrap_or(host_target.contains("linux"));
 
     let host_is_macos = host_target.contains("apple") || host_target.contains("darwin");
     let need_linux_binary = run_docker_tests && host_is_macos;

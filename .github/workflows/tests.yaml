@@ -43,14 +43,16 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: Install protobuf package
-        run: sudo apt update && sudo apt install -y protobuf-compiler
+      - name: Install protobuf and musl tools
+        run: sudo apt update && sudo apt install -y protobuf-compiler musl-tools
       - uses: actions/checkout@v6
       - name: Setup Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           cache-directories: |
             target
+      - name: Install musl target for static daemon binary
+        run: rustup target add x86_64-unknown-linux-musl
       - name: Install cargo-nextest
         uses: taiki-e/install-action@nextest
       - name: Install Just
