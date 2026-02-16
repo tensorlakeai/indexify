@@ -59,3 +59,9 @@ http_proxy:
   # IMPORTANT: For local development, set this to 127.0.0.1:port
   # so sandbox-proxy can reach the dataplane
   advertise_address: '127.0.0.1:8095'
+
+monitoring:
+  # Port to listen on for HTTP monitoring requests (default: 7000)
+  port: 8099
+  # Listen address (default: 0.0.0.0)
+  listen_addr: '0.0.0.0'

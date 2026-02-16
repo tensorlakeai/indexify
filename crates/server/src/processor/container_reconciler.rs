@@ -114,14 +114,19 @@ impl ContainerReconciler {
                 None => true,
             };
 
-            // Check 2: If sandbox assigned, it must be Running
+            // Check 2: If sandbox assigned, it must be Running or Pending
             let sandbox_valid = match &fe.sandbox_id {
                 Some(sandbox_id) => {
                     let sandbox_key = SandboxKey::new(&fe.namespace, sandbox_id.get());
                     in_memory_state
                         .sandboxes
                         .get(&sandbox_key)
-                        .is_some_and(|s| s.status == SandboxStatus::Running)
+                        .is_some_and(|s| {
+                            matches!(
+                                s.status,
+                                SandboxStatus::Running | SandboxStatus::Pending { .. }
+                            )
+                        })
                 }
                 None => true,
             };
@@ -207,7 +212,7 @@ impl ContainerReconciler {
                 if matches!(server_c.desired_state, ContainerState::Terminated { .. }) {
                     continue;
                 }
-                // Check if state changed
+                // Sync state if changed
                 if executor_c.state != server_c.function_container.state {
                     let mut server_c_clone = server_c.clone();
                     server_c_clone.function_container.update(executor_c);
@@ -216,6 +221,17 @@ impl ContainerReconciler {
                         server_c_clone.clone(),
                     );
                 }
+
+                // Promote sandbox from Pending → Running if container is now Running.
+                // Uses the server-side container (which has sandbox_id) with the
+                // executor-reported state (heartbeat doesn't carry sandbox_id).
+                // This also handles warm pool containers that were already Running.
+                let promote_update = self.promote_sandbox_if_container_running(
+                    in_memory_state,
+                    &server_c.function_container,
+                    &executor_c.state,
+                )?;
+                update.extend(promote_update);
             }
         }
         container_scheduler.update(&RequestPayload::SchedulerUpdate(
@@ -433,7 +449,7 @@ impl ContainerReconciler {
             total_update.extend(container_update);
         }
 
-        // Find and handle running sandboxes with missing containers
+        // Find and handle running/pending sandboxes with missing containers
         let orphaned_sandboxes: Vec<Box<Sandbox>> = in_memory_state
             .sandboxes_by_executor
             .get(&executor.id)
@@ -442,13 +458,15 @@ impl ContainerReconciler {
                     .iter()
                     .filter_map(|sandbox_key| in_memory_state.sandboxes.get(sandbox_key).cloned())
                     .filter(|sandbox| {
-                        sandbox.status == SandboxStatus::Running &&
-                            sandbox.container_id.as_ref().is_some_and(|container_id| {
-                                !executor.containers.contains_key(container_id) &&
-                                    !container_scheduler
-                                        .function_containers
-                                        .contains_key(container_id)
-                            })
+                        matches!(
+                            sandbox.status,
+                            SandboxStatus::Running | SandboxStatus::Pending { .. }
+                        ) && sandbox.container_id.as_ref().is_some_and(|container_id| {
+                            !executor.containers.contains_key(container_id) &&
+                                !container_scheduler
+                                    .function_containers
+                                    .contains_key(container_id)
+                        })
                     })
                     .collect()
             })
@@ -589,6 +607,54 @@ impl ContainerReconciler {
         Ok(update)
     }
 
+    /// Promotes a sandbox from Pending to Running when its container reports
+    /// Running state via heartbeat.
+    ///
+    /// Takes the server-side container (which has sandbox_id) and the
+    /// executor-reported state separately, because the heartbeat container
+    /// doesn't carry sandbox_id.
+    fn promote_sandbox_if_container_running(
+        &self,
+        in_memory_state: &InMemoryState,
+        server_container: &Container,
+        executor_state: &ContainerState,
+    ) -> Result<SchedulerUpdateRequest> {
+        let mut update = SchedulerUpdateRequest::default();
+
+        let Some(sandbox_id) = &server_container.sandbox_id else {
+            return Ok(update);
+        };
+
+        if !matches!(executor_state, ContainerState::Running) {
+            return Ok(update);
+        }
+
+        let sandbox_key = SandboxKey::new(&server_container.namespace, sandbox_id.get());
+        let Some(sandbox) = in_memory_state.sandboxes.get(&sandbox_key) else {
+            return Ok(update);
+        };
+
+        if !sandbox.status.is_pending() {
+            return Ok(update);
+        }
+
+        info!(
+            sandbox_id = %sandbox.id,
+            namespace = %sandbox.namespace,
+            container_id = %server_container.id,
+            "promoting sandbox from Pending to Running — container is running"
+        );
+
+        let mut promoted_sandbox = sandbox.as_ref().clone();
+        promoted_sandbox.status = SandboxStatus::Running;
+
+        update
+            .updated_sandboxes
+            .insert(sandbox_key, promoted_sandbox);
+
+        Ok(update)
+    }
+
     /// Terminates sandbox associated with a container when the container
     /// terminates. Uses container.sandbox_id to find the associated sandbox.
     fn terminate_sandbox_for_container(
@@ -608,7 +674,10 @@ impl ContainerReconciler {
             return Ok(update); // Sandbox not found (may have already been terminated)
         };
 
-        if sandbox.status != SandboxStatus::Running {
+        if !matches!(
+            sandbox.status,
+            SandboxStatus::Running | SandboxStatus::Pending { .. }
+        ) {
             return Ok(update); // Already terminated
         }
 
@@ -793,7 +862,10 @@ impl ContainerReconciler {
         for (sandbox_key, sandbox) in in_memory_state.sandboxes.iter() {
             if let Some(ref sandbox_executor_id) = sandbox.executor_id &&
                 sandbox_executor_id == executor_id &&
-                sandbox.status == SandboxStatus::Running
+                matches!(
+                    sandbox.status,
+                    SandboxStatus::Running | SandboxStatus::Pending { .. }
+                )
             {
                 info!(
                     sandbox_id = %sandbox.id,

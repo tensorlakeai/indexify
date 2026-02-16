@@ -455,7 +455,7 @@ impl InMemoryState {
             .filter(|(_key, sandbox)| sandbox.status != SandboxStatus::Terminated)
             .map(|(_key, sandbox)| {
                 let sandbox_key = SandboxKey::from(sandbox);
-                let is_pending = sandbox.status == SandboxStatus::Pending;
+                let is_pending = sandbox.status.is_pending();
                 (sandbox_key, Box::new(sandbox.clone()), is_pending)
             })
             .collect();
@@ -804,7 +804,7 @@ impl InMemoryState {
                         .unwrap_or((None, None));
 
                     match sandbox.status {
-                        SandboxStatus::Pending => {
+                        SandboxStatus::Pending { .. } => {
                             self.sandboxes
                                 .insert(sandbox_key.clone(), Box::new(sandbox.clone()));
                             if !was_pending {
@@ -813,6 +813,18 @@ impl InMemoryState {
                                 self.pending_resources.sandboxes.increment(
                                     ResourceProfile::from_container_resources(&sandbox.resources),
                                 );
+                            }
+                            // Populate reverse indices for Pending sandboxes that
+                            // have an allocated container (WaitingForContainer)
+                            if let Some(container_id) = &sandbox.container_id {
+                                self.sandbox_by_container
+                                    .insert(container_id.clone(), sandbox_key.clone());
+                            }
+                            if let Some(executor_id) = &sandbox.executor_id {
+                                self.sandboxes_by_executor
+                                    .entry(executor_id.clone())
+                                    .or_default()
+                                    .insert(sandbox_key.clone());
                             }
                         }
                         SandboxStatus::Running => {
@@ -937,7 +949,7 @@ impl InMemoryState {
                 let sandbox_key = SandboxKey::from(&req.sandbox);
                 self.sandboxes
                     .insert(sandbox_key.clone(), Box::new(req.sandbox.clone()));
-                if req.sandbox.status == SandboxStatus::Pending {
+                if req.sandbox.status.is_pending() {
                     self.pending_sandboxes.insert(sandbox_key);
                     self.pending_resources.sandboxes.increment(
                         ResourceProfile::from_container_resources(&req.sandbox.resources),

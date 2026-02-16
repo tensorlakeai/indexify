@@ -313,7 +313,7 @@ mod tests {
         let indexify_state = test_srv.service.indexify_state.clone();
 
         // Register sandbox executor first
-        let _executor = test_srv
+        let mut executor = test_srv
             .create_executor(mock_sandbox_executor_metadata(TEST_EXECUTOR_ID.into()))
             .await?;
         test_srv.process_all_state_changes().await?;
@@ -324,6 +324,10 @@ mod tests {
         register_container_pool(&test_srv, pool).await?;
 
         // Process state changes to trigger buffer reconciliation
+        test_srv.process_all_state_changes().await?;
+
+        // Mark pool containers as Running via heartbeat
+        executor.mark_function_executors_as_running().await?;
         test_srv.process_all_state_changes().await?;
 
         // Verify warm containers exist
@@ -342,18 +346,21 @@ mod tests {
         indexify_state.write(request).await?;
         test_srv.process_all_state_changes().await?;
 
-        // Verify sandbox was allocated
+        // After claim, sandbox is Pending/WaitingForContainer. Heartbeat promotes it.
+        executor.mark_function_executors_as_running().await?;
+        test_srv.process_all_state_changes().await?;
+
+        // Verify sandbox was promoted to Running
         let sandbox = indexify_state
             .reader()
             .get_sandbox(TEST_NAMESPACE, sandbox_id.get())
             .await?
             .expect("Sandbox should exist");
 
-        // Sandbox should be Running (allocated from warm pool - no cold start)
         assert_eq!(
             sandbox.status,
             SandboxStatus::Running,
-            "Sandbox should be Running after claiming from pool"
+            "Sandbox should be Running after container reports Running"
         );
 
         Ok(())
@@ -461,7 +468,7 @@ mod tests {
         let indexify_state = test_srv.service.indexify_state.clone();
 
         // Register sandbox executor first
-        let _executor = test_srv
+        let mut executor = test_srv
             .create_executor(mock_sandbox_executor_metadata(TEST_EXECUTOR_ID.into()))
             .await?;
         test_srv.process_all_state_changes().await?;
@@ -471,6 +478,10 @@ mod tests {
         let pool_key = ContainerPoolKey::from(&pool);
         let pool_id = pool.id.clone();
         register_container_pool(&test_srv, pool).await?;
+        test_srv.process_all_state_changes().await?;
+
+        // Mark pool containers as Running via heartbeat
+        executor.mark_function_executors_as_running().await?;
         test_srv.process_all_state_changes().await?;
 
         // Verify warm containers exist and they have pool_id but no sandbox_id
@@ -511,6 +522,10 @@ mod tests {
             }),
         };
         indexify_state.write(request).await?;
+        test_srv.process_all_state_changes().await?;
+
+        // After claim, sandbox is Pending/WaitingForContainer. Heartbeat promotes it.
+        executor.mark_function_executors_as_running().await?;
         test_srv.process_all_state_changes().await?;
 
         // Verify sandbox is running

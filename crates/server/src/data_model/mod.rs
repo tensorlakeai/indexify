@@ -2579,24 +2579,62 @@ impl From<String> for SandboxId {
 }
 
 /// Status of a sandbox instance
-#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum SandboxStatus {
     /// Sandbox is waiting for executor allocation
-    #[default]
-    Pending,
+    Pending { reason: SandboxPendingReason },
     /// Sandbox container is running
     Running,
     /// Sandbox container has terminated
     Terminated,
 }
 
+impl Default for SandboxStatus {
+    fn default() -> Self {
+        SandboxStatus::Pending {
+            reason: SandboxPendingReason::default(),
+        }
+    }
+}
+
+impl SandboxStatus {
+    /// Returns true if the status is any Pending variant.
+    pub fn is_pending(&self) -> bool {
+        matches!(self, SandboxStatus::Pending { .. })
+    }
+}
+
 impl Display for SandboxStatus {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            SandboxStatus::Pending => write!(f, "Pending"),
+            SandboxStatus::Pending { .. } => write!(f, "Pending"),
             SandboxStatus::Running => write!(f, "Running"),
             SandboxStatus::Terminated => write!(f, "Terminated"),
+        }
+    }
+}
+
+/// Reason why a sandbox is in Pending status
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SandboxPendingReason {
+    #[default]
+    Scheduling,
+    WaitingForContainer,
+    NoExecutorsAvailable,
+    NoResourcesAvailable,
+    PoolAtCapacity,
+}
+
+impl Display for SandboxPendingReason {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            SandboxPendingReason::Scheduling => write!(f, "scheduling"),
+            SandboxPendingReason::WaitingForContainer => write!(f, "waiting_for_container"),
+            SandboxPendingReason::NoExecutorsAvailable => write!(f, "no_executors_available"),
+            SandboxPendingReason::NoResourcesAvailable => write!(f, "no_resources_available"),
+            SandboxPendingReason::PoolAtCapacity => write!(f, "pool_at_capacity"),
         }
     }
 }

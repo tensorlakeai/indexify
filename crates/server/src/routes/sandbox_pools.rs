@@ -14,6 +14,7 @@ use crate::{
         ContainerPoolKey,
         SandboxBuilder,
         SandboxId,
+        SandboxPendingReason,
         SandboxStatus,
     },
     http_objects::{ContainerResources, ContainerResourcesInfo, IndexifyAPIError},
@@ -90,7 +91,7 @@ pub struct CreateSandboxPoolResponse {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct CreatePoolSandboxResponse {
     pub sandbox_id: String,
-    pub status: String,
+    pub status: super::sandboxes::SandboxStatusInfo,
 }
 
 /// Sandbox pool information returned by list/get operations
@@ -412,7 +413,9 @@ pub async fn create_pool_sandbox(
         .id(sandbox_id.clone())
         .namespace(namespace.clone())
         .image(pool.image.clone())
-        .status(SandboxStatus::Pending)
+        .status(SandboxStatus::Pending {
+            reason: SandboxPendingReason::Scheduling,
+        })
         .creation_time_ns(get_epoch_time_in_ns())
         .resources(pool.resources.clone())
         .secret_names(pool.secret_names.clone())
@@ -440,7 +443,9 @@ pub async fn create_pool_sandbox(
 
     Ok(Json(CreatePoolSandboxResponse {
         sandbox_id: sandbox_id.get().to_string(),
-        status: "Pending".to_string(),
+        status: super::sandboxes::SandboxStatusInfo::Pending {
+            reason: "scheduling".to_string(),
+        },
     }))
 }
 

@@ -30,6 +30,7 @@ pub mod tests {
             Sandbox,
             SandboxBuilder,
             SandboxId,
+            SandboxPendingReason,
             SandboxStatus,
         },
         state_store::requests::RequestUpdates,
@@ -266,7 +267,9 @@ pub mod tests {
             .namespace(namespace.to_string())
             .pool_id(Some(ContainerPoolId::new(pool_id)))
             .image("python:3.11".to_string())
-            .status(SandboxStatus::Pending)
+            .status(SandboxStatus::Pending {
+                reason: SandboxPendingReason::Scheduling,
+            })
             .resources(ContainerResources {
                 cpu_ms_per_sec: 1000,
                 memory_mb: 512,
