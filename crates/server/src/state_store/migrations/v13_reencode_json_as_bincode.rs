@@ -1,23 +1,30 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use tracing::info;
 
-use super::{contexts::MigrationContext, migration_trait::Migration};
+use super::{
+    contexts::{MigrationContext, PrepareContext},
+    migration_trait::Migration,
+};
 use crate::{
     data_model::{
         Allocation,
         AllocationUsageEvent,
         Application,
         ApplicationVersion,
+        ContainerPoolId,
+        ContainerResources,
         GcUrl,
         Namespace,
+        NetworkPolicy,
         RequestCtx,
         Sandbox,
         StateChange,
         StateMachineMetadata,
     },
     state_store::{
+        driver::{Writer, rocksdb::RocksDBDriver},
         request_events::PersistedRequestStateChangeEvent,
         serializer::{StateStoreEncode, StateStoreEncoder},
         state_machine::IndexifyObjectsColumns,
@@ -26,6 +33,26 @@ use crate::{
 
 /// Version byte prefix for binary-encoded values.
 const BINARY_VERSION: u8 = 0x01;
+
+/// Legacy ContainerPool layout at the time of this migration.
+/// Does NOT have the `pool_type` field that was added later.
+#[derive(Debug, Deserialize, Serialize)]
+struct LegacyContainerPool {
+    id: ContainerPoolId,
+    namespace: String,
+    image: String,
+    resources: ContainerResources,
+    entrypoint: Option<Vec<String>>,
+    network_policy: Option<NetworkPolicy>,
+    secret_names: Vec<String>,
+    timeout_secs: u64,
+    min_containers: Option<u32>,
+    max_containers: Option<u32>,
+    buffer_containers: Option<u32>,
+    created_at: u64,
+    created_at_clock: Option<u64>,
+    updated_at_clock: Option<u64>,
+}
 
 /// Migration to re-encode any remaining JSON-encoded state store values as
 /// bincode.
@@ -45,6 +72,22 @@ impl Migration for V13ReencodeJsonAsBincode {
 
     fn name(&self) -> &'static str {
         "Re-encode JSON values as bincode"
+    }
+
+    async fn prepare(&self, ctx: &PrepareContext) -> Result<RocksDBDriver> {
+        let existing_cfs = ctx.list_cfs().unwrap_or_default();
+        let container_cf = IndexifyObjectsColumns::ContainerPools.to_string();
+        if !existing_cfs.contains(&container_cf) {
+            ctx.reopen_with_cf_operations(|db| {
+                Box::pin(async move {
+                    db.create(&container_cf, &Default::default()).await?;
+                    Ok(())
+                })
+            })
+            .await
+        } else {
+            ctx.open_db()
+        }
     }
 
     async fn apply(&self, ctx: &MigrationContext) -> Result<()> {
@@ -92,10 +135,9 @@ impl Migration for V13ReencodeJsonAsBincode {
             PersistedRequestStateChangeEvent
         );
         reencode!(&IndexifyObjectsColumns::Sandboxes, Sandbox);
-        // ContainerPools is renamed to FunctionPools + SandboxPools in V15.
-        // Skip ContainerPools entirely - it may not exist in all databases.
-        // If it exists and needs re-encoding, it will be handled by the V15 migration.
-        // reencode_optional!(&IndexifyObjectsColumns::ContainerPools, ContainerPool);
+        // ContainerPools uses a legacy layout (no pool_type field). The
+        // prepare step ensures the CF exists even in databases that predate it.
+        reencode!(&IndexifyObjectsColumns::ContainerPools, LegacyContainerPool);
         // FunctionRuns and FunctionCalls CFs don't exist until V14 creates
         // them, and V14 writes them fresh in postcard format — skip here.
 

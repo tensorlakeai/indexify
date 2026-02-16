@@ -1,6 +1,8 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+#[cfg(test)]
+use serde::Serialize;
 use tracing::info;
 
 use super::{
@@ -25,7 +27,9 @@ use crate::{
 
 /// Legacy ContainerPool layout matching the postcard schema written by V13.
 /// Does NOT have the `pool_type` field that was added later.
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize)]
+#[cfg_attr(test, derive(Serialize))]
+#[allow(dead_code)]
 struct LegacyContainerPool {
     id: ContainerPoolId,
     namespace: String,
@@ -154,7 +158,7 @@ impl Migration for V15SplitContainerPools {
                 discarded += 1;
             } else if let Some(inner) = old_pool_id.strip_prefix(OLD_FN_PREFIX) {
                 // Decode using legacy layout (no pool_type field) since the old
-                // postcard data was written before pool_type was added.
+                // data was written before pool_type was added.
                 let legacy: LegacyContainerPool = StateStoreEncoder::decode(value_bytes)?;
 
                 // Function pool: old ID = "fn:{ns}:{app}:{fn}:{ver}"
