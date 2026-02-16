@@ -157,7 +157,9 @@ impl AllocationRunner {
         error_message: impl Into<String>,
         likely_fe_crash: bool,
     ) -> AllocationOutcome {
-        let _ = self.client.delete_allocation(&self.allocation_id).await;
+        if !likely_fe_crash {
+            let _ = self.client.delete_allocation(&self.allocation_id).await;
+        }
         AllocationOutcome::Failed {
             reason,
             error_message: error_message.into(),
