@@ -24,7 +24,7 @@ pin-project = "1.1.10"
 serde = { version = "1.0.228", features = ["derive"] }
 serde-inline-default = "1.0.1"
 serde_json = "1.0.149"
-serde-saphyr = "0.0.18"
+serde-saphyr = "0.0.19"
 postcard = { version = "1", features = ["alloc"] }
 axum = { version = "0.8.8", features = ["multipart", "macros", "tokio"] }
 axum-server = "0.8.0"
