@@ -36,6 +36,11 @@ pub(super) enum ContainerState {
     /// Container has terminated (crash, shutdown, OOM, etc.)
     Terminated {
         reason: FunctionExecutorTerminationReason,
+        /// Allocation IDs that caused or contributed to the termination.
+        /// For OOM: Running allocations are blamed (their code caused the OOM).
+        /// If no allocations were Running, all allocations are blamed (startup
+        /// OOM).
+        blamed_alloc_ids: Vec<String>,
     },
 }
 
@@ -92,7 +97,7 @@ impl fmt::Display for ContainerState {
         match self {
             ContainerState::Starting => write!(f, "Starting"),
             ContainerState::Running { .. } => write!(f, "Running"),
-            ContainerState::Terminated { reason } => write!(f, "Terminated({:?})", reason),
+            ContainerState::Terminated { reason, .. } => write!(f, "Terminated({:?})", reason),
         }
     }
 }

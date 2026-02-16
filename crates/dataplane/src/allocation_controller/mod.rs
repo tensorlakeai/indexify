@@ -204,18 +204,25 @@ impl AllocationController {
             .containers
             .values()
             .map(|fe| {
-                let (status, termination_reason) = match &fe.state {
-                    ContainerState::Starting => (FunctionExecutorStatus::Pending, None),
-                    ContainerState::Running { .. } => (FunctionExecutorStatus::Running, None),
-                    ContainerState::Terminated { reason } => {
-                        (FunctionExecutorStatus::Terminated, Some(*reason))
+                let (status, termination_reason, blamed_alloc_ids) = match &fe.state {
+                    ContainerState::Starting => (FunctionExecutorStatus::Pending, None, vec![]),
+                    ContainerState::Running { .. } => {
+                        (FunctionExecutorStatus::Running, None, vec![])
                     }
+                    ContainerState::Terminated {
+                        reason,
+                        blamed_alloc_ids,
+                    } => (
+                        FunctionExecutorStatus::Terminated,
+                        Some(*reason),
+                        blamed_alloc_ids.clone(),
+                    ),
                 };
                 FunctionExecutorState {
                     description: Some(fe.description.clone()),
                     status: Some(status.into()),
                     termination_reason: termination_reason.map(|r| r.into()),
-                    allocation_ids_caused_termination: vec![],
+                    allocation_ids_caused_termination: blamed_alloc_ids,
                 }
             })
             .collect();
@@ -242,7 +249,17 @@ impl AllocationController {
     }
 
     /// Fail all non-terminal allocations for a given FE.
-    fn fail_allocations_for_fe(&mut self, fe_id: &str, reason: AllocationFailureReason) {
+    ///
+    /// `blamed_alloc_ids` identifies allocations that caused the container
+    /// termination (e.g. a Running allocation that OOM'd). Blamed allocations
+    /// get the specific `reason`; non-blamed allocations get
+    /// `FunctionExecutorTerminated` so the server gives them a free retry.
+    fn fail_allocations_for_fe(
+        &mut self,
+        fe_id: &str,
+        reason: AllocationFailureReason,
+        blamed_alloc_ids: &[String],
+    ) {
         // Collect allocation IDs for this FE
         let alloc_ids: Vec<String> = self
             .allocations
@@ -264,6 +281,7 @@ impl AllocationController {
             warn!(
                 container_id = %fe_id,
                 reason = ?reason,
+                blamed = ?blamed_alloc_ids,
                 count = alloc_ids.len(),
                 "Failing {} allocations for terminated container", alloc_ids.len()
             );
@@ -273,6 +291,15 @@ impl AllocationController {
             let Some(alloc) = self.allocations.get_mut(&alloc_id) else {
                 continue;
             };
+
+            // Blamed allocations get the specific failure reason (e.g. OOM);
+            // non-blamed get FunctionExecutorTerminated (free retry on server).
+            let alloc_reason =
+                if blamed_alloc_ids.is_empty() || blamed_alloc_ids.contains(&alloc_id) {
+                    reason
+                } else {
+                    AllocationFailureReason::FunctionExecutorTerminated
+                };
 
             {
                 let lctx = AllocLogCtx::from_allocation(&alloc.allocation);
@@ -285,7 +312,8 @@ impl AllocationController {
                     request_id = %lctx.request_id,
                     container_id = %fe_id,
                     from_state = %alloc.state,
-                    reason = ?reason,
+                    reason = ?alloc_reason,
+                    blamed = blamed_alloc_ids.contains(&alloc_id),
                     "Failing allocation: {} -> Finalizing(failure)", alloc.state
                 );
             }
@@ -324,7 +352,7 @@ impl AllocationController {
                 }
             };
 
-            let result = proto_convert::make_failure_result(&alloc.allocation, reason);
+            let result = proto_convert::make_failure_result(&alloc.allocation, alloc_reason);
 
             // If finalization context has no blobs to clean up, send result
             // directly to avoid the latency of spawning a finalization task.

@@ -80,7 +80,7 @@ impl AllocationController {
                     .containers
                     .get(&fe_id)
                     .and_then(|fe| match &fe.state {
-                        ContainerState::Terminated { reason } => {
+                        ContainerState::Terminated { reason, .. } => {
                             Some(proto_convert::termination_to_failure_reason(*reason))
                         }
                         _ => None,
@@ -259,7 +259,7 @@ impl AllocationController {
                         self.prepared_data
                             .insert(allocation_id, (prepared, finalization_ctx));
                     }
-                    Some(ContainerState::Terminated { reason }) => {
+                    Some(ContainerState::Terminated { reason, .. }) => {
                         warn!(
                             namespace = %lctx.namespace,
                             app = %lctx.app,
@@ -557,7 +557,7 @@ impl AllocationController {
                     .containers
                     .get(&fe_id)
                     .and_then(|fe| match &fe.state {
-                        ContainerState::Terminated { reason } => {
+                        ContainerState::Terminated { reason, .. } => {
                             Some(proto_convert::termination_to_failure_reason(*reason))
                         }
                         _ => None,
