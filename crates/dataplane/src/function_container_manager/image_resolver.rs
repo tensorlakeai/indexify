@@ -1,10 +1,20 @@
 //! Image resolution for function executor containers.
 
+use async_trait::async_trait;
+
 /// Resolves container images for function executors.
+///
+/// Implementations may make network calls (e.g. to an image builder service)
+/// so all methods are async.
+#[async_trait]
 pub trait ImageResolver: Send + Sync {
-    fn sandbox_image_for_pool(&self, namespace: &str, pool_id: &str) -> anyhow::Result<String>;
-    fn sandbox_image(&self, namespace: &str, sandbox_id: &str) -> anyhow::Result<String>;
-    fn function_image(
+    async fn sandbox_image_for_pool(
+        &self,
+        namespace: &str,
+        pool_id: &str,
+    ) -> anyhow::Result<String>;
+    async fn sandbox_image(&self, namespace: &str, sandbox_id: &str) -> anyhow::Result<String>;
+    async fn function_image(
         &self,
         namespace: &str,
         app: &str,
@@ -46,16 +56,17 @@ impl Default for DefaultImageResolver {
     }
 }
 
+#[async_trait]
 impl ImageResolver for DefaultImageResolver {
-    fn sandbox_image_for_pool(&self, _namespace: &str, _pool_id: &str) -> anyhow::Result<String> {
+    async fn sandbox_image_for_pool(&self, _namespace: &str, _pool_id: &str) -> anyhow::Result<String> {
         self.resolve_or_bail("sandbox pool")
     }
 
-    fn sandbox_image(&self, _namespace: &str, _sandbox_id: &str) -> anyhow::Result<String> {
+    async fn sandbox_image(&self, _namespace: &str, _sandbox_id: &str) -> anyhow::Result<String> {
         self.resolve_or_bail("sandbox")
     }
 
-    fn function_image(
+    async fn function_image(
         &self,
         _namespace: &str,
         _app: &str,

@@ -19,9 +19,12 @@ pub mod monitoring;
 pub mod network_rules;
 pub mod resources;
 pub mod retry;
+pub mod secrets;
+pub mod service;
 pub mod state_file;
 pub mod state_reconciler;
 pub mod state_reporter;
+pub mod validation;
 
 // Re-export key types for convenience
 pub use daemon_client::DaemonClient;
@@ -41,3 +44,5 @@ pub use function_container_manager::{
 };
 pub use http_proxy::run_http_proxy;
 pub use metrics::{ContainerCounts, DataplaneMetrics, ResourceAvailability};
+pub use secrets::{NoopSecretsProvider, SecretsProvider};
+pub use service::Service;

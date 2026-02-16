@@ -39,6 +39,7 @@ use crate::{
     metrics::DataplaneMetrics,
     monitoring::{MonitoringState, run_monitoring_server},
     resources::{probe_free_resources, probe_host_resources},
+    secrets::{NoopSecretsProvider, SecretsProvider},
     state_file::StateFile,
     state_reconciler::StateReconciler,
     state_reporter::StateReporter,
@@ -67,7 +68,25 @@ pub struct Service {
 }
 
 impl Service {
+    /// Create a new dataplane service with default (no-op) providers.
     pub async fn new(config: DataplaneConfig) -> Result<Self> {
+        let image_resolver: Arc<dyn ImageResolver> = Arc::new(DefaultImageResolver::new(
+            config.default_function_image.clone(),
+        ));
+        let secrets_provider: Arc<dyn SecretsProvider> = Arc::new(NoopSecretsProvider::new());
+        Self::with_providers(config, image_resolver, secrets_provider).await
+    }
+
+    /// Create a new dataplane service with custom image resolver and secrets
+    /// provider.
+    ///
+    /// This is the extension point used by custom binaries (e.g.
+    /// compute-engine-internal) to inject platform-specific implementations.
+    pub async fn with_providers(
+        config: DataplaneConfig,
+        image_resolver: Arc<dyn ImageResolver>,
+        secrets_provider: Arc<dyn SecretsProvider>,
+    ) -> Result<Self> {
         let channel = create_channel(&config).await?;
         let discovered_gpus = crate::gpu_allocator::discover_gpus();
         let mut host_resources = probe_host_resources(&discovered_gpus);
@@ -103,9 +122,6 @@ impl Service {
         let metrics = Arc::new(DataplaneMetrics::new());
 
         let driver = create_process_driver(&config)?;
-        let image_resolver: Arc<dyn ImageResolver> = Arc::new(DefaultImageResolver::new(
-            config.default_function_image.clone(),
-        ));
 
         let state_file = Arc::new(
             StateFile::new(&config.state_file)
@@ -115,6 +131,7 @@ impl Service {
         let container_manager = Arc::new(FunctionContainerManager::new(
             driver.clone(),
             image_resolver.clone(),
+            secrets_provider.clone(),
             metrics.clone(),
             state_file,
             config.executor_id.clone(),
@@ -136,6 +153,7 @@ impl Service {
             driver: driver.clone(),
             image_resolver,
             gpu_allocator,
+            secrets_provider,
             result_tx,
             server_channel: channel.clone(),
             blob_store,

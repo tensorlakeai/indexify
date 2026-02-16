@@ -31,6 +31,7 @@ use crate::{
     driver::{ProcessDriver, ProcessHandle},
     metrics::DataplaneMetrics,
     network_rules,
+    secrets::SecretsProvider,
     state_file::StateFile,
 };
 
@@ -40,6 +41,7 @@ const KILL_GRACE_PERIOD: Duration = Duration::from_secs(10);
 pub struct FunctionContainerManager {
     driver: Arc<dyn ProcessDriver>,
     image_resolver: Arc<dyn ImageResolver>,
+    secrets_provider: Arc<dyn SecretsProvider>,
     containers: Arc<RwLock<ContainerStore>>,
     metrics: Arc<DataplaneMetrics>,
     state_file: Arc<StateFile>,
@@ -50,6 +52,7 @@ impl FunctionContainerManager {
     pub fn new(
         driver: Arc<dyn ProcessDriver>,
         image_resolver: Arc<dyn ImageResolver>,
+        secrets_provider: Arc<dyn SecretsProvider>,
         metrics: Arc<DataplaneMetrics>,
         state_file: Arc<StateFile>,
         executor_id: String,
@@ -57,6 +60,7 @@ impl FunctionContainerManager {
         Self {
             driver,
             image_resolver,
+            secrets_provider,
             containers: Arc::new(RwLock::new(ContainerStore::new())),
             metrics,
             state_file,
@@ -363,19 +367,21 @@ impl FunctionContainerManager {
         // Spawn container creation with daemon integration
         let driver = self.driver.clone();
         let image_resolver = self.image_resolver.clone();
+        let secrets_provider = self.secrets_provider.clone();
         let containers_ref = self.containers.clone();
         let metrics = self.metrics.clone();
         let state_file = self.state_file.clone();
         let executor_id = self.executor_id.clone();
-        let executor_id_lifecycle = self.executor_id.clone();
+        let executor_id_span = executor_id.clone();
 
         tokio::spawn(
             async move {
                 let result = lifecycle::start_container_with_daemon(
                     &driver,
                     &image_resolver,
+                    &secrets_provider,
+                    &executor_id,
                     &desc,
-                    &executor_id_lifecycle,
                 )
                 .await;
                 lifecycle::handle_container_startup_result(
@@ -388,7 +394,7 @@ impl FunctionContainerManager {
                 )
                 .await;
             }
-            .instrument(tracing::info_span!("container_lifecycle", %executor_id)),
+            .instrument(tracing::info_span!("container_lifecycle", executor_id = %executor_id_span)),
         );
     }
 
@@ -780,10 +786,10 @@ mod tests {
         assert_eq!(info.app_version, "");
     }
 
-    #[test]
-    fn test_default_image_resolver_no_image() {
+    #[tokio::test]
+    async fn test_default_image_resolver_no_image() {
         let resolver = DefaultImageResolver::new(None);
-        let result = resolver.sandbox_image_for_pool("ns", "pool-1");
+        let result = resolver.sandbox_image_for_pool("ns", "pool-1").await;
         assert!(result.is_err());
         assert!(
             result
@@ -792,7 +798,7 @@ mod tests {
                 .contains("No image configured")
         );
 
-        let result = resolver.sandbox_image("ns", "sb-1");
+        let result = resolver.sandbox_image("ns", "sb-1").await;
         assert!(result.is_err());
         assert!(
             result
@@ -801,7 +807,7 @@ mod tests {
                 .contains("No image configured")
         );
 
-        let result = resolver.function_image("ns", "app", "fn", "v1");
+        let result = resolver.function_image("ns", "app", "fn", "v1").await;
         assert!(result.is_err());
         assert!(
             result
@@ -869,11 +875,13 @@ mod tests {
     async fn create_test_manager() -> (Arc<MockProcessDriver>, FunctionContainerManager) {
         let driver = Arc::new(MockProcessDriver::new());
         let resolver = Arc::new(DefaultImageResolver::new(None));
+        let secrets = Arc::new(crate::secrets::NoopSecretsProvider::new());
         let metrics = create_test_metrics();
         let state_file = create_test_state_file().await;
         let manager = FunctionContainerManager::new(
             driver.clone(),
             resolver,
+            secrets,
             metrics,
             state_file,
             "test-executor".to_string(),
