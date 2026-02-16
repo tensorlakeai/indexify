@@ -506,11 +506,14 @@ async fn read_file(State(state): State<AppState>, Query(query): Query<FilePathQu
             .body(Body::from(content))
             .unwrap(),
         Err(e) => {
+            let err_msg = e.to_string();
             let (status, code) =
-                if e.to_string().contains("not found") || e.to_string().contains("No such file") {
+                if err_msg.contains("not found") || err_msg.contains("No such file") {
                     (StatusCode::NOT_FOUND, "NOT_FOUND")
-                } else if e.to_string().contains("traversal") {
+                } else if err_msg.contains("traversal") {
                     (StatusCode::FORBIDDEN, "PATH_TRAVERSAL")
+                } else if err_msg.contains("is a directory") {
+                    (StatusCode::BAD_REQUEST, "IS_DIRECTORY")
                 } else {
                     (StatusCode::INTERNAL_SERVER_ERROR, "INTERNAL_ERROR")
                 };

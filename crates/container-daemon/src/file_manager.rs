@@ -47,6 +47,13 @@ impl FileManager {
         let path = self.validate_path(path)?;
         debug!(path = %path.display(), "Reading file");
 
+        if path.is_dir() {
+            anyhow::bail!(
+                "Path is a directory, not a file: {}. Use /api/v1/files/list to list directory contents.",
+                path.display()
+            );
+        }
+
         fs::read(&path)
             .await
             .with_context(|| format!("Failed to read file: {}", path.display()))
