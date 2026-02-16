@@ -174,8 +174,12 @@ impl AllocationController {
             ACEvent::ContainerStartupComplete { fe_id, result } => {
                 self.handle_container_startup_complete(fe_id, result).await;
             }
-            ACEvent::ContainerTerminated { fe_id, reason } => {
-                self.handle_container_terminated(fe_id, reason);
+            ACEvent::ContainerTerminated {
+                fe_id,
+                reason,
+                blamed_allocation_id,
+            } => {
+                self.handle_container_terminated(fe_id, reason, blamed_allocation_id);
             }
             ACEvent::AllocationPrepared {
                 allocation_id,
@@ -318,17 +322,20 @@ impl AllocationController {
                 );
             }
 
-            // Cancel any running tasks
+            // Cancel any running tasks.
+            // Running allocations are NOT failed here — their allocation
+            // runners detect the gRPC stream break and return the accurate
+            // failure reason (e.g. FunctionError). Failing them here would
+            // race with the runner and could override its more specific reason
+            // with a generic one derived from the FE termination reason.
+            // We cancel the token as a safety net for half-open connections.
             match &alloc.state {
-                AllocationState::Preparing { cancel_token } => {
-                    cancel_token.cancel();
-                }
                 AllocationState::Running { cancel_token, .. } => {
                     cancel_token.cancel();
-                    // Decrement running count
-                    if let Some(count) = self.running_count.get_mut(fe_id) {
-                        *count = count.saturating_sub(1);
-                    }
+                    continue;
+                }
+                AllocationState::Preparing { cancel_token } => {
+                    cancel_token.cancel();
                 }
                 _ => {}
             }

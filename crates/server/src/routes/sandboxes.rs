@@ -69,6 +69,9 @@ pub struct CreateSandboxRequest {
 pub struct CreateSandboxResponse {
     pub sandbox_id: String,
     pub status: String,
+    /// Reason why the sandbox is pending (only set when status is "pending").
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pending_reason: Option<String>,
 }
 
 /// Sandbox information returned by list/get operations
@@ -78,6 +81,9 @@ pub struct SandboxInfo {
     pub namespace: String,
     pub image: String,
     pub status: String,
+    /// Reason why the sandbox is pending (only set when status is "pending").
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pending_reason: Option<String>,
     pub outcome: Option<String>,
     pub created_at: u64,
     pub container_id: Option<String>,
@@ -128,11 +134,20 @@ impl SandboxInfo {
             })
         };
 
+        let (status, pending_reason) = match &sandbox.status {
+            data_model::SandboxStatus::Pending { reason } => {
+                ("pending".to_string(), Some(reason.to_string()))
+            }
+            data_model::SandboxStatus::Running => ("running".to_string(), None),
+            data_model::SandboxStatus::Terminated => ("terminated".to_string(), None),
+        };
+
         Self {
             id: sandbox.id.get().to_string(),
             namespace: sandbox.namespace.clone(),
             image: sandbox.image.clone(),
-            status: sandbox.status.to_string(),
+            status,
+            pending_reason,
             outcome: sandbox.outcome.as_ref().map(|o| o.to_string()),
             created_at: (sandbox.creation_time_ns / 1_000_000) as u64, // Convert ns to ms
             container_id: sandbox.container_id.as_ref().map(|c| c.get().to_string()),
@@ -185,7 +200,9 @@ pub async fn create_sandbox(
         .id(sandbox_id.clone())
         .namespace(namespace.clone())
         .image(image)
-        .status(SandboxStatus::Pending)
+        .status(SandboxStatus::Pending {
+            reason: data_model::SandboxPendingReason::Scheduling,
+        })
         .creation_time_ns(get_epoch_time_in_ns())
         .resources(data_model::ContainerResources {
             cpu_ms_per_sec: (request.resources.cpus * 1000.0).ceil() as u32,
@@ -226,7 +243,8 @@ pub async fn create_sandbox(
 
     Ok(Json(CreateSandboxResponse {
         sandbox_id: sandbox_id.get().to_string(),
-        status: "Pending".to_string(),
+        status: "pending".to_string(),
+        pending_reason: Some("scheduling".to_string()),
     }))
 }
 

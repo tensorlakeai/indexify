@@ -1227,6 +1227,11 @@ impl ContainerScheduler {
     }
 
     /// Count claimed and warm containers for a pool.
+    /// Returns true if any executors are registered.
+    pub fn has_executors(&self) -> bool {
+        !self.executor_states.is_empty()
+    }
+
     /// Pool containers have pool_id set. Claimed ones also have sandbox_id set.
     /// Uses the warm_containers_by_pool index for O(1) warm count.
     pub fn count_pool_containers(&self, pool_key: &ContainerPoolKey) -> (u32, u32) {

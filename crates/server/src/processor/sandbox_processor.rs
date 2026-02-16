@@ -9,6 +9,7 @@ use crate::{
         SandboxFailureReason,
         SandboxKey,
         SandboxOutcome,
+        SandboxPendingReason,
         SandboxStatus,
     },
     processor::container_scheduler::{self, ContainerScheduler},
@@ -99,7 +100,7 @@ impl SandboxProcessor {
         let mut update = SchedulerUpdateRequest::default();
 
         // Skip if sandbox is not pending
-        if sandbox.status != SandboxStatus::Pending {
+        if !sandbox.status.is_pending() {
             return Ok(update);
         }
 
@@ -133,7 +134,12 @@ impl SandboxProcessor {
                         max = max,
                         "Pool at capacity, cannot create sandbox"
                     );
-                    // Pool at capacity - keep sandbox pending
+                    // Pool at capacity - keep sandbox pending with reason
+                    Self::set_pending_reason(
+                        &mut update,
+                        sandbox,
+                        SandboxPendingReason::PoolAtCapacity,
+                    );
                     return Ok(update);
                 }
             }
@@ -150,11 +156,14 @@ impl SandboxProcessor {
                     .values()
                     .find(|c| !matches!(c.desired_state, ContainerState::Terminated { .. }))
                 {
-                    // Container created successfully, update sandbox status to Running
+                    // Container created successfully, keep sandbox Pending until container
+                    // reports Running via heartbeat
                     let mut updated_sandbox = sandbox.clone();
                     updated_sandbox.executor_id = Some(fc_metadata.executor_id.clone());
                     updated_sandbox.container_id = Some(fc_metadata.function_container.id.clone());
-                    updated_sandbox.status = SandboxStatus::Running;
+                    updated_sandbox.status = SandboxStatus::Pending {
+                        reason: SandboxPendingReason::WaitingForContainer,
+                    };
 
                     let sandbox_key = SandboxKey::from(&updated_sandbox);
                     update
@@ -188,15 +197,41 @@ impl SandboxProcessor {
                         update.extend(container_update);
                     }
 
-                    info!(
-                        sandbox_id = %sandbox.id,
-                        namespace = %sandbox.namespace,
-                        "No resources available for sandbox, keeping as pending"
-                    );
+                    // Distinguish between "no executors exist" and "executors
+                    // exist but lack capacity" by checking the executor list.
+                    if container_scheduler.has_executors() {
+                        info!(
+                            sandbox_id = %sandbox.id,
+                            namespace = %sandbox.namespace,
+                            "No resources available for sandbox, keeping as pending"
+                        );
+                        Self::set_pending_reason(
+                            &mut update,
+                            sandbox,
+                            SandboxPendingReason::NoResourcesAvailable,
+                        );
+                    } else {
+                        info!(
+                            sandbox_id = %sandbox.id,
+                            namespace = %sandbox.namespace,
+                            "No executors available for sandbox, keeping as pending"
+                        );
+                        Self::set_pending_reason(
+                            &mut update,
+                            sandbox,
+                            SandboxPendingReason::NoExecutorsAvailable,
+                        );
+                    };
                 }
             }
             Ok(None) => {
                 // No executors available at all
+                Self::set_pending_reason(
+                    &mut update,
+                    sandbox,
+                    SandboxPendingReason::NoExecutorsAvailable,
+                );
+
                 info!(
                     sandbox_id = %sandbox.id,
                     namespace = %sandbox.namespace,
@@ -255,8 +290,10 @@ impl SandboxProcessor {
             return Ok(update);
         };
 
-        if sandbox.status == SandboxStatus::Running &&
-            let Some(container_id) = &sandbox.container_id &&
+        if matches!(
+            sandbox.status,
+            SandboxStatus::Running | SandboxStatus::Pending { .. }
+        ) && let Some(container_id) = &sandbox.container_id &&
             let Some(container_update) = container_scheduler.terminate_container(container_id)?
         {
             update.extend(container_update);
@@ -292,9 +329,11 @@ impl SandboxProcessor {
         // Include the container update (sets sandbox_id on the container)
         update.extend(container_update);
 
-        // Update sandbox status to Running
+        // Keep sandbox Pending until container reports Running via heartbeat
         let mut updated_sandbox = sandbox.clone();
-        updated_sandbox.status = SandboxStatus::Running;
+        updated_sandbox.status = SandboxStatus::Pending {
+            reason: SandboxPendingReason::WaitingForContainer,
+        };
         updated_sandbox.executor_id = Some(executor_id.clone());
         updated_sandbox.container_id = Some(container_id.clone());
 
@@ -318,5 +357,19 @@ impl SandboxProcessor {
         in_memory_state.update_state(self.clock, &payload, "sandbox_processor")?;
 
         Ok(Some(update))
+    }
+
+    /// Sets the pending reason on a sandbox and adds it to the update.
+    fn set_pending_reason(
+        update: &mut SchedulerUpdateRequest,
+        sandbox: &Sandbox,
+        reason: SandboxPendingReason,
+    ) {
+        let mut pending_sandbox = sandbox.clone();
+        pending_sandbox.status = SandboxStatus::Pending { reason };
+        let sandbox_key = SandboxKey::from(&pending_sandbox);
+        update
+            .updated_sandboxes
+            .insert(sandbox_key, pending_sandbox);
     }
 }

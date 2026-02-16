@@ -122,6 +122,11 @@ enum FunctionExecutorTerminationReason {
 
     // FE was terminated because it ran out of memory.
     FUNCTION_EXECUTOR_TERMINATION_REASON_OOM = 16;
+
+    // FE process died unexpectedly (crash, signal, etc.) but not due to OOM.
+    // Distinguished from UNHEALTHY which means gRPC health checks failed while
+    // the process was still alive.
+    FUNCTION_EXECUTOR_TERMINATION_REASON_PROCESS_CRASH = 17;
 }
 
 // Immutable information that identifies and describes a Function Executor.

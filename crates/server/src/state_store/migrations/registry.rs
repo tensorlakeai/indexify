@@ -10,6 +10,7 @@ use crate::state_store::migrations::{
     v13_reencode_json_as_bincode::V13ReencodeJsonAsBincode,
     v14_normalize_request_ctx::V14NormalizeRequestCtx,
     v15_split_container_pools::V15SplitContainerPools,
+    v16_sandbox_pending_reason::V16SandboxPendingReason,
 };
 // Import all migration implementations
 
@@ -36,6 +37,7 @@ impl MigrationRegistry {
         registry.register(Box::new(V13ReencodeJsonAsBincode));
         registry.register(Box::new(V14NormalizeRequestCtx));
         registry.register(Box::new(V15SplitContainerPools));
+        registry.register(Box::new(V16SandboxPendingReason));
 
         // Sort and validate migrations
         registry.sort_and_validate()?;

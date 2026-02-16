@@ -38,6 +38,10 @@ pub(super) enum ACEvent {
     ContainerTerminated {
         fe_id: String,
         reason: FunctionExecutorTerminationReason,
+        /// Allocation ID that triggered the termination (e.g. the allocation
+        /// whose gRPC stream broke, signalling a process crash). Ensures this
+        /// allocation is blamed even if it already transitioned out of Running.
+        blamed_allocation_id: Option<String>,
     },
 
     // -- Allocation lifecycle events --

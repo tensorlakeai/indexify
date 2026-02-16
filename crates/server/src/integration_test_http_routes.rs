@@ -10,6 +10,7 @@ mod tests {
             FunctionRunOutcome,
             SandboxBuilder,
             SandboxId,
+            SandboxPendingReason,
             SandboxStatus,
             test_objects::tests::{
                 TEST_EXECUTOR_ID,
@@ -503,7 +504,9 @@ mod tests {
             .id(sandbox_id.clone())
             .namespace(TEST_NAMESPACE.to_string())
             .image("test-image:latest".to_string())
-            .status(SandboxStatus::Pending)
+            .status(SandboxStatus::Pending {
+                reason: SandboxPendingReason::Scheduling,
+            })
             .creation_time_ns(get_epoch_time_in_ns())
             .resources(ContainerResources {
                 cpu_ms_per_sec: 100,
