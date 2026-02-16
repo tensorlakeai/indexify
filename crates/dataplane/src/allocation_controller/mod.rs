@@ -325,7 +325,22 @@ impl AllocationController {
             };
 
             let result = proto_convert::make_failure_result(&alloc.allocation, reason);
-            self.start_finalization(&alloc_id, result, ctx);
+
+            // If finalization context has no blobs to clean up, send result
+            // directly to avoid the latency of spawning a finalization task.
+            if ctx.request_error_blob_handle.is_none() &&
+                ctx.output_blob_handles.is_empty() &&
+                ctx.fe_result.is_none()
+            {
+                crate::function_executor::controller::record_allocation_metrics(
+                    &result,
+                    &self.config.metrics.counters,
+                );
+                let _ = self.config.result_tx.send(result);
+                alloc.state = AllocationState::Done;
+            } else {
+                self.start_finalization(&alloc_id, result, ctx);
+            }
         }
     }
 }

@@ -76,11 +76,22 @@ impl AllocationController {
                     container_id = %fe_id,
                     "FE not found or terminated, failing allocation immediately -> Done"
                 );
-                let result = proto_convert::make_failure_result(
-                    &allocation,
-                    AllocationFailureReason::FunctionExecutorTerminated,
-                );
-                // Skip prep — go directly to finalization
+                let failure_reason = self
+                    .containers
+                    .get(&fe_id)
+                    .and_then(|fe| match &fe.state {
+                        ContainerState::Terminated { reason } => {
+                            Some(proto_convert::termination_to_failure_reason(*reason))
+                        }
+                        _ => None,
+                    })
+                    .unwrap_or(AllocationFailureReason::FunctionExecutorTerminated);
+                let result = proto_convert::make_failure_result(&allocation, failure_reason);
+                // Send result directly — no blobs to clean up.
+                // This matches the old per-FE controller behavior and avoids
+                // the latency of spawning a finalization task.
+                record_allocation_metrics(&result, &self.config.metrics.counters);
+                let _ = self.config.result_tx.send(result);
                 let managed = ManagedAllocation {
                     allocation: allocation.clone(),
                     fe_id: fe_id.clone(),
@@ -88,7 +99,6 @@ impl AllocationController {
                     created_at: Instant::now(),
                 };
                 self.allocations.insert(alloc_id.clone(), managed);
-                self.start_finalization(&alloc_id, result, FinalizationContext::default());
                 continue;
             }
 
