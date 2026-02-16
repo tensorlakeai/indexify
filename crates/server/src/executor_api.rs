@@ -398,6 +398,9 @@ impl TryFrom<FunctionExecutorState> for data_model::Container {
             .map(|m| m.entrypoint.clone())
             .unwrap_or_default();
         let image = sandbox_metadata.and_then(|m| m.image.clone());
+        let sandbox_id = sandbox_metadata
+            .and_then(|m| m.sandbox_id.clone())
+            .map(data_model::SandboxId::new);
 
         let state = match function_executor_state.status() {
             FunctionExecutorStatus::Unknown => data_model::ContainerState::Unknown,
@@ -440,6 +443,7 @@ impl TryFrom<FunctionExecutorState> for data_model::Container {
             .entrypoint(entrypoint)
             .image(image)
             .pool_id(pool_id)
+            .sandbox_id(sandbox_id)
             .build()
             .map_err(Into::into)
     }
