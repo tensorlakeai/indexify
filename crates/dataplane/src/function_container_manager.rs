@@ -394,7 +394,9 @@ impl FunctionContainerManager {
                 )
                 .await;
             }
-            .instrument(tracing::info_span!("container_lifecycle", executor_id = %executor_id_span)),
+            .instrument(
+                tracing::info_span!("container_lifecycle", executor_id = %executor_id_span),
+            ),
         );
     }
 

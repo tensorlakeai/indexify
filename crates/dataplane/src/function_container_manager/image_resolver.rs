@@ -58,7 +58,11 @@ impl Default for DefaultImageResolver {
 
 #[async_trait]
 impl ImageResolver for DefaultImageResolver {
-    async fn sandbox_image_for_pool(&self, _namespace: &str, _pool_id: &str) -> anyhow::Result<String> {
+    async fn sandbox_image_for_pool(
+        &self,
+        _namespace: &str,
+        _pool_id: &str,
+    ) -> anyhow::Result<String> {
         self.resolve_or_bail("sandbox pool")
     }
 

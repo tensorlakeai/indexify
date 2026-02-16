@@ -29,7 +29,6 @@ pub(super) async fn start_container_with_daemon(
     secrets_provider: &Arc<dyn SecretsProvider>,
     executor_id: &str,
     desc: &FunctionExecutorDescription,
-    executor_id: &str,
 ) -> anyhow::Result<(ProcessHandle, DaemonClient)> {
     let info = ContainerInfo::from_description(desc, executor_id);
 

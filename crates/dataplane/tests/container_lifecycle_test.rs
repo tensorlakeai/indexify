@@ -56,7 +56,11 @@ struct TestImageResolver;
 
 #[async_trait]
 impl ImageResolver for TestImageResolver {
-    async fn sandbox_image_for_pool(&self, _namespace: &str, _pool_id: &str) -> anyhow::Result<String> {
+    async fn sandbox_image_for_pool(
+        &self,
+        _namespace: &str,
+        _pool_id: &str,
+    ) -> anyhow::Result<String> {
         Ok("test-image:latest".to_string())
     }
 
