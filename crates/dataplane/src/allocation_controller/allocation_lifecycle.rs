@@ -337,8 +337,8 @@ impl AllocationController {
             };
 
             // Only schedule on Running containers
-            let client = match &fe.state {
-                ContainerState::Running { client, .. } => client.clone(),
+            let (client, process_handle) = match &fe.state {
+                ContainerState::Running { client, handle, .. } => (client.clone(), handle.clone()),
                 _ => continue,
             };
             let max_concurrency = fe.max_concurrency;
@@ -443,6 +443,8 @@ impl AllocationController {
                     blob_store: self.config.blob_store.clone(),
                     watcher_registry: self.watcher_registry.clone(),
                     metrics: metrics.clone(),
+                    driver: self.config.driver.clone(),
+                    process_handle: process_handle.clone(),
                 };
 
                 let allocation = alloc.allocation.clone();
@@ -536,6 +538,8 @@ impl AllocationController {
 
         let mut ctx = finalization_ctx;
         let mut trigger_fe_termination = false;
+        let mut fe_termination_reason =
+            proto_api::executor_api_pb::FunctionExecutorTerminationReason::Unhealthy;
 
         let server_result = match outcome {
             AllocationOutcome::Completed {
@@ -571,14 +575,19 @@ impl AllocationController {
                 error_message,
                 output_blob_handles,
                 likely_fe_crash,
+                termination_reason,
             } => {
                 if likely_fe_crash {
                     warn!(
                         allocation_id = %allocation_id,
                         error = %error_message,
+                        termination_reason = ?termination_reason,
                         "Allocation failed due to likely FE crash"
                     );
                     trigger_fe_termination = true;
+                    fe_termination_reason = termination_reason.unwrap_or(
+                        proto_api::executor_api_pb::FunctionExecutorTerminationReason::Unhealthy,
+                    );
                 }
                 ctx.output_blob_handles = output_blob_handles;
                 proto_convert::make_failure_result(&alloc.allocation, reason)
@@ -590,7 +599,7 @@ impl AllocationController {
         if trigger_fe_termination {
             let _ = self.event_tx.send(ACEvent::ContainerTerminated {
                 fe_id,
-                reason: proto_api::executor_api_pb::FunctionExecutorTerminationReason::Unhealthy,
+                reason: fe_termination_reason,
                 blamed_allocation_id: Some(allocation_id.clone()),
             });
         }

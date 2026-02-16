@@ -40,6 +40,11 @@ pub enum AllocationOutcome {
         /// this to trigger immediate FE termination instead of waiting for
         /// the health checker.
         likely_fe_crash: bool,
+        /// When `likely_fe_crash` is true, the termination reason determined
+        /// by checking the process exit status (OOM vs crash). The controller
+        /// uses this for the `ContainerTerminated` event so the health checker
+        /// doesn't need to race.
+        termination_reason: Option<proto_api::executor_api_pb::FunctionExecutorTerminationReason>,
     },
 }
 

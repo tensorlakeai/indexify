@@ -45,6 +45,8 @@ pub struct AllocationContext {
     pub blob_store: Arc<BlobStore>,
     pub watcher_registry: WatcherRegistry,
     pub metrics: Arc<crate::metrics::DataplaneMetrics>,
+    pub driver: Arc<dyn crate::driver::ProcessDriver>,
+    pub process_handle: crate::driver::ProcessHandle,
 }
 
 /// Build an AllocationUpdate wrapping the given update variant.
@@ -151,20 +153,59 @@ impl AllocationRunner {
 
     /// Delete allocation from FE and return a failure outcome, taking
     /// accumulated blob handles.
+    ///
+    /// When `likely_fe_crash` is true, skips the `delete_allocation` gRPC call
+    /// (the FE is dead) and checks the process exit status to determine the
+    /// accurate termination reason (OOM vs crash). This makes the allocation
+    /// runner the single source of truth for both the failure reason and the
+    /// termination reason, eliminating races with the health checker.
     async fn fail_with_cleanup(
         &mut self,
         reason: proto_api::executor_api_pb::AllocationFailureReason,
         error_message: impl Into<String>,
         likely_fe_crash: bool,
     ) -> AllocationOutcome {
-        if !likely_fe_crash {
+        let (reason, termination_reason) = if likely_fe_crash {
+            self.determine_crash_reason(reason).await
+        } else {
             let _ = self.client.delete_allocation(&self.allocation_id).await;
-        }
+            (reason, None)
+        };
         AllocationOutcome::Failed {
             reason,
             error_message: error_message.into(),
             output_blob_handles: std::mem::take(&mut self.output_blob_handles),
             likely_fe_crash,
+            termination_reason,
+        }
+    }
+
+    /// Check the process exit status to determine accurate failure and
+    /// termination reasons for a crashed FE.
+    async fn determine_crash_reason(
+        &self,
+        default_reason: proto_api::executor_api_pb::AllocationFailureReason,
+    ) -> (
+        proto_api::executor_api_pb::AllocationFailureReason,
+        Option<proto_api::executor_api_pb::FunctionExecutorTerminationReason>,
+    ) {
+        let exit_status = self
+            .ctx
+            .driver
+            .get_exit_status(&self.ctx.process_handle)
+            .await
+            .ok()
+            .flatten();
+        if exit_status.as_ref().is_some_and(|s| s.oom_killed) {
+            (
+                proto_api::executor_api_pb::AllocationFailureReason::Oom,
+                Some(proto_api::executor_api_pb::FunctionExecutorTerminationReason::Oom),
+            )
+        } else {
+            (
+                default_reason,
+                Some(proto_api::executor_api_pb::FunctionExecutorTerminationReason::Unhealthy),
+            )
         }
     }
 
@@ -209,11 +250,17 @@ impl AllocationRunner {
 
         if let Err(e) = self.client.create_allocation(create_request).await {
             error!(error = %e, "Failed to create allocation on FE");
+            let (reason, termination_reason) = self
+                .determine_crash_reason(
+                    proto_api::executor_api_pb::AllocationFailureReason::InternalError,
+                )
+                .await;
             return AllocationOutcome::Failed {
-                reason: proto_api::executor_api_pb::AllocationFailureReason::InternalError,
+                reason,
                 error_message: e.to_string(),
                 output_blob_handles: Vec::new(),
                 likely_fe_crash: true,
+                termination_reason,
             };
         }
 
@@ -394,6 +441,7 @@ impl AllocationRunner {
                 error_message: "No result from allocation".to_string(),
                 output_blob_handles: std::mem::take(&mut self.output_blob_handles),
                 likely_fe_crash: false,
+                termination_reason: None,
             },
         }
     }
