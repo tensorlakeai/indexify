@@ -401,6 +401,9 @@ impl TryFrom<FunctionExecutorState> for data_model::Container {
             .map(|m| m.entrypoint.clone())
             .unwrap_or_default();
         let image = sandbox_metadata.and_then(|m| m.image.clone());
+        let sandbox_id = sandbox_metadata
+            .and_then(|m| m.sandbox_id.clone())
+            .map(data_model::SandboxId::new);
 
         let state = match function_executor_state.status() {
             FunctionExecutorStatus::Unknown => data_model::ContainerState::Unknown,
@@ -443,6 +446,7 @@ impl TryFrom<FunctionExecutorState> for data_model::Container {
             .entrypoint(entrypoint)
             .image(image)
             .pool_id(pool_id)
+            .sandbox_id(sandbox_id)
             .build()
             .map_err(Into::into)
     }
@@ -1155,4 +1159,160 @@ fn prepare_data_payload(
         .offset(offset)
         .build()
         .map_err(|e| anyhow::anyhow!("failed to build data payload: {e}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use executor_api_pb::{
+        FunctionExecutorDescription,
+        FunctionExecutorResources,
+        FunctionExecutorState,
+        FunctionExecutorStatus,
+        FunctionExecutorTerminationReason as TerminationReasonPb,
+        FunctionExecutorType as FunctionExecutorTypePb,
+        FunctionRef,
+        SandboxMetadata,
+    };
+    use proto_api::executor_api_pb;
+
+    use crate::data_model::{self, ContainerType, FunctionExecutorTerminationReason};
+
+    /// Build a minimal sandbox FunctionExecutorState proto with the given
+    /// sandbox_id and termination status, simulating what the dataplane reports
+    /// when a sandbox container fails to start (e.g. image pull failure).
+    fn sandbox_fe_state_proto(
+        container_id: &str,
+        sandbox_id: &str,
+        status: FunctionExecutorStatus,
+        termination_reason: Option<TerminationReasonPb>,
+    ) -> FunctionExecutorState {
+        FunctionExecutorState {
+            description: Some(FunctionExecutorDescription {
+                id: Some(container_id.to_string()),
+                function: Some(FunctionRef {
+                    namespace: Some("test-ns".to_string()),
+                    application_name: Some("".to_string()),
+                    function_name: Some(container_id.to_string()),
+                    application_version: Some("".to_string()),
+                }),
+                resources: Some(FunctionExecutorResources {
+                    cpu_ms_per_sec: Some(100),
+                    memory_bytes: Some(256 * 1024 * 1024),
+                    disk_bytes: Some(1024 * 1024 * 1024),
+                    gpu: None,
+                }),
+                max_concurrency: Some(1),
+                container_type: Some(FunctionExecutorTypePb::Sandbox.into()),
+                sandbox_metadata: Some(SandboxMetadata {
+                    image: Some("ubuntu".to_string()),
+                    timeout_secs: Some(600),
+                    entrypoint: vec![],
+                    network_policy: None,
+                    sandbox_id: Some(sandbox_id.to_string()),
+                }),
+                secret_names: vec![],
+                initialization_timeout_ms: None,
+                application: None,
+                allocation_timeout_ms: None,
+                pool_id: None,
+            }),
+            status: Some(status.into()),
+            termination_reason: termination_reason.map(|r| r.into()),
+            allocation_ids_caused_termination: vec![],
+        }
+    }
+
+    #[test]
+    fn test_terminated_sandbox_container_preserves_sandbox_id() {
+        // Simulates the dataplane reporting a sandbox container that failed to
+        // start (e.g. Docker image pull failure). The proto->Container conversion
+        // must preserve sandbox_id so the reconciler can find and terminate the
+        // associated sandbox.
+        let fe_state = sandbox_fe_state_proto(
+            "sb-container-123",
+            "sb-container-123",
+            FunctionExecutorStatus::Terminated,
+            Some(TerminationReasonPb::StartupFailedInternalError),
+        );
+
+        let container = data_model::Container::try_from(fe_state).unwrap();
+
+        assert_eq!(container.container_type, ContainerType::Sandbox);
+        assert!(
+            matches!(
+                container.state,
+                data_model::ContainerState::Terminated {
+                    reason: FunctionExecutorTerminationReason::StartupFailedInternalError,
+                    ..
+                }
+            ),
+            "Container should be Terminated with StartupFailedInternalError, got: {:?}",
+            container.state
+        );
+        assert_eq!(
+            container.sandbox_id.as_ref().map(|s| s.get()),
+            Some("sb-container-123"),
+            "sandbox_id must be preserved through proto conversion"
+        );
+    }
+
+    #[test]
+    fn test_running_sandbox_container_preserves_sandbox_id() {
+        let fe_state = sandbox_fe_state_proto(
+            "sb-container-456",
+            "sb-container-456",
+            FunctionExecutorStatus::Running,
+            None,
+        );
+
+        let container = data_model::Container::try_from(fe_state).unwrap();
+
+        assert_eq!(
+            container.sandbox_id.as_ref().map(|s| s.get()),
+            Some("sb-container-456"),
+        );
+        assert_eq!(container.state, data_model::ContainerState::Running);
+    }
+
+    #[test]
+    fn test_function_container_has_no_sandbox_id() {
+        // Function containers don't have sandbox_metadata, so sandbox_id should
+        // be None.
+        let fe_state = FunctionExecutorState {
+            description: Some(FunctionExecutorDescription {
+                id: Some("fn-container-1".to_string()),
+                function: Some(FunctionRef {
+                    namespace: Some("test-ns".to_string()),
+                    application_name: Some("app".to_string()),
+                    function_name: Some("process".to_string()),
+                    application_version: Some("v1".to_string()),
+                }),
+                resources: Some(FunctionExecutorResources {
+                    cpu_ms_per_sec: Some(100),
+                    memory_bytes: Some(256 * 1024 * 1024),
+                    disk_bytes: Some(1024 * 1024 * 1024),
+                    gpu: None,
+                }),
+                max_concurrency: Some(1),
+                container_type: Some(FunctionExecutorTypePb::Function.into()),
+                sandbox_metadata: None,
+                secret_names: vec![],
+                initialization_timeout_ms: None,
+                application: None,
+                allocation_timeout_ms: None,
+                pool_id: None,
+            }),
+            status: Some(FunctionExecutorStatus::Running.into()),
+            termination_reason: None,
+            allocation_ids_caused_termination: vec![],
+        };
+
+        let container = data_model::Container::try_from(fe_state).unwrap();
+
+        assert_eq!(container.container_type, ContainerType::Function);
+        assert!(
+            container.sandbox_id.is_none(),
+            "Function containers should not have sandbox_id"
+        );
+    }
 }
