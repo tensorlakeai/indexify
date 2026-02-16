@@ -54,16 +54,17 @@ async fn create_test_state_file() -> Arc<StateFile> {
 /// Test image resolver
 struct TestImageResolver;
 
+#[async_trait]
 impl ImageResolver for TestImageResolver {
-    fn sandbox_image_for_pool(&self, _namespace: &str, _pool_id: &str) -> anyhow::Result<String> {
+    async fn sandbox_image_for_pool(&self, _namespace: &str, _pool_id: &str) -> anyhow::Result<String> {
         Ok("test-image:latest".to_string())
     }
 
-    fn sandbox_image(&self, _namespace: &str, _sandbox_id: &str) -> anyhow::Result<String> {
+    async fn sandbox_image(&self, _namespace: &str, _sandbox_id: &str) -> anyhow::Result<String> {
         Ok("test-image:latest".to_string())
     }
 
-    fn function_image(
+    async fn function_image(
         &self,
         _namespace: &str,
         _app: &str,
@@ -346,6 +347,7 @@ async fn test_sync_creates_container_with_daemon() {
     let manager = FunctionContainerManager::new(
         driver.clone(),
         resolver,
+        Arc::new(indexify_dataplane::NoopSecretsProvider::new()),
         create_test_metrics(),
         state_file,
         "test-executor".to_string(),
@@ -415,6 +417,7 @@ async fn test_sync_deletes_container_when_removed_from_desired() {
     let manager = FunctionContainerManager::new(
         driver.clone(),
         resolver,
+        Arc::new(indexify_dataplane::NoopSecretsProvider::new()),
         create_test_metrics(),
         state_file,
         "test-executor".to_string(),
@@ -483,6 +486,7 @@ async fn test_health_check_detects_container_death() {
     let manager = FunctionContainerManager::new(
         driver.clone(),
         resolver,
+        Arc::new(indexify_dataplane::NoopSecretsProvider::new()),
         create_test_metrics(),
         state_file,
         "test-executor".to_string(),
@@ -568,6 +572,7 @@ async fn test_multiple_containers_lifecycle() {
     let manager = FunctionContainerManager::new(
         driver.clone(),
         resolver,
+        Arc::new(indexify_dataplane::NoopSecretsProvider::new()),
         create_test_metrics(),
         state_file,
         "test-executor".to_string(),
@@ -642,6 +647,7 @@ async fn test_sync_idempotent() {
     let manager = FunctionContainerManager::new(
         driver.clone(),
         resolver,
+        Arc::new(indexify_dataplane::NoopSecretsProvider::new()),
         create_test_metrics(),
         state_file,
         "test-executor".to_string(),
