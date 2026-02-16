@@ -591,6 +591,7 @@ impl AllocationController {
             let _ = self.event_tx.send(ACEvent::ContainerTerminated {
                 fe_id,
                 reason: proto_api::executor_api_pb::FunctionExecutorTerminationReason::Unhealthy,
+                blamed_allocation_id: Some(allocation_id.clone()),
             });
         }
 

@@ -91,7 +91,10 @@ pub struct CreateSandboxPoolResponse {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct CreatePoolSandboxResponse {
     pub sandbox_id: String,
-    pub status: super::sandboxes::SandboxStatusInfo,
+    pub status: String,
+    /// Reason why the sandbox is pending (only set when status is "pending").
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pending_reason: Option<String>,
 }
 
 /// Sandbox pool information returned by list/get operations
@@ -443,9 +446,8 @@ pub async fn create_pool_sandbox(
 
     Ok(Json(CreatePoolSandboxResponse {
         sandbox_id: sandbox_id.get().to_string(),
-        status: super::sandboxes::SandboxStatusInfo::Pending {
-            reason: "scheduling".to_string(),
-        },
+        status: "pending".to_string(),
+        pending_reason: Some("scheduling".to_string()),
     }))
 }
 

@@ -353,6 +353,7 @@ impl AllocationController {
                             let _ = event_tx.send(ACEvent::ContainerTerminated {
                                 fe_id: health_fe_id,
                                 reason,
+                                blamed_allocation_id: None,
                             });
                         }
                     })
@@ -364,6 +365,7 @@ impl AllocationController {
                         let _ = panic_event_tx.send(ACEvent::ContainerTerminated {
                             fe_id: panic_fe_id,
                             reason: FunctionExecutorTerminationReason::Unknown,
+                            blamed_allocation_id: None,
                         });
                     }
                 });
@@ -454,6 +456,7 @@ impl AllocationController {
         &mut self,
         fe_id: String,
         reason: FunctionExecutorTerminationReason,
+        blamed_allocation_id: Option<String>,
     ) {
         let Some(fe) = self.containers.get_mut(&fe_id) else {
             return;
@@ -498,7 +501,15 @@ impl AllocationController {
         // Special case: OOM with no Running allocations means the container's
         // own startup/overhead exceeded the memory limit. Blame all allocations
         // so the server applies the retry policy instead of retrying forever.
-        let running: Vec<String> = self
+        //
+        // `blamed_allocation_id` is set when the gRPC stream breaks due to a
+        // process crash. The allocation runner detects the failure and
+        // transitions the allocation to Finalizing *before* the health checker
+        // fires ContainerTerminated. By the time we get here, the allocation
+        // is no longer Running. The caller passes the allocation ID explicitly
+        // so we can include it in the blamed list regardless of its current
+        // state.
+        let mut running_allocs: Vec<String> = self
             .allocations
             .iter()
             .filter(|(_, alloc)| alloc.fe_id == fe_id)
@@ -506,8 +517,15 @@ impl AllocationController {
             .map(|(id, _)| id.clone())
             .collect();
 
-        let blamed_alloc_ids = if !running.is_empty() {
-            running
+        // Merge in the explicitly blamed allocation (if not already present).
+        if let Some(blamed_id) = blamed_allocation_id &&
+            !running_allocs.contains(&blamed_id)
+        {
+            running_allocs.push(blamed_id);
+        }
+
+        let blamed_alloc_ids = if !running_allocs.is_empty() {
+            running_allocs
         } else if reason == FunctionExecutorTerminationReason::Oom {
             // OOM during container startup/overhead — blame all non-terminal allocations.
             self.allocations

@@ -174,8 +174,12 @@ impl AllocationController {
             ACEvent::ContainerStartupComplete { fe_id, result } => {
                 self.handle_container_startup_complete(fe_id, result).await;
             }
-            ACEvent::ContainerTerminated { fe_id, reason } => {
-                self.handle_container_terminated(fe_id, reason);
+            ACEvent::ContainerTerminated {
+                fe_id,
+                reason,
+                blamed_allocation_id,
+            } => {
+                self.handle_container_terminated(fe_id, reason, blamed_allocation_id);
             }
             ACEvent::AllocationPrepared {
                 allocation_id,
