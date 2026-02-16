@@ -33,7 +33,7 @@ hyper = { version = "1.8.1", features = ["client", "http1"] }
 tonic = { version = "0.14.4", features = ["transport", "tls-ring", "tls-native-roots"] }
 tonic-prost = "0.14.4"
 tonic-reflection = "0.14.4"
-tonic-types = "0.14.3"
+tonic-types = "0.14.4"
 tonic-prost-build = "0.14.4"
 prost = "0.14.3"
 prost-types = "0.14.3"
