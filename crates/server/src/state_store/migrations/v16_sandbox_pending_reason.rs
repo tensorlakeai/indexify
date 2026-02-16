@@ -10,12 +10,15 @@ use crate::{
         ContainerPoolId,
         ContainerResources,
         ExecutorId,
+        FunctionExecutorTerminationReason,
         NetworkPolicy,
         SandboxBuilder,
+        SandboxFailureReason,
         SandboxId,
         SandboxOutcome,
         SandboxPendingReason,
         SandboxStatus,
+        SandboxSuccessReason,
     },
     state_store::{
         serializer::{StateStoreEncode, StateStoreEncoder},
@@ -32,16 +35,41 @@ enum LegacySandboxStatus {
     Terminated,
 }
 
-/// Legacy Sandbox layout matching the postcard schema before the
-/// pending-reason change. The `status` field uses the old unit-variant
-/// `Pending` instead of `Pending { reason }`.
+/// Old SandboxOutcome with Success as a unit variant and Failure at index 2.
+#[derive(Debug, Deserialize, Serialize)]
+enum LegacySandboxOutcome {
+    Unknown,
+    /// Was a unit variant (no reason)
+    Success,
+    /// Failure at index 2 — same as new layout
+    Failure(LegacySandboxFailureReason),
+}
+
+/// Old SandboxFailureReason with Timeout at index 2.
+#[derive(Debug, Deserialize, Serialize)]
+enum LegacySandboxFailureReason {
+    Unknown,
+    InternalError,
+    /// Was `Timeout` — never set in practice
+    Timeout,
+    ConstraintUnsatisfiable,
+    ExecutorRemoved,
+    OutOfMemory,
+    ContainerStartupFailed,
+    ContainerTerminated(FunctionExecutorTerminationReason),
+    PoolDeleted,
+}
+
+/// Legacy Sandbox layout matching the postcard schema before this branch.
+/// Uses old unit-variant `Pending` and old
+/// `SandboxOutcome`/`SandboxFailureReason`.
 #[derive(Debug, Deserialize, Serialize)]
 struct LegacySandbox {
     id: SandboxId,
     namespace: String,
     image: String,
     status: LegacySandboxStatus,
-    outcome: Option<SandboxOutcome>,
+    outcome: Option<LegacySandboxOutcome>,
     creation_time_ns: u128,
     #[serde(default)]
     created_at_clock: Option<u64>,
@@ -102,12 +130,50 @@ impl Migration for V16SandboxPendingReason {
                 LegacySandboxStatus::Terminated => SandboxStatus::Terminated,
             };
 
+            let new_outcome = legacy.outcome.map(|o| match o {
+                LegacySandboxOutcome::Unknown => SandboxOutcome::Unknown,
+                LegacySandboxOutcome::Success => {
+                    SandboxOutcome::Success(SandboxSuccessReason::Unknown)
+                }
+                LegacySandboxOutcome::Failure(reason) => {
+                    let new_reason = match reason {
+                        LegacySandboxFailureReason::Unknown => SandboxFailureReason::Unknown,
+                        LegacySandboxFailureReason::InternalError => {
+                            SandboxFailureReason::InternalError
+                        }
+                        LegacySandboxFailureReason::Timeout => {
+                            // Was never set — map to reserved placeholder
+                            SandboxFailureReason::_Reserved
+                        }
+                        LegacySandboxFailureReason::ConstraintUnsatisfiable => {
+                            SandboxFailureReason::ConstraintUnsatisfiable
+                        }
+                        LegacySandboxFailureReason::ExecutorRemoved => {
+                            SandboxFailureReason::ExecutorRemoved
+                        }
+                        LegacySandboxFailureReason::OutOfMemory => {
+                            SandboxFailureReason::OutOfMemory
+                        }
+                        LegacySandboxFailureReason::ContainerStartupFailed => {
+                            SandboxFailureReason::ContainerStartupFailed
+                        }
+                        LegacySandboxFailureReason::ContainerTerminated(r) => {
+                            SandboxFailureReason::ContainerTerminated(r)
+                        }
+                        LegacySandboxFailureReason::PoolDeleted => {
+                            SandboxFailureReason::PoolDeleted
+                        }
+                    };
+                    SandboxOutcome::Failure(new_reason)
+                }
+            });
+
             let sandbox = SandboxBuilder::default()
                 .id(legacy.id)
                 .namespace(legacy.namespace)
                 .image(legacy.image)
                 .status(new_status)
-                .outcome(legacy.outcome)
+                .outcome(new_outcome)
                 .creation_time_ns(legacy.creation_time_ns)
                 .created_at_clock(legacy.created_at_clock)
                 .updated_at_clock(legacy.updated_at_clock)
