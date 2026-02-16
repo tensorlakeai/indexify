@@ -142,6 +142,9 @@ pub fn termination_to_failure_reason(
         executor_api_pb::FunctionExecutorTerminationReason::Oom => {
             executor_api_pb::AllocationFailureReason::Oom
         }
+        executor_api_pb::FunctionExecutorTerminationReason::ProcessCrash => {
+            executor_api_pb::AllocationFailureReason::FunctionError
+        }
         _ => executor_api_pb::AllocationFailureReason::FunctionExecutorTerminated,
     }
 }

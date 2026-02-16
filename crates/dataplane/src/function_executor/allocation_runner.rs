@@ -204,7 +204,7 @@ impl AllocationRunner {
         } else {
             (
                 default_reason,
-                Some(proto_api::executor_api_pb::FunctionExecutorTerminationReason::Unhealthy),
+                Some(proto_api::executor_api_pb::FunctionExecutorTerminationReason::ProcessCrash),
             )
         }
     }

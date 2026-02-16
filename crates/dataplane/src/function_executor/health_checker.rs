@@ -54,7 +54,7 @@ pub async fn run_health_check_loop(
                         let reason = if is_oom {
                             FunctionExecutorTerminationReason::Oom
                         } else {
-                            FunctionExecutorTerminationReason::Unhealthy
+                            FunctionExecutorTerminationReason::ProcessCrash
                         };
                         warn!(
                             fe_id = %fe_id,

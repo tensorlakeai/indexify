@@ -325,6 +325,9 @@ impl TryFrom<FunctionExecutorTerminationReason> for data_model::FunctionExecutor
             FunctionExecutorTerminationReason::Oom => {
                 Ok(data_model::FunctionExecutorTerminationReason::Oom)
             }
+            FunctionExecutorTerminationReason::ProcessCrash => {
+                Ok(data_model::FunctionExecutorTerminationReason::ProcessCrash)
+            }
         }
     }
 }

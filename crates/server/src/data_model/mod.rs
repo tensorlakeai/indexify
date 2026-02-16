@@ -1809,6 +1809,7 @@ pub enum FunctionExecutorTerminationReason {
     DesiredStateRemoved,
     ExecutorRemoved,
     Oom,
+    ProcessCrash,
 }
 
 impl From<&FunctionExecutorTerminationReason> for FunctionRunFailureReason {
@@ -1848,6 +1849,9 @@ impl From<&FunctionExecutorTerminationReason> for FunctionRunFailureReason {
                 FunctionRunFailureReason::ExecutorRemoved
             }
             FunctionExecutorTerminationReason::Oom => FunctionRunFailureReason::OutOfMemory,
+            FunctionExecutorTerminationReason::ProcessCrash => {
+                FunctionRunFailureReason::FunctionError
+            }
         }
     }
 }
