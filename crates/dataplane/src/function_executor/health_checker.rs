@@ -14,7 +14,7 @@ use tracing::{info, warn};
 use super::fe_client::FunctionExecutorGrpcClient;
 use crate::driver::{ProcessDriver, ProcessHandle};
 
-const HEALTH_CHECK_INTERVAL: Duration = Duration::from_secs(5);
+const HEALTH_CHECK_INTERVAL: Duration = Duration::from_secs(1);
 const HEALTH_CHECK_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Core health check loop. Returns the termination reason when the FE dies.

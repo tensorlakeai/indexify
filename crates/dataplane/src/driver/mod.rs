@@ -106,4 +106,10 @@ pub trait ProcessDriver: Send + Sync {
     /// List all container IDs managed by this driver.
     /// Used for cleanup of orphaned containers.
     async fn list_containers(&self) -> Result<Vec<String>>;
+
+    /// Get the last `tail` lines of stdout/stderr from a container.
+    /// Returns empty string for drivers that don't support log retrieval.
+    async fn get_logs(&self, _handle: &ProcessHandle, _tail: u32) -> Result<String> {
+        Ok(String::new())
+    }
 }

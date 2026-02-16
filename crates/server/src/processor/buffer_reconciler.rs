@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use anyhow::Result;
-use tracing::warn;
+use tracing::{debug, info, warn};
 
 use crate::{
     data_model::{ApplicationState, ContainerPool, ContainerPoolKey, ContainerState},
@@ -78,6 +78,17 @@ impl BufferReconciler {
 
             if current < effective_min {
                 let needed = effective_min - current;
+                let (ns, identity) = self.pool_identity(pool);
+                info!(
+                    namespace = %ns,
+                    pool_identity = %identity,
+                    active,
+                    idle,
+                    min,
+                    needed,
+                    phase = "ensure_min",
+                    "Creating containers to meet minimum"
+                );
                 for _ in 0..needed {
                     match self.create_container_for_pool(
                         pool,
@@ -126,6 +137,17 @@ impl BufferReconciler {
 
                 // Need more idle and not at max
                 if idle < buffer && (active + idle) < max {
+                    let (ns, identity) = self.pool_identity(pool);
+                    debug!(
+                        namespace = %ns,
+                        pool_identity = %identity,
+                        active,
+                        idle,
+                        buffer,
+                        max,
+                        phase = "fill_buffer",
+                        "Filling buffer containers"
+                    );
                     match self.create_container_for_pool(
                         pool,
                         in_memory_state,
@@ -188,6 +210,19 @@ impl BufferReconciler {
                 // Trim excess idle containers
                 if current_total > effective_limit && idle > 0 {
                     let excess = (current_total - effective_limit).min(idle);
+                    let (ns, identity) = self.pool_identity(pool);
+                    info!(
+                        namespace = %ns,
+                        pool_identity = %identity,
+                        active,
+                        idle,
+                        current_total,
+                        target_total,
+                        effective_limit,
+                        excess,
+                        phase = "trim_excess",
+                        "Trimming excess idle containers"
+                    );
                     let trim_update =
                         self.trim_idle_containers(pool, excess, container_scheduler)?;
                     update.extend(trim_update);
@@ -306,6 +341,28 @@ impl BufferReconciler {
         }
 
         Ok(update)
+    }
+
+    /// Return (namespace, identity_string) for logging.
+    /// Function pools: "app=X fn=Y ver=Z"
+    /// Sandbox pools: "pool_id=X"
+    fn pool_identity(&self, pool: &ContainerPool) -> (String, String) {
+        let ns = pool.namespace.clone();
+        if pool.is_function_pool() {
+            if let Some(fn_uri) = self.parse_function_pool_uri(pool) {
+                (
+                    ns,
+                    format!(
+                        "app={} fn={} ver={}",
+                        fn_uri.application, fn_uri.function, fn_uri.version
+                    ),
+                )
+            } else {
+                (ns, format!("pool_id={}", pool.id.get()))
+            }
+        } else {
+            (ns, format!("pool_id={}", pool.id.get()))
+        }
     }
 
     /// Parse function pool ID to extract FunctionURI

@@ -138,21 +138,58 @@ pub(super) async fn start_container_with_daemon(
     );
 
     // Connect to the daemon with retry (container may take a moment to start)
-    let mut daemon_client =
-        DaemonClient::connect_with_retry(daemon_addr, DAEMON_READY_TIMEOUT).await?;
+    let daemon_result = async {
+        let mut daemon_client =
+            DaemonClient::connect_with_retry(daemon_addr, DAEMON_READY_TIMEOUT).await?;
+        daemon_client.wait_for_ready(DAEMON_READY_TIMEOUT).await?;
+        Ok::<_, anyhow::Error>(daemon_client)
+    }
+    .await;
 
-    // Wait for daemon to be ready
-    daemon_client.wait_for_ready(DAEMON_READY_TIMEOUT).await?;
+    match daemon_result {
+        Ok(daemon_client) => {
+            tracing::info!(
+                container_id = %info.container_id,
+                executor_id = %info.executor_id,
+                namespace = %info.namespace,
+                container_handle_id = %handle.id,
+                "Daemon ready, waiting for HTTP API commands"
+            );
+            Ok((handle, daemon_client))
+        }
+        Err(e) => {
+            // Daemon failed to start — capture container logs for diagnostics
+            let container_logs = match driver.get_logs(&handle, 50).await {
+                Ok(logs) if !logs.is_empty() => logs,
+                Ok(_) => "(no logs available)".to_string(),
+                Err(log_err) => format!("(failed to fetch logs: {log_err})"),
+            };
 
-    tracing::info!(
-        container_id = %info.container_id,
-        executor_id = %info.executor_id,
-        namespace = %info.namespace,
-        container_handle_id = %handle.id,
-        "Daemon ready, waiting for HTTP API commands"
-    );
+            tracing::error!(
+                container_id = %info.container_id,
+                executor_id = %info.executor_id,
+                namespace = %info.namespace,
+                container_handle_id = %handle.id,
+                container_logs = %container_logs,
+                error = %e,
+                "Daemon failed to start, killing container"
+            );
 
-    Ok((handle, daemon_client))
+            // Kill the orphaned container
+            if let Err(kill_err) = driver.kill(&handle).await {
+                tracing::warn!(
+                    container_id = %info.container_id,
+                    container_handle_id = %handle.id,
+                    error = %kill_err,
+                    "Failed to kill container after daemon startup failure"
+                );
+            }
+
+            Err(e.context(format!(
+                "Daemon failed to start. Container logs:\n{container_logs}"
+            )))
+        }
+    }
 }
 
 /// Handle the result of a container startup attempt.

@@ -37,9 +37,10 @@ pub(super) enum ContainerState {
     Terminated {
         reason: FunctionExecutorTerminationReason,
         /// Allocation IDs that caused or contributed to the termination.
-        /// For OOM: Running allocations are blamed (their code caused the OOM).
-        /// If no allocations were Running, all allocations are blamed (startup
-        /// OOM).
+        /// - Container died while allocations were Running: blame them.
+        /// - Container startup failed: blame all (they can't run).
+        /// - OOM with no Running allocations: blame all (startup/overhead OOM).
+        /// - Other termination with no Running allocations: no blame.
         blamed_alloc_ids: Vec<String>,
     },
 }

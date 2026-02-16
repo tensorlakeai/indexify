@@ -287,8 +287,13 @@ fn build_host_config_resources(resources: &Option<super::ResourceLimits>) -> Hos
         .filter(|ids| !ids.is_empty())
         .map(|ids| build_device_requests(ids));
 
+    // memory_swap == memory means zero swap (Docker's memory_swap is RAM+swap
+    // total).
+    let memory_swap = memory;
+
     HostConfig {
         memory,
+        memory_swap,
         cpu_period,
         cpu_quota,
         shm_size: Some(SHMEM_SIZE),
@@ -611,6 +616,41 @@ impl ProcessDriver for DockerDriver {
             .collect();
 
         Ok(names)
+    }
+
+    async fn get_logs(&self, handle: &ProcessHandle, tail: u32) -> Result<String> {
+        use bollard::query_parameters::LogsOptions;
+
+        let options = LogsOptions {
+            stdout: true,
+            stderr: true,
+            tail: tail.to_string(),
+            ..Default::default()
+        };
+
+        let mut stream = self.docker.logs(&handle.id, Some(options));
+        let mut output = String::new();
+        const MAX_LOG_BYTES: usize = 4096;
+
+        while let Some(result) = stream.next().await {
+            match result {
+                Ok(log_output) => {
+                    let line = log_output.to_string();
+                    if output.len() + line.len() > MAX_LOG_BYTES {
+                        output.push_str(&line[..MAX_LOG_BYTES.saturating_sub(output.len())]);
+                        output.push_str("\n... (truncated)");
+                        break;
+                    }
+                    output.push_str(&line);
+                }
+                Err(bollard::errors::Error::DockerResponseServerError {
+                    status_code: 404, ..
+                }) => break,
+                Err(e) => return Err(e).context("Failed to fetch container logs"),
+            }
+        }
+
+        Ok(output)
     }
 }
 
