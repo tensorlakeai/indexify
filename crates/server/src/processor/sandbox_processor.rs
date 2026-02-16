@@ -11,6 +11,7 @@ use crate::{
         SandboxOutcome,
         SandboxPendingReason,
         SandboxStatus,
+        SandboxSuccessReason,
     },
     processor::container_scheduler::{self, ContainerScheduler},
     state_store::{
@@ -301,6 +302,9 @@ impl SandboxProcessor {
 
         let mut terminated_sandbox = sandbox.as_ref().clone();
         terminated_sandbox.status = SandboxStatus::Terminated;
+        terminated_sandbox.outcome = Some(SandboxOutcome::Success(
+            SandboxSuccessReason::UserTerminated,
+        ));
         update
             .updated_sandboxes
             .insert(sandbox_key, terminated_sandbox);
@@ -319,7 +323,7 @@ impl SandboxProcessor {
         // Try to claim a warm container - returns (container_id, executor_id,
         // container_update)
         let Some((container_id, executor_id, container_update)) =
-            container_scheduler.claim_pool_container(pool_key, &sandbox.id)
+            container_scheduler.claim_pool_container(pool_key, &sandbox.id, sandbox.timeout_secs)
         else {
             return Ok(None); // No warm container available
         };

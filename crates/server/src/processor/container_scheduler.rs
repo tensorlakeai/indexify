@@ -1455,6 +1455,7 @@ impl ContainerScheduler {
         &mut self,
         pool_key: &ContainerPoolKey,
         sandbox_id: &SandboxId,
+        sandbox_timeout_secs: u64,
     ) -> Option<(ContainerId, ExecutorId, SchedulerUpdateRequest)> {
         let warm_container = self
             .warm_containers_by_pool
@@ -1469,10 +1470,11 @@ impl ContainerScheduler {
 
         let (container_id, executor_id) = warm_container?;
 
-        // Claim it by setting sandbox_id
+        // Claim it by setting sandbox_id and the sandbox's timeout
         // The warm index only contains containers with sandbox_id = None
         let meta = self.function_containers.get_mut(&container_id)?;
         meta.function_container.sandbox_id = Some(sandbox_id.clone());
+        meta.function_container.timeout_secs = sandbox_timeout_secs;
 
         // Remove from warm index (container is no longer warm after claiming)
         if let Some(warm_ids) = self.warm_containers_by_pool.get_mut(pool_key) {

@@ -24,6 +24,7 @@ use crate::{
         SandboxKey,
         SandboxOutcome,
         SandboxStatus,
+        SandboxSuccessReason,
     },
     processor::{container_scheduler::ContainerScheduler, retry_policy::FunctionRunRetryPolicy},
     state_store::{
@@ -691,8 +692,15 @@ impl ContainerReconciler {
         let mut terminated_sandbox = sandbox.as_ref().clone();
         terminated_sandbox.status = SandboxStatus::Terminated;
 
-        // Determine outcome based on container termination reason
+        // Determine outcome based on container termination reason.
+        // FunctionTimeout means the sandbox ran until its timeout expired —
+        // this is normal/expected, not a failure.
         terminated_sandbox.outcome = match &container.state {
+            ContainerState::Terminated { reason, .. }
+                if *reason == FunctionExecutorTerminationReason::FunctionTimeout =>
+            {
+                Some(SandboxOutcome::Success(SandboxSuccessReason::Timeout))
+            }
             ContainerState::Terminated { reason, .. } => Some(SandboxOutcome::Failure(
                 SandboxFailureReason::ContainerTerminated(*reason),
             )),

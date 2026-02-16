@@ -2649,8 +2649,8 @@ impl Display for SandboxPendingReason {
 pub enum SandboxOutcome {
     #[default]
     Unknown,
-    /// Sandbox completed successfully (user terminated)
-    Success,
+    /// Sandbox completed successfully
+    Success(SandboxSuccessReason),
     /// Sandbox failed due to an error
     Failure(SandboxFailureReason),
 }
@@ -2659,8 +2659,30 @@ impl Display for SandboxOutcome {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             SandboxOutcome::Unknown => write!(f, "Unknown"),
-            SandboxOutcome::Success => write!(f, "Success"),
+            SandboxOutcome::Success(reason) => write!(f, "Success({reason})"),
             SandboxOutcome::Failure(reason) => write!(f, "Failure({reason})"),
+        }
+    }
+}
+
+/// Reason for successful sandbox termination
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SandboxSuccessReason {
+    #[default]
+    Unknown,
+    /// User explicitly terminated the sandbox
+    UserTerminated,
+    /// Sandbox ran until its timeout expired
+    Timeout,
+}
+
+impl Display for SandboxSuccessReason {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            SandboxSuccessReason::Unknown => write!(f, "Unknown"),
+            SandboxSuccessReason::UserTerminated => write!(f, "UserTerminated"),
+            SandboxSuccessReason::Timeout => write!(f, "Timeout"),
         }
     }
 }
@@ -2673,8 +2695,9 @@ pub enum SandboxFailureReason {
     Unknown,
     /// Internal platform error
     InternalError,
-    /// Sandbox timed out
-    Timeout,
+    /// Placeholder — preserves postcard variant index for existing data.
+    #[doc(hidden)]
+    _Reserved,
     /// No executor could satisfy placement constraints
     ConstraintUnsatisfiable,
     /// Executor was removed
@@ -2694,7 +2717,7 @@ impl Display for SandboxFailureReason {
         match self {
             SandboxFailureReason::Unknown => write!(f, "Unknown"),
             SandboxFailureReason::InternalError => write!(f, "InternalError"),
-            SandboxFailureReason::Timeout => write!(f, "Timeout"),
+            SandboxFailureReason::_Reserved => write!(f, "Reserved"),
             SandboxFailureReason::ConstraintUnsatisfiable => write!(f, "ConstraintUnsatisfiable"),
             SandboxFailureReason::ExecutorRemoved => write!(f, "ExecutorRemoved"),
             SandboxFailureReason::OutOfMemory => write!(f, "OutOfMemory"),
