@@ -17,6 +17,7 @@ tonic = { workspace = true, features = ["transport"] }
 tracing.workspace = true
 tracing-subscriber.workspace = true
 anyhow.workspace = true
+thiserror.workspace = true
 clap.workspace = true
 proto-api.workspace = true
 axum.workspace = true
