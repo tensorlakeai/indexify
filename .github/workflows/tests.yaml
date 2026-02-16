@@ -21,8 +21,8 @@ jobs:
     name: Lint Indexify Server
     runs-on: ubuntu-latest
     steps:
-      - name: Install protobuf package
-        run: sudo apt update && sudo apt install -y protobuf-compiler
+      - name: Install protobuf and musl tools
+        run: sudo apt update && sudo apt install -y protobuf-compiler musl-tools
       - uses: actions/checkout@v6
       - name: Setup Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
@@ -30,6 +30,8 @@ jobs:
           components: clippy, rustfmt
           cache-directories: |
             target
+      - name: Install musl target for static daemon binary
+        run: rustup target add x86_64-unknown-linux-musl
       - name: Install Just
         uses: extractions/setup-just@v3
       - name: Check formatting of indexify-server
@@ -58,7 +60,7 @@ jobs:
       - name: Install Just
         uses: extractions/setup-just@v3
       - name: Build indexify-server
-        run: DAEMON_STATIC=1 just build-rust
+        run: just build-rust
       - name: Test indexify-server
         run: just test-rust
       - name: Upload indexify-server
