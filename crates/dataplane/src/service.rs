@@ -69,7 +69,8 @@ pub struct Service {
 impl Service {
     pub async fn new(config: DataplaneConfig) -> Result<Self> {
         let channel = create_channel(&config).await?;
-        let mut host_resources = probe_host_resources();
+        let discovered_gpus = crate::gpu_allocator::discover_gpus();
+        let mut host_resources = probe_host_resources(&discovered_gpus);
 
         // Apply resource overrides from config.
         if let Some(overrides) = &config.resource_overrides {
@@ -90,10 +91,21 @@ impl Service {
             );
         }
 
+        tracing::info!(
+            cpu_count = ?host_resources.cpu_count,
+            memory_bytes = ?host_resources.memory_bytes,
+            disk_bytes = ?host_resources.disk_bytes,
+            gpu_count = discovered_gpus.len(),
+            gpu_model = ?host_resources.gpu.as_ref().and_then(|g| g.model),
+            "Host resources discovered"
+        );
+
         let metrics = Arc::new(DataplaneMetrics::new());
 
         let driver = create_process_driver(&config)?;
-        let image_resolver: Arc<dyn ImageResolver> = Arc::new(DefaultImageResolver::new());
+        let image_resolver: Arc<dyn ImageResolver> = Arc::new(DefaultImageResolver::new(
+            config.default_function_image.clone(),
+        ));
 
         let state_file = Arc::new(
             StateFile::new(&config.state_file)
@@ -118,9 +130,12 @@ impl Service {
         let (result_tx, result_rx) = mpsc::unbounded_channel();
         let state_change_notify = Arc::new(Notify::new());
 
+        let gpu_allocator = Arc::new(crate::gpu_allocator::GpuAllocator::new(discovered_gpus));
+
         let spawn_config = FESpawnConfig {
             driver: driver.clone(),
             image_resolver,
+            gpu_allocator,
             result_tx,
             server_channel: channel.clone(),
             blob_store,
@@ -735,23 +750,33 @@ async fn try_reconcile(
         .cloned()
         .collect();
 
-    let mut reconciler = state_reconciler.lock().await;
-    reconciler.reconcile(valid_fes).await;
+    // Validate and collect allocations with their FE IDs
+    let allocations: Vec<_> = state
+        .allocations
+        .iter()
+        .filter(|a| {
+            if let Err(e) = validation::validate_allocation(a) {
+                tracing::warn!(
+                    allocation_id = ?a.allocation_id,
+                    error = %e,
+                    "Skipping invalid Allocation"
+                );
+                false
+            } else {
+                true
+            }
+        })
+        .filter_map(|a| {
+            a.function_executor_id
+                .as_ref()
+                .map(|fe_id| (fe_id.clone(), a.clone()))
+        })
+        .collect();
 
-    // Route allocations to their FE controllers, skip invalid ones
-    for allocation in &state.allocations {
-        if let Err(e) = validation::validate_allocation(allocation) {
-            tracing::warn!(
-                allocation_id = ?allocation.allocation_id,
-                error = %e,
-                "Skipping invalid Allocation"
-            );
-            continue;
-        }
-        if let Some(fe_id) = &allocation.function_executor_id {
-            reconciler.add_allocation(fe_id, allocation.clone());
-        }
-    }
+    let mut reconciler = state_reconciler.lock().await;
+
+    // Bundle FE descriptions + allocations for atomic reconciliation
+    reconciler.reconcile(valid_fes, allocations).await;
 
     // Route function call results to registered watchers
     if !state.function_call_results.is_empty() {
@@ -794,9 +819,23 @@ async fn wait_for_shutdown_signal() -> &'static str {
 fn create_process_driver(config: &DataplaneConfig) -> Result<Arc<dyn ProcessDriver>> {
     match &config.driver {
         DriverConfig::ForkExec => Ok(Arc::new(ForkExecDriver::new())),
-        DriverConfig::Docker { address } => match address {
-            Some(addr) => Ok(Arc::new(DockerDriver::with_address(addr)?)),
-            None => Ok(Arc::new(DockerDriver::new()?)),
+        DriverConfig::Docker {
+            address,
+            runtime,
+            network,
+            binds,
+        } => match address {
+            Some(addr) => Ok(Arc::new(DockerDriver::with_address(
+                addr,
+                runtime.clone(),
+                network.clone(),
+                binds.clone(),
+            )?)),
+            None => Ok(Arc::new(DockerDriver::new(
+                runtime.clone(),
+                network.clone(),
+                binds.clone(),
+            )?)),
         },
     }
 }

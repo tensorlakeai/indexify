@@ -30,6 +30,8 @@ pub struct ResourceLimits {
     /// CPU limit in millicores (1000 = 1 CPU core), equivalent to
     /// `cpu_ms_per_sec` from the server proto.
     pub cpu_millicores: Option<u64>,
+    /// Specific GPU UUIDs to pass to the container via Docker DeviceRequest.
+    pub gpu_device_ids: Option<Vec<String>>,
 }
 
 /// Configuration for starting a process.
@@ -104,4 +106,10 @@ pub trait ProcessDriver: Send + Sync {
     /// List all container IDs managed by this driver.
     /// Used for cleanup of orphaned containers.
     async fn list_containers(&self) -> Result<Vec<String>>;
+
+    /// Get the last `tail` lines of stdout/stderr from a container.
+    /// Returns empty string for drivers that don't support log retrieval.
+    async fn get_logs(&self, _handle: &ProcessHandle, _tail: u32) -> Result<String> {
+        Ok(String::new())
+    }
 }

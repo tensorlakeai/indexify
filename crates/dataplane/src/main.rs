@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use anyhow::Context;
 use clap::Parser;
 
+mod allocation_controller;
 mod blob_ops;
 mod code_cache;
 mod config;
@@ -11,6 +12,7 @@ mod daemon_client;
 mod driver;
 mod function_container_manager;
 mod function_executor;
+mod gpu_allocator;
 mod grpc;
 mod http_proxy;
 mod metrics;

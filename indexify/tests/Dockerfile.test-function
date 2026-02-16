@@ -1,0 +1,4 @@
+FROM python:3.10-slim
+WORKDIR /app
+COPY tensorlake-dist/ /tmp/tensorlake-dist/
+RUN pip install --no-cache-dir /tmp/tensorlake-dist/*.whl && rm -rf /tmp/tensorlake-dist/

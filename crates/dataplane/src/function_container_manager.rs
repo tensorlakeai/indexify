@@ -157,7 +157,7 @@ impl FunctionContainerManager {
             }
         };
 
-        let recovered_info = ContainerInfo::from_description(&description);
+        let recovered_info = ContainerInfo::from_description(&description, &self.executor_id);
         tracing::info!(
             container_id = %entry.container_id,
             handle_id = %entry.handle_id,
@@ -173,6 +173,7 @@ impl FunctionContainerManager {
         let sandbox_claimed_at = sandbox_id_for_index.as_ref().map(|_| Instant::now());
         let container = ManagedContainer {
             description,
+            executor_id: self.executor_id.clone(),
             state: ContainerState::Running {
                 handle,
                 daemon_client,
@@ -323,7 +324,7 @@ impl FunctionContainerManager {
             None => return,
         };
 
-        let info = ContainerInfo::from_description(&desc);
+        let info = ContainerInfo::from_description(&desc, &self.executor_id);
         let container_type = container_type_str(&desc);
 
         tracing::info!(
@@ -344,6 +345,7 @@ impl FunctionContainerManager {
 
         let container = ManagedContainer {
             description: desc.clone(),
+            executor_id: self.executor_id.clone(),
             state: ContainerState::Pending,
             created_at: Instant::now(),
             started_at: None,
@@ -365,11 +367,17 @@ impl FunctionContainerManager {
         let metrics = self.metrics.clone();
         let state_file = self.state_file.clone();
         let executor_id = self.executor_id.clone();
+        let executor_id_lifecycle = self.executor_id.clone();
 
         tokio::spawn(
             async move {
-                let result =
-                    lifecycle::start_container_with_daemon(&driver, &image_resolver, &desc).await;
+                let result = lifecycle::start_container_with_daemon(
+                    &driver,
+                    &image_resolver,
+                    &desc,
+                    &executor_id_lifecycle,
+                )
+                .await;
                 lifecycle::handle_container_startup_result(
                     id,
                     desc,
@@ -403,7 +411,7 @@ impl FunctionContainerManager {
 
         if let Some(container) = containers.get_mut(id) {
             if old_sandbox_id.is_none() && new_sandbox_id.is_some() {
-                let info = ContainerInfo::from_description(&desc);
+                let info = ContainerInfo::from_description(&desc, &self.executor_id);
                 tracing::info!(
                     container_id = %info.container_id,
                     sandbox_id = ?new_sandbox_id,
@@ -739,7 +747,7 @@ mod tests {
     #[test]
     fn test_function_info_from_description() {
         let desc = create_test_fe_description("fe-123");
-        let info = ContainerInfo::from_description(&desc);
+        let info = ContainerInfo::from_description(&desc, "test-executor");
 
         assert_eq!(info.container_id, "fe-123");
         assert_eq!(info.namespace, "test-ns");
@@ -763,7 +771,7 @@ mod tests {
             container_type: None,
             pool_id: None,
         };
-        let info = ContainerInfo::from_description(&desc);
+        let info = ContainerInfo::from_description(&desc, "test-executor");
 
         assert_eq!(info.container_id, "");
         assert_eq!(info.namespace, "");
@@ -774,7 +782,7 @@ mod tests {
 
     #[test]
     fn test_default_image_resolver_no_image() {
-        let resolver = DefaultImageResolver::new();
+        let resolver = DefaultImageResolver::new(None);
         let result = resolver.sandbox_image_for_pool("ns", "pool-1");
         assert!(result.is_err());
         assert!(
@@ -807,6 +815,7 @@ mod tests {
     fn test_container_state_to_proto_pending() {
         let container = ManagedContainer {
             description: create_test_fe_description("fe-123"),
+            executor_id: "test-executor".to_string(),
             state: ContainerState::Pending,
             created_at: Instant::now(),
             started_at: None,
@@ -825,6 +834,7 @@ mod tests {
     fn test_container_state_to_proto_terminated() {
         let container = ManagedContainer {
             description: create_test_fe_description("fe-123"),
+            executor_id: "test-executor".to_string(),
             state: ContainerState::Terminated {
                 reason: FunctionExecutorTerminationReason::StartupFailedInternalError,
             },
@@ -858,7 +868,7 @@ mod tests {
 
     async fn create_test_manager() -> (Arc<MockProcessDriver>, FunctionContainerManager) {
         let driver = Arc::new(MockProcessDriver::new());
-        let resolver = Arc::new(DefaultImageResolver::new());
+        let resolver = Arc::new(DefaultImageResolver::new(None));
         let metrics = create_test_metrics();
         let state_file = create_test_state_file().await;
         let manager = FunctionContainerManager::new(
@@ -994,6 +1004,7 @@ mod tests {
         // Container with no timeout (timeout_secs = 0) should never time out
         let container = ManagedContainer {
             description: create_test_fe_description("fe-123"),
+            executor_id: "test-executor".to_string(),
             state: ContainerState::Pending,
             created_at: Instant::now(),
             started_at: Some(Instant::now() - Duration::from_secs(1000)),
@@ -1008,6 +1019,7 @@ mod tests {
         // Container that's not running should not report as timed out
         let container = ManagedContainer {
             description: create_test_fe_description_with_timeout("fe-123", 10),
+            executor_id: "test-executor".to_string(),
             state: ContainerState::Pending,
             created_at: Instant::now(),
             started_at: Some(Instant::now() - Duration::from_secs(100)),
@@ -1022,6 +1034,7 @@ mod tests {
         // Container without started_at should not report as timed out
         let container = ManagedContainer {
             description: create_test_fe_description_with_timeout("fe-123", 10),
+            executor_id: "test-executor".to_string(),
             state: ContainerState::Terminated {
                 reason: FunctionExecutorTerminationReason::Unknown,
             },
@@ -1037,6 +1050,7 @@ mod tests {
     async fn test_is_timed_out_within_timeout() {
         let container = ManagedContainer {
             description: create_test_fe_description_with_timeout("fe-123", 600), // 10 min timeout
+            executor_id: "test-executor".to_string(),
             state: ContainerState::Running {
                 handle: create_mock_handle("test-container"),
                 daemon_client: create_mock_daemon_client(),
@@ -1053,6 +1067,7 @@ mod tests {
     async fn test_is_timed_out_exceeded() {
         let container = ManagedContainer {
             description: create_test_fe_description_with_timeout("fe-123", 10), // 10 sec timeout
+            executor_id: "test-executor".to_string(),
             state: ContainerState::Running {
                 handle: create_mock_handle("test-container"),
                 daemon_client: create_mock_daemon_client(),
@@ -1070,6 +1085,7 @@ mod tests {
     async fn test_is_timed_out_exactly_at_boundary() {
         let container = ManagedContainer {
             description: create_test_fe_description_with_timeout("fe-123", 10),
+            executor_id: "test-executor".to_string(),
             state: ContainerState::Running {
                 handle: create_mock_handle("test-container"),
                 daemon_client: create_mock_daemon_client(),
@@ -1095,6 +1111,7 @@ mod tests {
             let mut containers = manager.containers.write().await;
             let container = ManagedContainer {
                 description: create_test_fe_description_with_timeout("fe-timeout-test", 5),
+                executor_id: "test-executor".to_string(),
                 state: ContainerState::Running {
                     handle: create_mock_handle("test-container"),
                     daemon_client: create_mock_daemon_client(),
@@ -1144,6 +1161,7 @@ mod tests {
             let mut containers = manager.containers.write().await;
             let container = ManagedContainer {
                 description: create_test_fe_description_with_timeout("fe-not-expired", 600),
+                executor_id: "test-executor".to_string(),
                 state: ContainerState::Running {
                     handle: create_mock_handle("test-container"),
                     daemon_client: create_mock_daemon_client(),
@@ -1178,6 +1196,7 @@ mod tests {
             let mut containers = manager.containers.write().await;
             let container = ManagedContainer {
                 description: create_test_fe_description("fe-no-timeout"), // No timeout (None)
+                executor_id: "test-executor".to_string(),
                 state: ContainerState::Running {
                     handle: create_mock_handle("test-container"),
                     daemon_client: create_mock_daemon_client(),
@@ -1210,6 +1229,7 @@ mod tests {
         // should NOT time out even when started_at has elapsed past the timeout.
         let container = ManagedContainer {
             description: create_test_fe_description_with_timeout("fe-warm", 10), // 10 sec timeout
+            executor_id: "test-executor".to_string(),
             state: ContainerState::Running {
                 handle: create_mock_handle("test-container"),
                 daemon_client: create_mock_daemon_client(),
@@ -1238,6 +1258,7 @@ mod tests {
             let mut containers = manager.containers.write().await;
             let container = ManagedContainer {
                 description: create_test_fe_description_with_timeout("fe-warm-claim", 60),
+                executor_id: "test-executor".to_string(),
                 state: ContainerState::Running {
                     handle: create_mock_handle("test-container"),
                     daemon_client: create_mock_daemon_client(),
@@ -1302,6 +1323,7 @@ mod tests {
                 "pool-nanoid-123".to_string(),
                 ManagedContainer {
                     description: desc,
+                    executor_id: "test-executor".to_string(),
                     state: ContainerState::Running {
                         handle: create_mock_handle("test-container"),
                         daemon_client: create_mock_daemon_client(),

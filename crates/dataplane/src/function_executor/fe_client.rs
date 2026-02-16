@@ -20,13 +20,15 @@ use proto_api::function_executor_pb::{
     WatchAllocationStateRequest,
     function_executor_client::FunctionExecutorClient,
 };
-use tonic::{Streaming, transport::Channel};
+use tonic::{Request, Streaming, transport::Channel};
 use tracing::debug;
 
 /// Client for communicating with a function executor subprocess.
 #[derive(Clone)]
 pub struct FunctionExecutorGrpcClient {
     client: FunctionExecutorClient<Channel>,
+    /// Optional per-request timeout applied to all gRPC calls.
+    timeout: Option<Duration>,
 }
 
 impl FunctionExecutorGrpcClient {
@@ -36,7 +38,15 @@ impl FunctionExecutorGrpcClient {
         debug!(addr = %addr, "Connecting to function executor");
         let channel = crate::grpc::connect_channel(addr).await?;
         let client = FunctionExecutorClient::new(channel);
-        Ok(Self { client })
+        Ok(Self {
+            client,
+            timeout: None,
+        })
+    }
+
+    /// Set a per-request timeout for all gRPC calls made by this client.
+    pub fn set_timeout(&mut self, timeout: Duration) {
+        self.timeout = Some(timeout);
     }
 
     /// Try to connect to the FE, retrying until timeout.
@@ -54,11 +64,20 @@ impl FunctionExecutorGrpcClient {
         .await
     }
 
+    /// Build a tonic `Request`, applying the client-level timeout if set.
+    fn request<T>(&self, msg: T) -> Request<T> {
+        let mut req = Request::new(msg);
+        if let Some(timeout) = self.timeout {
+            req.set_timeout(timeout);
+        }
+        req
+    }
+
     /// Initialize the function executor for a particular function.
     pub async fn initialize(&mut self, request: InitializeRequest) -> Result<InitializeResponse> {
         let response = self
             .client
-            .initialize(request)
+            .initialize(self.request(request))
             .await
             .context("FE initialize RPC failed")?
             .into_inner();
@@ -68,7 +87,7 @@ impl FunctionExecutorGrpcClient {
     /// Create and start an allocation on the function executor.
     pub async fn create_allocation(&mut self, request: CreateAllocationRequest) -> Result<()> {
         self.client
-            .create_allocation(request)
+            .create_allocation(self.request(request))
             .await
             .context("FE create_allocation RPC failed")?;
         Ok(())
@@ -84,7 +103,7 @@ impl FunctionExecutorGrpcClient {
         };
         let response = self
             .client
-            .watch_allocation_state(request)
+            .watch_allocation_state(self.request(request))
             .await
             .context("FE watch_allocation_state RPC failed")?;
         Ok(response.into_inner())
@@ -94,7 +113,7 @@ impl FunctionExecutorGrpcClient {
     /// etc.).
     pub async fn send_allocation_update(&mut self, update: AllocationUpdate) -> Result<()> {
         self.client
-            .send_allocation_update(update)
+            .send_allocation_update(self.request(update))
             .await
             .context("FE send_allocation_update RPC failed")?;
         Ok(())
@@ -106,7 +125,7 @@ impl FunctionExecutorGrpcClient {
             allocation_id: Some(allocation_id.to_string()),
         };
         self.client
-            .delete_allocation(request)
+            .delete_allocation(self.request(request))
             .await
             .context("FE delete_allocation RPC failed")?;
         Ok(())
@@ -116,7 +135,7 @@ impl FunctionExecutorGrpcClient {
     pub async fn check_health(&mut self) -> Result<HealthCheckResponse> {
         let response = self
             .client
-            .check_health(HealthCheckRequest {})
+            .check_health(self.request(HealthCheckRequest {}))
             .await
             .context("FE check_health RPC failed")?
             .into_inner();
@@ -127,7 +146,7 @@ impl FunctionExecutorGrpcClient {
     pub async fn get_info(&mut self) -> Result<InfoResponse> {
         let response = self
             .client
-            .get_info(InfoRequest {})
+            .get_info(self.request(InfoRequest {}))
             .await
             .context("FE get_info RPC failed")?
             .into_inner();

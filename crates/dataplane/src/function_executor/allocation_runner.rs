@@ -166,10 +166,13 @@ impl AllocationRunner {
         }
     }
 
-    /// Delete allocation from FE and return a cancelled outcome, taking
-    /// accumulated blob handles.
-    async fn cancel_with_cleanup(&mut self) -> AllocationOutcome {
-        let _ = self.client.delete_allocation(&self.allocation_id).await;
+    /// Return a cancelled outcome, taking accumulated blob handles.
+    ///
+    /// Does NOT call delete_allocation on the FE — the cancel token only
+    /// fires when the FE is being terminated (crash, OOM, shutdown), so the
+    /// process is dead or about to be killed. Attempting the gRPC call would
+    /// hang on a half-open TCP connection to the dead container.
+    fn cancel_with_cleanup(&mut self) -> AllocationOutcome {
         AllocationOutcome::Cancelled {
             output_blob_handles: std::mem::take(&mut self.output_blob_handles),
         }
@@ -239,7 +242,7 @@ impl AllocationRunner {
         loop {
             if self.cancel_token.is_cancelled() {
                 info!("Allocation cancelled");
-                return self.cancel_with_cleanup().await;
+                return self.cancel_with_cleanup();
             }
 
             // Don't enforce the deadline while waiting for child functions.
@@ -259,7 +262,7 @@ impl AllocationRunner {
             let remaining = deadline.saturating_duration_since(Instant::now());
             let message = tokio::select! {
                 _ = self.cancel_token.cancelled() => {
-                    return self.cancel_with_cleanup().await;
+                    return self.cancel_with_cleanup();
                 }
                 Some(watcher_result) = self.watcher_result_rx.recv() => {
                     // Deliver watcher result to FE inline

@@ -4,7 +4,14 @@ use anyhow::{Context, Result};
 use async_trait::async_trait;
 use bollard::{
     Docker,
-    models::{ContainerCreateBody, ContainerStateStatusEnum, HostConfig, ResourcesUlimits},
+    models::{
+        ContainerCreateBody,
+        ContainerStateStatusEnum,
+        DeviceRequest,
+        HostConfig,
+        HostConfigLogConfig,
+        ResourcesUlimits,
+    },
     query_parameters::{
         CreateContainerOptions,
         CreateImageOptions,
@@ -33,14 +40,29 @@ const CONTAINER_DAEMON_PATH: &str = "/indexify-daemon";
 
 pub struct DockerDriver {
     docker: Docker,
+    /// OCI runtime to use for containers (e.g., "runsc" for gVisor).
+    runtime: Option<String>,
+    /// Docker network mode for containers.
+    network: Option<String>,
+    /// Volume bind mounts for function executor containers.
+    binds: Vec<String>,
 }
 
 impl DockerDriver {
     /// Create a new DockerDriver connecting to the default Docker socket.
-    pub fn new() -> Result<Self> {
+    pub fn new(
+        runtime: Option<String>,
+        network: Option<String>,
+        binds: Vec<String>,
+    ) -> Result<Self> {
         let docker =
             Docker::connect_with_local_defaults().context("Failed to connect to Docker daemon")?;
-        Ok(Self { docker })
+        Ok(Self {
+            docker,
+            runtime,
+            network,
+            binds,
+        })
     }
 
     /// Create a DockerDriver connecting to a specific Docker address.
@@ -49,7 +71,12 @@ impl DockerDriver {
     /// - Unix socket: `unix:///var/run/docker.sock` or `/var/run/docker.sock`
     /// - HTTP: `http://localhost:2375` or `tcp://localhost:2375`
     /// - HTTPS: `https://localhost:2376` (requires TLS setup)
-    pub fn with_address(address: &str) -> Result<Self> {
+    pub fn with_address(
+        address: &str,
+        runtime: Option<String>,
+        network: Option<String>,
+        binds: Vec<String>,
+    ) -> Result<Self> {
         let docker = if address.starts_with("http://") || address.starts_with("tcp://") {
             // HTTP connection
             let addr = address
@@ -72,7 +99,12 @@ impl DockerDriver {
             Docker::connect_with_socket(socket_path, 120, bollard::API_DEFAULT_VERSION)
                 .context("Failed to connect to Docker daemon via Unix socket")?
         };
-        Ok(Self { docker })
+        Ok(Self {
+            docker,
+            runtime,
+            network,
+            binds,
+        })
     }
 
     /// Check if an image exists locally.
@@ -164,7 +196,7 @@ impl DockerDriver {
 
 impl Default for DockerDriver {
     fn default() -> Self {
-        Self::new().expect("Failed to create default DockerDriver")
+        Self::new(None, None, Vec::new()).expect("Failed to create default DockerDriver")
     }
 }
 
@@ -206,11 +238,35 @@ fn build_ulimits() -> Vec<ResourcesUlimits> {
     ]
 }
 
+fn build_log_config() -> HostConfigLogConfig {
+    let mut config = HashMap::new();
+    config.insert("max-size".to_string(), "10m".to_string());
+    config.insert("max-file".to_string(), "3".to_string());
+    config.insert("compress".to_string(), "true".to_string());
+    config.insert("mode".to_string(), "non-blocking".to_string());
+    HostConfigLogConfig {
+        typ: Some("local".to_string()),
+        config: Some(config),
+    }
+}
+
+fn build_device_requests(device_ids: &[String]) -> Vec<DeviceRequest> {
+    vec![DeviceRequest {
+        driver: Some("nvidia".to_string()),
+        device_ids: Some(device_ids.to_vec()),
+        capabilities: Some(vec![vec!["gpu".to_string()]]),
+        ..Default::default()
+    }]
+}
+
 fn build_host_config_resources(resources: &Option<super::ResourceLimits>) -> HostConfig {
+    let log_config = Some(build_log_config());
+
     let Some(resources) = resources else {
         return HostConfig {
             shm_size: Some(SHMEM_SIZE),
             ulimits: Some(build_ulimits()),
+            log_config,
             ..Default::default()
         };
     };
@@ -225,12 +281,25 @@ fn build_host_config_resources(resources: &Option<super::ResourceLimits>) -> Hos
         (None, None)
     };
 
+    let device_requests = resources
+        .gpu_device_ids
+        .as_ref()
+        .filter(|ids| !ids.is_empty())
+        .map(|ids| build_device_requests(ids));
+
+    // memory_swap == memory means zero swap (Docker's memory_swap is RAM+swap
+    // total).
+    let memory_swap = memory;
+
     HostConfig {
         memory,
+        memory_swap,
         cpu_period,
         cpu_quota,
         shm_size: Some(SHMEM_SIZE),
         ulimits: Some(build_ulimits()),
+        log_config,
+        device_requests,
         ..Default::default()
     }
 }
@@ -270,12 +339,42 @@ impl DockerDriver {
         self.docker
             .create_container(Some(create_options), container_config)
             .await
-            .context("Failed to create container")?;
+            .with_context(|| format!("Failed to create container {}", spec.container_name))?;
 
-        self.docker
+        if let Err(e) = self
+            .docker
             .start_container(&spec.container_name, None::<StartContainerOptions>)
             .await
-            .context("Failed to start container")?;
+        {
+            // Container was created but failed to start — try to get logs
+            let logs = self
+                .get_container_logs_by_name(&spec.container_name, 50)
+                .await;
+            let log_context = if logs.is_empty() {
+                String::new()
+            } else {
+                format!("\nContainer logs:\n{logs}")
+            };
+
+            // Clean up the failed container
+            let _ = self
+                .docker
+                .remove_container(
+                    &spec.container_name,
+                    Some(RemoveContainerOptions {
+                        force: true,
+                        ..Default::default()
+                    }),
+                )
+                .await;
+
+            return Err(e).with_context(|| {
+                format!(
+                    "Failed to start container {}{}",
+                    spec.container_name, log_context
+                )
+            });
+        }
 
         let container_ip = self
             .get_container_ip(&spec.container_name)
@@ -285,17 +384,56 @@ impl DockerDriver {
         Ok((spec.container_name, container_ip))
     }
 
+    /// Build a base HostConfig with resource limits and driver-level settings
+    /// (runtime, network, log rotation, binds).
+    fn build_host_config(&self, resources: &Option<super::ResourceLimits>) -> HostConfig {
+        let mut host_config = build_host_config_resources(resources);
+        host_config.runtime = self.runtime.clone();
+        host_config.network_mode = self.network.clone();
+        if !self.binds.is_empty() {
+            let existing = host_config.binds.get_or_insert_with(Vec::new);
+            existing.extend(self.binds.clone());
+        }
+        host_config
+    }
+
+    /// Get container logs by name (for error diagnostics when we don't have a
+    /// ProcessHandle yet).
+    async fn get_container_logs_by_name(&self, container_name: &str, tail: u32) -> String {
+        use bollard::query_parameters::LogsOptions;
+
+        let options = LogsOptions {
+            stdout: true,
+            stderr: true,
+            tail: tail.to_string(),
+            ..Default::default()
+        };
+
+        let mut stream = self.docker.logs(container_name, Some(options));
+        let mut output = String::new();
+        const MAX_LOG_BYTES: usize = 4096;
+
+        while let Some(result) = stream.next().await {
+            match result {
+                Ok(log_output) => {
+                    let line = log_output.to_string();
+                    if output.len() + line.len() > MAX_LOG_BYTES {
+                        output.push_str(&line[..MAX_LOG_BYTES.saturating_sub(output.len())]);
+                        output.push_str("\n... (truncated)");
+                        break;
+                    }
+                    output.push_str(&line);
+                }
+                _ => break,
+            }
+        }
+
+        output
+    }
+
     /// Build a ContainerSpec for a function executor container.
     fn build_function_spec(&self, config: &ProcessConfig, image: &str) -> ContainerSpec {
-        let container_name = format!("indexify-{}", config.id);
         let fe_grpc_port: u16 = 9600;
-
-        let env: Vec<String> = config
-            .env
-            .iter()
-            .map(|(k, v)| format!("{}={}", k, v))
-            .collect();
-        let labels: HashMap<String, String> = config.labels.iter().cloned().collect();
 
         let mut cmd: Vec<String> = config.args.clone();
         cmd.push("--address".to_string());
@@ -308,36 +446,28 @@ impl DockerDriver {
         };
 
         ContainerSpec {
-            container_name,
+            container_name: format!("indexify-{}", config.id),
             image: image.to_string(),
             entrypoint,
             cmd,
-            env,
-            labels,
+            env: format_env(&config.env),
+            labels: config.labels.iter().cloned().collect(),
             working_dir: config.working_dir.clone(),
-            host_config: build_host_config_resources(&config.resources),
+            host_config: self.build_host_config(&config.resources),
         }
     }
 
     /// Build a ContainerSpec for a sandbox container with daemon injection.
     fn build_sandbox_spec(&self, config: &ProcessConfig, image: &str) -> Result<ContainerSpec> {
-        let container_name = format!("indexify-{}", config.id);
-
         let daemon_binary_path =
             daemon_binary::get_daemon_path().context("Daemon binary not available")?;
 
-        let binds = vec![format!(
+        let mut host_config = self.build_host_config(&config.resources);
+        host_config.binds = Some(vec![format!(
             "{}:{}:ro",
             daemon_binary_path.display(),
             CONTAINER_DAEMON_PATH
-        )];
-
-        let env: Vec<String> = config
-            .env
-            .iter()
-            .map(|(k, v)| format!("{}={}", k, v))
-            .collect();
-        let labels: HashMap<String, String> = config.labels.iter().cloned().collect();
+        )]);
 
         let mut cmd: Vec<String> = vec![
             "--port".to_string(),
@@ -354,16 +484,13 @@ impl DockerDriver {
             cmd.extend(config.args.clone());
         }
 
-        let mut host_config = build_host_config_resources(&config.resources);
-        host_config.binds = Some(binds);
-
         Ok(ContainerSpec {
-            container_name,
+            container_name: format!("indexify-{}", config.id),
             image: image.to_string(),
             entrypoint: Some(vec![CONTAINER_DAEMON_PATH.to_string()]),
             cmd,
-            env,
-            labels,
+            env: format_env(&config.env),
+            labels: config.labels.iter().cloned().collect(),
             working_dir: config.working_dir.clone(),
             host_config,
         })
@@ -554,4 +681,43 @@ impl ProcessDriver for DockerDriver {
 
         Ok(names)
     }
+
+    async fn get_logs(&self, handle: &ProcessHandle, tail: u32) -> Result<String> {
+        use bollard::query_parameters::LogsOptions;
+
+        let options = LogsOptions {
+            stdout: true,
+            stderr: true,
+            tail: tail.to_string(),
+            ..Default::default()
+        };
+
+        let mut stream = self.docker.logs(&handle.id, Some(options));
+        let mut output = String::new();
+        const MAX_LOG_BYTES: usize = 4096;
+
+        while let Some(result) = stream.next().await {
+            match result {
+                Ok(log_output) => {
+                    let line = log_output.to_string();
+                    if output.len() + line.len() > MAX_LOG_BYTES {
+                        output.push_str(&line[..MAX_LOG_BYTES.saturating_sub(output.len())]);
+                        output.push_str("\n... (truncated)");
+                        break;
+                    }
+                    output.push_str(&line);
+                }
+                Err(bollard::errors::Error::DockerResponseServerError {
+                    status_code: 404, ..
+                }) => break,
+                Err(e) => return Err(e).context("Failed to fetch container logs"),
+            }
+        }
+
+        Ok(output)
+    }
+}
+
+fn format_env(env: &[(String, String)]) -> Vec<String> {
+    env.iter().map(|(k, v)| format!("{}={}", k, v)).collect()
 }

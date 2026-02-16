@@ -225,7 +225,7 @@ pub fn serde_json_to_otel_any_value(value: &JsonValue) -> AnyValue {
 
 #[cfg(test)]
 mod tests {
-    use chrono::{DateTime, SecondsFormat};
+    use chrono::DateTime;
 
     use super::*;
     use crate::{
@@ -248,12 +248,10 @@ mod tests {
     }
 
     fn date_value(v: &DateTime<Utc>) -> Option<AnyValue> {
-        // Serde serializes times with different precissions depending on the target os.
-        #[cfg(not(target_os = "linux"))]
-        let format = SecondsFormat::Micros;
-        #[cfg(target_os = "linux")]
-        let format = SecondsFormat::Nanos;
-        string_value(&v.to_rfc3339_opts(format, true))
+        // Use serde to produce the exact same string that the production code
+        // generates, avoiding platform-dependent precision mismatches.
+        let s = serde_json::to_value(v).unwrap();
+        string_value(s.as_str().unwrap())
     }
 
     fn make_test_ctx(

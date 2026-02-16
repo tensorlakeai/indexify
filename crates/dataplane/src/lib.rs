@@ -2,6 +2,7 @@
 //!
 //! This module exposes the dataplane components for testing and reuse.
 
+pub mod allocation_controller;
 pub mod blob_ops;
 pub mod code_cache;
 pub mod config;
@@ -10,12 +11,13 @@ pub mod daemon_client;
 pub mod driver;
 pub mod function_container_manager;
 pub mod function_executor;
+pub mod gpu_allocator;
 pub mod grpc;
 pub mod http_proxy;
 pub mod metrics;
 pub mod monitoring;
 pub mod network_rules;
-mod resources;
+pub mod resources;
 pub mod retry;
 pub mod state_file;
 pub mod state_reconciler;

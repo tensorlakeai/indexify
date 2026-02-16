@@ -26,8 +26,9 @@ pub(super) async fn start_container_with_daemon(
     driver: &Arc<dyn ProcessDriver>,
     image_resolver: &Arc<dyn ImageResolver>,
     desc: &FunctionExecutorDescription,
+    executor_id: &str,
 ) -> anyhow::Result<(ProcessHandle, DaemonClient)> {
-    let info = ContainerInfo::from_description(desc);
+    let info = ContainerInfo::from_description(desc, executor_id);
 
     // Prefer image from sandbox_metadata (server-provided)
     let image = if let Some(ref meta) = desc.sandbox_metadata &&
@@ -42,14 +43,17 @@ pub(super) async fn start_container_with_daemon(
         anyhow::bail!("Cannot determine image: no sandbox_metadata.image, pool_id, or sandbox_id")
     };
 
-    // Extract resource limits from the function executor description
-    let resources = desc.resources.as_ref().map(|r| {
-        crate::driver::ResourceLimits {
-            // cpu_ms_per_sec is equivalent to millicores (1000 = 1 CPU)
+    // Extract resource limits from the function executor description.
+    // Note: sandbox containers don't currently support GPU passthrough.
+    // GPU allocation is handled by the FE controller for function containers.
+    let resources = desc
+        .resources
+        .as_ref()
+        .map(|r| crate::driver::ResourceLimits {
             cpu_millicores: r.cpu_ms_per_sec.map(|v| v as u64),
             memory_bytes: r.memory_bytes,
-        }
-    });
+            gpu_device_ids: None,
+        });
 
     // Start the container with the daemon as PID 1.
     // If entrypoint is provided in sandbox_metadata, pass it to the daemon to start
@@ -109,7 +113,9 @@ pub(super) async fn start_container_with_daemon(
     {
         tracing::warn!(
             container_id = %info.container_id,
-            container_id = %handle.id,
+            executor_id = %info.executor_id,
+            namespace = %info.namespace,
+            container_handle_id = %handle.id,
             error = %e,
             "Failed to apply network rules (continuing anyway)"
         );
@@ -124,25 +130,66 @@ pub(super) async fn start_container_with_daemon(
 
     tracing::info!(
         container_id = %info.container_id,
-        container_id = %handle.id,
+        executor_id = %info.executor_id,
+        namespace = %info.namespace,
+        container_handle_id = %handle.id,
         daemon_addr = %daemon_addr,
         "Container started, connecting to daemon"
     );
 
     // Connect to the daemon with retry (container may take a moment to start)
-    let mut daemon_client =
-        DaemonClient::connect_with_retry(daemon_addr, DAEMON_READY_TIMEOUT).await?;
+    let daemon_result = async {
+        let mut daemon_client =
+            DaemonClient::connect_with_retry(daemon_addr, DAEMON_READY_TIMEOUT).await?;
+        daemon_client.wait_for_ready(DAEMON_READY_TIMEOUT).await?;
+        Ok::<_, anyhow::Error>(daemon_client)
+    }
+    .await;
 
-    // Wait for daemon to be ready
-    daemon_client.wait_for_ready(DAEMON_READY_TIMEOUT).await?;
+    match daemon_result {
+        Ok(daemon_client) => {
+            tracing::info!(
+                container_id = %info.container_id,
+                executor_id = %info.executor_id,
+                namespace = %info.namespace,
+                container_handle_id = %handle.id,
+                "Daemon ready, waiting for HTTP API commands"
+            );
+            Ok((handle, daemon_client))
+        }
+        Err(e) => {
+            // Daemon failed to start — capture container logs for diagnostics
+            let container_logs = match driver.get_logs(&handle, 50).await {
+                Ok(logs) if !logs.is_empty() => logs,
+                Ok(_) => "(no logs available)".to_string(),
+                Err(log_err) => format!("(failed to fetch logs: {log_err})"),
+            };
 
-    tracing::info!(
-        container_id = %info.container_id,
-        container_id = %handle.id,
-        "Daemon ready, waiting for HTTP API commands"
-    );
+            tracing::error!(
+                container_id = %info.container_id,
+                executor_id = %info.executor_id,
+                namespace = %info.namespace,
+                container_handle_id = %handle.id,
+                container_logs = %container_logs,
+                error = %e,
+                "Daemon failed to start, killing container"
+            );
 
-    Ok((handle, daemon_client))
+            // Kill the orphaned container
+            if let Err(kill_err) = driver.kill(&handle).await {
+                tracing::warn!(
+                    container_id = %info.container_id,
+                    container_handle_id = %handle.id,
+                    error = %kill_err,
+                    "Failed to kill container after daemon startup failure"
+                );
+            }
+
+            Err(e.context(format!(
+                "Daemon failed to start. Container logs:\n{container_logs}"
+            )))
+        }
+    }
 }
 
 /// Handle the result of a container startup attempt.
@@ -217,7 +264,7 @@ pub(super) async fn handle_container_startup_result(
                 parent: &span,
                 container_type = %container_type,
                 startup_duration_ms = %startup_duration_ms,
-                error = %e,
+                error = format!("{:#}", e),
                 event = "container_startup_failed",
                 "Failed to start container"
             );

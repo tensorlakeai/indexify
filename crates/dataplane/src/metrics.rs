@@ -223,8 +223,6 @@ define_counters! {
     // Function executor lifecycle
     function_executor_creates: "indexify.dataplane.function_executor.creates", "Number of function executor create attempts";
     function_executor_create_errors: "indexify.dataplane.function_executor.create_errors", "Number of function executor create failures";
-    function_executor_destroys: "indexify.dataplane.function_executor.destroys", "Number of function executor destroy attempts";
-    function_executor_create_server_errors: "indexify.dataplane.function_executor.create_server_errors", "Number of FE process start failures";
 
     // Allocation lifecycle
     allocations_fetched: "indexify.dataplane.allocations_fetched", "Number of allocations received from server";
@@ -324,7 +322,6 @@ define_histograms! {
 
     // Function executor lifecycle
     function_executor_create_latency_seconds: "indexify.dataplane.function_executor.create_latency_seconds", "Function executor overall create latency", "s";
-    function_executor_destroy_latency_seconds: "indexify.dataplane.function_executor.destroy_latency_seconds", "Function executor destroy latency", "s";
     function_executor_create_server_latency_seconds: "indexify.dataplane.function_executor.create_server_latency_seconds", "FE process start latency", "s";
 
     // Allocation lifecycle
