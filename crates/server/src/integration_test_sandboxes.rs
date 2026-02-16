@@ -508,12 +508,13 @@ mod tests {
         assert_eq!(sandbox.status, SandboxStatus::Running);
 
         // Simulate executor reporting that the container terminated
+        // (e.g. Docker image pull failed during startup)
         let mut executor_state = executor.get_executor_server_state().await?;
 
-        // Mark all function executors as terminated
+        // Mark all function executors as terminated with StartupFailedInternalError
         for (_, fe) in executor_state.containers.iter_mut() {
             fe.state = ContainerState::Terminated {
-                reason: FunctionExecutorTerminationReason::DesiredStateRemoved,
+                reason: FunctionExecutorTerminationReason::StartupFailedInternalError,
                 failed_alloc_ids: vec![],
             };
         }
@@ -523,16 +524,24 @@ mod tests {
         executor.heartbeat(executor_state).await?;
         test_srv.process_all_state_changes().await?;
 
-        // Verify sandbox status after executor reports container terminated
+        // Verify sandbox is terminated with ContainerTerminated failure reason
         let sandbox = get_sandbox(&indexify_state, TEST_NAMESPACE, sandbox_id.get())
             .await
             .expect("Sandbox should still exist");
 
-        // The sandbox should reflect the container termination
-        tracing::info!(
-            "Sandbox status after container termination: {:?}, outcome: {:?}",
+        assert_eq!(
             sandbox.status,
-            sandbox.outcome
+            SandboxStatus::Terminated,
+            "Sandbox should be Terminated when executor reports container startup failure"
+        );
+        assert_eq!(
+            sandbox.outcome,
+            Some(SandboxOutcome::Failure(
+                SandboxFailureReason::ContainerTerminated(
+                    FunctionExecutorTerminationReason::StartupFailedInternalError,
+                )
+            )),
+            "Sandbox should have ContainerTerminated(StartupFailedInternalError) failure reason"
         );
 
         Ok(())
