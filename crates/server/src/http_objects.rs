@@ -940,9 +940,10 @@ pub struct PendingResourcesResponse {
     pub function_runs: ResourceProfileHistogram,
     /// Resource profiles for pending sandboxes
     pub sandboxes: ResourceProfileHistogram,
-    /// Resource profiles for pool deficits (gap between target and current
-    /// containers)
-    pub pool_deficits: ResourceProfileHistogram,
+    /// Function pool deficits (gap between target and current containers)
+    pub function_pool_deficits: ResourceProfileHistogram,
+    /// Sandbox pool deficits (gap between target and current containers)
+    pub sandbox_pool_deficits: ResourceProfileHistogram,
 }
 
 impl From<crate::state_store::in_memory_state::PendingResources> for PendingResourcesResponse {
@@ -950,7 +951,8 @@ impl From<crate::state_store::in_memory_state::PendingResources> for PendingReso
         Self {
             function_runs: pending.function_runs.into(),
             sandboxes: pending.sandboxes.into(),
-            pool_deficits: pending.pool_deficits.into(),
+            function_pool_deficits: pending.function_pool_deficits.into(),
+            sandbox_pool_deficits: pending.sandbox_pool_deficits.into(),
         }
     }
 }
