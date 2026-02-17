@@ -16,6 +16,7 @@ use crate::{
     daemon_client::DaemonClient,
     driver::{ProcessConfig, ProcessDriver, ProcessHandle},
     metrics::DataplaneMetrics,
+    secrets::SecretsProvider,
     state_file::{PersistedContainer, StateFile},
 };
 
@@ -25,8 +26,9 @@ pub(super) const DAEMON_READY_TIMEOUT: Duration = Duration::from_secs(60);
 pub(super) async fn start_container_with_daemon(
     driver: &Arc<dyn ProcessDriver>,
     image_resolver: &Arc<dyn ImageResolver>,
-    desc: &FunctionExecutorDescription,
+    secrets_provider: &Arc<dyn SecretsProvider>,
     executor_id: &str,
+    desc: &FunctionExecutorDescription,
 ) -> anyhow::Result<(ProcessHandle, DaemonClient)> {
     let info = ContainerInfo::from_description(desc, executor_id);
 
@@ -36,9 +38,11 @@ pub(super) async fn start_container_with_daemon(
     {
         img.clone()
     } else if let Some(ref pool_id) = desc.pool_id {
-        image_resolver.sandbox_image_for_pool(info.namespace, pool_id)?
+        image_resolver
+            .sandbox_image_for_pool(info.namespace, pool_id)
+            .await?
     } else if let Some(sid) = info.sandbox_id {
-        image_resolver.sandbox_image(info.namespace, sid)?
+        image_resolver.sandbox_image(info.namespace, sid).await?
     } else {
         anyhow::bail!("Cannot determine image: no sandbox_metadata.image, pool_id, or sandbox_id")
     };
@@ -87,13 +91,19 @@ pub(super) async fn start_container_with_daemon(
         ),
     ];
 
+    // Fetch secrets for this container
+    let secrets = secrets_provider
+        .fetch_secrets(executor_id, info.namespace, &desc.secret_names)
+        .await?;
+    let env: Vec<(String, String)> = secrets.into_iter().collect();
+
     let config = ProcessConfig {
         id: info.container_id.to_string(),
         process_type: crate::driver::ProcessType::Sandbox,
         image: Some(image),
         command,
         args,
-        env: vec![],
+        env,
         working_dir: None,
         resources,
         labels,

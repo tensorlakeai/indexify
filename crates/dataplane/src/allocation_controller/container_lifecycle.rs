@@ -631,15 +631,26 @@ async fn start_fe_process(
     let image = config
         .image_resolver
         .function_image(namespace, app, function, version)
+        .await
         .ok();
 
-    let env = vec![
+    // Build environment variables
+    let mut env = vec![
         (
             "INDEXIFY_EXECUTOR_ID".to_string(),
             config.executor_id.clone(),
         ),
         ("INDEXIFY_FE_ID".to_string(), fe_id.clone()),
     ];
+
+    // Fetch and inject secrets
+    let secrets = config
+        .secrets_provider
+        .fetch_secrets(&config.executor_id, namespace, &description.secret_names)
+        .await?;
+    for (k, v) in secrets {
+        env.push((k, v));
+    }
 
     let process_config = ProcessConfig {
         id: fe_id.clone(),

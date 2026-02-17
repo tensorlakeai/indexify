@@ -21,6 +21,7 @@ mod network_rules;
 mod otel_tracing;
 mod resources;
 mod retry;
+pub mod secrets;
 mod service;
 mod state_file;
 mod state_reconciler;

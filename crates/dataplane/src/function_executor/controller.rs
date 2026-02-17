@@ -15,6 +15,7 @@ use crate::{
     code_cache::CodeCache,
     driver::ProcessDriver,
     function_container_manager::ImageResolver,
+    secrets::SecretsProvider,
 };
 
 /// Shared configuration for spawning function executor controllers.
@@ -23,6 +24,7 @@ pub struct FESpawnConfig {
     pub driver: Arc<dyn ProcessDriver>,
     pub image_resolver: Arc<dyn ImageResolver>,
     pub gpu_allocator: Arc<crate::gpu_allocator::GpuAllocator>,
+    pub secrets_provider: Arc<dyn SecretsProvider>,
     pub result_tx: mpsc::UnboundedSender<ServerAllocationResult>,
     pub server_channel: Channel,
     pub blob_store: Arc<BlobStore>,
