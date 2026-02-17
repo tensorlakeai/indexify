@@ -968,15 +968,9 @@ pub struct CordonExecutorsRequest {
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct CordonExecutorsResponse {
-    /// Executors that were successfully cordoned and acknowledged the state
-    /// change
+    /// List of executor IDs that are now cordoned (includes already cordoned
+    /// executors)
     pub cordoned: Vec<String>,
-    /// Executors that were already in SchedulingDisabled state
-    pub already_cordoned: Vec<String>,
-    /// Executors that didn't acknowledge the state change within the timeout
-    pub timed_out: Vec<String>,
-    /// Executor IDs that were not found
-    pub not_found: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]

@@ -249,6 +249,7 @@ impl Service {
             executor_manager: self.executor_manager.clone(),
             metrics: api_metrics.clone(),
             config: self.config.clone(),
+            shutdown_rx: self.shutdown_rx.clone(),
         };
 
         let handle = Handle::new();
