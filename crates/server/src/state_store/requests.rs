@@ -168,7 +168,8 @@ pub struct SchedulerUpdateRequest {
     pub updated_sandboxes: HashMap<SandboxKey, Sandbox>,
     pub updated_pools: HashMap<ContainerPoolKey, ContainerPool>,
     pub deleted_pools: HashSet<ContainerPoolKey>,
-    pub pool_deficits: Option<super::in_memory_state::ResourceProfileHistogram>,
+    pub function_pool_deficits: Option<super::in_memory_state::ResourceProfileHistogram>,
+    pub sandbox_pool_deficits: Option<super::in_memory_state::ResourceProfileHistogram>,
     /// Pools that the buffer reconciler found unsatisfiable (no resources).
     /// Propagated to the real scheduler's blocked_pools for cross-cycle
     /// persistence so these pools are skipped until resources become available.
@@ -205,8 +206,11 @@ impl SchedulerUpdateRequest {
         self.updated_sandboxes.extend(other.updated_sandboxes);
         self.updated_pools.extend(other.updated_pools);
         self.deleted_pools.extend(other.deleted_pools);
-        if other.pool_deficits.is_some() {
-            self.pool_deficits = other.pool_deficits;
+        if other.function_pool_deficits.is_some() {
+            self.function_pool_deficits = other.function_pool_deficits;
+        }
+        if other.sandbox_pool_deficits.is_some() {
+            self.sandbox_pool_deficits = other.sandbox_pool_deficits;
         }
         self.newly_blocked_pools.extend(other.newly_blocked_pools);
     }

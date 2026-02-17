@@ -144,10 +144,12 @@ impl ResourceProfileHistogram {
 pub struct PendingResources {
     pub function_runs: ResourceProfileHistogram,
     pub sandboxes: ResourceProfileHistogram,
-    /// Pool deficits: gap between target and current container counts.
-    /// Target = min(max, max(min, active + buffer)).
+    /// Function pool deficits: gap between target and current container counts
+    /// for function pools. Target = min(max, max(min, active + buffer)).
     /// Computed by buffer reconciler after container creation attempts.
-    pub pool_deficits: ResourceProfileHistogram,
+    pub function_pool_deficits: ResourceProfileHistogram,
+    /// Sandbox pool deficits: same as above but for sandbox pools.
+    pub sandbox_pool_deficits: ResourceProfileHistogram,
 }
 
 pub struct DesiredStateFunctionExecutor {
@@ -894,8 +896,11 @@ impl InMemoryState {
                 }
 
                 // Update pool deficits if provided by buffer reconciler
-                if let Some(deficits) = &req.pool_deficits {
-                    self.pending_resources.pool_deficits = deficits.clone();
+                if let Some(deficits) = &req.function_pool_deficits {
+                    self.pending_resources.function_pool_deficits = deficits.clone();
+                }
+                if let Some(deficits) = &req.sandbox_pool_deficits {
+                    self.pending_resources.sandbox_pool_deficits = deficits.clone();
                 }
             }
             RequestPayload::UpsertExecutor(req) => {

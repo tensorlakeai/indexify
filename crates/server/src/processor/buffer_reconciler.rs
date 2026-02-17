@@ -188,7 +188,8 @@ impl BufferReconciler {
 
         // Phase 3: Trim excess idle containers AND compute deficits
         // (Combined to avoid duplicate container counting)
-        let mut deficits = ResourceProfileHistogram::default();
+        let mut function_pool_deficits = ResourceProfileHistogram::default();
+        let mut sandbox_pool_deficits = ResourceProfileHistogram::default();
 
         for pool in &pools {
             let min = pool.min_containers.unwrap_or(0);
@@ -235,11 +236,16 @@ impl BufferReconciler {
             if current_total < deficit_target {
                 let deficit = deficit_target - current_total;
                 let profile = ResourceProfile::from_container_resources(&pool.resources);
-                deficits.increment_by(profile, deficit as u64);
+                if pool.is_function_pool() {
+                    function_pool_deficits.increment_by(profile, deficit as u64);
+                } else {
+                    sandbox_pool_deficits.increment_by(profile, deficit as u64);
+                }
             }
         }
 
-        update.pool_deficits = Some(deficits);
+        update.function_pool_deficits = Some(function_pool_deficits);
+        update.sandbox_pool_deficits = Some(sandbox_pool_deficits);
 
         // Propagate blocked pools to the scheduler for cross-cycle persistence
         // and include in update for propagation to the real scheduler
