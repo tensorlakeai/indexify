@@ -164,7 +164,7 @@ pub fn configure_internal_routes(route_state: RouteState) -> Router {
             get(get_pending_resources).with_state(route_state.clone()),
         )
         .route(
-            "/internal/cordon",
+            "/internal/cordon-executors",
             post(cordon_executors).with_state(route_state.clone()),
         )
 }
@@ -724,7 +724,7 @@ async fn get_sandbox_by_id(
 /// Cordon executors to disable scheduling on them
 #[utoipa::path(
     post,
-    path = "/internal/cordon",
+    path = "/internal/cordon-executors",
     request_body = CordonExecutorsRequest,
     tag = "operations",
     responses(
