@@ -732,7 +732,7 @@ async fn get_sandbox_by_id(
         (status = 500, description = "Internal server error")
     ),
 )]
-async fn cordon_executors(
+pub(crate) async fn cordon_executors(
     State(state): State<RouteState>,
     Json(request): Json<CordonExecutorsRequest>,
 ) -> Result<Json<CordonExecutorsResponse>, IndexifyAPIError> {

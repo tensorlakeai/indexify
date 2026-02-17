@@ -45,6 +45,7 @@ mod tests {
             executor_manager: test_service.service.executor_manager.clone(),
             metrics: Arc::new(metrics::api_io_stats::Metrics::new()),
             config: test_service.service.config.clone(),
+            shutdown_rx: test_service.service.shutdown_rx.clone(),
         }
     }
 
@@ -361,6 +362,7 @@ mod tests {
             executor_manager: test_srv.service.executor_manager.clone(),
             metrics: std::sync::Arc::new(crate::metrics::api_io_stats::Metrics::new()),
             config: test_srv.service.config.clone(),
+            shutdown_rx: test_srv.service.shutdown_rx.clone(),
         };
 
         // Call list_executors
@@ -403,6 +405,7 @@ mod tests {
             executor_manager: test_srv.service.executor_manager.clone(),
             metrics: std::sync::Arc::new(crate::metrics::api_io_stats::Metrics::new()),
             config: test_srv.service.config.clone(),
+            shutdown_rx: test_srv.service.shutdown_rx.clone(),
         };
 
         // Call list_executors
@@ -473,6 +476,7 @@ mod tests {
             executor_manager: test_srv.service.executor_manager.clone(),
             metrics: std::sync::Arc::new(crate::metrics::api_io_stats::Metrics::new()),
             config: test_srv.service.config.clone(),
+            shutdown_rx: test_srv.service.shutdown_rx.clone(),
         };
 
         let result = crate::routes_internal::list_executors(axum::extract::State(route_state))
@@ -595,6 +599,7 @@ mod tests {
             executor_manager: test_srv.service.executor_manager.clone(),
             metrics: std::sync::Arc::new(crate::metrics::api_io_stats::Metrics::new()),
             config: test_srv.service.config.clone(),
+            shutdown_rx: test_srv.service.shutdown_rx.clone(),
         };
 
         // Call list_executors
@@ -613,6 +618,248 @@ mod tests {
         assert!(
             !executor_metadata.ready_for_teardown,
             "Executor with sandbox should NOT be ready for teardown"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_cordon_specific_executors() {
+        let test_srv = TestService::new().await.unwrap();
+
+        // Create multiple executors
+        let executor1_id = format!("{}-1", TEST_EXECUTOR_ID);
+        let executor2_id = format!("{}-2", TEST_EXECUTOR_ID);
+        let executor3_id = format!("{}-3", TEST_EXECUTOR_ID);
+
+        let executor1 = mock_executor_metadata(executor1_id.clone().into());
+        let executor2 = mock_executor_metadata(executor2_id.clone().into());
+        let executor3 = mock_executor_metadata(executor3_id.clone().into());
+
+        test_srv.create_executor(executor1).await.unwrap();
+        test_srv.create_executor(executor2).await.unwrap();
+        test_srv.create_executor(executor3).await.unwrap();
+
+        // Create route state
+        let route_state = RouteState {
+            indexify_state: test_srv.service.indexify_state.clone(),
+            blob_storage: test_srv.service.blob_storage_registry.clone(),
+            executor_manager: test_srv.service.executor_manager.clone(),
+            metrics: Arc::new(metrics::api_io_stats::Metrics::new()),
+            config: test_srv.service.config.clone(),
+            shutdown_rx: test_srv.service.shutdown_rx.clone(),
+        };
+
+        // Cordon executor1 and executor2 with short timeout
+        // (test executors don't actively heartbeat, so acknowledgement will timeout)
+        let request = crate::http_objects::CordonExecutorsRequest {
+            executor_ids: Some(vec![executor1_id.clone(), executor2_id.clone()]),
+            timeout_seconds: 0, // Don't wait for acknowledgement in tests
+        };
+
+        let result = crate::routes_internal::cordon_executors(
+            axum::extract::State(route_state.clone()),
+            axum::Json(request),
+        )
+        .await;
+
+        assert!(result.is_ok(), "Cordon request should succeed: {:?}", result);
+
+        // Note: The response may be empty if executors don't acknowledge in time,
+        // but the state should still be updated. We verify the state below.
+
+        // Verify executor states in container scheduler
+        let container_sched = test_srv
+            .service
+            .indexify_state
+            .container_scheduler
+            .read()
+            .await;
+
+        let exec1_state = container_sched
+            .executors
+            .get(&executor1_id.into())
+            .unwrap()
+            .state
+            .clone();
+        let exec2_state = container_sched
+            .executors
+            .get(&executor2_id.into())
+            .unwrap()
+            .state
+            .clone();
+        let exec3_state = container_sched
+            .executors
+            .get(&executor3_id.into())
+            .unwrap()
+            .state
+            .clone();
+
+        assert_eq!(
+            exec1_state,
+            crate::data_model::ExecutorState::SchedulingDisabled,
+            "Executor1 should be in SchedulingDisabled state"
+        );
+        assert_eq!(
+            exec2_state,
+            crate::data_model::ExecutorState::SchedulingDisabled,
+            "Executor2 should be in SchedulingDisabled state"
+        );
+        assert_ne!(
+            exec3_state,
+            crate::data_model::ExecutorState::SchedulingDisabled,
+            "Executor3 should NOT be in SchedulingDisabled state"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_cordon_all_executors() {
+        let test_srv = TestService::new().await.unwrap();
+
+        // Create multiple executors
+        let executor1_id = format!("{}-1", TEST_EXECUTOR_ID);
+        let executor2_id = format!("{}-2", TEST_EXECUTOR_ID);
+
+        let executor1 = mock_executor_metadata(executor1_id.clone().into());
+        let executor2 = mock_executor_metadata(executor2_id.clone().into());
+
+        test_srv.create_executor(executor1).await.unwrap();
+        test_srv.create_executor(executor2).await.unwrap();
+
+        // Create route state
+        let route_state = RouteState {
+            indexify_state: test_srv.service.indexify_state.clone(),
+            blob_storage: test_srv.service.blob_storage_registry.clone(),
+            executor_manager: test_srv.service.executor_manager.clone(),
+            metrics: Arc::new(metrics::api_io_stats::Metrics::new()),
+            config: test_srv.service.config.clone(),
+            shutdown_rx: test_srv.service.shutdown_rx.clone(),
+        };
+
+        // Cordon all executors (empty list) with short timeout
+        let request = crate::http_objects::CordonExecutorsRequest {
+            executor_ids: None,
+            timeout_seconds: 0, // Don't wait for acknowledgement in tests
+        };
+
+        let result = crate::routes_internal::cordon_executors(
+            axum::extract::State(route_state.clone()),
+            axum::Json(request),
+        )
+        .await;
+
+        assert!(result.is_ok(), "Cordon all request should succeed: {:?}", result);
+
+        // Verify all executors are in SchedulingDisabled state
+        let container_sched = test_srv
+            .service
+            .indexify_state
+            .container_scheduler
+            .read()
+            .await;
+
+        for executor_id in [executor1_id, executor2_id] {
+            let executor_state = container_sched
+                .executors
+                .get(&executor_id.into())
+                .unwrap()
+                .state
+                .clone();
+            assert_eq!(
+                executor_state,
+                crate::data_model::ExecutorState::SchedulingDisabled,
+                "All executors should be in SchedulingDisabled state"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_cordon_already_cordoned_executor() {
+        let test_srv = TestService::new().await.unwrap();
+
+        // Create an executor
+        let executor_id = format!("{}-1", TEST_EXECUTOR_ID);
+        let executor = mock_executor_metadata(executor_id.clone().into());
+        test_srv.create_executor(executor).await.unwrap();
+
+        // Create route state
+        let route_state = RouteState {
+            indexify_state: test_srv.service.indexify_state.clone(),
+            blob_storage: test_srv.service.blob_storage_registry.clone(),
+            executor_manager: test_srv.service.executor_manager.clone(),
+            metrics: Arc::new(metrics::api_io_stats::Metrics::new()),
+            config: test_srv.service.config.clone(),
+            shutdown_rx: test_srv.service.shutdown_rx.clone(),
+        };
+
+        // Cordon the executor first time
+        let request = crate::http_objects::CordonExecutorsRequest {
+            executor_ids: Some(vec![executor_id.clone()]),
+            timeout_seconds: 1,
+        };
+
+        let result = crate::routes_internal::cordon_executors(
+            axum::extract::State(route_state.clone()),
+            axum::Json(request.clone()),
+        )
+        .await;
+
+        assert!(result.is_ok(), "First cordon should succeed");
+
+        // Cordon the same executor again
+        let result = crate::routes_internal::cordon_executors(
+            axum::extract::State(route_state.clone()),
+            axum::Json(request),
+        )
+        .await;
+
+        assert!(result.is_ok(), "Second cordon should succeed");
+        let response = result.unwrap().0;
+
+        // Executor should be in cordoned list (already cordoned executors are included)
+        assert_eq!(
+            response.cordoned.len(),
+            1,
+            "Should have 1 executor in cordoned list"
+        );
+        assert!(
+            response.cordoned.contains(&executor_id),
+            "Executor should be in cordoned list"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_cordon_nonexistent_executor() {
+        let test_srv = TestService::new().await.unwrap();
+
+        // Create route state
+        let route_state = RouteState {
+            indexify_state: test_srv.service.indexify_state.clone(),
+            blob_storage: test_srv.service.blob_storage_registry.clone(),
+            executor_manager: test_srv.service.executor_manager.clone(),
+            metrics: Arc::new(metrics::api_io_stats::Metrics::new()),
+            config: test_srv.service.config.clone(),
+            shutdown_rx: test_srv.service.shutdown_rx.clone(),
+        };
+
+        // Try to cordon a non-existent executor
+        let request = crate::http_objects::CordonExecutorsRequest {
+            executor_ids: Some(vec!["nonexistent-executor".to_string()]),
+            timeout_seconds: 1,
+        };
+
+        let result = crate::routes_internal::cordon_executors(
+            axum::extract::State(route_state),
+            axum::Json(request),
+        )
+        .await;
+
+        assert!(result.is_ok(), "Cordon should succeed even with nonexistent executor");
+        let response = result.unwrap().0;
+
+        // Should return empty cordoned list (nonexistent executors are silently skipped)
+        assert_eq!(
+            response.cordoned.len(),
+            0,
+            "Should have 0 cordoned executors"
         );
     }
 }

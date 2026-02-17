@@ -955,7 +955,7 @@ impl From<crate::state_store::in_memory_state::PendingResources> for PendingReso
 }
 
 #[serde_inline_default]
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct CordonExecutorsRequest {
     /// List of executor IDs to cordon. If None or empty, all executors will be
     /// cordoned.
