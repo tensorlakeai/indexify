@@ -661,7 +661,11 @@ mod tests {
         )
         .await;
 
-        assert!(result.is_ok(), "Cordon request should succeed: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "Cordon request should succeed: {:?}",
+            result
+        );
 
         // Note: The response may be empty if executors don't acknowledge in time,
         // but the state should still be updated. We verify the state below.
@@ -746,7 +750,11 @@ mod tests {
         )
         .await;
 
-        assert!(result.is_ok(), "Cordon all request should succeed: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "Cordon all request should succeed: {:?}",
+            result
+        );
 
         // Verify all executors are in SchedulingDisabled state
         let container_sched = test_srv
@@ -852,10 +860,14 @@ mod tests {
         )
         .await;
 
-        assert!(result.is_ok(), "Cordon should succeed even with nonexistent executor");
+        assert!(
+            result.is_ok(),
+            "Cordon should succeed even with nonexistent executor"
+        );
         let response = result.unwrap().0;
 
-        // Should return empty cordoned list (nonexistent executors are silently skipped)
+        // Should return empty cordoned list (nonexistent executors are silently
+        // skipped)
         assert_eq!(
             response.cordoned.len(),
             0,

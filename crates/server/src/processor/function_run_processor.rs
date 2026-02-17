@@ -196,6 +196,9 @@ impl FunctionRunProcessor {
                                 if executor.tombstoned {
                                     return false;
                                 }
+                                if executor.state.is_scheduling_disabled() {
+                                    return false;
+                                }
                             } else {
                                 return false;
                             }

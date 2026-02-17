@@ -921,7 +921,10 @@ impl ContainerScheduler {
                 continue;
             };
 
-            // Constraint check (namespace, labels, allowlist)
+            if executor.state.is_scheduling_disabled() {
+                continue;
+            }
+
             if !self.executor_matches_constraints(executor, namespace, application, function) {
                 continue;
             }
@@ -1640,6 +1643,13 @@ impl ContainerScheduler {
                 warm_ids.iter().find_map(|id| {
                     self.function_containers
                         .get(id)
+                        .filter(|meta| {
+                            // Filter out containers on executors with SchedulingDisabled state
+                            self.executors
+                                .get(&meta.executor_id)
+                                .map(|executor| !executor.state.is_scheduling_disabled())
+                                .unwrap_or_default()
+                        })
                         .map(|meta| (id.clone(), meta.executor_id.clone()))
                 })
             });
