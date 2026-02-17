@@ -5265,9 +5265,9 @@ dependencies = [
 
 [[package]]
 name = "tonic-types"
-version = "0.14.3"
+version = "0.14.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e89423f8aeab18ecc83e536f686930c37f7074cb6beb42eb7a047f5c8a7aea65"
+checksum = "e5ec10f84aed0b78875b5c5bcd8b11d999ba2ad9094e0492af224f69b7836c84"
 dependencies = [
  "prost",
  "prost-types",
