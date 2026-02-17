@@ -93,19 +93,16 @@ impl FileManager {
         // Create parent directories if they don't exist
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).await.map_err(|e| {
-                FileError::Other(
-                    anyhow::Error::from(e).context(format!(
-                        "Failed to create parent directories for: {}",
-                        path.display()
-                    )),
-                )
+                FileError::Other(anyhow::Error::from(e).context(format!(
+                    "Failed to create parent directories for: {}",
+                    path.display()
+                )))
             })?;
         }
 
         fs::write(&path, content).await.map_err(|e| {
             FileError::Other(
-                anyhow::Error::from(e)
-                    .context(format!("Failed to write file: {}", path.display())),
+                anyhow::Error::from(e).context(format!("Failed to write file: {}", path.display())),
             )
         })
     }
