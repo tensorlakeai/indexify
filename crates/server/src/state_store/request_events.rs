@@ -14,10 +14,6 @@ impl RequestStateChangeEventId {
     pub fn new(seq: u64) -> Self {
         Self(seq)
     }
-
-    pub fn value(&self) -> u64 {
-        self.0
-    }
 }
 
 impl std::fmt::Display for RequestStateChangeEventId {
@@ -48,18 +44,6 @@ pub trait RequestEventMetadata {
 pub struct PersistedRequestStateChangeEvent {
     pub id: RequestStateChangeEventId,
     pub event: RequestStateChangeEvent,
-}
-
-impl PersistedRequestStateChangeEvent {
-    pub fn new(id: RequestStateChangeEventId, event: RequestStateChangeEvent) -> Self {
-        Self { id, event }
-    }
-
-    /// Generate a key for storing in RocksDB
-    /// Uses big endian bytes for proper lexicographic ordering
-    pub fn key(&self) -> Vec<u8> {
-        self.id.value().to_be_bytes().to_vec()
-    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

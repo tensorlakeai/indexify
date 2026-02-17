@@ -1,36 +1,28 @@
 use std::{sync::Arc, time::Duration};
 
-use anyhow::Result;
 use async_broadcast::Receiver;
 use opentelemetry::metrics::{Counter, Histogram, ObservableGauge};
-use otlp_logs_exporter::{OtlpLogsExporter, runtime::Tokio};
 use tokio::sync::watch;
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::{error, info, instrument, warn};
 
 use crate::{
-    cloud_events::create_batched_export_request,
+    cloud_events,
     metrics::{Timer, low_latency_boundaries},
-    state_store::{
-        IndexifyState,
-        driver::Writer,
-        request_events::{PersistedRequestStateChangeEvent, RequestStateChangeEvent},
-        state_machine,
-    },
+    queue::Queue,
+    state_store::{IndexifyState, request_events::RequestStateChangeEvent},
 };
 
 // Constants
-const HTTP_BATCH_SIZE: usize = 100;
-const HTTP_BATCH_TIMEOUT: Duration = Duration::from_millis(100);
-const MAX_DELETE_ATTEMPTS: u8 = 10;
 const GRACEFUL_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(30);
 
 pub struct RequestStateChangeProcessor {
     indexify_state: Arc<IndexifyState>,
     sse_processing_latency: Histogram<f64>,
-    http_processing_latency: Histogram<f64>,
+    queue_processing_latency: Histogram<f64>,
     sse_events_counter: Counter<u64>,
-    http_events_counter: Counter<u64>,
+    queue_events_counter: Counter<u64>,
+    queue_send_errors: Counter<u64>,
     // Keep gauge alive so the callback continues to fire
     _channel_buffer_size: ObservableGauge<u64>,
 }
@@ -46,11 +38,11 @@ impl RequestStateChangeProcessor {
             .with_description("SSE event delivery latency in seconds")
             .build();
 
-        let http_processing_latency = meter
-            .f64_histogram("indexify.request_state_change.http_processing_latency")
+        let queue_processing_latency = meter
+            .f64_histogram("indexify.request_state_change.queue_processing_latency")
             .with_unit("s")
             .with_boundaries(low_latency_boundaries())
-            .with_description("HTTP export batch processing latency in seconds")
+            .with_description("Latency to send a single event to the external queue")
             .build();
 
         let sse_events_counter = meter
@@ -58,9 +50,14 @@ impl RequestStateChangeProcessor {
             .with_description("Total number of events delivered via SSE")
             .build();
 
-        let http_events_counter = meter
-            .u64_counter("indexify.request_state_change.http_events_total")
-            .with_description("Total number of events exported via HTTP")
+        let queue_events_counter = meter
+            .u64_counter("indexify.request_state_change.queue_events_total")
+            .with_description("Total number of events sent to the external queue")
+            .build();
+
+        let queue_send_errors = meter
+            .u64_counter("indexify.request_state_change.queue_send_errors_total")
+            .with_description("Total number of errors sending events to the external queue")
             .build();
 
         let state_for_gauge = indexify_state.clone();
@@ -75,19 +72,16 @@ impl RequestStateChangeProcessor {
         Self {
             indexify_state,
             sse_processing_latency,
-            http_processing_latency,
+            queue_processing_latency,
             sse_events_counter,
-            http_events_counter,
+            queue_events_counter,
+            queue_send_errors,
             _channel_buffer_size,
         }
     }
 
     #[instrument(skip_all)]
-    pub async fn start(
-        &self,
-        cloud_events_exporter: Option<OtlpLogsExporter<Tokio>>,
-        mut shutdown_rx: watch::Receiver<()>,
-    ) {
+    pub async fn start(&self, queue: Option<Arc<Queue>>, mut shutdown_rx: watch::Receiver<()>) {
         let cancel_token = CancellationToken::new();
         let tracker = TaskTracker::new();
 
@@ -105,18 +99,18 @@ impl RequestStateChangeProcessor {
             }
         });
 
-        // Spawn HTTP export worker (if exporter is configured)
-        if let Some(exporter) = cloud_events_exporter {
-            let http_rx = self.indexify_state.subscribe_request_state_changes();
-            let state = self.indexify_state.clone();
-            let latency = self.http_processing_latency.clone();
-            let counter = self.http_events_counter.clone();
+        // Spawn queue export worker (if queue is configured)
+        if let Some(queue) = queue {
+            let queue_rx = self.indexify_state.subscribe_request_state_changes();
+            let latency = self.queue_processing_latency.clone();
+            let counter = self.queue_events_counter.clone();
+            let errors = self.queue_send_errors.clone();
             let token = cancel_token.child_token();
             tracker.spawn(async move {
-                http_export_worker(http_rx, exporter, state, latency, counter, token).await;
+                queue_export_worker(queue_rx, queue, latency, counter, errors, token).await;
             });
         } else {
-            info!("HTTP exporter disabled - no exporter configured");
+            info!("Queue export worker disabled - no queue configured");
         }
 
         // Wait for shutdown signal
@@ -183,178 +177,55 @@ async fn sse_delivery_worker(
     }
 }
 
-/// HTTP export worker - persists events to DB, batches them, and exports via
-/// HTTP. Provides stronger delivery guarantees than SSE.
-async fn http_export_worker(
+/// Queue export worker - sends events individually to an external message
+/// queue. No local persistence or batching; events are sent as they arrive.
+async fn queue_export_worker(
     mut rx: Receiver<RequestStateChangeEvent>,
-    mut exporter: OtlpLogsExporter<Tokio>,
-    state: Arc<IndexifyState>,
+    queue: Arc<Queue>,
     latency: Histogram<f64>,
     counter: Counter<u64>,
+    errors: Counter<u64>,
     cancel_token: CancellationToken,
 ) {
-    info!("HTTP export worker started");
-
-    // Batch accumulator
-    let mut batch: Vec<PersistedRequestStateChangeEvent> = Vec::with_capacity(HTTP_BATCH_SIZE);
-    let mut batch_deadline = tokio::time::Instant::now() + HTTP_BATCH_TIMEOUT;
+    info!("Queue export worker started");
 
     loop {
-        // Collect events until batch is full or timeout
-        let should_flush = tokio::select! {
-            result = rx.recv() => {
-                match result {
-                    Ok(event) => {
-                        // Persist event to DB immediately for durability
-                        match persist_event(&state, event).await {
-                            Ok(persisted) => {
-                                batch.push(persisted);
-                                batch.len() >= HTTP_BATCH_SIZE
-                            }
-                            Err(e) => {
-                                error!(%e, "Failed to persist event to DB, event lost");
-                                false
-                            }
-                        }
-                    }
-                    Err(async_broadcast::RecvError::Closed) => {
-                        info!("HTTP export worker: channel closed, flushing remaining batch");
-                        true
-                    }
-                    Err(async_broadcast::RecvError::Overflowed(n)) => {
-                        warn!("HTTP export worker: channel overflowed, lost {} events", n);
-                        false
-                    }
+        let event = tokio::select! {
+            result = rx.recv() => match result {
+                Ok(event) => event,
+                Err(async_broadcast::RecvError::Closed) => {
+                    info!("Queue export worker: channel closed, shutting down");
+                    return;
                 }
-            }
-            _ = tokio::time::sleep_until(batch_deadline) => {
-                // Timeout reached, flush if we have events
-                !batch.is_empty()
-            }
+                Err(async_broadcast::RecvError::Overflowed(n)) => {
+                    warn!("Queue export worker: channel overflowed, lost {} events", n);
+                    continue;
+                }
+            },
             _ = cancel_token.cancelled() => {
-                info!("HTTP export worker: shutdown requested, flushing remaining batch");
-                true
+                info!("Queue export worker shutting down");
+                return;
             }
         };
 
-        if should_flush && !batch.is_empty() {
-            let _timer = Timer::start_with_labels(&latency, &[]);
-
-            // Export the batch
-            let batch_size = batch.len();
-            match export_batch(&mut exporter, &batch).await {
-                Ok(()) => {
-                    // Successfully exported - delete from DB
-                    if let Err(e) = remove_events_with_backoff(&state, &batch).await {
-                        error!(%e, "Failed to delete exported events from DB");
-                        // Events are exported but not deleted - they may be
-                        // re-exported on restart
-                        // This is acceptable since HTTP export should be
-                        // idempotent
-                    }
-                    counter.add(batch_size as u64, &[]);
-                    info!(count = batch_size, "HTTP batch exported successfully");
-                }
-                Err(e) => {
-                    error!(%e, count = batch_size, "HTTP batch export failed after retries");
-                    // Events remain in DB for retry on next startup
-                    // Don't delete them
-                }
-            }
-
-            batch.clear();
-            batch_deadline = tokio::time::Instant::now() + HTTP_BATCH_TIMEOUT;
-        }
-
-        // Check if we should exit
-        if cancel_token.is_cancelled() ||
-            matches!(rx.try_recv(), Err(async_broadcast::TryRecvError::Closed))
-        {
-            // Final flush already done above
-            if batch.is_empty() {
-                info!("HTTP export worker shutting down");
-                return;
-            }
-        }
-    }
-}
-
-/// Persist a single event to the database.
-async fn persist_event(
-    state: &Arc<IndexifyState>,
-    event: RequestStateChangeEvent,
-) -> Result<PersistedRequestStateChangeEvent> {
-    let txn = state.db.transaction();
-
-    // Create persisted event with unique ID
-    let event_id = state
-        .request_event_id_seq
-        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let persisted = PersistedRequestStateChangeEvent::new(event_id.into(), event);
-
-    // Write to DB
-    state_machine::persist_single_request_state_change_event(&txn, &persisted).await?;
-
-    txn.commit().await?;
-    Ok(persisted)
-}
-
-/// Export a batch of events via HTTP.
-async fn export_batch(
-    exporter: &mut OtlpLogsExporter<Tokio>,
-    events: &[PersistedRequestStateChangeEvent],
-) -> Result<()> {
-    let raw_events: Vec<_> = events.iter().map(|e| e.event.clone()).collect();
-    let request = create_batched_export_request(&raw_events)?;
-    exporter.send_request(request).await?;
-    Ok(())
-}
-
-/// Remove events from database with exponential backoff on failure.
-async fn remove_events_with_backoff(
-    state: &Arc<IndexifyState>,
-    events: &[PersistedRequestStateChangeEvent],
-) -> Result<()> {
-    for attempt in 1..=MAX_DELETE_ATTEMPTS {
-        let txn = state.db.transaction();
-
-        if let Err(e) = state_machine::remove_request_state_change_events(&txn, events).await {
-            error!(
-                %e,
-                attempt,
-                max_attempts = MAX_DELETE_ATTEMPTS,
-                "Error removing events, retrying..."
-            );
-
-            if attempt == MAX_DELETE_ATTEMPTS {
-                return Err(e);
-            }
-
-            tokio::time::sleep(Duration::from_secs(attempt as u64)).await;
-            continue;
-        }
-
-        match txn.commit().await {
-            Ok(_) => return Ok(()),
+        let request = match cloud_events::create_batched_export_request(std::slice::from_ref(
+            &event,
+        )) {
+            Ok(req) => req,
             Err(e) => {
-                error!(
-                    %e,
-                    attempt,
-                    max_attempts = MAX_DELETE_ATTEMPTS,
-                    "Error committing transaction, retrying..."
-                );
+                errors.add(1, &[]);
+                error!(%e, event_type = event.message(), "Failed to build export request for queue");
+                continue;
+            }
+        };
 
-                if attempt == MAX_DELETE_ATTEMPTS {
-                    return Err(e.into());
-                }
-
-                tokio::time::sleep(Duration::from_secs(attempt as u64)).await;
+        let _timer = Timer::start_with_labels(&latency, &[]);
+        match queue.send_json(&request).await {
+            Ok(_) => counter.add(1, &[]),
+            Err(e) => {
+                errors.add(1, &[]);
+                error!(%e, event_type = event.message(), "Failed to send event to queue");
             }
         }
     }
-
-    Err(anyhow::anyhow!(
-        "Failed to remove events after {} attempts",
-        MAX_DELETE_ATTEMPTS
-    ))
 }

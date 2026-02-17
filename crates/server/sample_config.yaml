@@ -24,7 +24,24 @@ telemetry:
   instance_id: 'indexify-server-1'
 
 # cloud_events:
-#   endpoint: 'http://localhost:4317'
+#   backend:
+#     amazon_sqs:
+#       queue_url: 'https://sqs.us-east-1.amazonaws.com/123456789/my-queue'
+
+# cloud_events:
+#   backend:
+#     redis:
+#       dsn: 'redis://localhost:6379'
+#       # Optional Redis configuration (defaults shown):
+#       # max_connections: 8
+#       # reinsert_on_nack: false
+#       # queue_key: 'indexify:cloud_events'
+#       # delayed_queue_key: 'indexify:cloud_events:delayed'
+#       # delayed_lock_key: 'indexify:cloud_events:delayed_lock'
+#       # consumer_group: 'indexify'
+#       # consumer_name: 'indexify'
+#       # payload_key: 'payload'
+#       # ack_deadline_ms: 30000
 
 # Executor catalog configuration.
 #

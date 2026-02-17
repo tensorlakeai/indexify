@@ -16,10 +16,35 @@ use crate::{blob_store::BlobStorageConfig, state_store::driver::rocksdb::RocksDB
 const LOCAL_ENV: &str = "local";
 pub const DEFAULT_SANDBOX_IMAGE: &str = "python:3.14-slim";
 
+#[serde_inline_default]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RedisQueueConfig {
+    pub dsn: String,
+    #[serde_inline_default(8u16)]
+    pub max_connections: u16,
+    #[serde(default)]
+    pub reinsert_on_nack: bool,
+    #[serde_inline_default("indexify:cloud_events".to_string())]
+    pub queue_key: String,
+    #[serde_inline_default("indexify:cloud_events:delayed".to_string())]
+    pub delayed_queue_key: String,
+    #[serde_inline_default("indexify:cloud_events:delayed_lock".to_string())]
+    pub delayed_lock_key: String,
+    #[serde_inline_default("indexify".to_string())]
+    pub consumer_group: String,
+    #[serde_inline_default("indexify".to_string())]
+    pub consumer_name: String,
+    #[serde_inline_default("payload".to_string())]
+    pub payload_key: String,
+    #[serde_inline_default(30_000i64)]
+    pub ack_deadline_ms: i64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum QueueBackend {
     AmazonSqs { queue_url: String },
+    Redis(RedisQueueConfig),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -246,14 +271,14 @@ mod duration_serde {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct CloudEventsConfig {
-    pub endpoint: String,
+    pub backend: QueueBackend,
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::config::ServerConfig;
+    use crate::config::{CloudEventsConfig, QueueBackend, RedisQueueConfig, ServerConfig};
 
     #[test]
     pub fn should_parse_sample_config() {
@@ -263,5 +288,54 @@ mod tests {
         assert_eq!("local", config.env);
 
         assert_eq!(3, config.executor_catalog.len());
+    }
+
+    #[test]
+    pub fn should_parse_cloud_events_amazon_sqs() {
+        let config_yaml = r#"
+cloud_events:
+  backend:
+    amazon_sqs:
+      queue_url: 'https://sqs.us-east-1.amazonaws.com/123456789/my-queue'
+executor_catalog: []
+"#;
+        let config = ServerConfig::from_yaml_str(config_yaml).expect("unable to parse from yaml");
+        assert_eq!(
+            config.cloud_events,
+            Some(CloudEventsConfig {
+                backend: QueueBackend::AmazonSqs {
+                    queue_url: "https://sqs.us-east-1.amazonaws.com/123456789/my-queue".to_string(),
+                },
+            })
+        );
+    }
+
+    #[test]
+    pub fn should_parse_cloud_events_redis() {
+        let config_yaml = r#"
+cloud_events:
+  backend:
+    redis:
+      dsn: 'redis://localhost:6379'
+executor_catalog: []
+"#;
+        let config = ServerConfig::from_yaml_str(config_yaml).expect("unable to parse from yaml");
+        assert_eq!(
+            config.cloud_events,
+            Some(CloudEventsConfig {
+                backend: QueueBackend::Redis(RedisQueueConfig {
+                    dsn: "redis://localhost:6379".to_string(),
+                    max_connections: 8,
+                    reinsert_on_nack: false,
+                    queue_key: "indexify:cloud_events".to_string(),
+                    delayed_queue_key: "indexify:cloud_events:delayed".to_string(),
+                    delayed_lock_key: "indexify:cloud_events:delayed_lock".to_string(),
+                    consumer_group: "indexify".to_string(),
+                    consumer_name: "indexify".to_string(),
+                    payload_key: "payload".to_string(),
+                    ack_deadline_ms: 30_000,
+                }),
+            })
+        );
     }
 }

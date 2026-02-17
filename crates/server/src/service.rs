@@ -5,7 +5,6 @@ use axum::Router;
 use axum_server::Handle;
 use axum_tracing_opentelemetry::middleware::{OtelAxumLayer, OtelInResponseLayer};
 use hyper::Method;
-use otlp_logs_exporter::{OtlpLogsExporter, runtime::Tokio};
 pub use proto_api::descriptor as executor_api_descriptor;
 use tokio::{self, signal, sync::watch};
 use tonic::transport::Server;
@@ -17,7 +16,7 @@ use tracing::{Instrument, info, info_span};
 
 use crate::{
     blob_store::registry::BlobStorageRegistry,
-    config::ServerConfig,
+    config::{QueueConfig, ServerConfig},
     executor_api::{ExecutorAPIService, executor_api_pb::executor_api_server::ExecutorApiServer},
     executors::ExecutorManager,
     metrics::{self, init_provider},
@@ -184,22 +183,27 @@ impl Service {
                 "indexify-instance" = instance_id
             );
 
-            let cloud_events_exporter = if let Some(config) = &cloud_events_config {
-                info!(?config, "Initializing CloudEvents exporter");
-                match OtlpLogsExporter::with_default_retry(Tokio, &config.endpoint).await {
-                    Ok(exporter) => Some(exporter),
-                    Err(err) => {
-                        tracing::error!(?err, "Failed to create CloudEvents exporter");
-                        None
+            let cloud_events_queue = match &cloud_events_config {
+                Some(cfg) => {
+                    info!(backend = ?cfg.backend, "Initializing cloud events queue");
+                    match Queue::new(QueueConfig {
+                        backend: cfg.backend.clone(),
+                    })
+                    .await
+                    {
+                        Ok(queue) => Some(Arc::new(queue)),
+                        Err(err) => {
+                            tracing::error!(?err, "Failed to create cloud events queue");
+                            None
+                        }
                     }
                 }
-            } else {
-                None
+                None => None,
             };
 
             let _ = {
                 request_state_change_processor
-                    .start(cloud_events_exporter, shutdown_rx)
+                    .start(cloud_events_queue, shutdown_rx)
                     .await;
                 ().instrument(span.clone())
             };

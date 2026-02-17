@@ -11,10 +11,7 @@ use rocksdb::ErrorKind;
 use strum::AsRefStr;
 use tracing::{debug, info, trace, warn};
 
-use super::{
-    request_events::PersistedRequestStateChangeEvent,
-    serializer::{StateStoreEncode, StateStoreEncoder},
-};
+use super::serializer::{StateStoreEncode, StateStoreEncoder};
 use crate::{
     data_model::{
         Allocation,
@@ -923,48 +920,6 @@ pub(crate) async fn remove_allocation_usage_events(
         txn.delete(IndexifyObjectsColumns::AllocationUsage.as_ref(), key)
             .await?;
     }
-
-    Ok(())
-}
-
-pub(crate) async fn remove_request_state_change_events(
-    txn: &Transaction,
-    events: &[PersistedRequestStateChangeEvent],
-) -> Result<()> {
-    for event in events {
-        trace!(
-            event_id = %event.id,
-            namespace = %event.event.namespace(),
-            application = %event.event.application_name(),
-            request_id = %event.event.request_id(),
-            "removing request state change event"
-        );
-        let key = event.key();
-        txn.delete(
-            IndexifyObjectsColumns::RequestStateChangeEvents.as_ref(),
-            &key,
-        )
-        .await?;
-    }
-
-    Ok(())
-}
-
-/// Persist a single request state change event to RocksDB.
-/// Used by the HTTP export worker to persist events before batching.
-pub(crate) async fn persist_single_request_state_change_event(
-    txn: &Transaction,
-    event: &PersistedRequestStateChangeEvent,
-) -> Result<()> {
-    let key = event.key();
-    let serialized = StateStoreEncoder::encode(event)?;
-
-    txn.put(
-        IndexifyObjectsColumns::RequestStateChangeEvents.as_ref(),
-        &key,
-        &serialized,
-    )
-    .await?;
 
     Ok(())
 }

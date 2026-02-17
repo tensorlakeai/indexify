@@ -488,8 +488,8 @@ mod tests {
             function_name: "my-function".to_string(),
             function_run_id: "run-789".to_string(),
             allocation_id: "alloc-456".to_string(),
-            container_id: "container-001".to_string(),
             outcome: FunctionRunOutcomeSummary::Success,
+            container_id: "container-001".to_string(),
             created_at: now,
         });
 
