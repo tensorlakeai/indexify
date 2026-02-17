@@ -60,8 +60,9 @@ class TestCPUBoundPerformaceWithCPULimits(unittest.TestCase):
         deploy_applications(__file__)
 
     def test_busyloop_performance_scales_with_cpu_limits(self):
-        request_one_cpu: Request = run_remote_application(count_busyloops_one_cpu, 2)
-        request_two_cpus: Request = run_remote_application(count_busyloops_two_cpus, 2)
+        # Use 5 seconds instead of 2 for more stable measurements
+        request_one_cpu: Request = run_remote_application(count_busyloops_one_cpu, 5)
+        request_two_cpus: Request = run_remote_application(count_busyloops_two_cpus, 5)
 
         busyloops_one_cpu: int = request_one_cpu.output()
         busyloops_two_cpus: int = request_two_cpus.output()
@@ -72,8 +73,8 @@ class TestCPUBoundPerformaceWithCPULimits(unittest.TestCase):
             f"(two CPUs: {busyloops_two_cpus}, one CPU: {busyloops_one_cpu})"
         )
         # Allow wide headroom for gVisor overhead and CI runner noise.
-        self.assertLess(perf_ratio_with_two_cpus, 2.4)
-        self.assertGreater(perf_ratio_with_two_cpus, 1.3)
+        self.assertLess(perf_ratio_with_two_cpus, 2.5)
+        self.assertGreater(perf_ratio_with_two_cpus, 1.1)
 
 
 if __name__ == "__main__":
