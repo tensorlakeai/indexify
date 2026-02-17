@@ -954,6 +954,31 @@ impl From<crate::state_store::in_memory_state::PendingResources> for PendingReso
     }
 }
 
+#[serde_inline_default]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct CordonExecutorsRequest {
+    /// List of executor IDs to cordon. If None or empty, all executors will be
+    /// cordoned.
+    pub executor_ids: Option<Vec<String>>,
+    /// Timeout in seconds to wait for executors to acknowledge the cordon
+    /// operation.
+    #[serde_inline_default(30)]
+    pub timeout_seconds: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct CordonExecutorsResponse {
+    /// Executors that were successfully cordoned and acknowledged the state
+    /// change
+    pub cordoned: Vec<String>,
+    /// Executors that were already in SchedulingDisabled state
+    pub already_cordoned: Vec<String>,
+    /// Executors that didn't acknowledge the state change within the timeout
+    pub timed_out: Vec<String>,
+    /// Executor IDs that were not found
+    pub not_found: Vec<String>,
+}
+
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ApplicationVersion {
     pub name: String,

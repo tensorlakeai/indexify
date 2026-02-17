@@ -729,6 +729,14 @@ impl IndexifyState {
                     "marking executor as tombstoned"
                 );
             }
+            RequestPayload::CordonExecutors(request) => {
+                // Executor state is managed in-memory by ContainerScheduler
+                // No persistent state to update here
+                info!(
+                    num_executors = request.executor_ids.len(),
+                    "cordoning executors"
+                );
+            }
             RequestPayload::ProcessStateChanges(state_changes) => {
                 state_machine::mark_state_changes_processed(&txn, state_changes).await?;
             }

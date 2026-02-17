@@ -1725,6 +1725,7 @@ pub enum ExecutorState {
     Unknown,
     StartingUp,
     Running,
+    SchedulingDisabled,
     Drained,
     Stopped,
 }

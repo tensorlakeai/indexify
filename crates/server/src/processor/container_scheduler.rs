@@ -24,6 +24,7 @@ use crate::{
         ExecutorId,
         ExecutorMetadata,
         ExecutorServerMetadata,
+        ExecutorState,
         Function,
         FunctionResources,
         FunctionURI,
@@ -200,6 +201,13 @@ impl ContainerScheduler {
             }
             RequestPayload::DeregisterExecutor(request) => {
                 self.deregister_executor(&request.executor_id);
+            }
+            RequestPayload::CordonExecutors(request) => {
+                for executor_id in &request.executor_ids {
+                    if let Some(executor) = self.executors.get_mut(executor_id) {
+                        executor.state = ExecutorState::SchedulingDisabled;
+                    }
+                }
             }
             RequestPayload::CreateContainerPool(request) => {
                 let pool_key = ContainerPoolKey::from(&request.pool);

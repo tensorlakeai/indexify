@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, time::Duration};
 
 use anyhow::Result;
 use axum::{
@@ -30,6 +30,8 @@ use crate::{
         Allocation,
         ApplicationVersion,
         CacheKey,
+        CordonExecutorsRequest,
+        CordonExecutorsResponse,
         CreateNamespace,
         ExecutorCatalog,
         ExecutorMetadata,
@@ -74,6 +76,7 @@ use crate::{
             create_or_update_application_with_metadata,
             healthz_handler,
             get_pending_resources,
+            cordon_executors,
         ),
         components(
             schemas(
@@ -98,6 +101,8 @@ use crate::{
                 ResourceProfileEntry,
                 ResourceProfileHistogram,
                 PendingResourcesResponse,
+                CordonExecutorsRequest,
+                CordonExecutorsResponse,
             )
         ),
         tags(
@@ -155,6 +160,10 @@ pub fn configure_internal_routes(route_state: RouteState) -> Router {
         .route(
             "/internal/pending_resources",
             get(get_pending_resources).with_state(route_state.clone()),
+        )
+        .route(
+            "/internal/cordon",
+            post(cordon_executors).with_state(route_state.clone()),
         )
 }
 
@@ -707,5 +716,121 @@ async fn get_sandbox_by_id(
         id: sandbox_id,
         status: status.to_string(),
         dataplane_api_address,
+    }))
+}
+
+/// Cordon executors to disable scheduling on them
+#[utoipa::path(
+    post,
+    path = "/internal/cordon",
+    request_body = CordonExecutorsRequest,
+    tag = "operations",
+    responses(
+        (status = 200, description = "Cordon operation completed", body = CordonExecutorsResponse),
+        (status = 500, description = "Internal server error")
+    ),
+)]
+async fn cordon_executors(
+    State(state): State<RouteState>,
+    Json(request): Json<CordonExecutorsRequest>,
+) -> Result<Json<CordonExecutorsResponse>, IndexifyAPIError> {
+    use crate::{
+        data_model::ExecutorState,
+        state_store::requests::{
+            CordonExecutorsRequest,
+            RequestPayload,
+            StateMachineUpdateRequest,
+        },
+    };
+
+    // 1. Determine target executors (specific IDs or all)
+    let all_executors = state
+        .executor_manager
+        .list_executors()
+        .await
+        .map_err(IndexifyAPIError::internal_error)?;
+
+    let target_executor_ids: Vec<crate::data_model::ExecutorId> = match &request.executor_ids {
+        Some(ids) if !ids.is_empty() => ids
+            .iter()
+            .map(|id| crate::data_model::ExecutorId::new(id.clone()))
+            .collect(),
+        _ => all_executors.iter().map(|e| e.id.clone()).collect(),
+    };
+
+    // 2. Categorize executors by current state
+    let mut to_cordon = Vec::new();
+    let mut already_cordoned = Vec::new();
+    let mut not_found = Vec::new();
+
+    let container_sched = state.indexify_state.container_scheduler.read().await;
+    for executor_id in target_executor_ids {
+        match container_sched.executors.get(&executor_id) {
+            Some(executor) if executor.state == ExecutorState::SchedulingDisabled => {
+                already_cordoned.push(executor_id.get().to_string());
+            }
+            Some(_) => to_cordon.push(executor_id),
+            None => not_found.push(executor_id.get().to_string()),
+        }
+    }
+    let target_clock = container_sched.clock + 1;
+    drop(container_sched);
+
+    // 3. Early return if nothing to cordon
+    if to_cordon.is_empty() {
+        return Ok(Json(crate::http_objects::CordonExecutorsResponse {
+            cordoned: vec![],
+            already_cordoned,
+            timed_out: vec![],
+            not_found,
+        }));
+    }
+
+    // 4. Submit state change request
+    let cordon_request =
+        CordonExecutorsRequest::build(to_cordon.clone(), state.indexify_state.clone())
+            .map_err(IndexifyAPIError::internal_error)?;
+
+    state
+        .indexify_state
+        .write(StateMachineUpdateRequest {
+            payload: RequestPayload::CordonExecutors(cordon_request),
+        })
+        .await
+        .map_err(IndexifyAPIError::internal_error)?;
+
+    // 5. Wait for acknowledgements in parallel
+    let timeout = Duration::from_secs(request.timeout_seconds);
+    let mut tasks = tokio::task::JoinSet::new();
+
+    for executor_id in to_cordon {
+        let exec_mgr = state.executor_manager.clone();
+        let exec_id = executor_id.clone();
+        tasks.spawn(async move {
+            let ack = exec_mgr
+                .wait_for_acknowledgement(&exec_id, target_clock, timeout)
+                .await
+                .unwrap_or(false);
+            (exec_id, ack)
+        });
+    }
+
+    // 6. Collect results
+    let mut cordoned = Vec::new();
+    let mut timed_out = Vec::new();
+
+    while let Some(result) = tasks.join_next().await {
+        match result {
+            Ok((executor_id, true)) => cordoned.push(executor_id.get().to_string()),
+            Ok((executor_id, false)) => timed_out.push(executor_id.get().to_string()),
+            Err(e) => error!("Task join error: {:?}", e),
+        }
+    }
+
+    Ok(Json(crate::http_objects::CordonExecutorsResponse {
+        cordoned,
+        already_cordoned,
+        timed_out,
+        not_found,
     }))
 }
