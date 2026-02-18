@@ -52,7 +52,11 @@ where
         );
     }
 
-    Box::new(tracing_subscriber::fmt::layer().compact())
+    Box::new(
+        tracing_subscriber::fmt::layer()
+            .with_ansi(std::io::stderr().is_terminal())
+            .compact(),
+    )
 }
 
 pub fn setup_tracing(config: &ServerConfig) -> Result<()> {
