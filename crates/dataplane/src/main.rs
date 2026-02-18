@@ -2,35 +2,13 @@ use std::path::PathBuf;
 
 use anyhow::Context;
 use clap::Parser;
-
-mod allocation_controller;
-mod blob_ops;
-mod code_cache;
-mod config;
-mod daemon_binary;
-mod daemon_client;
-mod driver;
-mod function_container_manager;
-mod function_executor;
-mod gpu_allocator;
-mod grpc;
-mod http_proxy;
-mod metrics;
-mod monitoring;
-mod network_rules;
-mod otel_tracing;
-mod resources;
-mod retry;
-pub mod secrets;
-mod service;
-mod state_file;
-mod state_reconciler;
-mod state_reporter;
-mod validation;
-
-use config::DataplaneConfig;
-use otel_tracing::setup_tracing;
-use service::Service;
+use indexify_dataplane::{
+    config::DataplaneConfig,
+    daemon_binary,
+    metrics,
+    otel_tracing::setup_tracing,
+    service::Service,
+};
 use tracing::{info, instrument};
 
 #[derive(Parser)]
