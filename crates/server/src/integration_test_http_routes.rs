@@ -7,7 +7,6 @@ mod tests {
     use crate::{
         data_model::{
             ContainerResources,
-            FunctionRunOutcome,
             SandboxBuilder,
             SandboxId,
             SandboxPendingReason,
@@ -27,7 +26,7 @@ mod tests {
             requests::{CreateSandboxRequest, RequestPayload, StateMachineUpdateRequest},
             test_state_store::with_simple_application,
         },
-        testing::{FinalizeFunctionRunArgs, TestService, allocation_key_from_proto},
+        testing::{TestExecutor, TestService},
         utils::get_epoch_time_in_ns,
     };
 
@@ -441,20 +440,21 @@ mod tests {
             .unwrap();
 
         // Complete the allocation
-        let desired_state = test_executor.desired_state().await;
+        let commands = test_executor.recv_commands().await;
         assert_eq!(
-            desired_state.allocations.len(),
+            commands.run_allocations.len(),
             1,
             "Should have one allocation"
         );
 
-        let allocation = &desired_state.allocations[0];
+        let allocation = &commands.run_allocations[0];
         test_executor
-            .finalize_allocation(
+            .report_command_responses(vec![TestExecutor::make_allocation_completed(
                 allocation,
-                FinalizeFunctionRunArgs::new(allocation_key_from_proto(allocation), None, None)
-                    .function_run_outcome(FunctionRunOutcome::Success),
-            )
+                None,
+                None,
+                Some(1000),
+            )])
             .await
             .unwrap();
 

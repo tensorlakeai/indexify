@@ -108,6 +108,7 @@ pub struct MetricsState {
 macro_rules! define_counters {
     ( $( $field:ident : $name:literal, $desc:literal; )* ) => {
         #[derive(Clone)]
+        #[allow(dead_code)]
         pub struct DataplaneCounters {
             $( pub $field: Counter<u64>, )*
             // Histogram that lives in counters for historical reasons
@@ -141,6 +142,7 @@ macro_rules! define_counters {
 macro_rules! define_histograms {
     ( $( $field:ident : $name:literal, $desc:literal, $unit:literal; )* ) => {
         #[derive(Clone)]
+        #[allow(dead_code)]
         pub struct DataplaneHistograms {
             $( pub $field: Histogram<f64>, )*
         }
@@ -264,6 +266,7 @@ impl DataplaneCounters {
     }
 
     /// Record desired state received from server.
+    #[allow(dead_code)]
     pub fn record_desired_state(&self, num_function_executors: u64, num_allocations: u64) {
         self.desired_state_received.add(1, &[]);
         self.desired_function_executors

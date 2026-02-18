@@ -17,6 +17,7 @@ use crate::{
         ContainerPoolKey,
         ContainerServerMetadata,
         DataPayload,
+        DataplaneResultsIngestedEvent,
         ExecutorId,
         ExecutorMetadata,
         ExecutorServerMetadata,
@@ -101,6 +102,9 @@ impl StateMachineUpdateRequest {
             RequestPayload::CreateOrUpdateApplication(request) => {
                 state_changes::create_or_update_application_pools(state_change_id_seq, request)
             }
+            RequestPayload::DataplaneResults(request) => {
+                state_changes::dataplane_results_ingested(state_change_id_seq, request)
+            }
             _ => Ok(Vec::new()), // Handle other request types as needed
         }
     }
@@ -120,6 +124,15 @@ pub enum RequestPayload {
     TerminateSandbox(TerminateSandboxRequest),
     CreateContainerPool(CreateContainerPoolRequest),
     UpdateContainerPool(UpdateContainerPoolRequest),
+
+    /// Add a single watch for an executor (from AllocationEvents RPC).
+    AddExecutorWatch(AddExecutorWatchRequest),
+    /// Remove a single watch for an executor (from AllocationEvents RPC).
+    RemoveExecutorWatch(RemoveExecutorWatchRequest),
+
+    /// Dataplane reports allocation results + container state changes
+    /// atomically.
+    DataplaneResults(DataplaneResultsRequest),
 
     // App Processor -> State Machine requests
     SchedulerUpdate(SchedulerUpdatePayload),
@@ -393,6 +406,20 @@ impl UpsertExecutorRequest {
     }
 }
 
+/// Add a single watch for an executor (from AllocationEvents RPC).
+#[derive(Debug, Clone)]
+pub struct AddExecutorWatchRequest {
+    pub executor_id: ExecutorId,
+    pub watch: ExecutorWatch,
+}
+
+/// Remove a single watch for an executor (from AllocationEvents RPC).
+#[derive(Debug, Clone)]
+pub struct RemoveExecutorWatchRequest {
+    pub executor_id: ExecutorId,
+    pub watch: ExecutorWatch,
+}
+
 #[derive(Debug, Clone)]
 pub struct DeregisterExecutorRequest {
     pub executor_id: ExecutorId,
@@ -424,4 +451,9 @@ pub struct UpdateContainerPoolRequest {
 pub struct DeleteContainerPoolRequest {
     pub namespace: String,
     pub pool_id: ContainerPoolId,
+}
+
+#[derive(Debug, Clone)]
+pub struct DataplaneResultsRequest {
+    pub event: DataplaneResultsIngestedEvent,
 }

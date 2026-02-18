@@ -28,7 +28,6 @@ mod tests {
             FunctionCallId,
             FunctionResources,
             FunctionRetryPolicy,
-            FunctionRunOutcome,
             HostResources,
             InputArgs,
             RequestCtxBuilder,
@@ -39,7 +38,7 @@ mod tests {
             RequestPayload,
             StateMachineUpdateRequest,
         },
-        testing::{self, FinalizeFunctionRunArgs, TestService, allocation_key_from_proto},
+        testing::{self, TestExecutor, TestService},
         utils::get_epoch_time_in_ms,
     };
 
@@ -238,7 +237,7 @@ mod tests {
         let indexify_state = test_srv.service.indexify_state.clone();
 
         // Create executor with 2 CPU cores (2000 ms/sec)
-        let executor = test_srv
+        let mut executor = test_srv
             .create_executor(create_executor_with_resources(
                 TEST_EXECUTOR_ID,
                 2000,                    // 2 cores
@@ -262,19 +261,16 @@ mod tests {
 
         // Complete the allocation for app_a
         {
-            let desired_state = executor.desired_state().await;
-            assert_eq!(desired_state.allocations.len(), 1);
-            let allocation = desired_state.allocations.first().unwrap();
+            let commands = executor.recv_commands().await;
+            assert_eq!(commands.run_allocations.len(), 1);
+            let allocation = &commands.run_allocations[0];
             executor
-                .finalize_allocation(
+                .report_command_responses(vec![TestExecutor::make_allocation_completed(
                     allocation,
-                    FinalizeFunctionRunArgs::new(
-                        allocation_key_from_proto(allocation),
-                        None,
-                        Some(mock_data_payload()),
-                    )
-                    .function_run_outcome(FunctionRunOutcome::Success),
-                )
+                    None,
+                    Some(mock_data_payload()),
+                    Some(1000),
+                )])
                 .await?;
             test_srv.process_all_state_changes().await?;
         }
@@ -354,7 +350,7 @@ mod tests {
         let indexify_state = test_srv.service.indexify_state.clone();
 
         // Create executor with 3 CPU cores
-        let executor = test_srv
+        let mut executor = test_srv
             .create_executor(create_executor_with_resources(
                 TEST_EXECUTOR_ID,
                 3000,                    // 3 cores
@@ -381,19 +377,16 @@ mod tests {
 
         // Complete first allocation
         {
-            let desired_state = executor.desired_state().await;
-            if !desired_state.allocations.is_empty() {
-                let allocation = desired_state.allocations.first().unwrap();
+            let commands = executor.recv_commands().await;
+            if !commands.run_allocations.is_empty() {
+                let allocation = &commands.run_allocations[0];
                 executor
-                    .finalize_allocation(
+                    .report_command_responses(vec![TestExecutor::make_allocation_completed(
                         allocation,
-                        FinalizeFunctionRunArgs::new(
-                            allocation_key_from_proto(allocation),
-                            None,
-                            Some(mock_data_payload()),
-                        )
-                        .function_run_outcome(FunctionRunOutcome::Success),
-                    )
+                        None,
+                        Some(mock_data_payload()),
+                        Some(1000),
+                    )])
                     .await?;
                 test_srv.process_all_state_changes().await?;
             }
@@ -405,19 +398,16 @@ mod tests {
 
         // Complete second allocation
         {
-            let desired_state = executor.desired_state().await;
-            if !desired_state.allocations.is_empty() {
-                let allocation = desired_state.allocations.first().unwrap();
+            let commands = executor.recv_commands().await;
+            if !commands.run_allocations.is_empty() {
+                let allocation = &commands.run_allocations[0];
                 executor
-                    .finalize_allocation(
+                    .report_command_responses(vec![TestExecutor::make_allocation_completed(
                         allocation,
-                        FinalizeFunctionRunArgs::new(
-                            allocation_key_from_proto(allocation),
-                            None,
-                            Some(mock_data_payload()),
-                        )
-                        .function_run_outcome(FunctionRunOutcome::Success),
-                    )
+                        None,
+                        Some(mock_data_payload()),
+                        Some(1000),
+                    )])
                     .await?;
                 test_srv.process_all_state_changes().await?;
             }
@@ -505,7 +495,7 @@ mod tests {
             function: None, // Any function in app_a
         }];
 
-        let executor = test_srv
+        let mut executor = test_srv
             .create_executor(create_executor_with_resources(
                 TEST_EXECUTOR_ID,
                 2000,                    // 2 cores
@@ -526,19 +516,16 @@ mod tests {
 
         // Complete app_a's allocation
         {
-            let desired_state = executor.desired_state().await;
-            if !desired_state.allocations.is_empty() {
-                let allocation = desired_state.allocations.first().unwrap();
+            let commands = executor.recv_commands().await;
+            if !commands.run_allocations.is_empty() {
+                let allocation = &commands.run_allocations[0];
                 executor
-                    .finalize_allocation(
+                    .report_command_responses(vec![TestExecutor::make_allocation_completed(
                         allocation,
-                        FinalizeFunctionRunArgs::new(
-                            allocation_key_from_proto(allocation),
-                            None,
-                            Some(mock_data_payload()),
-                        )
-                        .function_run_outcome(FunctionRunOutcome::Success),
-                    )
+                        None,
+                        Some(mock_data_payload()),
+                        Some(1000),
+                    )])
                     .await?;
                 test_srv.process_all_state_changes().await?;
             }
@@ -605,7 +592,7 @@ mod tests {
         let indexify_state = test_srv.service.indexify_state.clone();
 
         // Create two executors
-        let executor1 = test_srv
+        let mut executor1 = test_srv
             .create_executor(create_executor_with_resources(
                 "executor_1",
                 2000,                    // 2 cores
@@ -635,19 +622,16 @@ mod tests {
 
         // Complete allocation
         {
-            let desired_state = executor1.desired_state().await;
-            if !desired_state.allocations.is_empty() {
-                let allocation = desired_state.allocations.first().unwrap();
+            let commands = executor1.recv_commands().await;
+            if !commands.run_allocations.is_empty() {
+                let allocation = &commands.run_allocations[0];
                 executor1
-                    .finalize_allocation(
+                    .report_command_responses(vec![TestExecutor::make_allocation_completed(
                         allocation,
-                        FinalizeFunctionRunArgs::new(
-                            allocation_key_from_proto(allocation),
-                            None,
-                            Some(mock_data_payload()),
-                        )
-                        .function_run_outcome(FunctionRunOutcome::Success),
-                    )
+                        None,
+                        Some(mock_data_payload()),
+                        Some(1000),
+                    )])
                     .await?;
                 test_srv.process_all_state_changes().await?;
             }
@@ -694,7 +678,7 @@ mod tests {
         let indexify_state = test_srv.service.indexify_state.clone();
 
         // Create executor with 4 CPU cores
-        let executor = test_srv
+        let mut executor = test_srv
             .create_executor(create_executor_with_resources(
                 TEST_EXECUTOR_ID,
                 4000,                    // 4 cores
@@ -718,19 +702,16 @@ mod tests {
 
             // Complete allocation
             {
-                let desired_state = executor.desired_state().await;
-                if !desired_state.allocations.is_empty() {
-                    let allocation = desired_state.allocations.first().unwrap();
+                let commands = executor.recv_commands().await;
+                if !commands.run_allocations.is_empty() {
+                    let allocation = &commands.run_allocations[0];
                     executor
-                        .finalize_allocation(
+                        .report_command_responses(vec![TestExecutor::make_allocation_completed(
                             allocation,
-                            FinalizeFunctionRunArgs::new(
-                                allocation_key_from_proto(allocation),
-                                None,
-                                Some(mock_data_payload()),
-                            )
-                            .function_run_outcome(FunctionRunOutcome::Success),
-                        )
+                            None,
+                            Some(mock_data_payload()),
+                            Some(1000),
+                        )])
                         .await?;
                     test_srv.process_all_state_changes().await?;
                 }
@@ -794,7 +775,7 @@ mod tests {
         let test_srv = testing::TestService::new().await?;
 
         // Create executor with 2 CPU cores
-        let executor = test_srv
+        let mut executor = test_srv
             .create_executor(create_executor_with_resources(
                 TEST_EXECUTOR_ID,
                 2000,                    // 2 cores
@@ -814,19 +795,16 @@ mod tests {
         test_srv.process_all_state_changes().await?;
 
         {
-            let desired_state = executor.desired_state().await;
-            if !desired_state.allocations.is_empty() {
-                let allocation = desired_state.allocations.first().unwrap();
+            let commands = executor.recv_commands().await;
+            if !commands.run_allocations.is_empty() {
+                let allocation = &commands.run_allocations[0];
                 executor
-                    .finalize_allocation(
+                    .report_command_responses(vec![TestExecutor::make_allocation_completed(
                         allocation,
-                        FinalizeFunctionRunArgs::new(
-                            allocation_key_from_proto(allocation),
-                            None,
-                            Some(mock_data_payload()),
-                        )
-                        .function_run_outcome(FunctionRunOutcome::Success),
-                    )
+                        None,
+                        Some(mock_data_payload()),
+                        Some(1000),
+                    )])
                     .await?;
                 test_srv.process_all_state_changes().await?;
             }
@@ -888,18 +866,15 @@ mod tests {
 
         // Complete app_a
         {
-            let desired_state = executor.desired_state().await;
-            let allocation = desired_state.allocations.first().unwrap();
+            let commands = executor.recv_commands().await;
+            let allocation = &commands.run_allocations[0];
             executor
-                .finalize_allocation(
+                .report_command_responses(vec![TestExecutor::make_allocation_completed(
                     allocation,
-                    FinalizeFunctionRunArgs::new(
-                        allocation_key_from_proto(allocation),
-                        None,
-                        Some(mock_data_payload()),
-                    )
-                    .function_run_outcome(FunctionRunOutcome::Success),
-                )
+                    None,
+                    Some(mock_data_payload()),
+                    Some(1000),
+                )])
                 .await?;
             test_srv.process_all_state_changes().await?;
         }
@@ -916,19 +891,16 @@ mod tests {
 
         // Complete app_b
         {
-            let desired_state = executor.desired_state().await;
-            if !desired_state.allocations.is_empty() {
-                let allocation = desired_state.allocations.first().unwrap();
+            let commands = executor.recv_commands().await;
+            if !commands.run_allocations.is_empty() {
+                let allocation = &commands.run_allocations[0];
                 executor
-                    .finalize_allocation(
+                    .report_command_responses(vec![TestExecutor::make_allocation_completed(
                         allocation,
-                        FinalizeFunctionRunArgs::new(
-                            allocation_key_from_proto(allocation),
-                            None,
-                            Some(mock_data_payload()),
-                        )
-                        .function_run_outcome(FunctionRunOutcome::Success),
-                    )
+                        None,
+                        Some(mock_data_payload()),
+                        Some(1000),
+                    )])
                     .await?;
                 test_srv.process_all_state_changes().await?;
             }
@@ -974,11 +946,10 @@ mod tests {
                 fe.state = crate::data_model::ContainerState::Terminated {
                     reason:
                         crate::data_model::FunctionExecutorTerminationReason::DesiredStateRemoved,
-                    failed_alloc_ids: vec![],
                 };
             }
             executor_state.state_hash = nanoid::nanoid!();
-            executor.heartbeat(executor_state).await?;
+            executor.sync_executor_state(executor_state).await?;
             test_srv.process_all_state_changes().await?;
         }
 
@@ -1008,7 +979,7 @@ mod tests {
         let indexify_state = test_srv.service.indexify_state.clone();
 
         // Create executor with 3 cores
-        let executor = test_srv
+        let mut executor = test_srv
             .create_executor(create_executor_with_resources(
                 TEST_EXECUTOR_ID,
                 3000,                    // 3 cores
@@ -1031,19 +1002,16 @@ mod tests {
 
             // Complete allocation
             {
-                let desired_state = executor.desired_state().await;
-                if !desired_state.allocations.is_empty() {
-                    let allocation = desired_state.allocations.first().unwrap();
+                let commands = executor.recv_commands().await;
+                if !commands.run_allocations.is_empty() {
+                    let allocation = &commands.run_allocations[0];
                     executor
-                        .finalize_allocation(
+                        .report_command_responses(vec![TestExecutor::make_allocation_completed(
                             allocation,
-                            FinalizeFunctionRunArgs::new(
-                                allocation_key_from_proto(allocation),
-                                None,
-                                Some(mock_data_payload()),
-                            )
-                            .function_run_outcome(FunctionRunOutcome::Success),
-                        )
+                            None,
+                            Some(mock_data_payload()),
+                            Some(1000),
+                        )])
                         .await?;
                     test_srv.process_all_state_changes().await?;
                 }
@@ -1263,7 +1231,7 @@ mod tests {
             function: None,
         }];
 
-        let executor1 = test_srv
+        let mut executor1 = test_srv
             .create_executor(create_executor_with_resources(
                 "executor_1",
                 2000,                    // 2 cores
@@ -1273,7 +1241,7 @@ mod tests {
             .await?;
 
         // Create executor_2 without allowlist (containers can be vacuumed)
-        let executor2 = test_srv
+        let mut executor2 = test_srv
             .create_executor(create_executor_with_resources(
                 "executor_2",
                 2000,                    // 2 cores
@@ -1293,19 +1261,16 @@ mod tests {
 
         // Complete protected app
         {
-            let desired_state = executor1.desired_state().await;
-            if !desired_state.allocations.is_empty() {
-                let allocation = desired_state.allocations.first().unwrap();
+            let commands = executor1.recv_commands().await;
+            if !commands.run_allocations.is_empty() {
+                let allocation = &commands.run_allocations[0];
                 executor1
-                    .finalize_allocation(
+                    .report_command_responses(vec![TestExecutor::make_allocation_completed(
                         allocation,
-                        FinalizeFunctionRunArgs::new(
-                            allocation_key_from_proto(allocation),
-                            None,
-                            Some(mock_data_payload()),
-                        )
-                        .function_run_outcome(FunctionRunOutcome::Success),
-                    )
+                        None,
+                        Some(mock_data_payload()),
+                        Some(1000),
+                    )])
                     .await?;
                 test_srv.process_all_state_changes().await?;
             }
@@ -1322,19 +1287,16 @@ mod tests {
 
         // Complete unprotected app
         {
-            let desired_state = executor2.desired_state().await;
-            if !desired_state.allocations.is_empty() {
-                let allocation = desired_state.allocations.first().unwrap();
+            let commands = executor2.recv_commands().await;
+            if !commands.run_allocations.is_empty() {
+                let allocation = &commands.run_allocations[0];
                 executor2
-                    .finalize_allocation(
+                    .report_command_responses(vec![TestExecutor::make_allocation_completed(
                         allocation,
-                        FinalizeFunctionRunArgs::new(
-                            allocation_key_from_proto(allocation),
-                            None,
-                            Some(mock_data_payload()),
-                        )
-                        .function_run_outcome(FunctionRunOutcome::Success),
-                    )
+                        None,
+                        Some(mock_data_payload()),
+                        Some(1000),
+                    )])
                     .await?;
                 test_srv.process_all_state_changes().await?;
             }
@@ -1401,7 +1363,7 @@ mod tests {
         let indexify_state = test_srv.service.indexify_state.clone();
 
         // Create executor with 2 CPU cores
-        let executor = test_srv
+        let mut executor = test_srv
             .create_executor(create_executor_with_resources(
                 TEST_EXECUTOR_ID,
                 2000,                    // 2 cores
@@ -1442,19 +1404,16 @@ mod tests {
 
         // Complete the allocation for app_a (making the container idle)
         {
-            let desired_state = executor.desired_state().await;
-            assert_eq!(desired_state.allocations.len(), 1);
-            let allocation = desired_state.allocations.first().unwrap();
+            let commands = executor.recv_commands().await;
+            assert_eq!(commands.run_allocations.len(), 1);
+            let allocation = &commands.run_allocations[0];
             executor
-                .finalize_allocation(
+                .report_command_responses(vec![TestExecutor::make_allocation_completed(
                     allocation,
-                    FinalizeFunctionRunArgs::new(
-                        allocation_key_from_proto(allocation),
-                        None,
-                        Some(mock_data_payload()),
-                    )
-                    .function_run_outcome(crate::data_model::FunctionRunOutcome::Success),
-                )
+                    None,
+                    Some(mock_data_payload()),
+                    Some(1000),
+                )])
                 .await?;
             test_srv.process_all_state_changes().await?;
         }
@@ -1531,7 +1490,7 @@ mod tests {
                     status.allocation_id
                 );
 
-                let desired_state = executor.desired_state().await;
+                let desired_state = executor.srv_executor_state().await;
                 for alloc in &desired_state.allocations {
                     if alloc
                         .allocation_id

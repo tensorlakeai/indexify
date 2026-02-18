@@ -86,12 +86,17 @@ impl AllocationController {
                         _ => None,
                     })
                     .unwrap_or(AllocationFailureReason::FunctionExecutorTerminated);
-                let result = proto_convert::make_failure_result(&allocation, failure_reason);
+                let response = proto_convert::make_allocation_failed_response(
+                    &allocation,
+                    failure_reason,
+                    None,
+                    None,
+                );
                 // Send result directly — no blobs to clean up.
                 // This matches the old per-FE controller behavior and avoids
                 // the latency of spawning a finalization task.
-                record_allocation_metrics(&result, &self.config.metrics.counters);
-                let _ = self.config.result_tx.send(result);
+                record_allocation_metrics(&response, &self.config.metrics.counters);
+                let _ = self.config.result_tx.send(response);
                 let managed = ManagedAllocation {
                     allocation: allocation.clone(),
                     fe_id: fe_id.clone(),
@@ -445,6 +450,7 @@ impl AllocationController {
                     metrics: metrics.clone(),
                     driver: self.config.driver.clone(),
                     process_handle: process_handle.clone(),
+                    executor_id: self.config.executor_id.clone(),
                 };
 
                 let allocation = alloc.allocation.clone();
@@ -654,9 +660,10 @@ impl AllocationController {
             );
         }
 
-        // Record metrics and send result
-        record_allocation_metrics(&result, &self.config.metrics.counters);
-        let _ = self.config.result_tx.send(result);
+        // Record metrics and send result as CommandResponse
+        let response = proto_convert::allocation_result_to_command_response(&result);
+        record_allocation_metrics(&response, &self.config.metrics.counters);
+        let _ = self.config.result_tx.send(response);
 
         // Keep the allocation in Done state — do NOT remove it.
         // The server may re-send this allocation before it processes the
@@ -837,11 +844,12 @@ impl AllocationController {
             }
         }
 
-        // Send any remaining results
+        // Send any remaining results as CommandResponses
         for (_alloc_id, alloc) in self.allocations.drain() {
             if let AllocationState::Finalizing { result } = alloc.state {
-                record_allocation_metrics(&result, &self.config.metrics.counters);
-                let _ = self.config.result_tx.send(result);
+                let response = proto_convert::allocation_result_to_command_response(&result);
+                record_allocation_metrics(&response, &self.config.metrics.counters);
+                let _ = self.config.result_tx.send(response);
             }
         }
 

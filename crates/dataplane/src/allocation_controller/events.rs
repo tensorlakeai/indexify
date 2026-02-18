@@ -17,10 +17,15 @@ use crate::{
 /// Commands sent TO the controller (from service.rs / state_reconciler).
 #[allow(clippy::large_enum_variant)]
 pub enum ACCommand {
-    /// Atomic reconciliation: desired FEs + new allocations together.
+    /// Delta reconciliation: add/update containers, remove containers, route
+    /// new allocations. Unlike the old full-set Reconcile, containers not
+    /// mentioned are left untouched.
     Reconcile {
-        desired_fes: Vec<FunctionExecutorDescription>,
-        /// (fe_id, allocation) pairs.
+        /// Containers to create or update.
+        added_or_updated_fes: Vec<FunctionExecutorDescription>,
+        /// Container IDs to destroy.
+        removed_fe_ids: Vec<String>,
+        /// (fe_id, allocation) pairs to route.
         new_allocations: Vec<(String, ServerAllocation)>,
     },
     /// Graceful shutdown of the entire controller.

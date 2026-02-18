@@ -1379,18 +1379,16 @@ impl FunctionRunFailureReason {
     }
 
     pub fn should_count_against_function_run_retry_attempts(&self) -> bool {
-        // Platform/infrastructure failures that are not the user's fault
-        // don't count against retry attempts. This ensures transient
-        // issues (port collisions, executor crashes, slow CI machines)
-        // get retried even when max_retries is 0.
+        // Most retriable failures count against retry attempts. This
+        // prevents infinite retry loops when containers keep crashing.
         //
-        // Reasons that DON'T count (free retries):
-        //   FunctionExecutorTerminated, ExecutorRemoved,
-        //   ContainerStartupInternalError
+        // Reasons that DON'T count (free retries — pure infrastructure):
+        //   ExecutorRemoved, ContainerStartupInternalError
         //
-        // Reasons that DO count (user-attributable):
+        // Reasons that DO count (user-attributable or container crashes):
         //   InternalError, FunctionError, FunctionTimeout, OutOfMemory,
-        //   ContainerStartupFunctionError, ContainerStartupFunctionTimeout
+        //   ContainerStartupFunctionError, ContainerStartupFunctionTimeout,
+        //   FunctionExecutorTerminated
         matches!(
             self,
             FunctionRunFailureReason::InternalError |
@@ -1398,7 +1396,8 @@ impl FunctionRunFailureReason {
                 FunctionRunFailureReason::FunctionTimeout |
                 FunctionRunFailureReason::OutOfMemory |
                 FunctionRunFailureReason::ContainerStartupFunctionError |
-                FunctionRunFailureReason::ContainerStartupFunctionTimeout
+                FunctionRunFailureReason::ContainerStartupFunctionTimeout |
+                FunctionRunFailureReason::FunctionExecutorTerminated
         )
     }
 }
@@ -1778,7 +1777,6 @@ pub enum ContainerState {
     // Function Executor is terminated, all resources are freed.
     Terminated {
         reason: FunctionExecutorTerminationReason,
-        failed_alloc_ids: Vec<String>,
     },
 }
 
@@ -2216,6 +2214,7 @@ impl ExecutorMetadata {
         }
     }
 
+    #[allow(dead_code)]
     pub fn update(&mut self, update: ExecutorMetadata) {
         self.function_allowlist = update.function_allowlist;
         self.containers = update.containers;
@@ -2289,6 +2288,24 @@ pub struct ExecutorUpsertedEvent {
     pub executor_id: ExecutorId,
 }
 
+/// Info about a container state change reported by the dataplane.
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct ContainerStateUpdateInfo {
+    pub container_id: ContainerId,
+    pub termination_reason: Option<FunctionExecutorTerminationReason>,
+}
+
+/// Event triggered when a v2 dataplane reports allocation results
+/// and container state changes together for atomic processing.
+/// Carries all data needed by the ApplicationProcessor handler so
+/// container terminations and allocation results are processed atomically.
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct DataplaneResultsIngestedEvent {
+    pub executor_id: ExecutorId,
+    pub allocation_events: Vec<AllocationOutputIngestedEvent>,
+    pub container_state_updates: Vec<ContainerStateUpdateInfo>,
+}
+
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub enum ChangeType {
     InvokeApplication(InvokeApplicationEvent),
@@ -2303,6 +2320,7 @@ pub enum ChangeType {
     CreateContainerPool(CreateContainerPoolEvent),
     UpdateContainerPool(UpdateContainerPoolEvent),
     DeleteContainerPool(DeleteContainerPoolEvent),
+    DataplaneResultsIngested(DataplaneResultsIngestedEvent),
 }
 
 impl fmt::Display for ChangeType {
@@ -2367,6 +2385,11 @@ impl fmt::Display for ChangeType {
                 f,
                 "DeleteContainerPool, namespace: {}, pool_id: {}",
                 ev.namespace, ev.pool_id
+            ),
+            ChangeType::DataplaneResultsIngested(ev) => write!(
+                f,
+                "DataplaneResultsIngested, executor_id: {}",
+                ev.executor_id
             ),
         }
     }

@@ -646,32 +646,27 @@ pub fn from_data_model_executor_metadata(
             })
             .collect()
     });
+    // In v2, the server owns the container lifecycle (AddContainer/RemoveContainer
+    // commands), so function_container_server_metadata is the authoritative source
+    // for which containers exist on the executor. Use it as the primary list.
+    // Containers only in executor.containers (from heartbeat) are included as
+    // fallback for v1 compatibility.
     let mut function_executors = Vec::new();
-    for (fe_id, fe) in executor.containers.iter() {
-        if let Some(fe_server_metadata) = function_container_server_metadata.get(fe_id) {
-            let desired_state = fe_server_metadata.desired_state.clone();
-            function_executors.push(from_data_model_function_executor(
-                fe.clone(),
-                desired_state,
-                fe_server_metadata.allocations.len() as u32,
-            ));
-        } else {
-            function_executors.push(from_data_model_function_executor(
-                fe.clone(),
-                ContainerState::Unknown,
-                0,
-            ));
-        }
+    for (_fe_id, fe) in function_container_server_metadata.iter() {
+        function_executors.push(from_data_model_function_executor(
+            fe.function_container.clone(),
+            fe.desired_state.clone(),
+            fe.allocations.len() as u32,
+        ));
     }
-    let server_only_function_executors = function_container_server_metadata
+    // Include any executor-reported containers not tracked by the server
+    // (shouldn't happen in v2, but preserves v1 compatibility).
+    let server_only_function_executors: Vec<FunctionExecutorMetadata> = executor
+        .containers
         .iter()
-        .filter(|(fe_id, _fe)| !executor.containers.contains_key(fe_id))
+        .filter(|(fe_id, _)| !function_container_server_metadata.contains_key(fe_id))
         .map(|(_fe_id, fe)| {
-            from_data_model_function_executor(
-                fe.function_container.clone(),
-                fe.desired_state.clone(),
-                fe.allocations.len() as u32,
-            )
+            from_data_model_function_executor(fe.clone(), ContainerState::Unknown, 0)
         })
         .collect();
     ExecutorMetadata {

@@ -47,6 +47,7 @@ pub struct AllocationContext {
     pub metrics: Arc<crate::metrics::DataplaneMetrics>,
     pub driver: Arc<dyn crate::driver::ProcessDriver>,
     pub process_handle: crate::driver::ProcessHandle,
+    pub executor_id: String,
 }
 
 /// Build an AllocationUpdate wrapping the given update variant.
@@ -315,6 +316,8 @@ impl AllocationRunner {
                 }
                 Some(watcher_result) = self.watcher_result_rx.recv() => {
                     // Deliver watcher result to FE inline
+                    let removed_watcher_id = watcher_result.watcher_id.clone();
+                    let removed_watched_fc_id = watcher_result.watched_function_call_id.clone();
                     watcher_reconciler::deliver_function_call_result_to_fe(
                         &mut self.client,
                         &self.allocation_id,
@@ -324,7 +327,8 @@ impl AllocationRunner {
                         &self.ctx.blob_store,
                     )
                     .await;
-                    self.active_watcher_ids.remove(&watcher_result.watcher_id);
+                    self.active_watcher_ids.remove(&removed_watcher_id);
+                    self.send_remove_watcher(&removed_watcher_id, &removed_watched_fc_id);
                     // Reset deadline so the parent function has time to finish
                     // processing after the child result is delivered.
                     deadline = Instant::now() + self.timeout;
@@ -446,6 +450,69 @@ impl AllocationRunner {
         }
     }
 
+    /// Fire-and-forget a RemoveWatcher event to the server.
+    /// Spawned as a background task to avoid blocking the allocation runner.
+    fn send_remove_watcher(&self, watcher_id: &str, watched_function_call_id: &str) {
+        let namespace = self
+            .allocation
+            .function
+            .as_ref()
+            .and_then(|f| f.namespace.as_deref())
+            .unwrap_or("")
+            .to_string();
+        let application = self
+            .allocation
+            .function
+            .as_ref()
+            .and_then(|f| f.application_name.as_deref())
+            .unwrap_or("")
+            .to_string();
+        let request_id = self
+            .allocation
+            .request_id
+            .as_deref()
+            .unwrap_or("")
+            .to_string();
+        let channel = self.ctx.server_channel.clone();
+        let watcher_id = watcher_id.to_string();
+        let watched_function_call_id = watched_function_call_id.to_string();
+        let function_call_id = self.allocation.function_call_id.clone();
+        let allocation_id = self.allocation.allocation_id.clone();
+        let executor_id = self.ctx.executor_id.clone();
+
+        tokio::spawn(async move {
+            let mut server_client =
+                proto_api::executor_api_pb::executor_api_client::ExecutorApiClient::new(channel);
+            let remove_watcher = proto_api::executor_api_pb::RemoveWatcherRequest {
+                watcher_id: Some(watcher_id),
+                namespace: Some(namespace.clone()),
+                application: Some(application.clone()),
+                request_id: Some(request_id),
+                function_call_id: Some(watched_function_call_id),
+            };
+            let events_request = proto_api::executor_api_pb::AllocationEvents {
+                namespace: Some(namespace),
+                application: Some(application),
+                function_call_id,
+                allocation_id,
+                events: vec![proto_api::executor_api_pb::AllocationEvent {
+                    event: Some(
+                        proto_api::executor_api_pb::allocation_event::Event::RemoveWatcher(
+                            remove_watcher,
+                        ),
+                    ),
+                }],
+                executor_id: Some(executor_id),
+            };
+            if let Err(e) = server_client.add_allocation_events(events_request).await {
+                warn!(
+                    error = %e,
+                    "Failed to send RemoveWatcher event to server (drift healing will cover)"
+                );
+            }
+        });
+    }
+
     /// Delegate reconciliation to the focused modules.
     async fn reconcile(&mut self, state: &AllocationState) {
         blob_reconciler::reconcile_output_blobs(
@@ -470,6 +537,7 @@ impl AllocationRunner {
             &self.uri_prefix,
             &self.output_blob_handles,
             &self.ctx.blob_store,
+            &self.ctx.executor_id,
         )
         .await;
 
@@ -479,6 +547,8 @@ impl AllocationRunner {
             &mut self.active_watcher_ids,
             &self.watcher_result_tx,
             state,
+            &self.ctx.server_channel,
+            &self.ctx.executor_id,
         )
         .await;
 

@@ -2,24 +2,18 @@ use std::{
     path::PathBuf,
     sync::{
         Arc,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
     time::Duration,
 };
 
 use anyhow::{Context, Result};
-use prost::Message;
 use proto_api::executor_api_pb::{
-    DesiredExecutorState,
-    ExecutorState,
     ExecutorStatus,
-    ExecutorUpdate,
-    GetDesiredExecutorStatesRequest,
+    GetCommandStreamRequest,
     HostResources,
-    ReportExecutorStateRequest,
     executor_api_client::ExecutorApiClient,
 };
-use sha2::{Digest, Sha256};
 use tokio::{
     sync::{Mutex, Notify, mpsc},
     task::JoinSet,
@@ -123,6 +117,9 @@ impl Service {
 
         let driver = create_process_driver(&config)?;
 
+        let (result_tx, result_rx) = mpsc::unbounded_channel(); // CommandResponse (allocation results)
+        let (container_state_tx, container_state_rx) = mpsc::unbounded_channel(); // CommandResponse (ContainerTerminated)
+
         let state_file = Arc::new(
             StateFile::new(&config.state_file)
                 .await
@@ -135,6 +132,7 @@ impl Service {
             metrics.clone(),
             state_file,
             config.executor_id.clone(),
+            container_state_tx.clone(),
         ));
 
         let blob_store = create_blob_store(&config, &metrics).await?;
@@ -143,8 +141,6 @@ impl Service {
             blob_store.clone(),
             metrics.clone(),
         ));
-
-        let (result_tx, result_rx) = mpsc::unbounded_channel();
         let state_change_notify = Arc::new(Notify::new());
 
         let gpu_allocator = Arc::new(crate::gpu_allocator::GpuAllocator::new(discovered_gpus));
@@ -155,6 +151,7 @@ impl Service {
             gpu_allocator,
             secrets_provider,
             result_tx,
+            container_state_tx,
             server_channel: channel.clone(),
             blob_store,
             code_cache,
@@ -175,7 +172,7 @@ impl Service {
             state_change_notify.clone(),
         )));
 
-        let state_reporter = Arc::new(StateReporter::new(result_rx));
+        let state_reporter = Arc::new(StateReporter::new(result_rx, container_state_rx));
 
         let allowed_functions = config.parse_allowed_functions();
         if !allowed_functions.is_empty() {
@@ -242,6 +239,7 @@ impl Service {
             cancel_token: cancel_token.clone(),
             metrics: self.metrics.clone(),
             monitoring_state: self.monitoring_state.clone(),
+            command_stream_last_seq: Arc::new(AtomicU64::new(0)),
         });
 
         let mut tasks = JoinSet::new();
@@ -255,7 +253,7 @@ impl Service {
         tasks.spawn({
             let span = span.clone();
             let rt = runtime.clone();
-            async move { rt.run_desired_stream_loop().await }.instrument(span)
+            async move { rt.run_command_stream_loop().await }.instrument(span)
         });
 
         tasks.spawn({
@@ -363,85 +361,38 @@ struct ServiceRuntime {
     cancel_token: CancellationToken,
     metrics: Arc<DataplaneMetrics>,
     monitoring_state: Arc<MonitoringState>,
+    /// Last processed command sequence number for the command stream.
+    command_stream_last_seq: Arc<AtomicU64>,
 }
 
 impl ServiceRuntime {
-    /// Build the executor state with all fields and a SHA-256 state hash.
-    async fn build_executor_state(
+    /// Build a full state sync message (identity + all containers + watches).
+    fn build_full_state(
         &self,
-        function_executor_states: Vec<proto_api::executor_api_pb::FunctionExecutorState>,
-        function_call_watches: Vec<proto_api::executor_api_pb::FunctionCallWatch>,
-    ) -> ExecutorState {
-        let system_hostname = hostname::get()
+        fe_states: &[proto_api::executor_api_pb::FunctionExecutorState],
+        watches: &[proto_api::executor_api_pb::FunctionCallWatch],
+    ) -> proto_api::executor_api_pb::DataplaneStateFullSync {
+        let hostname = hostname::get()
             .map(|h| h.to_string_lossy().to_string())
             .unwrap_or_else(|_| "localhost".to_string());
-
-        let mut executor_state = ExecutorState {
-            executor_id: Some(self.identity.executor_id.clone()),
-            hostname: Some(system_hostname),
+        proto_api::executor_api_pb::DataplaneStateFullSync {
+            hostname: Some(hostname),
             version: Some(env!("CARGO_PKG_VERSION").to_string()),
-            status: Some(ExecutorStatus::Running.into()),
             total_resources: Some(self.identity.host_resources),
             total_function_executor_resources: Some(self.identity.host_resources),
             allowed_functions: self.identity.allowed_functions.clone(),
-            function_executor_states,
-            function_call_watches,
-            proxy_address: Some(self.identity.proxy_address.clone()),
             labels: self.identity.labels.clone(),
-            ..Default::default()
-        };
-
-        let serialized = executor_state.encode_to_vec();
-        let mut hasher = Sha256::new();
-        hasher.update(&serialized);
-        let hash = hasher.finalize();
-        executor_state.state_hash = Some(format!("{:x}", hash));
-
-        executor_state
-    }
-
-    /// Build a heartbeat request with allocation results, fragmenting to fit
-    /// within the 10 MB message size limit.
-    ///
-    /// Returns `(request, reported_allocation_ids, has_remaining_results)`.
-    async fn build_heartbeat_request(
-        &self,
-        executor_state: ExecutorState,
-    ) -> (ReportExecutorStateRequest, Vec<String>, bool) {
-        // Calculate base message size (without allocation results) for fragmentation.
-        let base_request = ReportExecutorStateRequest {
-            executor_state: Some(executor_state.clone()),
-            executor_update: Some(ExecutorUpdate {
-                executor_id: Some(self.identity.executor_id.clone()),
-                allocation_results: vec![],
-            }),
-        };
-        let base_message_size = base_request.encoded_len();
-
-        // Collect allocation results that fit within the 10 MB message size limit.
-        // Results are NOT removed from the buffer yet — only after successful RPC.
-        let (allocation_results, has_remaining) =
-            self.state_reporter.collect_results(base_message_size).await;
-
-        let reported_ids: Vec<String> = allocation_results
-            .iter()
-            .filter_map(|r| r.allocation_id.clone())
-            .collect();
-
-        let request = ReportExecutorStateRequest {
-            executor_state: Some(executor_state),
-            executor_update: Some(ExecutorUpdate {
-                executor_id: Some(self.identity.executor_id.clone()),
-                allocation_results,
-            }),
-        };
-
-        (request, reported_ids, has_remaining)
+            catalog_entry_name: None,
+            proxy_address: Some(self.identity.proxy_address.clone()),
+            function_executor_states: fe_states.to_vec(),
+            function_call_watches: watches.to_vec(),
+        }
     }
 
     async fn run_heartbeat_loop(&self) {
         let mut client = ExecutorApiClient::new(self.channel.clone());
         let mut retry_interval = HEARTBEAT_MIN_RETRY_INTERVAL;
+        let mut send_full_state = false; // First heartbeat has no state; server asks for it
 
         loop {
             if self.cancel_token.is_cancelled() {
@@ -449,21 +400,103 @@ impl ServiceRuntime {
                 return;
             }
 
-            // Get FE states and function call watches from reconciler
-            let reconciler_guard = self.state_reconciler.lock().await;
-            let function_executor_states = reconciler_guard.get_all_fe_states().await;
-            let function_call_watches = reconciler_guard.get_function_call_watches().await;
-            drop(reconciler_guard);
+            // Phase 1: Drain pending command responses
+            let mut results_failed = false;
+            loop {
+                let (responses, has_remaining) = self.state_reporter.collect_responses(0).await;
 
-            let executor_state = self
-                .build_executor_state(function_executor_states, function_call_watches)
-                .await;
-            let (request, reported_ids, has_remaining) =
-                self.build_heartbeat_request(executor_state).await;
+                if responses.is_empty() {
+                    break;
+                }
 
-            // Record state report metrics
+                // Extract allocation IDs for post-RPC cleanup.
+                // ContainerTerminated responses are always drained by
+                // remove_reported_responses.
+                let reported_ids: Vec<String> = responses
+                    .iter()
+                    .filter_map(|r| {
+                        crate::function_executor::proto_convert::command_response_allocation_id(r)
+                            .map(|s| s.to_string())
+                    })
+                    .collect();
+
+                let request = proto_api::executor_api_pb::ReportCommandResponsesRequest {
+                    executor_id: self.identity.executor_id.clone(),
+                    responses,
+                };
+
+                self.metrics.counters.state_report_rpcs.add(1, &[]);
+
+                if has_remaining {
+                    self.metrics
+                        .counters
+                        .state_report_message_fragmentations
+                        .add(1, &[]);
+                }
+
+                match client.report_command_responses(request).await {
+                    Ok(_) => {
+                        self.metrics.counters.record_heartbeat(true);
+                        self.state_reporter
+                            .remove_reported_responses(&reported_ids)
+                            .await;
+                        retry_interval = HEARTBEAT_MIN_RETRY_INTERVAL;
+                        self.heartbeat_healthy.store(true, Ordering::SeqCst);
+                        if !has_remaining {
+                            break;
+                        }
+                        // More responses pending, loop to send next batch
+                    }
+                    Err(e) => {
+                        self.metrics.counters.record_heartbeat(false);
+                        self.metrics.counters.state_report_rpc_errors.add(1, &[]);
+                        tracing::warn!(
+                            error = %e,
+                            server_addr = %self.identity.server_addr,
+                            "report_command_responses failed"
+                        );
+                        self.heartbeat_healthy.store(false, Ordering::SeqCst);
+                        send_full_state = true;
+                        results_failed = true;
+                        break;
+                    }
+                }
+            }
+
+            if results_failed {
+                tokio::select! {
+                    _ = self.cancel_token.cancelled() => return,
+                    _ = tokio::time::sleep(retry_interval) => {}
+                }
+                retry_interval = std::cmp::min(
+                    retry_interval * HEARTBEAT_BACKOFF_MULTIPLIER,
+                    HEARTBEAT_MAX_RETRY_INTERVAL,
+                );
+                continue;
+            }
+
+            // Phase 2: Build and send heartbeat
             let report_start = std::time::Instant::now();
-            let request_size = prost::Message::encoded_len(&request);
+
+            // Build full_state payload if the server requested it
+            let full_state = if send_full_state {
+                tracing::info!("Sending full state in heartbeat");
+                let reconciler_guard = self.state_reconciler.lock().await;
+                let fe_states = reconciler_guard.get_all_fe_states().await;
+                let function_call_watches = reconciler_guard.get_function_call_watches().await;
+                drop(reconciler_guard);
+                Some(self.build_full_state(&fe_states, &function_call_watches))
+            } else {
+                None
+            };
+
+            let heartbeat_req = proto_api::executor_api_pb::HeartbeatRequest {
+                executor_id: Some(self.identity.executor_id.clone()),
+                status: Some(ExecutorStatus::Running.into()),
+                full_state,
+            };
+
+            let request_size = prost::Message::encoded_len(&heartbeat_req);
             self.metrics.counters.state_report_rpcs.add(1, &[]);
             self.metrics
                 .histograms
@@ -472,71 +505,42 @@ impl ServiceRuntime {
 
             // Store reported state for monitoring endpoint
             *self.monitoring_state.last_reported_state.lock().await =
-                Some(format!("{:#?}", request));
+                Some(format!("{:#?}", heartbeat_req));
 
-            if has_remaining {
-                self.metrics
-                    .counters
-                    .state_report_message_fragmentations
-                    .add(1, &[]);
-            }
-
-            match client.report_executor_state(request).await {
-                Ok(_) => {
+            match client.heartbeat(heartbeat_req).await {
+                Ok(response) => {
                     self.metrics
                         .histograms
                         .state_report_rpc_latency_seconds
                         .record(report_start.elapsed().as_secs_f64(), &[]);
                     self.metrics.counters.record_heartbeat(true);
-                    retry_interval = HEARTBEAT_MIN_RETRY_INTERVAL; // Reset backoff on success
+                    retry_interval = HEARTBEAT_MIN_RETRY_INTERVAL;
+                    send_full_state = false;
 
-                    // Remove successfully reported results from the buffer
-                    self.state_reporter
-                        .remove_reported_results(&reported_ids)
-                        .await;
+                    // Check if server needs full state
+                    let resp = response.into_inner();
+                    let server_needs_state = resp.send_state.unwrap_or(false);
+                    if server_needs_state {
+                        tracing::info!("Server requested full state");
+                        send_full_state = true;
+                    }
 
                     // Mark monitoring as ready after first successful heartbeat
                     self.monitoring_state.ready.store(true, Ordering::SeqCst);
 
-                    let was_healthy = self.heartbeat_healthy.swap(true, Ordering::SeqCst);
-                    if !was_healthy {
-                        tracing::info!("Heartbeat succeeded, notifying stream to start");
-                        self.stream_notify.notify_one();
-                    }
-
-                    // If more results remain due to fragmentation, send immediately
-                    if has_remaining {
-                        tracing::debug!(
-                            "More allocation results pending, sending next heartbeat immediately"
-                        );
-                        continue;
-                    }
-
-                    let results_notify = self.state_reporter.results_notify();
-                    let reconciler = self.state_reconciler.lock().await;
-                    let watcher_notify = reconciler.watcher_notify();
-                    let state_change_notify = reconciler.state_change_notify();
-                    drop(reconciler);
-
-                    tokio::select! {
-                        _ = self.cancel_token.cancelled() => {
-                            tracing::info!("Heartbeat loop cancelled");
-                            return;
+                    // Only mark healthy when the server knows our executor
+                    // (send_state == false). When the server asks for full state,
+                    // the executor isn't registered in runtime_data yet, so the
+                    // command stream would be rejected with "executor not found".
+                    if !server_needs_state {
+                        let was_healthy = self.heartbeat_healthy.swap(true, Ordering::SeqCst);
+                        if !was_healthy {
+                            tracing::info!("Heartbeat succeeded, notifying stream to start");
+                            self.stream_notify.notify_waiters();
                         }
-                        _ = results_notify.notified() => {
-                            // Results available, send heartbeat immediately
-                        }
-                        _ = watcher_notify.notified() => {
-                            // New watches registered, send heartbeat immediately
-                        }
-                        _ = state_change_notify.notified() => {
-                            // FE added/removed, send heartbeat immediately
-                        }
-                        _ = tokio::time::sleep(HEARTBEAT_INTERVAL) => {}
                     }
                 }
                 Err(e) => {
-                    // Results NOT removed from buffer — will be retried in next heartbeat
                     self.metrics.counters.record_heartbeat(false);
                     self.metrics.counters.state_report_rpc_errors.add(1, &[]);
                     self.metrics
@@ -550,260 +554,240 @@ impl ServiceRuntime {
                         "Heartbeat failed, retrying with backoff"
                     );
                     self.heartbeat_healthy.store(false, Ordering::SeqCst);
+                    send_full_state = true;
                     tokio::select! {
-                        _ = self.cancel_token.cancelled() => {
-                            tracing::info!("Heartbeat loop cancelled");
-                            return;
-                        }
+                        _ = self.cancel_token.cancelled() => return,
                         _ = tokio::time::sleep(retry_interval) => {}
                     }
-                    // Exponential backoff: 5s → 15s → 45s → 135s → 300s (capped)
                     retry_interval = std::cmp::min(
                         retry_interval * HEARTBEAT_BACKOFF_MULTIPLIER,
                         HEARTBEAT_MAX_RETRY_INTERVAL,
                     );
+                    continue;
                 }
+            }
+
+            // Phase 3: Wait for next trigger
+            let results_notify = self.state_reporter.results_notify();
+            let reconciler = self.state_reconciler.lock().await;
+            let state_change_notify = reconciler.state_change_notify();
+            drop(reconciler);
+
+            tokio::select! {
+                _ = self.cancel_token.cancelled() => {
+                    tracing::info!("Heartbeat loop cancelled");
+                    return;
+                }
+                _ = results_notify.notified() => {
+                    // Results available, send immediately
+                }
+                _ = state_change_notify.notified() => {
+                    // FE added/removed, send immediately
+                }
+                _ = tokio::time::sleep(HEARTBEAT_INTERVAL) => {}
             }
         }
     }
 
-    async fn run_desired_stream_loop(&self) {
+    /// Outer reconnect loop for the command stream.
+    async fn run_command_stream_loop(&self) {
         loop {
             if self.cancel_token.is_cancelled() {
-                tracing::info!("Stream loop cancelled");
+                tracing::info!("Command stream loop cancelled");
                 return;
             }
 
             // Wait for heartbeat to be healthy before starting stream
             while !self.heartbeat_healthy.load(Ordering::SeqCst) {
-                tracing::debug!("Waiting for heartbeat to be healthy");
+                tracing::debug!("Command stream waiting for heartbeat to be healthy");
                 tokio::select! {
                     _ = self.cancel_token.cancelled() => {
-                        tracing::info!("Stream loop cancelled");
+                        tracing::info!("Command stream loop cancelled");
                         return;
                     }
                     _ = self.stream_notify.notified() => {}
                 }
             }
 
-            tracing::info!("Starting desired executor states stream");
-            if let Err(e) = self.run_desired_stream().await {
+            tracing::info!("Starting command stream");
+            if let Err(e) = self.run_command_stream().await {
                 self.metrics.counters.record_stream_disconnection("error");
-                tracing::warn!(error = %e, "Desired stream ended");
+                tracing::warn!(error = %e, "Command stream ended");
             }
 
             // Small delay before reconnecting
             tokio::select! {
                 _ = self.cancel_token.cancelled() => {
-                    tracing::info!("Stream loop cancelled");
+                    tracing::info!("Command stream loop cancelled");
                     return;
                 }
                 _ = tokio::time::sleep(Duration::from_secs(1)) => {}
             }
         }
     }
-}
 
-impl ServiceRuntime {
-    async fn run_desired_stream(&self) -> Result<()> {
+    /// Single connection for the command stream.
+    async fn run_command_stream(&self) -> Result<()> {
         let mut client = ExecutorApiClient::new(self.channel.clone());
+        let last_seq = self.command_stream_last_seq.load(Ordering::SeqCst);
 
-        let request = GetDesiredExecutorStatesRequest {
-            executor_id: Some(self.identity.executor_id.clone()),
+        let request = GetCommandStreamRequest {
+            executor_id: self.identity.executor_id.clone(),
+            last_seq,
         };
 
         let response = client
-            .get_desired_executor_states(request)
+            .command_stream(request)
             .await
-            .context("Failed to open desired states stream")?;
+            .context("Failed to open command stream")?;
 
         let mut stream = response.into_inner();
 
         loop {
-            // Check if cancelled
             if self.cancel_token.is_cancelled() {
-                tracing::info!("Stream cancelled");
+                tracing::info!("Command stream cancelled");
                 return Ok(());
             }
 
-            // Check if heartbeat is still healthy
             if !self.heartbeat_healthy.load(Ordering::SeqCst) {
                 self.metrics
                     .counters
                     .record_stream_disconnection("heartbeat_unhealthy");
-                tracing::warn!("Heartbeat unhealthy, disconnecting stream");
+                tracing::warn!("Heartbeat unhealthy, disconnecting command stream");
                 return Ok(());
             }
 
             let message = tokio::select! {
                 _ = self.cancel_token.cancelled() => {
-                    tracing::info!("Stream cancelled");
+                    tracing::info!("Command stream cancelled");
                     return Ok(());
                 }
                 result = tokio::time::timeout(STREAM_IDLE_TIMEOUT, stream.message()) => result
             };
 
             match message {
-                Ok(Ok(Some(state))) => {
-                    handle_desired_state(
-                        state,
-                        &self.state_reconciler,
-                        &self.metrics,
-                        &self.monitoring_state,
-                    )
-                    .await;
+                Ok(Ok(Some(command))) => {
+                    self.handle_command(command).await;
                 }
                 Ok(Ok(None)) => {
                     self.metrics
                         .counters
                         .record_stream_disconnection("server_closed");
-                    tracing::info!("Stream closed by server");
+                    tracing::info!("Command stream closed by server");
                     return Ok(());
                 }
                 Ok(Err(e)) => {
-                    return Err(e).context("Stream error");
+                    return Err(e).context("Command stream error");
                 }
                 Err(_) => {
                     self.metrics
                         .counters
                         .record_stream_disconnection("idle_timeout");
-                    tracing::warn!("Stream idle timeout, reconnecting");
+                    tracing::warn!("Command stream idle timeout, reconnecting");
                     return Ok(());
                 }
             }
         }
     }
-}
 
-/// Maximum retries for reconciliation (total attempts = 1 + this value).
-/// Matches Python executor's state_reconciler.py _reconcile_state().
-const RECONCILIATION_MAX_RETRIES: u32 = 2;
-/// Delay between reconciliation retry attempts.
-const RECONCILIATION_RETRY_DELAY: Duration = Duration::from_secs(5);
+    /// Handle a single Command from the command stream.
+    async fn handle_command(&self, command: proto_api::executor_api_pb::Command) {
+        let seq = command.seq;
 
-async fn handle_desired_state(
-    state: DesiredExecutorState,
-    state_reconciler: &Arc<Mutex<StateReconciler>>,
-    metrics: &DataplaneMetrics,
-    monitoring_state: &MonitoringState,
-) {
-    let reconcile_start = std::time::Instant::now();
-    let num_fes = state.function_executors.len();
-    let num_allocs = state.allocations.len();
-    let num_fc_results = state.function_call_results.len();
-    let clock = state.clock.unwrap_or(0);
+        let Some(cmd) = command.command else {
+            tracing::warn!(seq, "Received command with no payload, skipping");
+            self.command_stream_last_seq
+                .fetch_max(seq, Ordering::SeqCst);
+            return;
+        };
 
-    // Store desired state for monitoring endpoint
-    *monitoring_state.last_desired_state.lock().await = Some(format!("{:#?}", state));
-
-    // Record metrics for desired state received
-    metrics
-        .counters
-        .record_desired_state(num_fes as u64, num_allocs as u64);
-    metrics.counters.state_reconciliations.add(1, &[]);
-
-    // Update gauge values for desired state
-    {
-        let mut state = metrics.state.lock().await;
-        state.last_desired_state_allocations = num_allocs as u64;
-        state.last_desired_state_function_executors = num_fes as u64;
-    }
-
-    tracing::info!(
-        clock,
-        num_function_executors = num_fes,
-        num_allocations = num_allocs,
-        num_function_call_results = num_fc_results,
-        "Received desired executor state"
-    );
-
-    use crate::retry::{Backoff, retry_with_backoff};
-
-    match retry_with_backoff(
-        RECONCILIATION_MAX_RETRIES,
-        Backoff::Fixed(RECONCILIATION_RETRY_DELAY),
-        "reconciliation",
-        || try_reconcile(&state, state_reconciler),
-        |_: &anyhow::Error| true,
-    )
-    .await
-    {
-        Ok(()) => {
-            metrics
-                .histograms
-                .state_reconciliation_latency_seconds
-                .record(reconcile_start.elapsed().as_secs_f64(), &[]);
-        }
-        Err(e) => {
-            metrics.counters.state_reconciliation_errors.add(1, &[]);
-            metrics
-                .histograms
-                .state_reconciliation_latency_seconds
-                .record(reconcile_start.elapsed().as_secs_f64(), &[]);
-            tracing::error!(error = %e, "Reconciliation failed after all retry attempts");
-        }
-    }
-}
-
-async fn try_reconcile(
-    state: &DesiredExecutorState,
-    state_reconciler: &Arc<Mutex<StateReconciler>>,
-) -> Result<()> {
-    // Validate FE descriptions, skip invalid ones
-    let valid_fes: Vec<_> = state
-        .function_executors
-        .iter()
-        .filter(|fe| {
-            if let Err(e) = validation::validate_fe_description(fe) {
-                tracing::warn!(
-                    fe_id = ?fe.id,
-                    error = %e,
-                    "Skipping invalid FunctionExecutorDescription"
-                );
-                false
-            } else {
-                true
+        use proto_api::executor_api_pb::command::Command as Cmd;
+        match cmd {
+            Cmd::AddContainer(add) => {
+                if let Some(container) = add.container {
+                    if let Err(e) = validation::validate_fe_description(&container) {
+                        tracing::warn!(
+                            seq,
+                            fe_id = ?container.id,
+                            error = %e,
+                            "Skipping invalid AddContainer command"
+                        );
+                    } else {
+                        tracing::info!(
+                            seq,
+                            fe_id = ?container.id,
+                            "AddContainer command"
+                        );
+                        let mut reconciler = self.state_reconciler.lock().await;
+                        reconciler
+                            .reconcile_containers(vec![container], vec![])
+                            .await;
+                    }
+                }
             }
-        })
-        .cloned()
-        .collect();
-
-    // Validate and collect allocations with their FE IDs
-    let allocations: Vec<_> = state
-        .allocations
-        .iter()
-        .filter(|a| {
-            if let Err(e) = validation::validate_allocation(a) {
-                tracing::warn!(
-                    allocation_id = ?a.allocation_id,
-                    error = %e,
-                    "Skipping invalid Allocation"
+            Cmd::RemoveContainer(remove) => {
+                tracing::info!(
+                    seq,
+                    container_id = %remove.container_id,
+                    "RemoveContainer command"
                 );
-                false
-            } else {
-                true
+                let mut reconciler = self.state_reconciler.lock().await;
+                reconciler
+                    .reconcile_containers(vec![], vec![remove.container_id])
+                    .await;
             }
-        })
-        .filter_map(|a| {
-            a.function_executor_id
-                .as_ref()
-                .map(|fe_id| (fe_id.clone(), a.clone()))
-        })
-        .collect();
+            Cmd::RunAllocation(run) => {
+                if let Some(allocation) = run.allocation {
+                    if let Err(e) = validation::validate_allocation(&allocation) {
+                        tracing::warn!(
+                            seq,
+                            allocation_id = ?allocation.allocation_id,
+                            error = %e,
+                            "Skipping invalid RunAllocation command"
+                        );
+                    } else if let Some(fe_id) = allocation.function_executor_id.clone() {
+                        tracing::info!(
+                            seq,
+                            allocation_id = ?allocation.allocation_id,
+                            fe_id = %fe_id,
+                            "RunAllocation command"
+                        );
+                        let mut reconciler = self.state_reconciler.lock().await;
+                        reconciler
+                            .reconcile_allocations(vec![(fe_id, allocation)], &[])
+                            .await;
+                    } else {
+                        tracing::warn!(
+                            seq,
+                            allocation_id = ?allocation.allocation_id,
+                            "RunAllocation missing function_executor_id"
+                        );
+                    }
+                }
+            }
+            Cmd::KillAllocation(kill) => {
+                tracing::warn!(
+                    seq,
+                    allocation_id = %kill.allocation_id,
+                    "KillAllocation command received (not yet implemented)"
+                );
+            }
+            Cmd::DeliverResult(deliver) => {
+                if let Some(result) = deliver.result {
+                    tracing::info!(
+                        seq,
+                        function_call_id = ?result.function_call_id,
+                        "DeliverResult command"
+                    );
+                    let reconciler = self.state_reconciler.lock().await;
+                    reconciler.deliver_function_call_results(&[result]).await;
+                }
+            }
+        }
 
-    let mut reconciler = state_reconciler.lock().await;
-
-    // Bundle FE descriptions + allocations for atomic reconciliation
-    reconciler.reconcile(valid_fes, allocations).await;
-
-    // Route function call results to registered watchers
-    if !state.function_call_results.is_empty() {
-        reconciler
-            .deliver_function_call_results(&state.function_call_results)
-            .await;
+        self.command_stream_last_seq
+            .fetch_max(seq, Ordering::SeqCst);
     }
-
-    Ok(())
 }
 
 /// Wait for any shutdown signal (SIGINT, SIGTERM, SIGQUIT).

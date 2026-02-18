@@ -82,8 +82,9 @@ impl FunctionContainerManager {
     ) {
         if let Ok(false) = self.driver.alive(handle).await {
             tracing::info!(parent: span, reason = ?reason, "Container stopped");
-            if let Err(e) = container.transition_to_terminated(reason) {
-                tracing::warn!(parent: span, error = %e, "Invalid state transition");
+            if container.transition_to_terminated(reason).is_ok() {
+                let id = container.description.id.as_deref().unwrap_or("");
+                Self::send_container_terminated(&self.container_state_tx, id, reason);
             }
         }
     }
@@ -111,10 +112,14 @@ impl FunctionContainerManager {
                             );
                             let _ = network_rules::remove_rules(&handle.id, &handle.container_ip);
                             let _ = self.driver.kill(handle).await;
-                            if let Err(e) = container.transition_to_terminated(
-                                FunctionExecutorTerminationReason::Unhealthy,
-                            ) {
-                                tracing::warn!(parent: span, error = %e, "Invalid state transition");
+                            let reason = FunctionExecutorTerminationReason::Unhealthy;
+                            if container.transition_to_terminated(reason).is_ok() {
+                                let id = container.description.id.as_deref().unwrap_or("");
+                                Self::send_container_terminated(
+                                    &self.container_state_tx,
+                                    id,
+                                    reason,
+                                );
                             }
                         }
                         Err(e) => {
@@ -138,8 +143,9 @@ impl FunctionContainerManager {
                     reason = ?reason,
                     "Container is no longer alive"
                 );
-                if let Err(e) = container.transition_to_terminated(reason) {
-                    tracing::warn!(parent: span, error = %e, "Invalid state transition");
+                if container.transition_to_terminated(reason).is_ok() {
+                    let id = container.description.id.as_deref().unwrap_or("");
+                    Self::send_container_terminated(&self.container_state_tx, id, reason);
                 }
             }
             Err(e) => {

@@ -950,6 +950,34 @@ impl InMemoryState {
                     );
                 }
             }
+            RequestPayload::DataplaneResults(req) => {
+                let executor_id = &req.event.executor_id;
+                for alloc_event in &req.event.allocation_events {
+                    let _ = self
+                        .allocations_by_executor
+                        .entry(executor_id.clone())
+                        .and_modify(|fe_allocations| {
+                            if let Some(allocations) = fe_allocations
+                                .get_mut(&alloc_event.allocation_target.function_executor_id) &&
+                                let Some(existing_allocation) =
+                                    allocations.remove(&alloc_event.allocation_id)
+                            {
+                                self.metrics.allocation_running_latency.record(
+                                    get_elapsed_time(
+                                        existing_allocation.created_at,
+                                        TimeUnit::Milliseconds,
+                                    ),
+                                    &[KeyValue::new(
+                                        "outcome",
+                                        alloc_event.allocation_outcome.to_string(),
+                                    )],
+                                );
+                            }
+                            fe_allocations.retain(|_, f| !f.is_empty());
+                        });
+                    changed_executors.insert(executor_id.clone());
+                }
+            }
             RequestPayload::CreateSandbox(req) => {
                 let sandbox_key = SandboxKey::from(&req.sandbox);
                 self.sandboxes

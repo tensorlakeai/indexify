@@ -43,30 +43,23 @@ impl std::fmt::Display for InitTimedOut {
 impl std::error::Error for InitTimedOut {}
 
 impl AllocationController {
-    /// Reconcile containers with the desired FE descriptions.
+    /// Reconcile containers using delta semantics.
     ///
-    /// Removes containers not in desired set, creates new ones for
-    /// descriptions not yet tracked.
+    /// Creates containers in `added_or_updated_fes` that aren't already
+    /// tracked, and removes containers whose IDs are in `removed_fe_ids`.
+    /// Each command stream message delivers one AddContainer or
+    /// RemoveContainer at a time — there is no full-state orphan removal.
     pub(super) async fn reconcile_containers(
         &mut self,
-        desired_fes: Vec<FunctionExecutorDescription>,
+        added_or_updated_fes: Vec<FunctionExecutorDescription>,
+        removed_fe_ids: Vec<String>,
     ) {
-        let desired_ids: std::collections::HashMap<String, FunctionExecutorDescription> =
-            desired_fes
-                .into_iter()
-                .filter_map(|fe| {
-                    let id = fe.id.clone()?;
-                    Some((id, fe))
-                })
-                .collect();
-
         let mut changed = false;
 
-        // Remove containers for FEs no longer in desired state
-        let current_ids: Vec<String> = self.containers.keys().cloned().collect();
-        for id in current_ids {
-            if !desired_ids.contains_key(&id) {
-                if let Some(fe) = self.containers.get(&id) {
+        // Remove explicitly listed containers.
+        for id in &removed_fe_ids {
+            if self.containers.contains_key(id) {
+                if let Some(fe) = self.containers.get(id) {
                     let ctx = FELogCtx::from_description(&fe.description);
                     info!(
                         namespace = %ctx.namespace,
@@ -78,13 +71,17 @@ impl AllocationController {
                         "Container removed from desired set, initiating removal"
                     );
                 }
-                self.remove_container(&id);
+                self.remove_container(id);
                 changed = true;
             }
         }
 
-        // Create containers for new FEs
-        for (id, description) in &desired_ids {
+        // Create containers for new FEs (skip already tracked).
+        for description in &added_or_updated_fes {
+            let id = match &description.id {
+                Some(id) => id,
+                None => continue,
+            };
             if !self.containers.contains_key(id) {
                 let ctx = FELogCtx::from_description(description);
                 info!(
@@ -143,11 +140,9 @@ impl AllocationController {
         }
 
         // Transition to Terminated
+        let reason = FunctionExecutorTerminationReason::FunctionCancelled;
         let fe = self.containers.get_mut(fe_id).unwrap();
-        fe.state = ContainerState::Terminated {
-            reason: FunctionExecutorTerminationReason::FunctionCancelled,
-            blamed_alloc_ids: vec![],
-        };
+        fe.state = ContainerState::Terminated { reason };
 
         // Fail all allocations for this FE (no blame — container removed from desired
         // set)
@@ -161,6 +156,17 @@ impl AllocationController {
         let gpu_allocator = self.config.gpu_allocator.clone();
         let fe = self.containers.get_mut(fe_id).unwrap();
         Self::return_gpus(&gpu_allocator, &mut fe.allocated_gpu_uuids);
+
+        self.config
+            .metrics
+            .up_down_counters
+            .function_executors_count
+            .add(-1, &[]);
+
+        // Notify the server so it can free resources and schedule new containers.
+        // Without this, vacuumed containers keep consuming resource slots on the
+        // server side, blocking creation of containers for other functions.
+        self.send_container_terminated(fe_id, reason);
     }
 
     /// Create a new container by spawning the startup task.
@@ -431,10 +437,7 @@ impl AllocationController {
                     .collect();
 
                 let fe = self.containers.get_mut(&fe_id).unwrap();
-                fe.state = ContainerState::Terminated {
-                    reason,
-                    blamed_alloc_ids: blamed_alloc_ids.clone(),
-                };
+                fe.state = ContainerState::Terminated { reason };
 
                 // Fail all allocations — all blamed since container couldn't start.
                 let failure_reason =
@@ -445,6 +448,10 @@ impl AllocationController {
                 let gpu_allocator = self.config.gpu_allocator.clone();
                 let fe = self.containers.get_mut(&fe_id).unwrap();
                 Self::return_gpus(&gpu_allocator, &mut fe.allocated_gpu_uuids);
+
+                // Notify result pipeline so container termination is merged with
+                // allocation results in the next report_results RPC.
+                self.send_container_terminated(&fe_id, reason);
 
                 self.broadcast_state();
             }
@@ -543,10 +550,7 @@ impl AllocationController {
             vec![]
         };
 
-        fe.state = ContainerState::Terminated {
-            reason,
-            blamed_alloc_ids: blamed_alloc_ids.clone(),
-        };
+        fe.state = ContainerState::Terminated { reason };
 
         // Fail allocations for this FE. Blamed allocations get the specific
         // failure reason; non-blamed get FunctionExecutorTerminated (free retry).
@@ -568,7 +572,26 @@ impl AllocationController {
             .function_executors_count
             .add(-1, &[]);
 
+        // Notify result pipeline so container termination is merged with
+        // allocation results in the next report_results RPC.
+        self.send_container_terminated(&fe_id, reason);
+
         self.broadcast_state();
+    }
+
+    /// Send a `ContainerTerminated` `CommandResponse` to the result pipeline
+    /// so it gets sent via `report_command_responses` alongside allocation
+    /// results.
+    fn send_container_terminated(
+        &self,
+        container_id: &str,
+        reason: FunctionExecutorTerminationReason,
+    ) {
+        let response = crate::function_executor::proto_convert::make_container_terminated_response(
+            container_id,
+            reason,
+        );
+        let _ = self.config.container_state_tx.send(response);
     }
 }
 

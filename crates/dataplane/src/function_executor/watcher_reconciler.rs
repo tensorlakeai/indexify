@@ -3,10 +3,15 @@
 use std::collections::HashSet;
 
 use proto_api::{
-    executor_api_pb::FunctionCallResult as ServerFunctionCallResult,
+    executor_api_pb::{
+        self,
+        FunctionCallResult as ServerFunctionCallResult,
+        executor_api_client::ExecutorApiClient,
+    },
     function_executor_pb::{self, AllocationFunctionCallResult, AllocationState},
 };
 use tokio::sync::mpsc;
+use tonic::transport::Channel;
 use tracing::{debug, warn};
 
 use super::{
@@ -28,6 +33,8 @@ pub(super) async fn reconcile_watchers(
     active_watcher_ids: &mut HashSet<String>,
     result_tx: &mpsc::UnboundedSender<WatcherResult>,
     state: &AllocationState,
+    server_channel: &Channel,
+    executor_id: &str,
 ) {
     for watcher in &state.function_call_watchers {
         let watcher_id = watcher.id.as_deref().unwrap_or("");
@@ -63,6 +70,36 @@ pub(super) async fn reconcile_watchers(
                 )
                 .await;
             active_watcher_ids.insert(watcher_id.to_string());
+
+            // Fire-and-forget AddWatcher event to the server.
+            // Spawned as a background task to avoid blocking the allocation
+            // runner's hot path with a synchronous gRPC call.
+            let channel = server_channel.clone();
+            let add_watcher = executor_api_pb::AddWatcherRequest {
+                watcher_id: Some(watcher_id.to_string()),
+                namespace: Some(namespace.to_string()),
+                application: Some(application.to_string()),
+                request_id: Some(request_id.to_string()),
+                function_call_id: Some(watched_fc_id.to_string()),
+            };
+            let events_request = executor_api_pb::AllocationEvents {
+                namespace: Some(namespace.to_string()),
+                application: Some(application.to_string()),
+                function_call_id: allocation.function_call_id.clone(),
+                allocation_id: allocation.allocation_id.clone(),
+                events: vec![executor_api_pb::AllocationEvent {
+                    event: Some(executor_api_pb::allocation_event::Event::AddWatcher(
+                        add_watcher,
+                    )),
+                }],
+                executor_id: Some(executor_id.to_string()),
+            };
+            tokio::spawn(async move {
+                let mut client = ExecutorApiClient::new(channel);
+                if let Err(e) = client.add_allocation_events(events_request).await {
+                    warn!(error = %e, "Failed to send AddWatcher event to server (drift healing will cover)");
+                }
+            });
         }
     }
 }

@@ -96,6 +96,41 @@ impl ExecutorWatches {
         }
     }
 
+    /// Add a single watch for an executor.
+    pub async fn add_watch(&self, executor_id: String, watch: ExecutorWatch) {
+        let mut requests_guard = self.requests.write().await;
+        let mut executors_guard = self.executors.write().await;
+
+        executors_guard
+            .entry(executor_id.clone())
+            .or_insert_with(HashSet::new)
+            .insert(watch.clone());
+        requests_guard
+            .entry(watch)
+            .or_insert_with(HashSet::new)
+            .insert(executor_id);
+    }
+
+    /// Remove a single watch for an executor.
+    pub async fn remove_watch(&self, executor_id: String, watch: ExecutorWatch) {
+        let mut requests_guard = self.requests.write().await;
+        let mut executors_guard = self.executors.write().await;
+
+        if let Some(fc_set) = executors_guard.get_mut(&executor_id) {
+            fc_set.remove(&watch);
+            if fc_set.is_empty() {
+                executors_guard.remove(&executor_id);
+            }
+        }
+
+        if let Some(ex_set) = requests_guard.get_mut(&watch) {
+            ex_set.remove(&executor_id);
+            if ex_set.is_empty() {
+                requests_guard.remove(&watch);
+            }
+        }
+    }
+
     /// Remove all watches for a given executor.
     pub async fn remove_executor(&self, executor_id: &str) {
         let mut requests_guard = self.requests.write().await;
@@ -116,6 +151,7 @@ impl ExecutorWatches {
     // Get the set of executors that are impacted by the given scheduler update.
     // This looks at which function runs were updated in the request and finds
     // executors that have watches on those function call IDs.
+    #[allow(dead_code)]
     pub async fn impacted_executors(
         &self,
         updated_function_runs: &HashMap<String, HashSet<crate::data_model::FunctionCallId>>,
@@ -160,6 +196,56 @@ impl ExecutorWatches {
         }
 
         impacted_executors
+    }
+
+    /// Like `impacted_executors()` but returns the specific watches that fired
+    /// per executor, so event emission can carry the watch details.
+    pub async fn impacted_executor_watches(
+        &self,
+        updated_function_runs: &HashMap<String, HashSet<crate::data_model::FunctionCallId>>,
+        updated_request_states: &HashMap<String, crate::data_model::RequestCtx>,
+    ) -> HashMap<String, Vec<ExecutorWatch>> {
+        // Build the set of ExecutorWatch objects for all updated function runs
+        let mut possible_watches = HashSet::new();
+        for (ctx_key, function_run_ids) in updated_function_runs {
+            let Some(ctx) = updated_request_states.get(ctx_key) else {
+                continue;
+            };
+            for function_call_id in function_run_ids {
+                if let Some(function_run) = ctx.function_runs.get(function_call_id) &&
+                    function_run.status != FunctionRunStatus::Completed
+                {
+                    continue;
+                }
+                possible_watches.insert(ExecutorWatch {
+                    namespace: ctx.namespace.clone(),
+                    application: ctx.application_name.clone(),
+                    request_id: ctx.request_id.clone(),
+                    function_call_id: function_call_id.0.clone(),
+                });
+            }
+        }
+
+        let requests_guard = self.requests.read().await;
+        let executors_guard = self.executors.read().await;
+
+        let mut result: HashMap<String, Vec<ExecutorWatch>> = HashMap::new();
+        for possible_watch in possible_watches.iter() {
+            if let Some(executors) = requests_guard.get(possible_watch) {
+                for ex in executors {
+                    if let Some(watches) = executors_guard.get(ex) &&
+                        !watches.is_empty()
+                    {
+                        result
+                            .entry(ex.clone())
+                            .or_default()
+                            .push(possible_watch.clone());
+                    }
+                }
+            }
+        }
+
+        result
     }
 
     pub async fn get_watches(&self, executor_id: &str) -> HashSet<ExecutorWatch> {

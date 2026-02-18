@@ -2,11 +2,7 @@
 
 use std::{sync::Arc, time::Instant};
 
-use proto_api::executor_api_pb::{
-    AllocationFailureReason,
-    AllocationOutcomeCode,
-    AllocationResult as ServerAllocationResult,
-};
+use proto_api::executor_api_pb::{AllocationFailureReason, CommandResponse};
 use tokio::sync::mpsc;
 use tonic::transport::Channel;
 
@@ -25,7 +21,10 @@ pub struct FESpawnConfig {
     pub image_resolver: Arc<dyn ImageResolver>,
     pub gpu_allocator: Arc<crate::gpu_allocator::GpuAllocator>,
     pub secrets_provider: Arc<dyn SecretsProvider>,
-    pub result_tx: mpsc::UnboundedSender<ServerAllocationResult>,
+    /// Channel for allocation results (AllocationCompleted/AllocationFailed).
+    pub result_tx: mpsc::UnboundedSender<CommandResponse>,
+    /// Channel for container lifecycle events (ContainerTerminated/ContainerStarted).
+    pub container_state_tx: mpsc::UnboundedSender<CommandResponse>,
     pub server_channel: Channel,
     pub blob_store: Arc<BlobStore>,
     pub code_cache: Arc<CodeCache>,
@@ -55,31 +54,27 @@ pub(crate) async fn timed_phase<T>(
     result
 }
 
-/// Record allocation outcome metrics.
+/// Record allocation outcome metrics from a `CommandResponse`.
 pub(crate) fn record_allocation_metrics(
-    result: &ServerAllocationResult,
+    response: &CommandResponse,
     counters: &crate::metrics::DataplaneCounters,
 ) {
-    let outcome_code = result.outcome_code.unwrap_or(0);
-    let outcome = if outcome_code == AllocationOutcomeCode::Success as i32 {
-        "success"
-    } else {
-        "failure"
-    };
+    use proto_api::executor_api_pb::command_response::Response;
 
-    let failure_reason = if outcome == "failure" {
-        result.failure_reason.and_then(|r| {
-            AllocationFailureReason::try_from(r)
+    match &response.response {
+        Some(Response::AllocationCompleted(c)) => {
+            counters.record_allocation_completed("success", None, c.execution_duration_ms);
+        }
+        Some(Response::AllocationFailed(f)) => {
+            let failure_reason = AllocationFailureReason::try_from(f.reason)
                 .ok()
-                .map(|reason| format!("{:?}", reason))
-        })
-    } else {
-        None
-    };
-
-    counters.record_allocation_completed(
-        outcome,
-        failure_reason.as_deref(),
-        result.execution_duration_ms,
-    );
+                .map(|reason| format!("{:?}", reason));
+            counters.record_allocation_completed(
+                "failure",
+                failure_reason.as_deref(),
+                f.execution_duration_ms,
+            );
+        }
+        _ => {}
+    }
 }

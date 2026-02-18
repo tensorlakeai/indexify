@@ -36,12 +36,6 @@ pub(super) enum ContainerState {
     /// Container has terminated (crash, shutdown, OOM, etc.)
     Terminated {
         reason: FunctionExecutorTerminationReason,
-        /// Allocation IDs that caused or contributed to the termination.
-        /// - Container died while allocations were Running: blame them.
-        /// - Container startup failed: blame all (they can't run).
-        /// - OOM with no Running allocations: blame all (startup/overhead OOM).
-        /// - Other termination with no Running allocations: no blame.
-        blamed_alloc_ids: Vec<String>,
     },
 }
 

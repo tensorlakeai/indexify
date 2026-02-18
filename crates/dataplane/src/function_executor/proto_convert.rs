@@ -4,7 +4,7 @@
 //! `function_executor_pb` (FE-side) and `executor_api_pb` (server-side)
 //! protobuf types.
 
-use proto_api::{executor_api_pb, function_executor_pb};
+use proto_api::{executor_api_pb, executor_api_pb::CommandResponse, function_executor_pb};
 
 /// Map enum variants between two protobuf types with identical variant names.
 macro_rules! convert_enum {
@@ -164,5 +164,159 @@ pub fn make_failure_result(
         return_value: None,
         request_error: None,
         execution_duration_ms: None,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// CommandResponse builders (v2 protocol)
+// ---------------------------------------------------------------------------
+
+/// Build a `CommandResponse` wrapping an `AllocationFailed`.
+pub fn make_allocation_failed_response(
+    allocation: &executor_api_pb::Allocation,
+    failure_reason: executor_api_pb::AllocationFailureReason,
+    request_error: Option<executor_api_pb::DataPayload>,
+    execution_duration_ms: Option<u64>,
+) -> CommandResponse {
+    CommandResponse {
+        command_seq: 0, // unsolicited
+        response: Some(
+            executor_api_pb::command_response::Response::AllocationFailed(
+                executor_api_pb::AllocationFailed {
+                    allocation_id: allocation.allocation_id.clone().unwrap_or_default(),
+                    reason: failure_reason.into(),
+                    function: allocation.function.clone(),
+                    function_call_id: allocation.function_call_id.clone(),
+                    request_id: allocation.request_id.clone(),
+                    request_error,
+                    execution_duration_ms,
+                },
+            ),
+        ),
+    }
+}
+
+/// Convert a server `AllocationResult` into a `CommandResponse`.
+///
+/// Success results become `AllocationCompleted`; failures become
+/// `AllocationFailed`.
+pub fn allocation_result_to_command_response(
+    result: &executor_api_pb::AllocationResult,
+) -> CommandResponse {
+    let outcome_code = result.outcome_code.unwrap_or(0);
+    if outcome_code == executor_api_pb::AllocationOutcomeCode::Success as i32 {
+        CommandResponse {
+            command_seq: 0,
+            response: Some(
+                executor_api_pb::command_response::Response::AllocationCompleted(
+                    executor_api_pb::AllocationCompleted {
+                        allocation_id: result.allocation_id.clone().unwrap_or_default(),
+                        function: result.function.clone(),
+                        function_call_id: result.function_call_id.clone(),
+                        request_id: result.request_id.clone(),
+                        return_value: result.return_value.as_ref().map(|rv| match rv {
+                            executor_api_pb::allocation_result::ReturnValue::Value(dp) => {
+                                executor_api_pb::allocation_completed::ReturnValue::Value(
+                                    dp.clone(),
+                                )
+                            }
+                            executor_api_pb::allocation_result::ReturnValue::Updates(u) => {
+                                executor_api_pb::allocation_completed::ReturnValue::Updates(
+                                    u.clone(),
+                                )
+                            }
+                        }),
+                        execution_duration_ms: result.execution_duration_ms,
+                    },
+                ),
+            ),
+        }
+    } else {
+        CommandResponse {
+            command_seq: 0,
+            response: Some(
+                executor_api_pb::command_response::Response::AllocationFailed(
+                    executor_api_pb::AllocationFailed {
+                        allocation_id: result.allocation_id.clone().unwrap_or_default(),
+                        reason: result.failure_reason.unwrap_or(
+                            executor_api_pb::AllocationFailureReason::InternalError as i32,
+                        ),
+                        function: result.function.clone(),
+                        function_call_id: result.function_call_id.clone(),
+                        request_id: result.request_id.clone(),
+                        request_error: result.request_error.clone(),
+                        execution_duration_ms: result.execution_duration_ms,
+                    },
+                ),
+            ),
+        }
+    }
+}
+
+/// Build a `CommandResponse` wrapping a `ContainerTerminated`.
+pub fn make_container_terminated_response(
+    container_id: &str,
+    reason: executor_api_pb::FunctionExecutorTerminationReason,
+) -> CommandResponse {
+    CommandResponse {
+        command_seq: 0, // unsolicited
+        response: Some(
+            executor_api_pb::command_response::Response::ContainerTerminated(
+                executor_api_pb::ContainerTerminated {
+                    container_id: container_id.to_string(),
+                    reason: termination_reason_to_container_termination_reason(reason).into(),
+                },
+            ),
+        ),
+    }
+}
+
+/// Map a `FunctionExecutorTerminationReason` to a `ContainerTerminationReason`.
+pub fn termination_reason_to_container_termination_reason(
+    reason: executor_api_pb::FunctionExecutorTerminationReason,
+) -> executor_api_pb::ContainerTerminationReason {
+    match reason {
+        executor_api_pb::FunctionExecutorTerminationReason::StartupFailedInternalError => {
+            executor_api_pb::ContainerTerminationReason::StartupFailedInternalError
+        }
+        executor_api_pb::FunctionExecutorTerminationReason::StartupFailedFunctionError => {
+            executor_api_pb::ContainerTerminationReason::StartupFailedFunctionError
+        }
+        executor_api_pb::FunctionExecutorTerminationReason::StartupFailedFunctionTimeout => {
+            executor_api_pb::ContainerTerminationReason::StartupFailedFunctionTimeout
+        }
+        executor_api_pb::FunctionExecutorTerminationReason::Unhealthy => {
+            executor_api_pb::ContainerTerminationReason::Unhealthy
+        }
+        executor_api_pb::FunctionExecutorTerminationReason::InternalError => {
+            executor_api_pb::ContainerTerminationReason::InternalError
+        }
+        executor_api_pb::FunctionExecutorTerminationReason::FunctionTimeout => {
+            executor_api_pb::ContainerTerminationReason::FunctionTimeout
+        }
+        executor_api_pb::FunctionExecutorTerminationReason::FunctionCancelled => {
+            executor_api_pb::ContainerTerminationReason::FunctionCancelled
+        }
+        executor_api_pb::FunctionExecutorTerminationReason::Oom => {
+            executor_api_pb::ContainerTerminationReason::Oom
+        }
+        executor_api_pb::FunctionExecutorTerminationReason::ProcessCrash => {
+            executor_api_pb::ContainerTerminationReason::ProcessCrash
+        }
+        _ => executor_api_pb::ContainerTerminationReason::Unknown,
+    }
+}
+
+/// Extract the allocation_id from a `CommandResponse`, if it contains an
+/// allocation-related variant.
+pub fn command_response_allocation_id(response: &CommandResponse) -> Option<&str> {
+    match &response.response {
+        Some(executor_api_pb::command_response::Response::AllocationCompleted(c)) => {
+            Some(&c.allocation_id)
+        }
+        Some(executor_api_pb::command_response::Response::AllocationFailed(f)) => {
+            Some(&f.allocation_id)
+        }
+        _ => None,
     }
 }
