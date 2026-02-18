@@ -33,7 +33,7 @@ const SERVER_RPC_INITIAL_DELAY: Duration = Duration::from_millis(100);
 /// Maximum retry delay for server RPCs.
 const SERVER_RPC_MAX_DELAY: Duration = Duration::from_secs(15);
 
-/// Handle new function calls from the FE (call server's call_function RPC).
+/// Handle new function calls from the FE (send via add_allocation_events RPC).
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn reconcile_function_calls(
     client: &mut FunctionExecutorGrpcClient,
@@ -46,6 +46,7 @@ pub(super) async fn reconcile_function_calls(
     uri_prefix: &str,
     output_blob_handles: &[MultipartUploadHandle],
     blob_store: &BlobStore,
+    executor_id: &str,
 ) {
     for fc in &state.function_calls {
         let fc_id = fc.id.as_deref().unwrap_or("");
@@ -164,25 +165,51 @@ pub(super) async fn reconcile_function_calls(
                 continue;
             }
 
-            let creation_result =
-                match call_function_with_retry(&mut server_client, fc_request, metrics).await {
-                    Ok(_) => AllocationFunctionCallCreationResult {
+            // Wrap the FunctionCallRequest in an AllocationEvent for the
+            // add_allocation_events RPC (replaces the removed call_function RPC).
+            let events_request = executor_api_pb::AllocationEvents {
+                namespace: allocation
+                    .function
+                    .as_ref()
+                    .and_then(|f| f.namespace.clone()),
+                application: allocation
+                    .function
+                    .as_ref()
+                    .and_then(|f| f.application_name.clone()),
+                function_call_id: allocation.function_call_id.clone(),
+                allocation_id: allocation.allocation_id.clone(),
+                events: vec![executor_api_pb::AllocationEvent {
+                    event: Some(executor_api_pb::allocation_event::Event::CallFunction(
+                        fc_request,
+                    )),
+                }],
+                executor_id: Some(executor_id.to_string()),
+            };
+
+            let creation_result = match send_function_call_event_with_retry(
+                &mut server_client,
+                events_request,
+                metrics,
+            )
+            .await
+            {
+                Ok(_) => AllocationFunctionCallCreationResult {
+                    function_call_id: root_fc_id,
+                    allocation_function_call_id: Some(fc_id.to_string()),
+                    status: Some(ok_status()),
+                },
+                Err(e) => {
+                    warn!(
+                        error = %e,
+                        "add_allocation_events RPC failed after retries"
+                    );
+                    AllocationFunctionCallCreationResult {
                         function_call_id: root_fc_id,
                         allocation_function_call_id: Some(fc_id.to_string()),
-                        status: Some(ok_status()),
-                    },
-                    Err(e) => {
-                        warn!(
-                            error = %e,
-                            "call_function RPC failed after retries"
-                        );
-                        AllocationFunctionCallCreationResult {
-                            function_call_id: root_fc_id,
-                            allocation_function_call_id: Some(fc_id.to_string()),
-                            status: Some(error_status(13, e.to_string())),
-                        }
+                        status: Some(error_status(13, e.to_string())),
                     }
-                };
+                }
+            };
 
             let update = make_allocation_update(
                 allocation_id,
@@ -222,10 +249,11 @@ async fn send_fc_validation_error(
     let _ = client.send_allocation_update(update).await;
 }
 
-/// Call server's call_function RPC with exponential backoff retry.
-async fn call_function_with_retry(
+/// Send a function call event via add_allocation_events with exponential
+/// backoff retry.
+async fn send_function_call_event_with_retry(
     client: &mut ExecutorApiClient<Channel>,
-    request: executor_api_pb::FunctionCallRequest,
+    request: executor_api_pb::AllocationEvents,
     metrics: &crate::metrics::DataplaneMetrics,
 ) -> Result<(), tonic::Status> {
     let msg_size = prost::Message::encoded_len(&request);
@@ -239,7 +267,7 @@ async fn call_function_with_retry(
 
     for attempt in 0..=SERVER_RPC_MAX_RETRIES {
         let rpc_start = std::time::Instant::now();
-        match client.call_function(request.clone()).await {
+        match client.add_allocation_events(request.clone()).await {
             Ok(_) => {
                 metrics
                     .histograms
@@ -269,7 +297,7 @@ async fn call_function_with_retry(
                     max_retries = SERVER_RPC_MAX_RETRIES,
                     code = ?status.code(),
                     delay_ms = delay.as_millis() as u64,
-                    "call_function RPC failed, retrying"
+                    "add_allocation_events RPC failed, retrying"
                 );
 
                 tokio::time::sleep(delay).await;

@@ -231,6 +231,9 @@ impl ContainerScheduler {
             RequestPayload::DeleteContainerPool((request, _)) => {
                 self.delete_container_pool(&request.namespace, &request.pool_id);
             }
+            RequestPayload::AddExecutorWatch(_) | RequestPayload::RemoveExecutorWatch(_) => {
+                // No-op at this level. Watches don't affect scheduling.
+            }
             RequestPayload::CreateOrUpdateApplication(req) => {
                 // Only update pools if container_pools is non-empty.
                 // Empty container_pools means "no change to pools" (e.g., from
@@ -331,7 +334,6 @@ impl ContainerScheduler {
 
                 fc.desired_state = ContainerState::Terminated {
                     reason: FunctionExecutorTerminationReason::DesiredStateRemoved,
-                    failed_alloc_ids: vec![],
                 };
             }
         }
@@ -425,7 +427,6 @@ impl ContainerScheduler {
             if let Some(fc) = self.function_containers.get_mut(container_id) {
                 fc.desired_state = ContainerState::Terminated {
                     reason: FunctionExecutorTerminationReason::DesiredStateRemoved,
-                    failed_alloc_ids: vec![],
                 };
             }
         }
@@ -759,7 +760,6 @@ impl ContainerScheduler {
                 let mut update_fe = fe.clone();
                 update_fe.desired_state = ContainerState::Terminated {
                     reason: FunctionExecutorTerminationReason::DesiredStateRemoved,
-                    failed_alloc_ids: Vec::new(),
                 };
                 info!(
                     executor_id = %fe.executor_id,
@@ -1181,7 +1181,6 @@ impl ContainerScheduler {
         let fc = self.function_containers.get_mut(container_id).unwrap();
         fc.desired_state = ContainerState::Terminated {
             reason: FunctionExecutorTerminationReason::DesiredStateRemoved,
-            failed_alloc_ids: vec![],
         };
 
         let mut update = SchedulerUpdateRequest::default();

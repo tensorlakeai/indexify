@@ -13,7 +13,7 @@ mod tests {
             },
         },
         state_store::{executor_watches::ExecutorWatch, test_state_store},
-        testing::{self, FinalizeFunctionRunArgs, allocation_key_from_proto},
+        testing::{self, TestExecutor},
     };
 
     #[tokio::test]
@@ -26,17 +26,16 @@ mod tests {
         test_srv.process_all_state_changes().await?;
 
         // register executor
-        let executor = test_srv
+        let mut executor = test_srv
             .create_executor(mock_executor_metadata(TEST_EXECUTOR_ID.into()))
             .await?;
         test_srv.process_all_state_changes().await?;
 
         // Add fn_b and fn_c for execution as a blocking function call
-        // get the function call id from the desired state
-        let desired_state = executor.desired_state().await;
-        let allocation_fn_a = desired_state
-            .allocations
-            .clone()
+        // get the function call id from the command stream
+        let cmds = executor.recv_commands().await;
+        let allocation_fn_a = cmds
+            .run_allocations
             .into_iter()
             .find(|a| a.function.clone().unwrap().function_name() == "fn_a")
             .unwrap();
@@ -52,10 +51,9 @@ mod tests {
             .await?;
         test_srv.process_all_state_changes().await?;
 
-        let desired_state = executor.desired_state().await;
-        let allocation_fn_b = desired_state
-            .allocations
-            .clone()
+        let cmds = executor.recv_commands().await;
+        let allocation_fn_b = cmds
+            .run_allocations
             .into_iter()
             .find(|a| a.function.clone().unwrap().function_name() == "fn_b")
             .unwrap();
@@ -72,51 +70,41 @@ mod tests {
             .await?;
         test_srv.process_all_state_changes().await?;
 
-        let desired_state = executor.desired_state().await;
-        let allocation_fn_c = desired_state
-            .allocations
-            .clone()
+        let cmds = executor.recv_commands().await;
+        let allocation_fn_c = cmds
+            .run_allocations
             .into_iter()
             .find(|a| a.function.clone().unwrap().function_name() == "fn_c")
             .unwrap();
 
         // Add fn_c for execution as a blocking function call
         executor
-            .finalize_allocation(
+            .report_command_responses(vec![TestExecutor::make_allocation_completed(
                 &allocation_fn_c,
-                FinalizeFunctionRunArgs::new(
-                    allocation_key_from_proto(&allocation_fn_c),
-                    None,
-                    Some(mock_data_payload()),
-                )
-                .function_run_outcome(FunctionRunOutcome::Success),
-            )
+                None,
+                Some(mock_data_payload()),
+                Some(1000),
+            )])
             .await?;
 
         test_srv.process_all_state_changes().await?;
         executor
-            .finalize_allocation(
+            .report_command_responses(vec![TestExecutor::make_allocation_completed(
                 &allocation_fn_b,
-                FinalizeFunctionRunArgs::new(
-                    allocation_key_from_proto(&allocation_fn_b),
-                    None,
-                    Some(mock_data_payload()),
-                )
-                .function_run_outcome(FunctionRunOutcome::Success),
-            )
+                None,
+                Some(mock_data_payload()),
+                Some(1000),
+            )])
             .await?;
 
         test_srv.process_all_state_changes().await?;
         executor
-            .finalize_allocation(
+            .report_command_responses(vec![TestExecutor::make_allocation_completed(
                 &allocation_fn_a,
-                FinalizeFunctionRunArgs::new(
-                    allocation_key_from_proto(&allocation_fn_a),
-                    None,
-                    Some(mock_data_payload()),
-                )
-                .function_run_outcome(FunctionRunOutcome::Success),
-            )
+                None,
+                Some(mock_data_payload()),
+                Some(1000),
+            )])
             .await?;
 
         test_srv.process_all_state_changes().await?;
@@ -139,7 +127,7 @@ mod tests {
                 .collect::<Vec<_>>();
             assert_eq!(successful_tasks.len(), 3, "{successful_tasks:#?}");
 
-            let desired_state = executor.desired_state().await;
+            let desired_state = executor.srv_executor_state().await;
             assert!(
                 desired_state.allocations.is_empty(),
                 "expected all allocations to be finalized: {:#?}",
@@ -175,16 +163,15 @@ mod tests {
         test_srv.process_all_state_changes().await?;
 
         // register executor
-        let executor = test_srv
+        let mut executor = test_srv
             .create_executor(mock_executor_metadata(TEST_EXECUTOR_ID.into()))
             .await?;
         test_srv.process_all_state_changes().await?;
 
-        // Get the function call id from the desired state for fn_a
-        let desired_state = executor.desired_state().await;
-        let allocation_fn_a = desired_state
-            .allocations
-            .clone()
+        // Get the function call id from the command stream for fn_a
+        let cmds = executor.recv_commands().await;
+        let allocation_fn_a = cmds
+            .run_allocations
             .into_iter()
             .find(|a| a.function.clone().unwrap().function_name() == "fn_a")
             .unwrap();
@@ -203,10 +190,9 @@ mod tests {
         test_srv.process_all_state_changes().await?;
 
         // Get allocation for fn_b
-        let desired_state = executor.desired_state().await;
-        let allocation_fn_b = desired_state
-            .allocations
-            .clone()
+        let cmds = executor.recv_commands().await;
+        let allocation_fn_b = cmds
+            .run_allocations
             .into_iter()
             .find(|a| a.function.clone().unwrap().function_name() == "fn_b")
             .unwrap();
@@ -224,66 +210,58 @@ mod tests {
         test_srv.process_all_state_changes().await?;
 
         // Get allocation for fn_c
-        let desired_state = executor.desired_state().await;
-        let allocation_fn_c = desired_state
-            .allocations
-            .clone()
+        let cmds = executor.recv_commands().await;
+        let allocation_fn_c = cmds
+            .run_allocations
             .into_iter()
             .find(|a| a.function.clone().unwrap().function_name() == "fn_c")
             .unwrap();
 
         // Complete fn_c and fn_b first (before adding watches)
         executor
-            .finalize_allocation(
+            .report_command_responses(vec![TestExecutor::make_allocation_completed(
                 &allocation_fn_c,
-                FinalizeFunctionRunArgs::new(
-                    allocation_key_from_proto(&allocation_fn_c),
-                    None,
-                    Some(mock_data_payload()),
-                )
-                .function_run_outcome(FunctionRunOutcome::Success),
-            )
+                None,
+                Some(mock_data_payload()),
+                Some(1000),
+            )])
             .await?;
         test_srv.process_all_state_changes().await?;
 
         executor
-            .finalize_allocation(
+            .report_command_responses(vec![TestExecutor::make_allocation_completed(
                 &allocation_fn_b,
-                FinalizeFunctionRunArgs::new(
-                    allocation_key_from_proto(&allocation_fn_b),
-                    None,
-                    Some(mock_data_payload()),
-                )
-                .function_run_outcome(FunctionRunOutcome::Success),
-            )
+                None,
+                Some(mock_data_payload()),
+                Some(1000),
+            )])
             .await?;
         test_srv.process_all_state_changes().await?;
 
         // Now add watches for fn_b and fn_c AFTER they have completed
         // This tests that the server returns results for already-completed function
         // calls
-        use std::collections::HashSet;
-        let mut watches = HashSet::new();
-        watches.insert(ExecutorWatch {
+        let watch_fn_b = ExecutorWatch {
             namespace: TEST_NAMESPACE.into(),
             application: "graph_A".into(),
             request_id: request_id.clone(),
             function_call_id: function_call_id_fn_b.0.clone(),
-        });
-        watches.insert(ExecutorWatch {
+        };
+        let watch_fn_c = ExecutorWatch {
             namespace: TEST_NAMESPACE.into(),
             application: "graph_A".into(),
             request_id: request_id.clone(),
             function_call_id: function_call_id_fn_c.0.clone(),
-        });
+        };
 
-        // Send watches via UpsertExecutor state machine request (as executors do in
-        // production)
-        executor.update_watches(watches.clone()).await?;
+        // Add watches via AddExecutorWatch (as executors do in production
+        // via the add_allocation_events RPC)
+        executor.add_watch(watch_fn_b.clone()).await?;
+        executor.add_watch(watch_fn_c.clone()).await?;
 
         // Check that both fn_b and fn_c results are now available in desired state
         {
-            let desired_state = executor.desired_state().await;
+            let desired_state = executor.srv_executor_state().await;
             assert_eq!(
                 desired_state.function_call_results.len(),
                 2,
@@ -321,19 +299,11 @@ mod tests {
         }
 
         // Remove watch for fn_c to verify server stops returning it
-        let mut updated_watch_set = HashSet::new();
-        updated_watch_set.insert(ExecutorWatch {
-            namespace: TEST_NAMESPACE.into(),
-            application: "graph_A".into(),
-            request_id: request_id.clone(),
-            function_call_id: function_call_id_fn_b.0.clone(),
-        });
-
-        executor.update_watches(updated_watch_set).await?;
+        executor.remove_watch(watch_fn_c.clone()).await?;
 
         // Check that only fn_b result is now in desired state
         {
-            let desired_state = executor.desired_state().await;
+            let desired_state = executor.srv_executor_state().await;
             assert_eq!(
                 desired_state.function_call_results.len(),
                 1,
@@ -351,12 +321,12 @@ mod tests {
             );
         }
 
-        // Remove all watches
-        executor.update_watches(HashSet::new()).await?;
+        // Remove remaining watch
+        executor.remove_watch(watch_fn_b.clone()).await?;
 
         // Check that no function call results are in desired state
         {
-            let desired_state = executor.desired_state().await;
+            let desired_state = executor.srv_executor_state().await;
             assert_eq!(
                 desired_state.function_call_results.len(),
                 0,

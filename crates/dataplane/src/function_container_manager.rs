@@ -11,11 +11,12 @@ use std::{
 
 pub use image_resolver::{DefaultImageResolver, ImageResolver};
 use proto_api::executor_api_pb::{
+    CommandResponse,
     FunctionExecutorDescription,
     FunctionExecutorState,
     FunctionExecutorTerminationReason,
 };
-use tokio::sync::RwLock;
+use tokio::sync::{RwLock, mpsc};
 use tracing::Instrument;
 use types::container_type_str;
 
@@ -44,6 +45,10 @@ pub struct FunctionContainerManager {
     metrics: Arc<DataplaneMetrics>,
     state_file: Arc<StateFile>,
     executor_id: String,
+    /// Channel for container state change notifications (ContainerTerminated).
+    /// Feeds into the same `report_command_responses` pipeline as allocation
+    /// results.
+    container_state_tx: mpsc::UnboundedSender<CommandResponse>,
 }
 
 impl FunctionContainerManager {
@@ -53,6 +58,7 @@ impl FunctionContainerManager {
         metrics: Arc<DataplaneMetrics>,
         state_file: Arc<StateFile>,
         executor_id: String,
+        container_state_tx: mpsc::UnboundedSender<CommandResponse>,
     ) -> Self {
         Self {
             driver,
@@ -61,6 +67,7 @@ impl FunctionContainerManager {
             metrics,
             state_file,
             executor_id,
+            container_state_tx,
         }
     }
 
@@ -245,6 +252,7 @@ impl FunctionContainerManager {
 
     /// Sync the containers with the desired state from the server.
     /// Creates new containers, and marks removed ones for termination.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub async fn sync(&self, desired: Vec<FunctionExecutorDescription>) {
         let desired_ids: HashSet<String> = desired.iter().filter_map(|d| d.id.clone()).collect();
 
@@ -256,7 +264,7 @@ impl FunctionContainerManager {
 
         for desc in desired {
             let Some(id) = desc.id.clone() else { continue };
-            if !containers.contains_key(&id) {
+            if containers.get(&id).is_none() {
                 self.create_container(&mut containers, desc).await;
             } else {
                 self.update_existing_container(&mut containers, &id, desc)
@@ -270,6 +278,7 @@ impl FunctionContainerManager {
     /// Remove containers that are no longer in the desired state.
     /// Terminated containers are removed from memory and state file.
     /// Running/pending containers are signaled to stop.
+    #[cfg_attr(not(test), allow(dead_code))]
     async fn remove_undesired_containers(
         &self,
         containers: &mut ContainerStore,
@@ -368,6 +377,7 @@ impl FunctionContainerManager {
         let state_file = self.state_file.clone();
         let executor_id = self.executor_id.clone();
         let executor_id_lifecycle = self.executor_id.clone();
+        let container_state_tx = self.container_state_tx.clone();
 
         tokio::spawn(
             async move {
@@ -385,11 +395,92 @@ impl FunctionContainerManager {
                     containers_ref,
                     metrics,
                     state_file,
+                    container_state_tx,
                 )
                 .await;
             }
             .instrument(tracing::info_span!("container_lifecycle", %executor_id)),
         );
+    }
+
+    /// Add or update a single container (delta operation).
+    ///
+    /// Unlike `sync()`, this does NOT remove other containers. Safe to call
+    /// for individual `AddContainer` commands from the command stream without
+    /// disturbing existing containers.
+    ///
+    /// If the container already exists and is Terminated, it is removed and
+    /// recreated. If it exists in any other state, only its description is
+    /// updated.
+    pub async fn add_or_update_container(&self, desc: FunctionExecutorDescription) {
+        let Some(id) = desc.id.clone() else { return };
+        let mut containers = self.containers.write().await;
+
+        if let Some(existing) = containers.get(&id) {
+            if matches!(existing.state, ContainerState::Terminated { .. }) {
+                // Remove terminated container so we can recreate it below.
+                let info = existing.info();
+                tracing::info!(
+                    parent: &info.tracing_span(),
+                    "Removing terminated container to recreate"
+                );
+                if let Err(e) = self.state_file.remove(&id).await {
+                    tracing::warn!(
+                        container_id = %info.container_id,
+                        error = %e,
+                        "Failed to remove container from state file"
+                    );
+                }
+                containers.remove(&id);
+                // Fall through to create_container below.
+            } else {
+                self.update_existing_container(&mut containers, &id, desc)
+                    .await;
+                update_container_counts(&containers, &self.metrics).await;
+                return;
+            }
+        }
+
+        self.create_container(&mut containers, desc).await;
+        update_container_counts(&containers, &self.metrics).await;
+    }
+
+    /// Remove a single container by ID (delta operation).
+    ///
+    /// Unlike `sync()`, this only affects the specified container. Safe to
+    /// call for individual `RemoveContainer` commands from the command stream.
+    pub async fn remove_container_by_id(&self, id: &str) {
+        let mut containers = self.containers.write().await;
+        if let Some(container) = containers.get_mut(id) {
+            let info = container.info();
+            match &container.state {
+                ContainerState::Terminated { .. } => {
+                    tracing::info!(
+                        parent: &info.tracing_span(),
+                        "Removed terminated container from memory"
+                    );
+                    if let Err(e) = self.state_file.remove(id).await {
+                        tracing::warn!(
+                            container_id = %info.container_id,
+                            error = %e,
+                            "Failed to remove container from state file"
+                        );
+                    }
+                    containers.remove(id);
+                }
+                ContainerState::Stopping { .. } => {
+                    // Already stopping, let it continue
+                }
+                ContainerState::Pending | ContainerState::Running { .. } => {
+                    self.initiate_stop(
+                        container,
+                        FunctionExecutorTerminationReason::FunctionCancelled,
+                    )
+                    .await;
+                }
+            }
+        }
+        update_container_counts(&containers, &self.metrics).await;
     }
 
     /// Update an existing container's description.
@@ -450,8 +541,8 @@ impl FunctionContainerManager {
             self.metrics
                 .counters
                 .record_container_terminated(container_type, "cancelled_pending");
-            if let Err(e) = container.transition_to_terminated(reason) {
-                tracing::warn!(container_id = %id, error = %e, "Invalid state transition");
+            if container.transition_to_terminated(reason).is_ok() {
+                Self::send_container_terminated(&self.container_state_tx, &id, reason);
             }
             return;
         }
@@ -488,8 +579,23 @@ impl FunctionContainerManager {
             self.containers.clone(),
             self.driver.clone(),
             self.metrics.clone(),
+            self.container_state_tx.clone(),
             span,
         );
+    }
+
+    /// Send a container terminated notification via the v2 command response
+    /// channel.
+    fn send_container_terminated(
+        tx: &mpsc::UnboundedSender<CommandResponse>,
+        container_id: &str,
+        reason: FunctionExecutorTerminationReason,
+    ) {
+        let response = crate::function_executor::proto_convert::make_container_terminated_response(
+            container_id,
+            reason,
+        );
+        let _ = tx.send(response);
     }
 
     /// Get the current state of all containers for reporting to the server.
@@ -571,6 +677,7 @@ fn spawn_grace_period_kill(
     containers_ref: Arc<RwLock<ContainerStore>>,
     driver: Arc<dyn ProcessDriver>,
     metrics: Arc<DataplaneMetrics>,
+    container_state_tx: mpsc::UnboundedSender<CommandResponse>,
     span: tracing::Span,
 ) {
     tokio::spawn(
@@ -614,8 +721,15 @@ fn spawn_grace_period_kill(
                     "Container terminated"
                 );
 
-                if let Err(e) = container.transition_to_terminated(termination_reason) {
-                    tracing::warn!(error = %e, "Invalid state transition in grace period kill");
+                if container
+                    .transition_to_terminated(termination_reason)
+                    .is_ok()
+                {
+                    FunctionContainerManager::send_container_terminated(
+                        &container_state_tx,
+                        &container_id,
+                        termination_reason,
+                    );
                 }
 
                 update_container_counts(&containers, &metrics).await;
@@ -871,12 +985,15 @@ mod tests {
         let resolver = Arc::new(DefaultImageResolver::new(None));
         let metrics = create_test_metrics();
         let state_file = create_test_state_file().await;
+        let (container_state_tx, _container_state_rx) =
+            tokio::sync::mpsc::unbounded_channel::<CommandResponse>();
         let manager = FunctionContainerManager::new(
             driver.clone(),
             resolver,
             metrics,
             state_file,
             "test-executor".to_string(),
+            container_state_tx,
         );
         (driver, manager)
     }

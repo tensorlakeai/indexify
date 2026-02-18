@@ -141,15 +141,20 @@ impl AllocationController {
                 }
                 Some(cmd) = self.command_rx.recv() => {
                     match cmd {
-                        ACCommand::Reconcile { desired_fes, new_allocations } => {
+                        ACCommand::Reconcile { added_or_updated_fes, removed_fe_ids, new_allocations } => {
                             // Garbage-collect Done allocations the server no longer sends.
-                            let current_ids: std::collections::HashSet<String> = new_allocations
-                                .iter()
-                                .map(|(_, a)| a.allocation_id.clone().unwrap_or_default())
-                                .collect();
-                            self.cleanup_done_allocations(&current_ids);
+                            // Only run when we have allocation data — without
+                            // it the set would be empty and we'd incorrectly
+                            // remove ALL Done allocations.
+                            if !new_allocations.is_empty() {
+                                let current_ids: std::collections::HashSet<String> = new_allocations
+                                    .iter()
+                                    .map(|(_, a)| a.allocation_id.clone().unwrap_or_default())
+                                    .collect();
+                                self.cleanup_done_allocations(&current_ids);
+                            }
 
-                            self.reconcile_containers(desired_fes).await;
+                            self.reconcile_containers(added_or_updated_fes, removed_fe_ids).await;
                             self.add_allocations(new_allocations);
                             self.try_schedule();
                         }
@@ -208,25 +213,17 @@ impl AllocationController {
             .containers
             .values()
             .map(|fe| {
-                let (status, termination_reason, blamed_alloc_ids) = match &fe.state {
-                    ContainerState::Starting => (FunctionExecutorStatus::Pending, None, vec![]),
-                    ContainerState::Running { .. } => {
-                        (FunctionExecutorStatus::Running, None, vec![])
+                let (status, termination_reason) = match &fe.state {
+                    ContainerState::Starting => (FunctionExecutorStatus::Pending, None),
+                    ContainerState::Running { .. } => (FunctionExecutorStatus::Running, None),
+                    ContainerState::Terminated { reason } => {
+                        (FunctionExecutorStatus::Terminated, Some(*reason))
                     }
-                    ContainerState::Terminated {
-                        reason,
-                        blamed_alloc_ids,
-                    } => (
-                        FunctionExecutorStatus::Terminated,
-                        Some(*reason),
-                        blamed_alloc_ids.clone(),
-                    ),
                 };
                 FunctionExecutorState {
                     description: Some(fe.description.clone()),
                     status: Some(status.into()),
                     termination_reason: termination_reason.map(|r| r.into()),
-                    allocation_ids_caused_termination: blamed_alloc_ids,
                 }
             })
             .collect();
@@ -367,11 +364,12 @@ impl AllocationController {
                 ctx.output_blob_handles.is_empty() &&
                 ctx.fe_result.is_none()
             {
+                let response = proto_convert::allocation_result_to_command_response(&result);
                 crate::function_executor::controller::record_allocation_metrics(
-                    &result,
+                    &response,
                     &self.config.metrics.counters,
                 );
-                let _ = self.config.result_tx.send(result);
+                let _ = self.config.result_tx.send(response);
                 alloc.state = AllocationState::Done;
             } else {
                 self.start_finalization(&alloc_id, result, ctx);

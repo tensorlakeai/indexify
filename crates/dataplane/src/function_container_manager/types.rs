@@ -142,7 +142,6 @@ impl ManagedContainer {
             description: Some(self.description.clone()),
             status: Some(status.into()),
             termination_reason: termination_reason.map(|r| r.into()),
-            allocation_ids_caused_termination: vec![],
         }
     }
 
@@ -304,10 +303,6 @@ impl ContainerStore {
 
     pub fn get_mut(&mut self, key: &str) -> Option<&mut ManagedContainer> {
         self.map.get_mut(key)
-    }
-
-    pub fn contains_key(&self, key: &str) -> bool {
-        self.map.contains_key(key)
     }
 
     /// Insert a container. Does NOT auto-index sandbox (caller controls that).

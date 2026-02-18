@@ -18,6 +18,19 @@
 //!
 //! This reconciler partitions the server's desired FE descriptions by
 //! `container_type` and routes each group to the appropriate handler.
+//!
+//! ## Delta vs full-state semantics
+//!
+//! The command stream delivers individual `AddContainer` / `RemoveContainer`
+//! commands one-by-one.
+//!
+//! - **Functions** use the AllocationController, which has native delta
+//!   semantics (add/remove by ID). No accumulation needed.
+//! - **Sandboxes** use `FunctionContainerManager::add_or_update_container()`
+//!   and `remove_container_by_id()` for delta operations. This avoids the
+//!   problem where calling `sync()` (full-state) with a partial set during
+//!   reconnection would incorrectly stop containers that haven't been
+//!   re-announced yet.
 
 use std::sync::Arc;
 
@@ -68,50 +81,82 @@ impl StateReconciler {
         }
     }
 
-    /// Reconcile desired state by partitioning FEs into the two execution
-    /// paths and bundling allocations with function FEs for atomic delivery:
-    /// - **Function** FEs + allocations → AllocationController
-    ///   (`ACCommand::Reconcile`)
-    /// - **Sandbox** FEs → Docker container manager (`sync`)
-    pub async fn reconcile(
+    /// Reconcile container commands: add/remove containers.
+    ///
+    /// Partitions FEs by type:
+    /// - **Function** FEs → AllocationController (`ACCommand::Reconcile`)
+    /// - **Sandbox** FEs → `FunctionContainerManager` delta methods
+    ///   (`add_or_update_container` / `remove_container_by_id`)
+    ///
+    /// Removal IDs are applied to both paths: forwarded to the
+    /// AllocationController and to `FunctionContainerManager`.
+    pub async fn reconcile_containers(
         &mut self,
-        function_executors: Vec<FunctionExecutorDescription>,
-        allocations: Vec<(String, Allocation)>,
+        added_or_updated: Vec<FunctionExecutorDescription>,
+        removed_container_ids: Vec<String>,
     ) {
-        let mut sandbox_fes = Vec::new();
         let mut function_fes = Vec::new();
 
-        for fe in function_executors {
+        for fe in added_or_updated {
             match fe.container_type() {
                 FunctionExecutorType::Function => function_fes.push(fe),
                 FunctionExecutorType::Sandbox | FunctionExecutorType::Unknown => {
-                    sandbox_fes.push(fe);
+                    self.container_manager.add_or_update_container(fe).await;
                 }
             }
         }
 
-        let sandbox_fe_count = sandbox_fes.len();
-        self.container_manager.sync(sandbox_fes).await;
+        // Apply removals to both paths. We don't know the type of removed IDs
+        // upfront, so try both — the AllocationController ignores IDs it
+        // doesn't know about, and FunctionContainerManager ignores unknown IDs.
+        for id in &removed_container_ids {
+            self.container_manager.remove_container_by_id(id).await;
+        }
 
         let function_fe_count = function_fes.len();
-        let allocation_count = allocations.len();
-        let changed = function_fe_count > 0 || allocation_count > 0;
+        let removed_count = removed_container_ids.len();
+        let changed = function_fe_count > 0 || removed_count > 0;
 
         let _ = self
             .allocation_controller
             .command_tx
             .send(ACCommand::Reconcile {
-                desired_fes: function_fes,
-                new_allocations: allocations,
+                added_or_updated_fes: function_fes,
+                removed_fe_ids: removed_container_ids,
+                new_allocations: vec![],
             });
 
         if changed {
             info!(
-                function_fe_count = function_fe_count,
-                sandbox_fe_count = sandbox_fe_count,
-                allocation_count = allocation_count,
-                "Sent Reconcile command to AllocationController"
+                function_fe_count,
+                removed_count, "Sent container Reconcile to AllocationController"
             );
+        }
+    }
+
+    /// Reconcile allocation stream update: route allocations and call results.
+    pub async fn reconcile_allocations(
+        &mut self,
+        allocations: Vec<(String, Allocation)>,
+        call_results: &[ServerFunctionCallResult],
+    ) {
+        if !allocations.is_empty() {
+            let allocation_count = allocations.len();
+            let _ = self
+                .allocation_controller
+                .command_tx
+                .send(ACCommand::Reconcile {
+                    added_or_updated_fes: vec![],
+                    removed_fe_ids: vec![],
+                    new_allocations: allocations,
+                });
+            info!(
+                allocation_count,
+                "Sent allocation Reconcile to AllocationController"
+            );
+        }
+        if !call_results.is_empty() {
+            self.deliver_function_call_results(call_results).await;
         }
     }
 
@@ -129,12 +174,6 @@ impl StateReconciler {
             .watcher_registry
             .get_function_call_watches()
             .await
-    }
-
-    /// Get the watcher notify for waking up the heartbeat loop when watches
-    /// change.
-    pub fn watcher_notify(&self) -> Arc<Notify> {
-        self.allocation_controller.watcher_registry.watcher_notify()
     }
 
     /// Get the notify for waking up the heartbeat loop when state changes (FEs

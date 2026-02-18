@@ -5,6 +5,7 @@ use std::{
 };
 
 use anyhow::Result;
+use sha2::{Digest, Sha256};
 use tracing::{error, info, trace, warn};
 
 use crate::{
@@ -107,6 +108,14 @@ impl FunctionRunCreator {
             self.create_function_calls(&mut request_ctx, &function_call_event.graph_updates)?,
         );
         let pending_function_calls = request_ctx.pending_function_calls();
+        info!(
+            request_id = %function_call_event.request_id,
+            output_function_call_id = %function_call_event.graph_updates.output_function_call_id,
+            num_function_calls = request_ctx.function_calls.len(),
+            num_function_runs = request_ctx.function_runs.len(),
+            num_pending = pending_function_calls.len(),
+            "handle_blocking_function_call: created function calls, scheduling runs"
+        );
         scheduler_update.extend(self.create_function_runs(
             &mut request_ctx,
             pending_function_calls,
@@ -341,6 +350,16 @@ impl FunctionRunCreator {
         // Create a function run for each function call that has all the input data
         // payloads available.
         let pending_function_calls = request_ctx.pending_function_calls();
+        if !pending_function_calls.is_empty() {
+            info!(
+                request_id = %alloc_finished_event.request_id,
+                fn_run_completed = %alloc_finished_event.function_call_id,
+                num_function_calls = request_ctx.function_calls.len(),
+                num_function_runs = request_ctx.function_runs.len(),
+                num_pending = pending_function_calls.len(),
+                "handle_allocation_ingestion: checking pending function calls after ingestion"
+            );
+        }
         scheduler_update.extend(self.create_function_runs(
             &mut request_ctx,
             pending_function_calls,
@@ -392,11 +411,12 @@ impl FunctionRunCreator {
                 };
 
                 let mut last_function_call =
-                    create_function_call_from_reduce_op(reduce_op, first_arg, second_arg, None);
+                    create_function_call_from_reduce_op(reduce_op, first_arg, second_arg, None, 0);
                 scheduler_update.add_function_call(last_function_call.clone(), request_ctx);
                 // Ordering of arguments is important. When we reduce "a, b, c, d"
                 // we want to do reduce(reduce(reduce(a, b), c), d).
                 // So the reduce calls are in order of collection.
+                let mut position = 1;
                 for arg in reducer_collection {
                     let function_call = create_function_call_from_reduce_op(
                         reduce_op,
@@ -405,9 +425,11 @@ impl FunctionRunCreator {
                         ),
                         arg,
                         None,
+                        position,
                     );
                     scheduler_update.add_function_call(function_call.clone(), request_ctx);
                     last_function_call = function_call.clone();
+                    position += 1;
                 }
                 // Change the function call ID of the last reducer function call to
                 // be the reduce operation's function call ID.
@@ -431,11 +453,12 @@ impl FunctionRunCreator {
         application_version: &ApplicationVersion,
     ) -> Result<SchedulerUpdateRequest> {
         let mut scheduler_update = SchedulerUpdateRequest::default();
-        for function_call_id in pending_function_calls {
-            let function_call = request_ctx.function_calls.get(&function_call_id).unwrap();
+        for function_call_id in &pending_function_calls {
+            let function_call = request_ctx.function_calls.get(function_call_id).unwrap();
             let mut input_args = vec![];
             let mut schedulable = true;
-            for arg in function_call.inputs.clone() {
+            let mut blocking_reason = String::new();
+            for (i, arg) in function_call.inputs.clone().into_iter().enumerate() {
                 match arg {
                     FunctionArgs::DataPayload(data_payload) => {
                         input_args.push(InputArgs {
@@ -443,21 +466,28 @@ impl FunctionRunCreator {
                             data_payload: data_payload.clone(),
                         });
                     }
-                    FunctionArgs::FunctionRunOutput(function_call_id) => {
-                        let Some(function_run) = request_ctx.function_runs.get(&function_call_id)
+                    FunctionArgs::FunctionRunOutput(dep_function_call_id) => {
+                        let Some(function_run) =
+                            request_ctx.function_runs.get(&dep_function_call_id)
                         else {
                             // Function run is not created yet - it's output can't be available.
+                            blocking_reason =
+                                format!("input[{}]: fn_run {} not found", i, dep_function_call_id);
                             schedulable = false;
                             break;
                         };
                         if let Some(output) = &function_run.output {
                             input_args.push(InputArgs {
-                                function_call_id: Some(function_call_id.clone()),
+                                function_call_id: Some(dep_function_call_id.clone()),
                                 data_payload: output.clone(),
                             });
                         } else {
                             // Function run is created and might be running already but not finished
                             // as it has no output yet.
+                            blocking_reason = format!(
+                                "input[{}]: fn_run {} has no output yet",
+                                i, dep_function_call_id
+                            );
                             schedulable = false;
                             break;
                         }
@@ -465,8 +495,23 @@ impl FunctionRunCreator {
                 }
             }
             if !schedulable {
+                info!(
+                    request_id = %request_ctx.request_id,
+                    fn_call_id = %function_call_id,
+                    fn_name = %function_call.fn_name,
+                    num_inputs = function_call.inputs.len(),
+                    blocking_reason = %blocking_reason,
+                    "create_function_runs: function call NOT schedulable"
+                );
                 continue;
             }
+            info!(
+                request_id = %request_ctx.request_id,
+                fn_call_id = %function_call_id,
+                fn_name = %function_call.fn_name,
+                num_inputs = function_call.inputs.len(),
+                "create_function_runs: function call IS schedulable, creating run"
+            );
             let function_run = application_version
                 .create_function_run(function_call, input_args, &request_ctx.request_id)
                 .unwrap();
@@ -481,10 +526,20 @@ fn create_function_call_from_reduce_op(
     first_arg: FunctionArgs,
     second_arg: FunctionArgs,
     parent_function_call_id: Option<FunctionCallId>,
+    position: usize,
 ) -> FunctionCall {
     let inputs = vec![first_arg, second_arg];
+    // Generate a deterministic ID from the reduce operation's function_call_id
+    // and position in the chain. This makes call_function RPCs idempotent —
+    // re-sending the same reduce operation produces the same function call IDs
+    // instead of creating duplicates with random nanoid IDs.
+    let mut hasher = Sha256::new();
+    hasher.update(reduce_op.function_call_id.0.as_bytes());
+    hasher.update(b":reduce:");
+    hasher.update(position.to_string().as_bytes());
+    let hash = format!("{:x}", hasher.finalize());
     FunctionCall {
-        function_call_id: FunctionCallId(nanoid::nanoid!()),
+        function_call_id: FunctionCallId(hash),
         inputs,
         fn_name: reduce_op.fn_name.clone(),
         call_metadata: reduce_op.call_metadata.clone(),

@@ -27,6 +27,7 @@ use indexify_dataplane::{
     state_file::StateFile,
 };
 use proto_api::executor_api_pb::{
+    CommandResponse,
     FunctionExecutorDescription,
     FunctionExecutorStatus,
     FunctionRef,
@@ -343,12 +344,15 @@ async fn test_sync_creates_container_with_daemon() {
     let driver = Arc::new(DaemonTestDriver::new(daemon_binary, log_dir));
     let resolver = Arc::new(TestImageResolver);
     let state_file = create_test_state_file().await;
+    let (container_state_tx, _container_state_rx) =
+        tokio::sync::mpsc::unbounded_channel::<CommandResponse>();
     let manager = FunctionContainerManager::new(
         driver.clone(),
         resolver,
         create_test_metrics(),
         state_file,
         "test-executor".to_string(),
+        container_state_tx,
     );
 
     // Initially no containers
@@ -412,12 +416,15 @@ async fn test_sync_deletes_container_when_removed_from_desired() {
     let driver = Arc::new(DaemonTestDriver::new(daemon_binary, log_dir));
     let resolver = Arc::new(TestImageResolver);
     let state_file = create_test_state_file().await;
+    let (container_state_tx, _container_state_rx) =
+        tokio::sync::mpsc::unbounded_channel::<CommandResponse>();
     let manager = FunctionContainerManager::new(
         driver.clone(),
         resolver,
         create_test_metrics(),
         state_file,
         "test-executor".to_string(),
+        container_state_tx,
     );
 
     // Create a container
@@ -480,12 +487,15 @@ async fn test_health_check_detects_container_death() {
     let driver = Arc::new(DaemonTestDriver::new(daemon_binary, log_dir));
     let resolver = Arc::new(TestImageResolver);
     let state_file = create_test_state_file().await;
+    let (container_state_tx, _container_state_rx) =
+        tokio::sync::mpsc::unbounded_channel::<CommandResponse>();
     let manager = FunctionContainerManager::new(
         driver.clone(),
         resolver,
         create_test_metrics(),
         state_file,
         "test-executor".to_string(),
+        container_state_tx,
     );
 
     // Create a container
@@ -565,12 +575,15 @@ async fn test_multiple_containers_lifecycle() {
     let driver = Arc::new(DaemonTestDriver::new(daemon_binary, log_dir));
     let resolver = Arc::new(TestImageResolver);
     let state_file = create_test_state_file().await;
+    let (container_state_tx, _container_state_rx) =
+        tokio::sync::mpsc::unbounded_channel::<CommandResponse>();
     let manager = FunctionContainerManager::new(
         driver.clone(),
         resolver,
         create_test_metrics(),
         state_file,
         "test-executor".to_string(),
+        container_state_tx,
     );
 
     // Create multiple containers
@@ -639,12 +652,15 @@ async fn test_sync_idempotent() {
     let driver = Arc::new(DaemonTestDriver::new(daemon_binary, log_dir));
     let resolver = Arc::new(TestImageResolver);
     let state_file = create_test_state_file().await;
+    let (container_state_tx, _container_state_rx) =
+        tokio::sync::mpsc::unbounded_channel::<CommandResponse>();
     let manager = FunctionContainerManager::new(
         driver.clone(),
         resolver,
         create_test_metrics(),
         state_file,
         "test-executor".to_string(),
+        container_state_tx,
     );
 
     let desired = vec![create_test_fe_description("fe-idempotent")];

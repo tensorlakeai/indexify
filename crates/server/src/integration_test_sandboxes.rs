@@ -491,7 +491,7 @@ mod tests {
         test_srv.process_all_state_changes().await?;
 
         // Verify executor has no function_executors initially
-        let desired_state = executor.desired_state().await;
+        let desired_state = executor.srv_executor_state().await;
         assert!(
             desired_state.function_executors.is_empty(),
             "Executor should have no function_executors before sandbox creation"
@@ -503,7 +503,7 @@ mod tests {
 
         // Verify the sandbox container appears in executor's desired state even while
         // Pending
-        let desired_state = executor.desired_state().await;
+        let desired_state = executor.srv_executor_state().await;
         assert_eq!(
             desired_state.function_executors.len(),
             1,
@@ -551,7 +551,7 @@ mod tests {
         test_srv.process_all_state_changes().await?;
 
         // Verify sandbox is in desired state
-        let desired_state = executor.desired_state().await;
+        let desired_state = executor.srv_executor_state().await;
         assert_eq!(
             desired_state.function_executors.len(),
             1,
@@ -576,7 +576,7 @@ mod tests {
 
         // Verify the sandbox container is marked for removal in desired state
         // (the function executor should have a desired_state of terminated/removed)
-        let desired_state = executor.desired_state().await;
+        let desired_state = executor.srv_executor_state().await;
 
         // The function executor may still be present but should be marked for
         // termination OR it may be removed entirely depending on implementation
@@ -672,13 +672,12 @@ mod tests {
         for (_, fe) in executor_state.containers.iter_mut() {
             fe.state = ContainerState::Terminated {
                 reason: FunctionExecutorTerminationReason::StartupFailedInternalError,
-                failed_alloc_ids: vec![],
             };
         }
 
         // Update state hash and send heartbeat
         executor_state.state_hash = nanoid::nanoid!();
-        executor.heartbeat(executor_state).await?;
+        executor.sync_executor_state(executor_state).await?;
         test_srv.process_all_state_changes().await?;
 
         // Verify sandbox is terminated with ContainerTerminated failure reason
@@ -723,7 +722,7 @@ mod tests {
         test_srv.process_all_state_changes().await?;
 
         // Verify both sandboxes are in executor's desired state
-        let desired_state = executor.desired_state().await;
+        let desired_state = executor.srv_executor_state().await;
         assert_eq!(
             desired_state.function_executors.len(),
             2,

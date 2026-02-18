@@ -543,12 +543,12 @@ impl StateReader {
         {
             Ok(Some(fr)) => Some(fr),
             Ok(None) => {
-                error!(
+                debug!(
                     namespace,
                     application,
                     request_id,
                     function_call_id,
-                    "function_run not found in RocksDB for executor watch",
+                    "function_run not yet available for executor watch (expected if watch registered before function run created)",
                 );
                 None
             }

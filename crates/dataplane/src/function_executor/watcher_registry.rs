@@ -14,7 +14,7 @@ use proto_api::executor_api_pb::{
     FunctionCallResult as ServerFunctionCallResult,
     FunctionCallWatch,
 };
-use tokio::sync::{Mutex, Notify, mpsc};
+use tokio::sync::{Mutex, mpsc};
 use tracing::{debug, info, warn};
 
 /// A watcher result delivered to an allocation runner's channel.
@@ -44,8 +44,6 @@ struct WatcherEntry {
 #[derive(Clone)]
 pub struct WatcherRegistry {
     inner: Arc<Mutex<WatcherRegistryInner>>,
-    /// Notify when new watchers are registered (wakes up heartbeat loop).
-    watcher_notify: Arc<Notify>,
 }
 
 struct WatcherRegistryInner {
@@ -66,14 +64,7 @@ impl WatcherRegistry {
             inner: Arc::new(Mutex::new(WatcherRegistryInner {
                 watchers: HashMap::new(),
             })),
-            watcher_notify: Arc::new(Notify::new()),
         }
-    }
-
-    /// Get a handle to the notify for waking up the heartbeat loop when watches
-    /// change.
-    pub fn watcher_notify(&self) -> Arc<Notify> {
-        self.watcher_notify.clone()
     }
 
     /// Register a function call watcher.
@@ -115,9 +106,6 @@ impl WatcherRegistry {
             watcher_id = %watcher_id,
             "Registered function call watcher"
         );
-
-        // Wake up heartbeat loop to report new watches immediately
-        self.watcher_notify.notify_one();
     }
 
     /// Route function call results to registered watchers.
@@ -125,6 +113,9 @@ impl WatcherRegistry {
     /// Delivers terminal results (Success or Failure) to watchers. For Success
     /// results, the result is delivered regardless of whether return_value is
     /// present — the FE handles the tail call resolution.
+    ///
+    /// After delivering results, notifies the heartbeat loop so it re-syncs
+    /// the reduced watch set with the server.
     pub async fn deliver_results(&self, results: &[ServerFunctionCallResult]) {
         let mut inner = self.inner.lock().await;
 
@@ -136,6 +127,9 @@ impl WatcherRegistry {
             active_watcher_keys = ?active_keys,
             "Delivering function call results to watchers"
         );
+
+        // Track keys to remove after delivering terminal results.
+        let mut keys_to_remove = Vec::new();
 
         for result in results {
             let outcome = result.outcome_code();
@@ -201,6 +195,10 @@ impl WatcherRegistry {
                         true
                     }
                 });
+
+                // Terminal result delivered — remove the watch immediately
+                // so the next heartbeat syncs the reduced set to the server.
+                keys_to_remove.push(key);
             } else {
                 warn!(
                     function_call_id = %function_call_id,
@@ -208,6 +206,10 @@ impl WatcherRegistry {
                     "No watchers found for function call result"
                 );
             }
+        }
+
+        for key in keys_to_remove {
+            inner.watchers.remove(&key);
         }
     }
 

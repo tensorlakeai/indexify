@@ -5,8 +5,12 @@
 
 use std::{sync::Arc, time::Duration};
 
-use proto_api::executor_api_pb::{FunctionExecutorDescription, FunctionExecutorTerminationReason};
-use tokio::sync::RwLock;
+use proto_api::executor_api_pb::{
+    CommandResponse,
+    FunctionExecutorDescription,
+    FunctionExecutorTerminationReason,
+};
+use tokio::sync::{RwLock, mpsc};
 
 use super::{
     image_resolver::ImageResolver,
@@ -202,6 +206,7 @@ pub(super) async fn handle_container_startup_result(
     containers_ref: Arc<RwLock<ContainerStore>>,
     metrics: Arc<DataplaneMetrics>,
     state_file: Arc<StateFile>,
+    container_state_tx: mpsc::UnboundedSender<CommandResponse>,
 ) {
     let mut containers = containers_ref.write().await;
     let Some(container) = containers.get_mut(&id) else {
@@ -268,14 +273,13 @@ pub(super) async fn handle_container_startup_result(
                 event = "container_startup_failed",
                 "Failed to start container"
             );
-            if let Err(e) = container.transition_to_terminated(
-                FunctionExecutorTerminationReason::StartupFailedInternalError,
-            ) {
-                tracing::warn!(
-                    parent: &span,
-                    error = %e,
-                    "Invalid state transition on startup failure"
-                );
+            let reason = FunctionExecutorTerminationReason::StartupFailedInternalError;
+            if container.transition_to_terminated(reason).is_ok() {
+                let response =
+                    crate::function_executor::proto_convert::make_container_terminated_response(
+                        &id, reason,
+                    );
+                let _ = container_state_tx.send(response);
             }
 
             update_container_counts(&containers, &metrics).await;
