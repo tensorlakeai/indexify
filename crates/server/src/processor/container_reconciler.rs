@@ -633,6 +633,24 @@ impl ContainerReconciler {
         Ok(update)
     }
 
+    /// Promotes a sandbox from Pending to Running when the dataplane reports
+    /// ContainerStarted for the container backing it.
+    pub fn promote_sandbox_for_started_container(
+        &self,
+        in_memory_state: &InMemoryState,
+        container_scheduler: &ContainerScheduler,
+        container_id: &ContainerId,
+    ) -> Result<SchedulerUpdateRequest> {
+        let Some(server_meta) = container_scheduler.function_containers.get(container_id) else {
+            return Ok(SchedulerUpdateRequest::default());
+        };
+        self.promote_sandbox_if_container_running(
+            in_memory_state,
+            &server_meta.function_container,
+            &ContainerState::Running,
+        )
+    }
+
     /// Terminates sandbox associated with a container when the container
     /// terminates. Uses container.sandbox_id to find the associated sandbox.
     pub fn terminate_sandbox_for_container(

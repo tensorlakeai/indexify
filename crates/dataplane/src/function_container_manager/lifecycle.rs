@@ -256,6 +256,12 @@ pub(super) async fn handle_container_startup_result(
 
             if let Err(e) = container.transition_to_running(handle, daemon_client) {
                 tracing::warn!(parent: &span, error = %e, "Invalid state transition on startup");
+            } else {
+                // Notify the server so it can promote sandbox status from
+                // Pending to Running.
+                let response =
+                    crate::function_executor::proto_convert::make_container_started_response(&id);
+                let _ = container_state_tx.send(response);
             }
 
             update_container_counts(&containers, &metrics).await;
