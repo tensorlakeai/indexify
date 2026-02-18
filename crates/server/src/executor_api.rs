@@ -924,6 +924,7 @@ pub async fn process_command_responses(
 
     let mut allocation_events = Vec::new();
     let mut container_state_updates = Vec::new();
+    let mut container_started_ids = Vec::new();
 
     for resp in responses {
         let Some(response) = resp.response else {
@@ -1103,13 +1104,17 @@ pub async fn process_command_responses(
                 info!(
                     executor_id = executor_id.get(),
                     container_id = started.container_id,
-                    "ContainerStarted — no-op (container already tracked via AddContainer)"
+                    "ContainerStarted — will promote sandbox if pending"
                 );
+                container_started_ids.push(data_model::ContainerId::new(started.container_id));
             }
         }
     }
 
-    if allocation_events.is_empty() && container_state_updates.is_empty() {
+    if allocation_events.is_empty() &&
+        container_state_updates.is_empty() &&
+        container_started_ids.is_empty()
+    {
         return Ok(());
     }
 
@@ -1117,6 +1122,7 @@ pub async fn process_command_responses(
         executor_id: executor_id.clone(),
         allocation_events,
         container_state_updates,
+        container_started_ids,
     };
 
     indexify_state

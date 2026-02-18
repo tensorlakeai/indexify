@@ -253,6 +253,23 @@ pub fn allocation_result_to_command_response(
     }
 }
 
+/// Build a `CommandResponse` wrapping a `ContainerStarted`.
+///
+/// Sent as an unsolicited event (command_seq = 0) when a container
+/// transitions to Running state.
+pub fn make_container_started_response(container_id: &str) -> CommandResponse {
+    CommandResponse {
+        command_seq: 0, // unsolicited
+        response: Some(
+            executor_api_pb::command_response::Response::ContainerStarted(
+                executor_api_pb::ContainerStarted {
+                    container_id: container_id.to_string(),
+                },
+            ),
+        ),
+    }
+}
+
 /// Build a `CommandResponse` wrapping a `ContainerTerminated`.
 pub fn make_container_terminated_response(
     container_id: &str,

@@ -2304,6 +2304,7 @@ pub struct DataplaneResultsIngestedEvent {
     pub executor_id: ExecutorId,
     pub allocation_events: Vec<AllocationOutputIngestedEvent>,
     pub container_state_updates: Vec<ContainerStateUpdateInfo>,
+    pub container_started_ids: Vec<ContainerId>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]

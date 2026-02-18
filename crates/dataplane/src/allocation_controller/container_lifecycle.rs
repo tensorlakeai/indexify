@@ -383,6 +383,13 @@ impl AllocationController {
                     health_checker_cancel: health_cancel,
                 };
 
+                // Notify the server so it can update container state.
+                let response =
+                    crate::function_executor::proto_convert::make_container_started_response(
+                        &fe_id,
+                    );
+                let _ = self.config.container_state_tx.send(response);
+
                 // Unblock WaitingForContainer allocations
                 self.try_schedule();
                 self.broadcast_state();

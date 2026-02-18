@@ -561,6 +561,31 @@ impl ApplicationProcessor {
                     scheduler_update.extend(container_update);
                 }
 
+                // Step 1b: Promote sandboxes for started containers.
+                // When the dataplane reports ContainerStarted, check if the
+                // container is backing a sandbox and promote it from Pending
+                // to Running.
+                for container_id in &ev.container_started_ids {
+                    let promote_update = container_reconciler
+                        .promote_sandbox_for_started_container(
+                            &indexes_guard,
+                            &container_scheduler_guard,
+                            container_id,
+                        )?;
+                    if !promote_update.updated_sandboxes.is_empty() {
+                        let payload = RequestPayload::SchedulerUpdate(SchedulerUpdatePayload::new(
+                            promote_update.clone(),
+                        ));
+                        container_scheduler_guard.update(&payload)?;
+                        indexes_guard.update_state(
+                            clock,
+                            &payload,
+                            "dataplane_results_container_started",
+                        )?;
+                        scheduler_update.extend(promote_update);
+                    }
+                }
+
                 // Step 2: Process allocation results.
                 for alloc_event in &ev.allocation_events {
                     let alloc_update = task_creator
