@@ -17,6 +17,7 @@ pub mod http_proxy;
 pub mod metrics;
 pub mod monitoring;
 pub mod network_rules;
+pub mod otel_tracing;
 pub mod resources;
 pub mod retry;
 pub mod secrets;
