@@ -1,3 +1,5 @@
+use std::io::IsTerminal;
+
 use anyhow::Result;
 use opentelemetry::trace::TracerProvider;
 use opentelemetry_otlp::{SpanExporter as OtlpSpanExporter, WithExportConfig, WithTonicConfig};
