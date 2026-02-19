@@ -220,8 +220,9 @@ mod tests {
     #[tokio::test]
     async fn test_collect_responses_empty_buffer() {
         let reporter = setup_reporter(vec![]).await;
-        let (responses, has_remaining) = reporter.collect_responses(100).await;
+        let (responses, count, has_remaining) = reporter.collect_responses(100).await;
         assert!(responses.is_empty());
+        assert_eq!(count, 0);
         assert!(!has_remaining);
     }
 
@@ -234,22 +235,42 @@ mod tests {
         ])
         .await;
 
-        let (responses, has_remaining) = reporter.collect_responses(0).await;
+        let (responses, count, has_remaining) = reporter.collect_responses(0).await;
         assert_eq!(responses.len(), 3);
+        assert_eq!(count, 3);
         assert!(!has_remaining);
     }
 
     #[tokio::test]
-    async fn test_collect_drains_buffer() {
+    async fn test_collect_does_not_drain_buffer() {
         let reporter = setup_reporter(vec![make_response("a1"), make_response("a2")]).await;
 
-        // First collect drains the buffer.
-        let (first, _) = reporter.collect_responses(0).await;
+        // Collect twice without draining — both should return the same results.
+        let (first, ..) = reporter.collect_responses(0).await;
+        let (second, ..) = reporter.collect_responses(0).await;
         assert_eq!(first.len(), 2);
+        assert_eq!(second.len(), 2);
+    }
 
-        // Second collect returns empty — buffer was drained.
-        let (second, _) = reporter.collect_responses(0).await;
-        assert!(second.is_empty());
+    #[tokio::test]
+    async fn test_drain_sent_removes_from_front() {
+        let reporter = setup_reporter(vec![
+            make_response("a1"),
+            make_response("a2"),
+            make_response("a3"),
+        ])
+        .await;
+
+        // Collect all 3.
+        let (batch, _count, _) = reporter.collect_responses(0).await;
+        assert_eq!(batch.len(), 3);
+
+        // Drain 2 (simulate: only first 2 were sent in a fragmented RPC).
+        reporter.drain_sent(2).await;
+
+        // Only a3 remains.
+        let (remaining, ..) = reporter.collect_responses(0).await;
+        assert_eq!(remaining.len(), 1);
     }
 
     #[tokio::test]
@@ -264,7 +285,7 @@ mod tests {
         ])
         .await;
 
-        let (responses, has_remaining) = reporter.collect_responses(0).await;
+        let (responses, count, has_remaining) = reporter.collect_responses(0).await;
         assert_eq!(
             responses.len(),
             2,
@@ -272,8 +293,11 @@ mod tests {
         );
         assert!(has_remaining);
 
+        // Drain the sent batch.
+        reporter.drain_sent(count).await;
+
         // Remaining response is still in the buffer.
-        let (remaining, _) = reporter.collect_responses(0).await;
+        let (remaining, ..) = reporter.collect_responses(0).await;
         assert_eq!(remaining.len(), 1);
     }
 
@@ -283,7 +307,7 @@ mod tests {
         let twelve_mb = 12 * 1024 * 1024;
         let reporter = setup_reporter(vec![make_large_response("big", twelve_mb)]).await;
 
-        let (responses, has_remaining) = reporter.collect_responses(0).await;
+        let (responses, _, has_remaining) = reporter.collect_responses(0).await;
         assert_eq!(responses.len(), 1, "Must include at least one response");
         assert!(!has_remaining);
     }
@@ -300,7 +324,7 @@ mod tests {
         ])
         .await;
 
-        let (responses, has_remaining) = reporter.collect_responses(base_size).await;
+        let (responses, _, has_remaining) = reporter.collect_responses(base_size).await;
         assert_eq!(
             responses.len(),
             1,
@@ -310,71 +334,47 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_re_add_failed_responses() {
-        let reporter = setup_reporter(vec![]).await;
+    async fn test_failure_keeps_items_in_buffer() {
+        let reporter = setup_reporter(vec![make_response("a1"), make_response("a2")]).await;
 
-        // Simulate: collect drains, RPC fails, re-add.
-        {
-            let mut pending = reporter.pending_responses.lock().await;
-            pending.push(make_response("a1"));
-            pending.push(make_response("a2"));
-        }
-
-        let (batch, _) = reporter.collect_responses(0).await;
+        // Collect returns clones, but buffer is untouched.
+        let (batch, ..) = reporter.collect_responses(0).await;
         assert_eq!(batch.len(), 2);
 
-        // Buffer should be empty now.
-        let (empty, _) = reporter.collect_responses(0).await;
-        assert!(empty.is_empty());
+        // Don't call drain_sent (simulating RPC failure).
 
-        // Re-add on failure.
-        reporter.re_add_failed_responses(batch).await;
-
-        // Buffer should have them back.
-        let (retry, _) = reporter.collect_responses(0).await;
+        // Items are still in the buffer.
+        let (retry, ..) = reporter.collect_responses(0).await;
         assert_eq!(retry.len(), 2);
     }
 
     #[tokio::test]
-    async fn test_re_add_preserves_order_with_new_items() {
-        let reporter = setup_reporter(vec![]).await;
+    async fn test_drain_sent_does_not_affect_new_items() {
+        let reporter = setup_reporter(vec![make_response("a1"), make_response("a2")]).await;
 
-        // Add initial items and collect.
-        {
-            let mut pending = reporter.pending_responses.lock().await;
-            pending.push(make_response("a1"));
-            pending.push(make_response("a2"));
-        }
-        let (batch, _) = reporter.collect_responses(0).await;
-        assert_eq!(batch.len(), 2);
+        // Collect 2 items.
+        let (_, count, _) = reporter.collect_responses(0).await;
+        assert_eq!(count, 2);
 
-        // Simulate new items arriving while RPC is in flight.
+        // Simulate new item arriving between collect and drain.
         {
             let mut pending = reporter.pending_responses.lock().await;
             pending.push(make_response("a3"));
         }
 
-        // Re-add failed batch — should go to front.
-        reporter.re_add_failed_responses(batch).await;
+        // Drain only the 2 that were collected.
+        reporter.drain_sent(count).await;
 
-        let (retry, _) = reporter.collect_responses(0).await;
-        assert_eq!(retry.len(), 3);
-        // a1 and a2 should be before a3.
-        let ids: Vec<String> = retry
-            .iter()
-            .filter_map(|r| {
-                crate::function_executor::proto_convert::command_response_allocation_id(r)
-                    .map(|s| s.to_string())
-            })
-            .collect();
-        assert_eq!(ids, vec!["a1", "a2", "a3"]);
+        // Only a3 should remain.
+        let (remaining, ..) = reporter.collect_responses(0).await;
+        assert_eq!(remaining.len(), 1);
     }
 
     #[tokio::test]
     async fn test_fragmentation_cycle() {
         // Simulates the full fragmentation cycle:
-        // 1. Collect first batch (drains)
-        // 2. Drop batch (RPC succeeded)
+        // 1. Collect first batch
+        // 2. Drain sent (RPC succeeded)
         // 3. Collect remaining batch
         let four_mb = 4 * 1024 * 1024;
         let reporter = setup_reporter(vec![
@@ -385,14 +385,15 @@ mod tests {
         .await;
 
         // First collect: a1 + a2 fit (~8 MB < 10 MB), a3 remains
-        let (batch1, has_remaining) = reporter.collect_responses(0).await;
+        let (batch1, count1, has_remaining) = reporter.collect_responses(0).await;
         assert_eq!(batch1.len(), 2);
         assert!(has_remaining);
 
-        // Drop batch1 (RPC succeeded).
+        // RPC succeeded — drain sent.
+        reporter.drain_sent(count1).await;
 
         // Second collect: only a3 left
-        let (batch2, has_remaining) = reporter.collect_responses(0).await;
+        let (batch2, _, has_remaining) = reporter.collect_responses(0).await;
         assert_eq!(batch2.len(), 1);
         assert!(!has_remaining);
     }
@@ -410,12 +411,12 @@ mod tests {
         // Give the drain task a moment to process
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
-        let (responses, _) = reporter.collect_responses(0).await;
+        let (responses, ..) = reporter.collect_responses(0).await;
         assert_eq!(responses.len(), 2);
     }
 
     #[tokio::test]
-    async fn test_container_terminated_drained_with_collect() {
+    async fn test_container_terminated_sent_and_drained() {
         let container_terminated = CommandResponse {
             command_seq: 0,
             response: Some(
@@ -436,19 +437,21 @@ mod tests {
         ])
         .await;
 
-        // Collect drains everything.
-        let (batch, _) = reporter.collect_responses(0).await;
+        // Collect all 3.
+        let (batch, count, _) = reporter.collect_responses(0).await;
         assert_eq!(batch.len(), 3);
 
-        // Buffer is empty — no stale ContainerTerminated.
-        let (remaining, _) = reporter.collect_responses(0).await;
+        // Drain sent — all 3 removed.
+        reporter.drain_sent(count).await;
+
+        // Buffer is empty.
+        let (remaining, ..) = reporter.collect_responses(0).await;
         assert!(remaining.is_empty());
     }
 
     #[tokio::test]
-    async fn test_container_started_drained_with_collect() {
-        // ContainerStarted responses should also be drained by collect
-        // (previously they accumulated forever).
+    async fn test_container_started_sent_and_drained() {
+        // ContainerStarted responses are collected and drained like everything else.
         let container_started = CommandResponse {
             command_seq: 0,
             response: Some(
@@ -462,11 +465,13 @@ mod tests {
 
         let reporter = setup_reporter(vec![container_started]).await;
 
-        let (batch, _) = reporter.collect_responses(0).await;
+        let (batch, count, _) = reporter.collect_responses(0).await;
         assert_eq!(batch.len(), 1);
 
+        reporter.drain_sent(count).await;
+
         // Buffer is empty — ContainerStarted was drained.
-        let (remaining, _) = reporter.collect_responses(0).await;
+        let (remaining, ..) = reporter.collect_responses(0).await;
         assert!(remaining.is_empty());
     }
 }
