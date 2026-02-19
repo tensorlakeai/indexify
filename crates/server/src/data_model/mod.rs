@@ -1897,17 +1897,6 @@ impl FunctionAllowlist {
                 .as_ref()
                 .is_none_or(|function_name| function_name == &function.name)
     }
-
-    /// Check if allowlist permits a namespace/application (ignoring function).
-    /// Used for sandboxes which don't have a specific function.
-    pub fn matches_app(&self, ns: &str, app: &str) -> bool {
-        self.namespace
-            .as_ref()
-            .is_none_or(|namespace| namespace == ns) &&
-            self.application
-                .as_ref()
-                .is_none_or(|application| application == app)
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Builder, Eq, PartialEq)]
@@ -2214,16 +2203,18 @@ impl ExecutorMetadata {
         }
     }
 
-    /// Check if executor's allowlist permits a namespace/application.
-    /// Used for sandboxes which don't have a specific function.
-    pub fn is_app_allowed(&self, namespace: &str, application: &str) -> bool {
-        if let Some(function_allowlist) = &self.function_allowlist {
-            function_allowlist
-                .iter()
-                .any(|allowlist| allowlist.matches_app(namespace, application))
-        } else {
-            true
-        }
+    pub fn is_namespace_allowed(&self, namespace: &str) -> bool {
+        self.function_allowlist
+            .as_ref()
+            .map(|allowlist| {
+                allowlist.iter().any(|allowlist| {
+                    allowlist
+                        .namespace
+                        .as_ref()
+                        .is_some_and(|ns| ns == namespace)
+                })
+            })
+            .unwrap_or(true)
     }
 
     #[allow(dead_code)]
