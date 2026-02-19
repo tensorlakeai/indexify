@@ -822,5 +822,8 @@ fn internal_failure_reason_to_proto(
             executor_api_pb::AllocationFailureReason::StartupFailedInternalError
         }
         FunctionRunFailureReason::OutOfMemory => executor_api_pb::AllocationFailureReason::Oom,
+        FunctionRunFailureReason::ContainerStartupBadImage => {
+            executor_api_pb::AllocationFailureReason::StartupFailedBadImage
+        }
     }
 }

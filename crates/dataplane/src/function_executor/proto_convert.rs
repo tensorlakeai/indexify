@@ -129,6 +129,9 @@ pub fn termination_to_failure_reason(
         executor_api_pb::FunctionExecutorTerminationReason::StartupFailedFunctionError => {
             executor_api_pb::AllocationFailureReason::StartupFailedFunctionError
         }
+        executor_api_pb::FunctionExecutorTerminationReason::StartupFailedBadImage => {
+            executor_api_pb::AllocationFailureReason::StartupFailedBadImage
+        }
         // Runtime reasons
         executor_api_pb::FunctionExecutorTerminationReason::Unhealthy => {
             executor_api_pb::AllocationFailureReason::FunctionError
@@ -319,6 +322,9 @@ pub fn termination_reason_to_container_termination_reason(
         }
         executor_api_pb::FunctionExecutorTerminationReason::ProcessCrash => {
             executor_api_pb::ContainerTerminationReason::ProcessCrash
+        }
+        executor_api_pb::FunctionExecutorTerminationReason::StartupFailedBadImage => {
+            executor_api_pb::ContainerTerminationReason::StartupFailedBadImage
         }
         _ => executor_api_pb::ContainerTerminationReason::Unknown,
     }

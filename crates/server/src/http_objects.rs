@@ -460,6 +460,7 @@ pub enum FunctionRunFailureReason {
     ContainerStartupFunctionError,
     ContainerStartupFunctionTimeout,
     ContainerStartupInternalError,
+    ContainerStartupBadImage,
 }
 
 impl From<&data_model::FunctionRunFailureReason> for FunctionRunFailureReason {
@@ -501,6 +502,9 @@ impl From<&data_model::FunctionRunFailureReason> for FunctionRunFailureReason {
             }
             data_model::FunctionRunFailureReason::ContainerStartupInternalError => {
                 FunctionRunFailureReason::ContainerStartupInternalError
+            }
+            data_model::FunctionRunFailureReason::ContainerStartupBadImage => {
+                FunctionRunFailureReason::ContainerStartupBadImage
             }
         }
     }

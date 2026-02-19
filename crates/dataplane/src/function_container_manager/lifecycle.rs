@@ -287,7 +287,11 @@ pub(super) async fn handle_container_startup_result(
                 event = "container_startup_failed",
                 "Failed to start container"
             );
-            let reason = FunctionExecutorTerminationReason::StartupFailedInternalError;
+            let reason = if e.downcast_ref::<crate::driver::ImageError>().is_some() {
+                FunctionExecutorTerminationReason::StartupFailedBadImage
+            } else {
+                FunctionExecutorTerminationReason::StartupFailedInternalError
+            };
             if container.transition_to_terminated(reason).is_ok() {
                 super::FunctionContainerManager::send_container_terminated(
                     &container_state_tx,

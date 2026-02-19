@@ -38,6 +38,19 @@ use crate::daemon_binary;
 /// Container path for the daemon binary.
 const CONTAINER_DAEMON_PATH: &str = "/indexify-daemon";
 
+/// Sentinel error for image-related failures (missing image, pull failure, bad
+/// name). Used to classify startup failures as non-retriable.
+#[derive(Debug)]
+pub struct ImageError(pub String);
+
+impl std::fmt::Display for ImageError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Image error: {}", self.0)
+    }
+}
+
+impl std::error::Error for ImageError {}
+
 pub struct DockerDriver {
     docker: Docker,
     /// OCI runtime to use for containers (e.g., "runsc" for gVisor).
@@ -177,7 +190,7 @@ impl DockerDriver {
                         event = "image_pull_failed",
                         "Failed to pull Docker image"
                     );
-                    return Err(e).context(format!("Failed to pull image {}", image));
+                    return Err(ImageError(format!("Failed to pull image {}: {}", image, e)).into());
                 }
             }
         }
@@ -503,7 +516,7 @@ impl ProcessDriver for DockerDriver {
         let image = config
             .image
             .as_ref()
-            .context("Docker driver requires an image")?;
+            .ok_or_else(|| ImageError("Docker driver requires an image".to_string()))?;
 
         self.ensure_image(image).await?;
 

@@ -1015,6 +1015,9 @@ impl From<&FunctionRunFailureReason> for RequestFailureReason {
                 RequestFailureReason::ConstraintUnsatisfiable
             }
             FunctionRunFailureReason::OutOfMemory => RequestFailureReason::OutOfMemory,
+            FunctionRunFailureReason::ContainerStartupBadImage => {
+                RequestFailureReason::InternalError
+            }
         }
     }
 }
@@ -1330,6 +1333,9 @@ pub enum FunctionRunFailureReason {
     // Container startup internal error.
     ContainerStartupInternalError,
 
+    // Container startup failed due to bad/missing image.
+    ContainerStartupBadImage,
+
     OutOfMemory,
 }
 
@@ -1355,6 +1361,7 @@ impl Display for FunctionRunFailureReason {
             FunctionRunFailureReason::ContainerStartupInternalError => {
                 "ContainerStartupInternalError"
             }
+            FunctionRunFailureReason::ContainerStartupBadImage => "ContainerStartupBadImage",
         };
         write!(f, "{str_val}")
     }
@@ -1383,12 +1390,12 @@ impl FunctionRunFailureReason {
         // prevents infinite retry loops when containers keep crashing.
         //
         // Reasons that DON'T count (free retries — pure infrastructure):
-        //   ExecutorRemoved, ContainerStartupInternalError
+        //   ExecutorRemoved
         //
         // Reasons that DO count (user-attributable or container crashes):
         //   InternalError, FunctionError, FunctionTimeout, OutOfMemory,
         //   ContainerStartupFunctionError, ContainerStartupFunctionTimeout,
-        //   FunctionExecutorTerminated
+        //   ContainerStartupInternalError, FunctionExecutorTerminated
         matches!(
             self,
             FunctionRunFailureReason::InternalError |
@@ -1397,6 +1404,7 @@ impl FunctionRunFailureReason {
                 FunctionRunFailureReason::OutOfMemory |
                 FunctionRunFailureReason::ContainerStartupFunctionError |
                 FunctionRunFailureReason::ContainerStartupFunctionTimeout |
+                FunctionRunFailureReason::ContainerStartupInternalError |
                 FunctionRunFailureReason::FunctionExecutorTerminated
         )
     }
@@ -1799,6 +1807,7 @@ pub enum FunctionExecutorTerminationReason {
     StartupFailedInternalError,
     StartupFailedFunctionError,
     StartupFailedFunctionTimeout,
+    StartupFailedBadImage,
     Unhealthy,
     InternalError,
     FunctionError,
@@ -1824,6 +1833,9 @@ impl From<&FunctionExecutorTerminationReason> for FunctionRunFailureReason {
             }
             FunctionExecutorTerminationReason::StartupFailedFunctionTimeout => {
                 FunctionRunFailureReason::ContainerStartupFunctionTimeout
+            }
+            FunctionExecutorTerminationReason::StartupFailedBadImage => {
+                FunctionRunFailureReason::ContainerStartupBadImage
             }
             FunctionExecutorTerminationReason::Unhealthy => {
                 FunctionRunFailureReason::FunctionTimeout

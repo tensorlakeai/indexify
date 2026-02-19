@@ -422,7 +422,9 @@ impl AllocationController {
                     .add(-1, &[]);
 
                 // Determine termination reason from error
-                let reason = if e.is::<InitTimedOut>() {
+                let reason = if e.downcast_ref::<crate::driver::ImageError>().is_some() {
+                    FunctionExecutorTerminationReason::StartupFailedBadImage
+                } else if e.is::<InitTimedOut>() {
                     FunctionExecutorTerminationReason::StartupFailedFunctionTimeout
                 } else {
                     FunctionExecutorTerminationReason::StartupFailedInternalError

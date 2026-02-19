@@ -66,6 +66,9 @@ pub fn fn_call_outcome_to_pb(
             FunctionRunFailureReason::ContainerStartupInternalError => {
                 executor_api_pb::AllocationFailureReason::StartupFailedInternalError
             }
+            FunctionRunFailureReason::ContainerStartupBadImage => {
+                executor_api_pb::AllocationFailureReason::StartupFailedBadImage
+            }
         });
 
     let return_value = function_call_outcome

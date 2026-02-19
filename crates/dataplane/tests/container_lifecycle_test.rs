@@ -12,7 +12,7 @@ use std::{
     process::Stdio,
     sync::{
         Arc,
-        atomic::{AtomicU16, AtomicUsize, Ordering},
+        atomic::{AtomicUsize, Ordering},
     },
     time::Duration,
 };
@@ -91,8 +91,6 @@ struct DaemonTestDriver {
     daemons: Arc<Mutex<Vec<(String, Child, u16)>>>,
     /// Counter for unique IDs
     counter: AtomicUsize,
-    /// Port counter for unique ports
-    port_counter: AtomicU16,
 }
 
 impl DaemonTestDriver {
@@ -102,7 +100,6 @@ impl DaemonTestDriver {
             log_dir,
             daemons: Arc::new(Mutex::new(Vec::new())),
             counter: AtomicUsize::new(0),
-            port_counter: AtomicU16::new(19500), // Start from a high port
         }
     }
 
@@ -128,6 +125,13 @@ impl DaemonTestDriver {
         }
         false
     }
+
+    /// Pick an available ephemeral localhost port.
+    fn pick_ephemeral_port() -> Result<u16> {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
+        let port = listener.local_addr()?.port();
+        Ok(port)
+    }
 }
 
 #[async_trait]
@@ -137,50 +141,59 @@ impl ProcessDriver for DaemonTestDriver {
             "test-container-{}",
             self.counter.fetch_add(1, Ordering::SeqCst)
         );
-        let port = self.port_counter.fetch_add(1, Ordering::SeqCst);
-        let daemon_addr = format!("127.0.0.1:{}", port);
+        let max_attempts = 8;
+        for attempt in 1..=max_attempts {
+            let port = Self::pick_ephemeral_port()?;
+            let daemon_addr = format!("127.0.0.1:{}", port);
 
-        tracing::info!(
-            id = %id,
-            daemon_addr = %daemon_addr,
-            command = %config.command,
-            "Starting daemon subprocess"
-        );
+            tracing::info!(
+                id = %id,
+                daemon_addr = %daemon_addr,
+                attempt,
+                max_attempts,
+                command = %config.command,
+                "Starting daemon subprocess"
+            );
 
-        // Start the daemon binary
-        let child = Command::new(&self.daemon_binary)
-            .arg("--port")
-            .arg(port.to_string())
-            .arg("--log-dir")
-            .arg(&self.log_dir)
-            .arg("--")
-            .arg(&config.command)
-            .args(&config.args)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()?;
+            let mut child = Command::new(&self.daemon_binary)
+                .arg("--port")
+                .arg(port.to_string())
+                .arg("--log-dir")
+                .arg(&self.log_dir)
+                .arg("--")
+                .arg(&config.command)
+                .args(&config.args)
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()?;
 
-        // Store the daemon process
-        self.daemons.lock().await.push((id.clone(), child, port));
+            if self.wait_for_daemon(port, Duration::from_secs(5)).await {
+                self.daemons.lock().await.push((id.clone(), child, port));
+                tracing::info!(
+                    id = %id,
+                    daemon_addr = %daemon_addr,
+                    "Daemon is ready"
+                );
+                return Ok(ProcessHandle {
+                    id,
+                    daemon_addr: Some(daemon_addr),
+                    http_addr: None,
+                    container_ip: "127.0.0.1".to_string(),
+                });
+            }
 
-        // Wait for daemon to be ready (port to be listening)
-        if !self.wait_for_daemon(port, Duration::from_secs(5)).await {
-            anyhow::bail!("Daemon failed to start on port {}", port);
+            tracing::warn!(
+                id = %id,
+                daemon_addr = %daemon_addr,
+                attempt,
+                "Daemon failed to start, retrying on a new port"
+            );
+            let _ = child.kill().await;
+            let _ = child.wait().await;
         }
 
-        tracing::info!(
-            id = %id,
-            daemon_addr = %daemon_addr,
-            "Daemon is ready"
-        );
-
-        Ok(ProcessHandle {
-            id,
-            daemon_addr: Some(daemon_addr),
-            http_addr: None,
-            container_ip: "127.0.0.1".to_string(),
-        })
+        anyhow::bail!("Daemon failed to start after {} attempts", max_attempts);
     }
 
     async fn send_sig(&self, handle: &ProcessHandle, signal: i32) -> Result<()> {

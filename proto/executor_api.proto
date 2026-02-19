@@ -127,6 +127,10 @@ enum FunctionExecutorTerminationReason {
     // Distinguished from UNHEALTHY which means gRPC health checks failed while
     // the process was still alive.
     FUNCTION_EXECUTOR_TERMINATION_REASON_PROCESS_CRASH = 17;
+
+    // Image-related failure on FE startup (missing image, bad image name, pull failure).
+    // Not retriable — the image configuration must be fixed.
+    FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_BAD_IMAGE = 18;
 }
 
 // Immutable information that identifies and describes a Function Executor.
@@ -360,6 +364,9 @@ enum AllocationFailureReason {
     ALLOCATION_FAILURE_REASON_STARTUP_FAILED_FUNCTION_ERROR = 11;
     // Timeout on FE startup while running the function constructor.
     ALLOCATION_FAILURE_REASON_STARTUP_FAILED_FUNCTION_TIMEOUT = 12;
+
+    // Image-related failure on FE startup (missing image, bad image name, pull failure).
+    ALLOCATION_FAILURE_REASON_STARTUP_FAILED_BAD_IMAGE = 13;
 }
 
 message ExecutionPlanUpdate {
@@ -565,6 +572,7 @@ enum ContainerTerminationReason {
     CONTAINER_TERMINATION_REASON_FUNCTION_CANCELLED = 7;
     CONTAINER_TERMINATION_REASON_OOM = 8;
     CONTAINER_TERMINATION_REASON_PROCESS_CRASH = 9;
+    CONTAINER_TERMINATION_REASON_STARTUP_FAILED_BAD_IMAGE = 10;
 }
 
 // ════════════════════════════════════════════

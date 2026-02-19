@@ -318,6 +318,9 @@ impl TryFrom<FunctionExecutorTerminationReason> for data_model::FunctionExecutor
             FunctionExecutorTerminationReason::ProcessCrash => {
                 Ok(data_model::FunctionExecutorTerminationReason::ProcessCrash)
             }
+            FunctionExecutorTerminationReason::StartupFailedBadImage => {
+                Ok(data_model::FunctionExecutorTerminationReason::StartupFailedBadImage)
+            }
         }
     }
 }
@@ -891,6 +894,9 @@ fn proto_failure_reason_to_internal(
         executor_api_pb::AllocationFailureReason::StartupFailedFunctionTimeout => {
             data_model::FunctionRunFailureReason::ContainerStartupFunctionTimeout
         }
+        executor_api_pb::AllocationFailureReason::StartupFailedBadImage => {
+            data_model::FunctionRunFailureReason::ContainerStartupBadImage
+        }
     }
 }
 
@@ -929,6 +935,9 @@ fn proto_container_termination_to_internal(
         }
         executor_api_pb::ContainerTerminationReason::ProcessCrash => {
             data_model::FunctionExecutorTerminationReason::ProcessCrash
+        }
+        executor_api_pb::ContainerTerminationReason::StartupFailedBadImage => {
+            data_model::FunctionExecutorTerminationReason::StartupFailedBadImage
         }
     }
 }
