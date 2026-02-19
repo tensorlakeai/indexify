@@ -306,7 +306,7 @@ impl Service {
                 )
                 .await
                 {
-                    tracing::error!(error = %e, "HTTP proxy server error");
+                    tracing::error!(error = ?e, "HTTP proxy server error");
                 }
             }
             .instrument(span)
@@ -331,7 +331,7 @@ impl Service {
             }
             Some(result) = tasks.join_next() => {
                 if let Err(e) = result {
-                    tracing::error!(error = %e, "Background task panicked");
+                    tracing::error!(error = ?e, "Background task panicked");
                 }
             }
         }
@@ -566,7 +566,7 @@ impl ServiceRuntime {
                         .state_report_rpc_latency_seconds
                         .record(report_start.elapsed().as_secs_f64(), &[]);
                     tracing::warn!(
-                        error = %e,
+                        error = ?e,
                         server_addr = %self.identity.server_addr,
                         retry_in_secs = retry_interval.as_secs(),
                         "Heartbeat failed, retrying with backoff"
@@ -636,7 +636,7 @@ impl ServiceRuntime {
             tracing::info!("Starting command stream");
             if let Err(e) = self.run_command_stream().await {
                 self.metrics.counters.record_stream_disconnection("error");
-                tracing::warn!(error = %e, "Command stream ended");
+                tracing::warn!(error = ?e, "Command stream ended");
             }
 
             // Small delay before reconnecting

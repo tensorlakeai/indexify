@@ -61,7 +61,7 @@ pub async fn retry_with_backoff<T, E, F, Fut, R>(
 where
     F: FnMut() -> Fut,
     Fut: std::future::Future<Output = std::result::Result<T, E>>,
-    E: std::fmt::Display,
+    E: std::fmt::Debug,
     R: FnMut(&E) -> bool,
 {
     let mut delay = backoff.initial_delay();
@@ -78,7 +78,7 @@ where
                     max_retries,
                     delay_ms = delay.as_millis() as u64,
                     description,
-                    error = %e,
+                    error = ?e,
                     "Attempt failed, retrying with backoff"
                 );
                 tokio::time::sleep(delay).await;
@@ -133,7 +133,7 @@ where
         match attempt().await {
             Ok(val) => return Ok(val),
             Err(e) => {
-                debug!(error = %e, description = %description, "Attempt failed, retrying...");
+                debug!(error = ?e, description = %description, "Attempt failed, retrying...");
                 last_err = Some(e);
             }
         }

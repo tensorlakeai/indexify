@@ -196,7 +196,7 @@ impl DockerDriver {
                     tracing::error!(
                         image = %image,
                         duration_ms = %duration_ms,
-                        error = %e,
+                        error = ?e,
                         is_not_found = is_not_found,
                         event = "image_pull_failed",
                         "Failed to pull Docker image"

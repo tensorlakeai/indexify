@@ -30,7 +30,7 @@ pub async fn prepare_allocation(
             Ok((handle, blob)) => (Some(handle), Some(blob)),
             Err(e) => {
                 warn!(
-                    error = %e,
+                    error = ?e,
                     "Failed to create request error blob, continuing without it"
                 );
                 (None, None)

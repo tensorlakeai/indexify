@@ -67,7 +67,7 @@ pub async fn run_health_check_loop(
                     Err(e) => {
                         warn!(
                             fe_id = %fe_id,
-                            error = %e,
+                            error = ?e,
                             "Failed to check container liveness"
                         );
                         // Fall through to gRPC check
@@ -97,7 +97,7 @@ pub async fn run_health_check_loop(
                         warn!(
                             fe_id = %fe_id,
                             consecutive_failures = consecutive_failures,
-                            error = %e,
+                            error = ?e,
                             "FE health check failed"
                         );
                     }

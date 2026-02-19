@@ -342,7 +342,7 @@ impl AllocationController {
                     allocation_id = %allocation_id,
                     request_id = %lctx.request_id,
                     container_id = %alloc.fe_id,
-                    error = %e,
+                    error = ?e,
                     "Allocation preparation failed: Preparing -> Finalizing(failure)"
                 );
                 let result = proto_convert::make_failure_result(
@@ -627,7 +627,7 @@ impl AllocationController {
                 if likely_fe_crash {
                     warn!(
                         allocation_id = %allocation_id,
-                        error = %error_message,
+                        error = ?error_message,
                         termination_reason = ?termination_reason,
                         "Allocation failed due to likely FE crash"
                     );

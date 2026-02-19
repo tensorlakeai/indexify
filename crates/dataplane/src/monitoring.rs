@@ -57,7 +57,7 @@ pub async fn run_monitoring_server(
     let listener = match tokio::net::TcpListener::bind(addr).await {
         Ok(l) => l,
         Err(e) => {
-            tracing::error!(addr = %addr, error = %e, "Failed to bind monitoring server");
+            tracing::error!(addr = %addr, error = ?e, "Failed to bind monitoring server");
             return;
         }
     };
@@ -70,7 +70,7 @@ pub async fn run_monitoring_server(
         })
         .await
         .unwrap_or_else(|e| {
-            tracing::error!(error = %e, "Monitoring server error");
+            tracing::error!(error = ?e, "Monitoring server error");
         });
 }
 

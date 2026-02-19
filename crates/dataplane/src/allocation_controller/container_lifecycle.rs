@@ -6,7 +6,9 @@ use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use proto_api::executor_api_pb::{
-    AllocationFailureReason, ContainerDescription, ContainerTerminationReason,
+    AllocationFailureReason,
+    ContainerDescription,
+    ContainerTerminationReason,
 };
 use tokio_util::sync::CancellationToken;
 use tracing::{Instrument, error, info, warn};
@@ -19,7 +21,9 @@ use super::{
 use crate::{
     driver::{ProcessConfig, ProcessHandle, ProcessType},
     function_executor::{
-        controller::FESpawnConfig, fe_client::FunctionExecutorGrpcClient, health_checker,
+        controller::FESpawnConfig,
+        fe_client::FunctionExecutorGrpcClient,
+        health_checker,
     },
 };
 
@@ -403,7 +407,7 @@ impl AllocationController {
                     container_id = %fe_id,
                     sandbox_id = %ctx.sandbox_id,
                     pool_id = %ctx.pool_id,
-                    error = %e,
+                    error = ?e,
                     "Container startup failed: Starting -> Terminated"
                 );
                 self.config
@@ -607,7 +611,7 @@ async fn start_fe_process(
         .function_image(namespace, app, function, version)
         .await
         .inspect_err(|err| {
-            tracing::error!(%namespace, %app, %function, %version, error = %err, "Failed to resolve function image");
+            tracing::error!(%namespace, %app, %function, %version, error = ?err, "Failed to resolve function image");
         })?;
 
     info!(
@@ -702,8 +706,8 @@ async fn connect_to_fe(
             let driver = driver.clone();
             let process_handle = process_handle.clone();
             async move {
-                if let Some(h) = &process_handle
-                    && !driver.alive(h).await.unwrap_or(false)
+                if let Some(h) = &process_handle &&
+                    !driver.alive(h).await.unwrap_or(false)
                 {
                     let exit_status = driver.get_exit_status(h).await.ok().flatten();
                     anyhow::bail!(
@@ -758,12 +762,12 @@ async fn initialize_fe(
             .await
             .map_err(|_| InitTimedOut(timeout_ms as u64))?
             .map_err(|e| {
-                error!(error = %e, "FE initialize RPC call failed");
+                error!(error = ?e, "FE initialize RPC call failed");
                 e
             })?
     } else {
         init_future.await.map_err(|e| {
-            error!(error = %e, "FE initialize RPC call failed");
+            error!(error = ?e, "FE initialize RPC call failed");
             e
         })?
     };

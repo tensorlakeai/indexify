@@ -50,7 +50,7 @@ pub async fn finalize_allocation(
                 {
                     warn!(
                         allocation_id = %allocation_id,
-                        error = %e,
+                        error = ?e,
                         "Failed to complete request error blob multipart upload"
                     );
                 }
@@ -68,7 +68,7 @@ pub async fn finalize_allocation(
             {
                 warn!(
                     allocation_id = %allocation_id,
-                    error = %e,
+                    error = ?e,
                     "Failed to abort request error blob multipart upload"
                 );
             }
@@ -178,7 +178,7 @@ async fn complete_blob_from_fe(
             allocation_id = %allocation_id,
             blob_id = %blob_id,
             label = %label,
-            error = %e,
+            error = ?e,
             "Failed to complete output blob multipart upload"
         );
     } else {

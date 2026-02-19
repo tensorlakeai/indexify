@@ -498,7 +498,7 @@ impl ExecutorManager {
     }
 
     /// Get the desired state for an executor
-
+    ///
     /// Function call results are delivered via the allocation_stream RPC,
     /// not included in the executor state snapshot.
     pub async fn get_executor_state(

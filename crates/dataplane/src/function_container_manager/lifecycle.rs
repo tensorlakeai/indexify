@@ -139,7 +139,7 @@ pub(super) async fn start_container_with_daemon(
             executor_id = %info.executor_id,
             namespace = %info.namespace,
             container_handle_id = %handle.id,
-            error = %e,
+            error = ?e,
             "Failed to apply network rules (continuing anyway)"
         );
         // Continue anyway - rules are defense-in-depth
@@ -194,7 +194,7 @@ pub(super) async fn start_container_with_daemon(
                 namespace = %info.namespace,
                 container_handle_id = %handle.id,
                 container_logs = %container_logs,
-                error = %e,
+                error = ?e,
                 "Daemon failed to start, killing container"
             );
 
@@ -218,6 +218,7 @@ pub(super) async fn start_container_with_daemon(
 /// Handle the result of a container startup attempt.
 /// Called from the spawned lifecycle task after `start_container_with_daemon`
 /// completes.
+#[tracing::instrument(skip_all, fields(container_id = %id))]
 pub(super) async fn handle_container_startup_result(
     id: String,
     desc: ContainerDescription,
@@ -267,14 +268,14 @@ pub(super) async fn handle_container_startup_result(
                 if let Err(e) = state_file.upsert(persisted).await {
                     tracing::warn!(
                         parent: &span,
-                        error = %e,
+                        error = ?e,
                         "Failed to persist container state"
                     );
                 }
             }
 
             if let Err(e) = container.transition_to_running(handle, daemon_client) {
-                tracing::warn!(parent: &span, error = %e, "Invalid state transition on startup");
+                tracing::warn!(parent: &span, error = ?e, "Invalid state transition on startup");
             } else {
                 // Notify the server so it can promote sandbox status from
                 // Pending to Running.

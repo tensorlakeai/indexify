@@ -81,8 +81,14 @@ impl FunctionContainerManager {
         span: &tracing::Span,
     ) {
         if let Ok(false) = self.driver.alive(handle).await {
-            tracing::info!(parent: span, reason = ?reason, "Container stopped");
-            if container.transition_to_terminated(reason).is_ok() {
+            tracing::info!(parent: span, ?reason, "Container stopped");
+            if container
+                .transition_to_terminated(reason)
+                .inspect_err(
+                    |error| tracing::warn!(parent: span, ?error, "Invalid state transition"),
+                )
+                .is_ok()
+            {
                 let id = container.description.id.as_deref().unwrap_or("");
                 Self::send_container_terminated(&self.container_state_tx, id, reason);
             }
@@ -113,7 +119,9 @@ impl FunctionContainerManager {
                             let _ = network_rules::remove_rules(&handle.id, &handle.container_ip);
                             let _ = self.driver.kill(handle).await;
                             let reason = ContainerTerminationReason::Unhealthy;
-                            if container.transition_to_terminated(reason).is_ok() {
+                            if container.transition_to_terminated(reason)
+                                .inspect_err(|error| tracing::warn!(parent: span, ?error, "Invalid state transition"))
+                                .is_ok() {
                                 let id = container.description.id.as_deref().unwrap_or("");
                                 Self::send_container_terminated(
                                     &self.container_state_tx,
@@ -125,7 +133,7 @@ impl FunctionContainerManager {
                         Err(e) => {
                             tracing::warn!(
                                 parent: span,
-                                error = %e,
+                                error = ?e,
                                 "Failed to check daemon health"
                             );
                         }
@@ -143,7 +151,13 @@ impl FunctionContainerManager {
                     reason = ?reason,
                     "Container is no longer alive"
                 );
-                if container.transition_to_terminated(reason).is_ok() {
+                if container
+                    .transition_to_terminated(reason)
+                    .inspect_err(
+                        |error| tracing::warn!(parent: span, ?error, "Invalid state transition"),
+                    )
+                    .is_ok()
+                {
                     let id = container.description.id.as_deref().unwrap_or("");
                     Self::send_container_terminated(&self.container_state_tx, id, reason);
                 }
@@ -151,7 +165,7 @@ impl FunctionContainerManager {
             Err(e) => {
                 tracing::warn!(
                     parent: span,
-                    error = %e,
+                    error = ?e,
                     "Failed to check container status"
                 );
             }
