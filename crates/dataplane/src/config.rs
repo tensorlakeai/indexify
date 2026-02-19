@@ -250,12 +250,14 @@ impl HttpProxyConfig {
     }
 }
 
+const DEFAULT_MONITORING_PORT: u16 = 7000;
+
 /// Configuration for the HTTP monitoring server.
 #[serde_inline_default]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MonitoringConfig {
     /// Port to listen on for HTTP monitoring requests.
-    #[serde_inline_default(8100)]
+    #[serde_inline_default(DEFAULT_MONITORING_PORT)]
     pub port: u16,
     /// Listen address for the monitoring server.
     #[serde_inline_default("0.0.0.0".to_string())]
@@ -265,7 +267,7 @@ pub struct MonitoringConfig {
 impl Default for MonitoringConfig {
     fn default() -> Self {
         Self {
-            port: 8100,
+            port: DEFAULT_MONITORING_PORT,
             listen_addr: "0.0.0.0".to_string(),
         }
     }
