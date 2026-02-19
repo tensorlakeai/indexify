@@ -400,7 +400,10 @@ impl ServiceRuntime {
                 return;
             }
 
-            // Phase 1: Drain pending command responses
+            // Phase 1: Drain pending command responses.
+            //
+            // collect_responses() drains items from the buffer. On success
+            // we simply drop them. On failure we re-add them for retry.
             let mut results_failed = false;
             loop {
                 let (responses, has_remaining) = self.state_reporter.collect_responses(0).await;
@@ -409,20 +412,9 @@ impl ServiceRuntime {
                     break;
                 }
 
-                // Extract allocation IDs for post-RPC cleanup.
-                // ContainerTerminated responses are always drained by
-                // remove_reported_responses.
-                let reported_ids: Vec<String> = responses
-                    .iter()
-                    .filter_map(|r| {
-                        crate::function_executor::proto_convert::command_response_allocation_id(r)
-                            .map(|s| s.to_string())
-                    })
-                    .collect();
-
                 let request = proto_api::executor_api_pb::ReportCommandResponsesRequest {
                     executor_id: self.identity.executor_id.clone(),
-                    responses,
+                    responses: responses.clone(),
                 };
 
                 self.metrics.counters.state_report_rpcs.add(1, &[]);
@@ -436,10 +428,8 @@ impl ServiceRuntime {
 
                 match client.report_command_responses(request).await {
                     Ok(_) => {
+                        // Responses already drained from buffer — drop them.
                         self.metrics.counters.record_heartbeat(true);
-                        self.state_reporter
-                            .remove_reported_responses(&reported_ids)
-                            .await;
                         retry_interval = HEARTBEAT_MIN_RETRY_INTERVAL;
                         self.heartbeat_healthy.store(true, Ordering::SeqCst);
                         if !has_remaining {
@@ -455,6 +445,8 @@ impl ServiceRuntime {
                             server_addr = %self.identity.server_addr,
                             "report_command_responses failed"
                         );
+                        // Re-add unsent responses to the front of the buffer.
+                        self.state_reporter.re_add_failed_responses(responses).await;
                         self.heartbeat_healthy.store(false, Ordering::SeqCst);
                         send_full_state = true;
                         results_failed = true;

@@ -2,14 +2,13 @@
 //! `report_command_responses` RPCs.
 //!
 //! Allocation results (AllocationCompleted/AllocationFailed) and container
-//! lifecycle events (ContainerTerminated) are buffered as `CommandResponse`
-//! messages and sent when new responses arrive.
+//! lifecycle events (ContainerTerminated/ContainerStarted) are buffered as
+//! `CommandResponse` messages and sent when new responses arrive.
 //!
 //! Message size limiting: responses are fragmented across multiple RPCs if
-//! the total message would exceed 10 MB. Allocation responses are only
-//! removed from the buffer after successful delivery. ContainerTerminated
-//! responses are always drained (no retry-buffer needed since they're small
-//! and idempotent).
+//! the total message would exceed 10 MB. Responses are drained from the
+//! buffer on collect and only re-added on RPC failure, eliminating race
+//! conditions between the drain task and the heartbeat loop.
 
 use std::sync::Arc;
 
@@ -18,8 +17,6 @@ use proto_api::executor_api_pb::CommandResponse;
 use tokio::sync::{Mutex, Notify, mpsc};
 use tracing::debug;
 
-use crate::function_executor::proto_convert;
-
 /// Maximum state report message size in bytes (10 MB).
 /// Matches Python executor's `_STATE_REPORT_MAX_MESSAGE_SIZE_MB`.
 const STATE_REPORT_MAX_MESSAGE_SIZE: usize = 10 * 1024 * 1024;
@@ -27,7 +24,7 @@ const STATE_REPORT_MAX_MESSAGE_SIZE: usize = 10 * 1024 * 1024;
 /// Collects command responses for `report_command_responses`.
 pub struct StateReporter {
     /// Buffered responses waiting to be sent (allocation results +
-    /// container terminated events).
+    /// container lifecycle events).
     pending_responses: Arc<Mutex<Vec<CommandResponse>>>,
     /// Notify when new responses are available.
     results_notify: Arc<Notify>,
@@ -78,27 +75,27 @@ impl StateReporter {
     /// `base_message_size` is the encoded size of the request without any
     /// responses (executor_id + overhead).
     ///
-    /// Returns `(responses, has_remaining)`. Responses are cloned from the
-    /// buffer and NOT removed — call [`remove_reported_responses`] after a
-    /// successful RPC.
+    /// Returns `(responses, has_remaining)`. Responses are **drained** from
+    /// the buffer — on RPC success they are simply dropped. On RPC failure,
+    /// call [`re_add_failed_responses`] to put them back for retry.
     pub async fn collect_responses(
         &self,
         base_message_size: usize,
     ) -> (Vec<CommandResponse>, bool) {
-        let pending = self.pending_responses.lock().await;
+        let mut pending = self.pending_responses.lock().await;
         if pending.is_empty() {
             return (Vec::new(), false);
         }
 
-        let mut responses = Vec::new();
+        let mut count = 0;
         let mut current_size = base_message_size;
 
         for response in pending.iter() {
             let response_size = response.encoded_len();
 
-            if responses.is_empty() {
+            if count == 0 {
                 // Always include at least one response to make forward progress.
-                responses.push(response.clone());
+                count += 1;
                 current_size += response_size;
 
                 if current_size >= STATE_REPORT_MAX_MESSAGE_SIZE {
@@ -109,14 +106,14 @@ impl StateReporter {
                     );
                 }
             } else if current_size + response_size < STATE_REPORT_MAX_MESSAGE_SIZE {
-                responses.push(response.clone());
+                count += 1;
                 current_size += response_size;
             } else {
                 // Would exceed limit — stop and let remaining responses be sent
                 // in the next heartbeat.
                 debug!(
-                    included = responses.len(),
-                    remaining = pending.len() - responses.len(),
+                    included = count,
+                    remaining = pending.len() - count,
                     message_size = current_size,
                     "Fragmenting state report due to message size limit"
                 );
@@ -124,7 +121,12 @@ impl StateReporter {
             }
         }
 
-        let has_remaining = responses.len() < pending.len();
+        let has_remaining = count < pending.len();
+
+        // Drain the first `count` items from the buffer. New items pushed
+        // by drain_responses go at the end, so this is safe even under
+        // concurrent access (the lock is held for the full operation).
+        let responses: Vec<CommandResponse> = pending.drain(..count).collect();
 
         debug!(
             count = responses.len(),
@@ -134,33 +136,19 @@ impl StateReporter {
         (responses, has_remaining)
     }
 
-    /// Remove command responses that were successfully reported to the server.
-    /// Called after a successful `report_command_responses` RPC.
+    /// Re-add responses to the buffer after a failed RPC.
     ///
-    /// Allocation responses (AllocationCompleted/AllocationFailed) are removed
-    /// by allocation_id. ContainerTerminated responses are always drained
-    /// (removed unconditionally) since they're small and idempotent.
-    pub async fn remove_reported_responses(&self, reported_allocation_ids: &[String]) {
+    /// Responses are prepended to the front of the buffer so they are sent
+    /// first on the next attempt.
+    pub async fn re_add_failed_responses(&self, responses: Vec<CommandResponse>) {
+        if responses.is_empty() {
+            return;
+        }
         let mut pending = self.pending_responses.lock().await;
-        pending.retain(|r| {
-            // ContainerTerminated responses are always drained
-            if matches!(
-                &r.response,
-                Some(
-                    proto_api::executor_api_pb::command_response::Response::ContainerTerminated(_)
-                )
-            ) {
-                return false;
-            }
-
-            // Allocation responses are removed by ID
-            if let Some(alloc_id) = proto_convert::command_response_allocation_id(r) {
-                return !reported_allocation_ids.contains(&alloc_id.to_string());
-            }
-
-            // Unknown responses — keep them (shouldn't happen)
-            true
-        });
+        // Splice the failed responses back to the front.
+        let tail = pending.split_off(0);
+        *pending = responses;
+        pending.extend(tail);
     }
 }
 
@@ -253,15 +241,16 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_collect_responses_does_not_drain_buffer() {
+    async fn test_collect_drains_buffer() {
         let reporter = setup_reporter(vec![make_response("a1"), make_response("a2")]).await;
 
-        // Collect twice — both should return the same results since buffer is not
-        // drained.
+        // First collect drains the buffer.
         let (first, _) = reporter.collect_responses(0).await;
-        let (second, _) = reporter.collect_responses(0).await;
         assert_eq!(first.len(), 2);
-        assert_eq!(second.len(), 2);
+
+        // Second collect returns empty — buffer was drained.
+        let (second, _) = reporter.collect_responses(0).await;
+        assert!(second.is_empty());
     }
 
     #[tokio::test]
@@ -283,6 +272,10 @@ mod tests {
             "Only 2 of 3 responses should fit in 10 MB"
         );
         assert!(has_remaining);
+
+        // Remaining response is still in the buffer.
+        let (remaining, _) = reporter.collect_responses(0).await;
+        assert_eq!(remaining.len(), 1);
     }
 
     #[tokio::test]
@@ -318,28 +311,71 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_remove_reported_responses() {
-        let reporter = setup_reporter(vec![
-            make_response("a1"),
-            make_response("a2"),
-            make_response("a3"),
-        ])
-        .await;
+    async fn test_re_add_failed_responses() {
+        let reporter = setup_reporter(vec![]).await;
 
-        reporter
-            .remove_reported_responses(&["a1".to_string(), "a3".to_string()])
-            .await;
+        // Simulate: collect drains, RPC fails, re-add.
+        {
+            let mut pending = reporter.pending_responses.lock().await;
+            pending.push(make_response("a1"));
+            pending.push(make_response("a2"));
+        }
 
-        let (responses, has_remaining) = reporter.collect_responses(0).await;
-        assert_eq!(responses.len(), 1);
-        assert!(!has_remaining);
+        let (batch, _) = reporter.collect_responses(0).await;
+        assert_eq!(batch.len(), 2);
+
+        // Buffer should be empty now.
+        let (empty, _) = reporter.collect_responses(0).await;
+        assert!(empty.is_empty());
+
+        // Re-add on failure.
+        reporter.re_add_failed_responses(batch).await;
+
+        // Buffer should have them back.
+        let (retry, _) = reporter.collect_responses(0).await;
+        assert_eq!(retry.len(), 2);
     }
 
     #[tokio::test]
-    async fn test_remove_then_collect_returns_remaining() {
+    async fn test_re_add_preserves_order_with_new_items() {
+        let reporter = setup_reporter(vec![]).await;
+
+        // Add initial items and collect.
+        {
+            let mut pending = reporter.pending_responses.lock().await;
+            pending.push(make_response("a1"));
+            pending.push(make_response("a2"));
+        }
+        let (batch, _) = reporter.collect_responses(0).await;
+        assert_eq!(batch.len(), 2);
+
+        // Simulate new items arriving while RPC is in flight.
+        {
+            let mut pending = reporter.pending_responses.lock().await;
+            pending.push(make_response("a3"));
+        }
+
+        // Re-add failed batch — should go to front.
+        reporter.re_add_failed_responses(batch).await;
+
+        let (retry, _) = reporter.collect_responses(0).await;
+        assert_eq!(retry.len(), 3);
+        // a1 and a2 should be before a3.
+        let ids: Vec<String> = retry
+            .iter()
+            .filter_map(|r| {
+                crate::function_executor::proto_convert::command_response_allocation_id(r)
+                    .map(|s| s.to_string())
+            })
+            .collect();
+        assert_eq!(ids, vec!["a1", "a2", "a3"]);
+    }
+
+    #[tokio::test]
+    async fn test_fragmentation_cycle() {
         // Simulates the full fragmentation cycle:
-        // 1. Collect first batch
-        // 2. Remove reported responses (RPC succeeded)
+        // 1. Collect first batch (drains)
+        // 2. Drop batch (RPC succeeded)
         // 3. Collect remaining batch
         let four_mb = 4 * 1024 * 1024;
         let reporter = setup_reporter(vec![
@@ -354,23 +390,12 @@ mod tests {
         assert_eq!(batch1.len(), 2);
         assert!(has_remaining);
 
-        // Simulate successful RPC: remove a1 and a2
-        reporter
-            .remove_reported_responses(&["a1".to_string(), "a2".to_string()])
-            .await;
+        // Drop batch1 (RPC succeeded).
 
         // Second collect: only a3 left
         let (batch2, has_remaining) = reporter.collect_responses(0).await;
         assert_eq!(batch2.len(), 1);
         assert!(!has_remaining);
-    }
-
-    #[tokio::test]
-    async fn test_remove_empty_ids_is_noop() {
-        let reporter = setup_reporter(vec![make_response("a1")]).await;
-        reporter.remove_reported_responses(&[]).await;
-        let (responses, _) = reporter.collect_responses(0).await;
-        assert_eq!(responses.len(), 1);
     }
 
     #[tokio::test]
@@ -391,7 +416,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_container_terminated_responses_drained_on_remove() {
+    async fn test_container_terminated_drained_with_collect() {
         let container_terminated = CommandResponse {
             command_seq: 0,
             response: Some(
@@ -412,14 +437,37 @@ mod tests {
         ])
         .await;
 
-        // Remove reported: a1 was reported, container terminated should also be drained
-        reporter
-            .remove_reported_responses(&["a1".to_string()])
-            .await;
+        // Collect drains everything.
+        let (batch, _) = reporter.collect_responses(0).await;
+        assert_eq!(batch.len(), 3);
 
-        let (responses, _) = reporter.collect_responses(0).await;
-        // Only a2 should remain — a1 was removed by ID, container_terminated was
-        // drained
-        assert_eq!(responses.len(), 1);
+        // Buffer is empty — no stale ContainerTerminated.
+        let (remaining, _) = reporter.collect_responses(0).await;
+        assert!(remaining.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_container_started_drained_with_collect() {
+        // ContainerStarted responses should also be drained by collect
+        // (previously they accumulated forever).
+        let container_started = CommandResponse {
+            command_seq: 0,
+            response: Some(
+                proto_api::executor_api_pb::command_response::Response::ContainerStarted(
+                    proto_api::executor_api_pb::ContainerStarted {
+                        container_id: "fe-1".to_string(),
+                    },
+                ),
+            ),
+        };
+
+        let reporter = setup_reporter(vec![container_started]).await;
+
+        let (batch, _) = reporter.collect_responses(0).await;
+        assert_eq!(batch.len(), 1);
+
+        // Buffer is empty — ContainerStarted was drained.
+        let (remaining, _) = reporter.collect_responses(0).await;
+        assert!(remaining.is_empty());
     }
 }
