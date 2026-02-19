@@ -75,27 +75,28 @@ impl StateReporter {
     /// `base_message_size` is the encoded size of the request without any
     /// responses (executor_id + overhead).
     ///
-    /// Returns `(responses, has_remaining)`. Responses are **drained** from
-    /// the buffer — on RPC success they are simply dropped. On RPC failure,
-    /// call [`re_add_failed_responses`] to put them back for retry.
+    /// Returns `(responses, count, has_remaining)`. Responses are **cloned**
+    /// from the buffer. On success, call [`drain_sent`] with the returned
+    /// `count` to remove them. On failure, do nothing — items stay in the
+    /// buffer for retry.
     pub async fn collect_responses(
         &self,
         base_message_size: usize,
-    ) -> (Vec<CommandResponse>, bool) {
-        let mut pending = self.pending_responses.lock().await;
+    ) -> (Vec<CommandResponse>, usize, bool) {
+        let pending = self.pending_responses.lock().await;
         if pending.is_empty() {
-            return (Vec::new(), false);
+            return (Vec::new(), 0, false);
         }
 
-        let mut count = 0;
+        let mut responses = Vec::new();
         let mut current_size = base_message_size;
 
         for response in pending.iter() {
             let response_size = response.encoded_len();
 
-            if count == 0 {
+            if responses.is_empty() {
                 // Always include at least one response to make forward progress.
-                count += 1;
+                responses.push(response.clone());
                 current_size += response_size;
 
                 if current_size >= STATE_REPORT_MAX_MESSAGE_SIZE {
@@ -106,14 +107,14 @@ impl StateReporter {
                     );
                 }
             } else if current_size + response_size < STATE_REPORT_MAX_MESSAGE_SIZE {
-                count += 1;
+                responses.push(response.clone());
                 current_size += response_size;
             } else {
                 // Would exceed limit — stop and let remaining responses be sent
                 // in the next heartbeat.
                 debug!(
-                    included = count,
-                    remaining = pending.len() - count,
+                    included = responses.len(),
+                    remaining = pending.len() - responses.len(),
                     message_size = current_size,
                     "Fragmenting state report due to message size limit"
                 );
@@ -121,34 +122,32 @@ impl StateReporter {
             }
         }
 
+        let count = responses.len();
         let has_remaining = count < pending.len();
 
-        // Drain the first `count` items from the buffer. New items pushed
-        // by drain_responses go at the end, so this is safe even under
-        // concurrent access (the lock is held for the full operation).
-        let responses: Vec<CommandResponse> = pending.drain(..count).collect();
-
         debug!(
-            count = responses.len(),
+            count,
             has_remaining, "Collected command responses for report_command_responses"
         );
 
-        (responses, has_remaining)
+        (responses, count, has_remaining)
     }
 
-    /// Re-add responses to the buffer after a failed RPC.
+    /// Remove the first `count` responses from the buffer after a successful
+    /// RPC.
     ///
-    /// Responses are prepended to the front of the buffer so they are sent
-    /// first on the next attempt.
-    pub async fn re_add_failed_responses(&self, responses: Vec<CommandResponse>) {
-        if responses.is_empty() {
+    /// This is safe because new items are always appended to the end by
+    /// `drain_responses`, so the first `count` items are exactly the ones
+    /// that were returned by [`collect_responses`].
+    pub async fn drain_sent(&self, count: usize) {
+        if count == 0 {
             return;
         }
         let mut pending = self.pending_responses.lock().await;
-        // Splice the failed responses back to the front.
-        let tail = pending.split_off(0);
-        *pending = responses;
-        pending.extend(tail);
+        // Guard against underflow if the buffer shrank (shouldn't happen, but
+        // be defensive).
+        let n = count.min(pending.len());
+        pending.drain(..n);
     }
 }
 

@@ -400,13 +400,15 @@ impl ServiceRuntime {
                 return;
             }
 
-            // Phase 1: Drain pending command responses.
+            // Phase 1: Send pending command responses.
             //
-            // collect_responses() drains items from the buffer. On success
-            // we simply drop them. On failure we re-add them for retry.
+            // collect_responses() clones items from the buffer. On success,
+            // drain_sent() removes the sent count from the front. On failure,
+            // items stay in the buffer for retry (no action needed).
             let mut results_failed = false;
             loop {
-                let (responses, has_remaining) = self.state_reporter.collect_responses(0).await;
+                let (responses, sent_count, has_remaining) =
+                    self.state_reporter.collect_responses(0).await;
 
                 if responses.is_empty() {
                     break;
@@ -414,7 +416,7 @@ impl ServiceRuntime {
 
                 let request = proto_api::executor_api_pb::ReportCommandResponsesRequest {
                     executor_id: self.identity.executor_id.clone(),
-                    responses: responses.clone(),
+                    responses,
                 };
 
                 self.metrics.counters.state_report_rpcs.add(1, &[]);
@@ -428,7 +430,8 @@ impl ServiceRuntime {
 
                 match client.report_command_responses(request).await {
                     Ok(_) => {
-                        // Responses already drained from buffer — drop them.
+                        // Remove the sent items from the front of the buffer.
+                        self.state_reporter.drain_sent(sent_count).await;
                         self.metrics.counters.record_heartbeat(true);
                         retry_interval = HEARTBEAT_MIN_RETRY_INTERVAL;
                         self.heartbeat_healthy.store(true, Ordering::SeqCst);
@@ -438,6 +441,7 @@ impl ServiceRuntime {
                         // More responses pending, loop to send next batch
                     }
                     Err(e) => {
+                        // Items stay in the buffer for retry — no action needed.
                         self.metrics.counters.record_heartbeat(false);
                         self.metrics.counters.state_report_rpc_errors.add(1, &[]);
                         tracing::warn!(
@@ -445,8 +449,6 @@ impl ServiceRuntime {
                             server_addr = %self.identity.server_addr,
                             "report_command_responses failed"
                         );
-                        // Re-add unsent responses to the front of the buffer.
-                        self.state_reporter.re_add_failed_responses(responses).await;
                         self.heartbeat_healthy.store(false, Ordering::SeqCst);
                         send_full_state = true;
                         results_failed = true;
