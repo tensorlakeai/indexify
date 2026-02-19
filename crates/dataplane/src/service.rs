@@ -681,6 +681,8 @@ impl ServiceRuntime {
                 return Ok(());
             }
 
+            tracing::debug!("Waiting for new desired executor state");
+
             let message = tokio::select! {
                 _ = self.cancel_token.cancelled() => {
                     tracing::info!("Command stream cancelled");
@@ -688,6 +690,8 @@ impl ServiceRuntime {
                 }
                 result = tokio::time::timeout(STREAM_IDLE_TIMEOUT, stream.message()) => result
             };
+
+            tracing::debug!(?message, "Received message");
 
             match message {
                 Ok(Ok(Some(command))) => {

@@ -6,9 +6,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use proto_api::executor_api_pb::{
-    AllocationFailureReason,
-    ContainerDescription,
-    ContainerTerminationReason,
+    AllocationFailureReason, ContainerDescription, ContainerTerminationReason,
 };
 use tokio_util::sync::CancellationToken;
 use tracing::{Instrument, error, info, warn};
@@ -21,9 +19,7 @@ use super::{
 use crate::{
     driver::{ProcessConfig, ProcessHandle, ProcessType},
     function_executor::{
-        controller::FESpawnConfig,
-        fe_client::FunctionExecutorGrpcClient,
-        health_checker,
+        controller::FESpawnConfig, fe_client::FunctionExecutorGrpcClient, health_checker,
     },
 };
 
@@ -562,7 +558,13 @@ async fn start_fe_process_and_initialize(
     // Start the FE process
     info!(container_id = %fe_id, "Starting function executor process");
     let start_time = Instant::now();
-    let handle = start_fe_process(&config, &description, &gpu_uuids).await?;
+    let handle = match start_fe_process(&config, &description, &gpu_uuids).await {
+        Ok(handle) => handle,
+        Err(e) => {
+            tracing::error!(error = ?e, %fe_id, "Failed to start function executor process");
+            return Err(e);
+        }
+    };
     metrics
         .histograms
         .function_executor_create_server_latency_seconds
@@ -599,11 +601,14 @@ async fn start_fe_process(
         .unwrap_or("");
 
     // Resolve image
+    tracing::debug!(%namespace, %app, %function, %version, "Resolving function image");
     let image = config
         .image_resolver
         .function_image(namespace, app, function, version)
         .await
-        .ok();
+        .inspect_err(|err| {
+            tracing::error!(%namespace, %app, %function, %version, error = %err, "Failed to resolve function image");
+        })?;
 
     info!(
         container_id = %fe_id,
@@ -633,7 +638,7 @@ async fn start_fe_process(
     let process_config = ProcessConfig {
         id: fe_id.clone(),
         process_type: ProcessType::Function,
-        image,
+        image: Some(image),
         command: config.fe_binary_path.clone(),
         args: vec![
             format!("--executor-id={}", config.executor_id),
@@ -697,8 +702,8 @@ async fn connect_to_fe(
             let driver = driver.clone();
             let process_handle = process_handle.clone();
             async move {
-                if let Some(h) = &process_handle &&
-                    !driver.alive(h).await.unwrap_or(false)
+                if let Some(h) = &process_handle
+                    && !driver.alive(h).await.unwrap_or(false)
                 {
                     let exit_status = driver.get_exit_status(h).await.ok().flatten();
                     anyhow::bail!(
