@@ -538,7 +538,8 @@ impl BufferReconciler {
             .map(|(id, _)| id.clone())
             .collect();
 
-        // Collect container IDs to terminate: idle/warm containers on cordoned executors
+        // Collect container IDs to terminate: idle/warm containers on cordoned
+        // executors
         let mut to_terminate = Vec::new();
         for executor_id in &cordoned_executor_ids {
             if let Some(executor_state) = container_scheduler.executor_states.get(executor_id) {
@@ -549,8 +550,8 @@ impl BufferReconciler {
                         }
                         // Function containers: drain if no allocations (idle)
                         // Sandbox pool containers: drain if no sandbox_id (warm)
-                        let is_idle = meta.allocations.is_empty()
-                            && meta.function_container.sandbox_id.is_none();
+                        let is_idle = meta.allocations.is_empty() &&
+                            meta.function_container.sandbox_id.is_none();
                         if is_idle {
                             to_terminate.push(container_id.clone());
                         }

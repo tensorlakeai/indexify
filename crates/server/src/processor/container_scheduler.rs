@@ -1405,9 +1405,9 @@ impl ContainerScheduler {
     }
 
     /// Count active (with allocations) and idle (without) containers for a
-    /// function. Excludes containers on cordoned (SchedulingDisabled) executors.
-    /// Terminated containers are excluded from containers_by_function_uri at
-    /// index update time.
+    /// function. Excludes containers on cordoned (SchedulingDisabled)
+    /// executors. Terminated containers are excluded from
+    /// containers_by_function_uri at index update time.
     pub fn count_active_idle_containers(&self, fn_uri: &FunctionURI) -> (u32, u32) {
         let mut active = 0;
         let mut idle = 0;
