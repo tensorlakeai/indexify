@@ -489,7 +489,7 @@ impl DockerDriver {
         );
 
         ContainerSpec {
-            container_name: format!("indexify-{}", config.id),
+            container_name: format!("indexify-function-executor-{}", config.id),
             image: image.to_string(),
             entrypoint,
             cmd,
@@ -547,7 +547,7 @@ impl DockerDriver {
         }
 
         Ok(ContainerSpec {
-            container_name: format!("indexify-{}", config.id),
+            container_name: format!("indexify-sandbox-{}", config.id),
             image: image.to_string(),
             entrypoint: Some(vec![CONTAINER_DAEMON_PATH.to_string()]),
             cmd,
