@@ -257,6 +257,7 @@ pub struct MonitoringConfig {
     /// Port to listen on for HTTP monitoring requests.
     pub port: u16,
     /// Listen address for the monitoring server.
+    #[serde_inline_default("0.0.0.0".to_string())]
     pub listen_addr: String,
 }
 

@@ -456,7 +456,7 @@ jobs:
             binds:
               - "${BLOB_STORE_DIR}:${BLOB_STORE_DIR}"
           monitoring:
-            port: 7100
+            port: 8100
           default_function_image: "indexify-test-function-gpu:latest"
           EOF
           RUST_LOG=info ./indexify-dataplane --config /tmp/dataplane_gpu_config.yaml > /tmp/indexify-dataplane.log 2>&1 &
@@ -547,7 +547,7 @@ jobs:
             ./indexify-dataplane --config indexify/tests/dataplane_config.yaml &
             echo $! > /tmp/indexify-dataplane.pid &
           wait-on: |
-            tcp:localhost:8095
+            tcp:localhost:8100
           tail: false
           wait-for: 30s
           log-output: false

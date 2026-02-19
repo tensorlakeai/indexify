@@ -4,4 +4,4 @@ driver:
   type: docker
   runtime: runsc
 monitoring:
-  port: 7100
+  port: 8100
