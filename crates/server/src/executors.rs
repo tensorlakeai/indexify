@@ -42,7 +42,6 @@ use crate::{
         FunctionExecutorDescription,
         FunctionExecutorType as FunctionExecutorTypePb,
         FunctionRef,
-        NetworkPolicy as NetworkPolicyPb,
         SandboxMetadata,
     },
     http_objects::{self, ExecutorAllocations, ExecutorsAllocationsResponse, FnExecutor},
@@ -634,15 +633,10 @@ impl ExecutorManager {
             };
 
             // Convert network policy to proto format (for sandboxes only)
-            let network_policy_pb =
-                desired_state_fe
-                    .network_policy
-                    .as_ref()
-                    .map(|np| NetworkPolicyPb {
-                        allow_internet_access: Some(np.allow_internet_access),
-                        allow_out: np.allow_out.clone(),
-                        deny_out: np.deny_out.clone(),
-                    });
+            let network_policy_pb = desired_state_fe
+                .network_policy
+                .as_ref()
+                .map(crate::executor_api::network_policy_to_pb);
 
             // Build sandbox_metadata for sandbox containers
             let sandbox_metadata = if fe.container_type == data_model::ContainerType::Sandbox {

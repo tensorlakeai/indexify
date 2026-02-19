@@ -413,37 +413,50 @@ impl FunctionContainerManager {
                 .and_then(|m| m.sandbox_id.clone());
             let new_sandbox_id = new_meta.sandbox_id.clone();
 
-            // Detect warm→claimed transition (sandbox_id: None → Some)
-            if old_sandbox_id.is_none() && new_sandbox_id.is_some() {
-                let info = container.info();
-                tracing::info!(
-                    container_id = %info.container_id,
-                    sandbox_id = ?new_sandbox_id,
-                    executor_id = %self.executor_id,
-                    "Warm container claimed by sandbox via UpdateContainerDescription"
-                );
-                container.sandbox_claimed_at = Some(Instant::now());
-
-                // If already Running, send ContainerStarted so the server
-                // promotes the sandbox status.
-                if matches!(container.state, ContainerState::Running { .. }) {
-                    Self::send_container_started(&self.container_state_tx, id);
-                }
-            }
-
-            // Update sandbox index
-            if old_sandbox_id != new_sandbox_id {
-                if let Some(ref old_sid) = old_sandbox_id {
-                    containers.unindex_sandbox(old_sid);
-                }
-                if let Some(ref new_sid) = new_sandbox_id {
-                    containers.index_sandbox(new_sid.clone(), id.to_string());
-                }
-            }
+            self.apply_sandbox_claim(&mut containers, id, old_sandbox_id, new_sandbox_id);
 
             // Apply the metadata update. Re-borrow after index operations.
             if let Some(container) = containers.get_mut(id) {
                 container.description.sandbox_metadata = Some(new_meta.clone());
+            }
+        }
+    }
+
+    /// Detect and apply a warm→claimed sandbox transition.
+    ///
+    /// If `sandbox_id` changed from None to Some, sets `sandbox_claimed_at`
+    /// and sends `ContainerStarted` (if container is already Running).
+    /// Updates the sandbox index for any sandbox_id change.
+    fn apply_sandbox_claim(
+        &self,
+        containers: &mut ContainerStore,
+        id: &str,
+        old_sandbox_id: Option<String>,
+        new_sandbox_id: Option<String>,
+    ) {
+        if old_sandbox_id.is_none() &&
+            new_sandbox_id.is_some() &&
+            let Some(container) = containers.get_mut(id)
+        {
+            tracing::info!(
+                container_id = %id,
+                sandbox_id = ?new_sandbox_id,
+                executor_id = %self.executor_id,
+                "Warm container claimed by sandbox"
+            );
+            container.sandbox_claimed_at = Some(Instant::now());
+            if matches!(container.state, ContainerState::Running { .. }) {
+                Self::send_container_started(&self.container_state_tx, id);
+            }
+        }
+
+        // Update sandbox index
+        if old_sandbox_id != new_sandbox_id {
+            if let Some(ref old_sid) = old_sandbox_id {
+                containers.unindex_sandbox(old_sid);
+            }
+            if let Some(ref new_sid) = new_sandbox_id {
+                containers.index_sandbox(new_sid.clone(), id.to_string());
             }
         }
     }
@@ -511,37 +524,11 @@ impl FunctionContainerManager {
             .as_ref()
             .and_then(|m| m.sandbox_id.clone());
 
+        self.apply_sandbox_claim(containers, id, old_sandbox_id, new_sandbox_id);
+
+        // Always update the description to reflect server's desired state
         if let Some(container) = containers.get_mut(id) {
-            if old_sandbox_id.is_none() && new_sandbox_id.is_some() {
-                let info = ContainerInfo::from_description(&desc, &self.executor_id);
-                tracing::info!(
-                    container_id = %info.container_id,
-                    sandbox_id = ?new_sandbox_id,
-                    executor_id = %self.executor_id,
-                    "Warm container claimed by sandbox, starting timeout"
-                );
-                container.sandbox_claimed_at = Some(Instant::now());
-
-                // If the container is already Running, send ContainerStarted so
-                // the server promotes the sandbox from Pending to Running.
-                // Without this, the server waits forever because the original
-                // ContainerStarted was sent before the sandbox claimed it.
-                if matches!(container.state, ContainerState::Running { .. }) {
-                    Self::send_container_started(&self.container_state_tx, id);
-                }
-            }
-            // Always update the description to reflect server's desired state
             container.description = desc;
-        }
-
-        // Update sandbox index
-        if old_sandbox_id != new_sandbox_id {
-            if let Some(ref old_sid) = old_sandbox_id {
-                containers.unindex_sandbox(old_sid);
-            }
-            if let Some(new_sid) = new_sandbox_id {
-                containers.index_sandbox(new_sid, id.to_string());
-            }
         }
     }
 

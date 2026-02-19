@@ -650,11 +650,12 @@ impl CommandEmitter {
     }
 
     /// Track a container so FullSync won't re-emit it.
-    pub fn track_container(&mut self, id: String) {
-        // Insert with an empty description — only the key matters for
-        // preventing duplicate AddContainer commands.  A subsequent
-        // `emit_commands` call will overwrite this with the real description.
-        self.known_containers.entry(id).or_default();
+    pub fn track_container(
+        &mut self,
+        id: String,
+        description: executor_api_pb::FunctionExecutorDescription,
+    ) {
+        self.known_containers.insert(id, description);
     }
 
     /// Untrack a container ID (removed).
@@ -1418,30 +1419,7 @@ async fn build_add_container_command(
         data_model::ContainerType::Sandbox => executor_api_pb::FunctionExecutorType::Sandbox,
     };
 
-    let network_policy_pb = fe
-        .network_policy
-        .as_ref()
-        .map(|np| executor_api_pb::NetworkPolicy {
-            allow_internet_access: Some(np.allow_internet_access),
-            allow_out: np.allow_out.clone(),
-            deny_out: np.deny_out.clone(),
-        });
-
-    let sandbox_metadata = if fe.container_type == data_model::ContainerType::Sandbox {
-        Some(executor_api_pb::SandboxMetadata {
-            image: fe.image.clone(),
-            timeout_secs: if fe.timeout_secs > 0 {
-                Some(fe.timeout_secs)
-            } else {
-                None
-            },
-            entrypoint: fe.entrypoint.clone(),
-            network_policy: network_policy_pb,
-            sandbox_id: fe.sandbox_id.as_ref().map(|s| s.get().to_string()),
-        })
-    } else {
-        None
-    };
+    let sandbox_metadata = sandbox_metadata_to_pb(fe);
 
     let resources_pb: Option<executor_api_pb::FunctionExecutorResources> =
         fe.resources.clone().try_into().ok();
@@ -1519,24 +1497,7 @@ async fn build_update_container_description_command(
     let cid = container_id.get().to_string();
 
     // Build current sandbox_metadata from state.
-    let current_sandbox_metadata = Some(executor_api_pb::SandboxMetadata {
-        image: fe.image.clone(),
-        timeout_secs: if fe.timeout_secs > 0 {
-            Some(fe.timeout_secs)
-        } else {
-            None
-        },
-        entrypoint: fe.entrypoint.clone(),
-        network_policy: fe
-            .network_policy
-            .as_ref()
-            .map(|np| executor_api_pb::NetworkPolicy {
-                allow_internet_access: Some(np.allow_internet_access),
-                allow_out: np.allow_out.clone(),
-                deny_out: np.deny_out.clone(),
-            }),
-        sandbox_id: fe.sandbox_id.as_ref().map(|s| s.get().to_string()),
-    });
+    let current_sandbox_metadata = sandbox_metadata_to_pb(fe);
 
     // Compare with what was previously sent.
     let known = emitter.known_containers.get(&cid);
@@ -1559,6 +1520,37 @@ async fn build_update_container_description_command(
     Some(executor_api_pb::Command {
         seq,
         command: Some(executor_api_pb::command::Command::UpdateContainerDescription(update)),
+    })
+}
+
+/// Convert a `data_model::NetworkPolicy` to the proto `NetworkPolicy`.
+pub(crate) fn network_policy_to_pb(
+    np: &data_model::NetworkPolicy,
+) -> executor_api_pb::NetworkPolicy {
+    executor_api_pb::NetworkPolicy {
+        allow_internet_access: Some(np.allow_internet_access),
+        allow_out: np.allow_out.clone(),
+        deny_out: np.deny_out.clone(),
+    }
+}
+
+/// Convert a `data_model::Container` to `Option<SandboxMetadata>` proto.
+///
+/// Returns `None` for non-sandbox containers.
+fn sandbox_metadata_to_pb(fe: &data_model::Container) -> Option<executor_api_pb::SandboxMetadata> {
+    if fe.container_type != data_model::ContainerType::Sandbox {
+        return None;
+    }
+    Some(executor_api_pb::SandboxMetadata {
+        image: fe.image.clone(),
+        timeout_secs: if fe.timeout_secs > 0 {
+            Some(fe.timeout_secs)
+        } else {
+            None
+        },
+        entrypoint: fe.entrypoint.clone(),
+        network_policy: fe.network_policy.as_ref().map(network_policy_to_pb),
+        sandbox_id: fe.sandbox_id.as_ref().map(|s| s.get().to_string()),
     })
 }
 
@@ -1752,7 +1744,14 @@ async fn command_stream_loop(
                             &blob_storage_registry,
                             &indexify_state,
                         ).await {
-                            emitter.track_container(cid);
+                            // Extract description from the AddContainer command
+                            let desc = match &cmd.command {
+                                Some(executor_api_pb::command::Command::AddContainer(add)) => {
+                                    add.container.clone().unwrap_or_default()
+                                }
+                                _ => Default::default(),
+                            };
+                            emitter.track_container(cid, desc);
                             info!(
                                 executor_id = executor_id.get(),
                                 container_id = container_id.get(),
