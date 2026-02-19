@@ -33,7 +33,7 @@ driver:
   binds:
     - "${BLOB_STORE_DIR}:${BLOB_STORE_DIR}"
 monitoring:
-  port: 7100
+  port: 8100
 default_function_image: "indexify-test-function:latest"
 EOF
 

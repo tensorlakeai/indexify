@@ -255,6 +255,7 @@ impl HttpProxyConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MonitoringConfig {
     /// Port to listen on for HTTP monitoring requests.
+    #[serde_inline_default(8100)]
     pub port: u16,
     /// Listen address for the monitoring server.
     #[serde_inline_default("0.0.0.0".to_string())]
