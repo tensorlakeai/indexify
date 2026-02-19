@@ -269,9 +269,7 @@ pub(super) async fn handle_container_startup_result(
             } else {
                 // Notify the server so it can promote sandbox status from
                 // Pending to Running.
-                let response =
-                    crate::function_executor::proto_convert::make_container_started_response(&id);
-                let _ = container_state_tx.send(response);
+                super::FunctionContainerManager::send_container_started(&container_state_tx, &id);
             }
 
             update_container_counts(&containers, &metrics).await;
@@ -291,11 +289,11 @@ pub(super) async fn handle_container_startup_result(
             );
             let reason = FunctionExecutorTerminationReason::StartupFailedInternalError;
             if container.transition_to_terminated(reason).is_ok() {
-                let response =
-                    crate::function_executor::proto_convert::make_container_terminated_response(
-                        &id, reason,
-                    );
-                let _ = container_state_tx.send(response);
+                super::FunctionContainerManager::send_container_terminated(
+                    &container_state_tx,
+                    &id,
+                    reason,
+                );
             }
 
             update_container_counts(&containers, &metrics).await;

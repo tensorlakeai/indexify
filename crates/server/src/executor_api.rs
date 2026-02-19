@@ -623,8 +623,10 @@ impl TryFrom<&executor_api_pb::RemoveWatcherRequest> for ExecutorWatch {
 /// `command_seq = 0` means the command is informational / unsolicited.
 pub struct CommandEmitter {
     next_seq: u64,
-    /// Container IDs sent via AddContainer.
-    pub(crate) known_containers: HashSet<String>,
+    /// Container descriptions sent via AddContainer, keyed by container ID.
+    /// Tracked as full descriptions so we can detect changes and emit
+    /// `UpdateContainerDescription` commands.
+    pub(crate) known_containers: HashMap<String, executor_api_pb::FunctionExecutorDescription>,
     /// Allocation IDs sent via RunAllocation.
     pub(crate) known_allocations: HashSet<String>,
     /// Function call result IDs sent via DeliverResult (keyed by
@@ -636,7 +638,7 @@ impl CommandEmitter {
     pub fn new() -> Self {
         Self {
             next_seq: 1,
-            known_containers: HashSet::new(),
+            known_containers: HashMap::new(),
             known_allocations: HashSet::new(),
             known_call_results: HashSet::new(),
         }
@@ -647,9 +649,12 @@ impl CommandEmitter {
         self.known_allocations.insert(id);
     }
 
-    /// Track a container ID so FullSync won't re-emit it.
+    /// Track a container so FullSync won't re-emit it.
     pub fn track_container(&mut self, id: String) {
-        self.known_containers.insert(id);
+        // Insert with an empty description — only the key matters for
+        // preventing duplicate AddContainer commands.  A subsequent
+        // `emit_commands` call will overwrite this with the real description.
+        self.known_containers.entry(id).or_default();
     }
 
     /// Untrack a container ID (removed).
@@ -677,34 +682,59 @@ impl CommandEmitter {
         let mut commands = Vec::new();
 
         // --- Containers ---
-        let current_containers: HashSet<String> = desired_state
-            .function_executors
-            .iter()
-            .filter_map(|fe| fe.id.clone())
-            .collect();
+        let current_containers: HashMap<String, executor_api_pb::FunctionExecutorDescription> =
+            desired_state
+                .function_executors
+                .iter()
+                .filter_map(|fe| fe.id.clone().map(|id| (id, fe.clone())))
+                .collect();
 
-        // New containers → AddContainer
         for fe in &desired_state.function_executors {
-            if let Some(id) = &fe.id &&
-                !self.known_containers.contains(id)
-            {
-                let seq = self.next_seq();
-                commands.push(executor_api_pb::Command {
-                    seq,
-                    command: Some(executor_api_pb::command::Command::AddContainer(
-                        executor_api_pb::AddContainer {
-                            container: Some(fe.clone()),
-                        },
-                    )),
-                });
+            if let Some(id) = &fe.id {
+                if let Some(known) = self.known_containers.get(id) {
+                    // Known container — check if description changed
+                    if known != fe {
+                        // Build a targeted update with only changed fields
+                        let mut update = executor_api_pb::UpdateContainerDescription {
+                            container_id: id.clone(),
+                            sandbox_metadata: None,
+                        };
+                        if known.sandbox_metadata != fe.sandbox_metadata {
+                            update.sandbox_metadata = fe.sandbox_metadata.clone();
+                        }
+                        // Only emit if there are actual changes to send
+                        if update.sandbox_metadata.is_some() {
+                            let seq = self.next_seq();
+                            commands.push(executor_api_pb::Command {
+                                seq,
+                                command: Some(
+                                    executor_api_pb::command::Command::UpdateContainerDescription(
+                                        update,
+                                    ),
+                                ),
+                            });
+                        }
+                    }
+                } else {
+                    // New container → AddContainer
+                    let seq = self.next_seq();
+                    commands.push(executor_api_pb::Command {
+                        seq,
+                        command: Some(executor_api_pb::command::Command::AddContainer(
+                            executor_api_pb::AddContainer {
+                                container: Some(fe.clone()),
+                            },
+                        )),
+                    });
+                }
             }
         }
 
         // Removed containers → RemoveContainer
         let removed_containers: Vec<String> = self
             .known_containers
-            .iter()
-            .filter(|id| !current_containers.contains(*id))
+            .keys()
+            .filter(|id| !current_containers.contains_key(*id))
             .cloned()
             .collect();
         for id in removed_containers {
@@ -1466,6 +1496,72 @@ async fn build_add_container_command(
     })
 }
 
+/// Build an UpdateContainerDescription command for a pre-existing container
+/// whose description has changed (e.g. sandbox_id set on warm-pool claim).
+///
+/// Compares the current state with what the CommandEmitter already sent and
+/// emits only the changed fields.  Updates `emitter.known_containers` so
+/// subsequent comparisons stay correct.
+async fn build_update_container_description_command(
+    emitter: &mut CommandEmitter,
+    container_id: &ContainerId,
+    indexify_state: &IndexifyState,
+) -> Option<executor_api_pb::Command> {
+    let container_scheduler = indexify_state.container_scheduler.read().await;
+    let fc = container_scheduler.function_containers.get(container_id)?;
+    let fe = &fc.function_container;
+
+    // Skip non-sandbox containers — only sandbox descriptions change today.
+    if fe.container_type != data_model::ContainerType::Sandbox {
+        return None;
+    }
+
+    let cid = container_id.get().to_string();
+
+    // Build current sandbox_metadata from state.
+    let current_sandbox_metadata = Some(executor_api_pb::SandboxMetadata {
+        image: fe.image.clone(),
+        timeout_secs: if fe.timeout_secs > 0 {
+            Some(fe.timeout_secs)
+        } else {
+            None
+        },
+        entrypoint: fe.entrypoint.clone(),
+        network_policy: fe
+            .network_policy
+            .as_ref()
+            .map(|np| executor_api_pb::NetworkPolicy {
+                allow_internet_access: Some(np.allow_internet_access),
+                allow_out: np.allow_out.clone(),
+                deny_out: np.deny_out.clone(),
+            }),
+        sandbox_id: fe.sandbox_id.as_ref().map(|s| s.get().to_string()),
+    });
+
+    // Compare with what was previously sent.
+    let known = emitter.known_containers.get(&cid);
+    let known_sandbox_metadata = known.and_then(|k| k.sandbox_metadata.clone());
+    if known_sandbox_metadata == current_sandbox_metadata {
+        return None; // No change
+    }
+
+    let update = executor_api_pb::UpdateContainerDescription {
+        container_id: cid.clone(),
+        sandbox_metadata: current_sandbox_metadata.clone(),
+    };
+
+    // Update the known state so subsequent comparisons are correct.
+    if let Some(known_mut) = emitter.known_containers.get_mut(&cid) {
+        known_mut.sandbox_metadata = current_sandbox_metadata;
+    }
+
+    let seq = emitter.next_seq();
+    Some(executor_api_pb::Command {
+        seq,
+        command: Some(executor_api_pb::command::Command::UpdateContainerDescription(update)),
+    })
+}
+
 /// Helper to get secret_names from in-memory state for a container.
 fn cg_node_secret_names(
     indexes: &crate::state_store::in_memory_state::InMemoryState,
@@ -1647,7 +1743,7 @@ async fn command_stream_loop(
                     }
                     ExecutorEvent::ContainerAdded(container_id) => {
                         let cid = container_id.get().to_string();
-                        if emitter.known_containers.contains(&cid) {
+                        if emitter.known_containers.contains_key(&cid) {
                             continue; // Already tracked
                         }
                         if let Some(cmd) = build_add_container_command(
@@ -1687,6 +1783,24 @@ async fn command_stream_loop(
                         );
                         if grpc_tx.send(Ok(cmd)).await.is_err() {
                             break;
+                        }
+                    }
+                    ExecutorEvent::ContainerDescriptionChanged(container_id) => {
+                        if let Some(cmd) = build_update_container_description_command(
+                            &mut emitter,
+                            &container_id,
+                            &indexify_state,
+                        )
+                        .await
+                        {
+                            info!(
+                                executor_id = executor_id.get(),
+                                container_id = container_id.get(),
+                                "command_stream: emitting UpdateContainerDescription"
+                            );
+                            if grpc_tx.send(Ok(cmd)).await.is_err() {
+                                break;
+                            }
                         }
                     }
                     ExecutorEvent::WatchCompleted {

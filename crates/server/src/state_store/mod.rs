@@ -81,6 +81,11 @@ pub enum ExecutorEvent {
     /// Container should be removed.
     ContainerRemoved(ContainerId),
 
+    /// Pre-existing container's description changed (e.g. sandbox_id set
+    /// on warm-pool claim). Consumer builds an UpdateContainerDescription
+    /// command with only the changed fields.
+    ContainerDescriptionChanged(ContainerId),
+
     /// A watched function call completed. Consumer looks up the
     /// FunctionRun from state for proto conversion.
     WatchCompleted {
@@ -380,6 +385,15 @@ impl IndexifyState {
                         &event_channels,
                         &meta.executor_id,
                         ExecutorEvent::ContainerAdded(container_id.clone()),
+                    );
+                } else {
+                    // Pre-existing, non-terminated container included in this
+                    // update → its description may have changed (e.g. sandbox_id
+                    // set on warm-pool claim).
+                    Self::send_event(
+                        &event_channels,
+                        &meta.executor_id,
+                        ExecutorEvent::ContainerDescriptionChanged(container_id.clone()),
                     );
                 }
             }

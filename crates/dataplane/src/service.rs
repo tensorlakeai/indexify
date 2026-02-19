@@ -777,6 +777,16 @@ impl ServiceRuntime {
                     reconciler.deliver_function_call_results(&[result]).await;
                 }
             }
+            Cmd::UpdateContainerDescription(update) => {
+                tracing::info!(
+                    seq,
+                    container_id = %update.container_id,
+                    has_sandbox_metadata = update.sandbox_metadata.is_some(),
+                    "UpdateContainerDescription command"
+                );
+                let mut reconciler = self.state_reconciler.lock().await;
+                reconciler.update_container_description(update).await;
+            }
         }
 
         self.command_stream_last_seq

@@ -333,11 +333,24 @@ impl SandboxProcessor {
         // Include the container update (sets sandbox_id on the container)
         update.extend(container_update);
 
-        // Keep sandbox Pending until container reports Running via heartbeat
+        // Check if the warm container is already Running — if so, promote
+        // the sandbox directly to Running. Warm pool containers are always
+        // Running so we skip the Pending → WaitingForContainer state that
+        // would require a ContainerStarted event from the dataplane.
+        let container_state = container_scheduler
+            .function_containers
+            .get(&container_id)
+            .map(|meta| meta.function_container.state.clone())
+            .unwrap_or_default();
+
         let mut updated_sandbox = sandbox.clone();
-        updated_sandbox.status = SandboxStatus::Pending {
-            reason: SandboxPendingReason::WaitingForContainer,
-        };
+        if matches!(container_state, ContainerState::Running) {
+            updated_sandbox.status = SandboxStatus::Running;
+        } else {
+            updated_sandbox.status = SandboxStatus::Pending {
+                reason: SandboxPendingReason::WaitingForContainer,
+            };
+        }
         updated_sandbox.executor_id = Some(executor_id.clone());
         updated_sandbox.container_id = Some(container_id.clone());
 

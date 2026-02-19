@@ -134,6 +134,21 @@ impl StateReconciler {
         }
     }
 
+    /// Apply a targeted description update to an existing container.
+    ///
+    /// Unlike `reconcile_containers`, this does NOT create or remove
+    /// containers. It patches specific fields on a container that already
+    /// exists. Currently supports updating `sandbox_metadata` (warm pool
+    /// claim).
+    pub async fn update_container_description(
+        &mut self,
+        update: proto_api::executor_api_pb::UpdateContainerDescription,
+    ) {
+        self.container_manager
+            .update_container_description(update)
+            .await;
+    }
+
     /// Reconcile allocation stream update: route allocations and call results.
     pub async fn reconcile_allocations(
         &mut self,

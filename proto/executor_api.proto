@@ -521,7 +521,16 @@ message Command {
         RunAllocation run_allocation = 4;
         KillAllocation kill_allocation = 5;
         DeliverResult deliver_result = 6;
+        UpdateContainerDescription update_container_description = 7;
     }
+}
+
+message UpdateContainerDescription {
+    string container_id = 1;
+    // Updated sandbox metadata. When set, replaces the container's
+    // sandbox_metadata. Used when a warm pool container is claimed by a sandbox
+    // (sandbox_id and timeout_secs are set).
+    optional SandboxMetadata sandbox_metadata = 2;
 }
 
 message AddContainer {
