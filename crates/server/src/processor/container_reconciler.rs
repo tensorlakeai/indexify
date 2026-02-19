@@ -289,7 +289,7 @@ impl ContainerReconciler {
                     request_id = %alloc.request_id,
                     namespace = %alloc.namespace,
                     app = %alloc.application,
-                    fn_name = %alloc.function,
+                    "fn" = %alloc.function,
                     "function run not found, cancelling allocation"
                 );
                 update.cancel_allocation(&mut updated_alloc);
@@ -306,7 +306,7 @@ impl ContainerReconciler {
                     request_id = %alloc.request_id,
                     namespace = %alloc.namespace,
                     app = %alloc.application,
-                    fn_name = %alloc.function,
+                    "fn" = %alloc.function,
                     "request context not found, cancelling allocation"
                 );
                 update.cancel_allocation(&mut updated_alloc);
@@ -333,7 +333,7 @@ impl ContainerReconciler {
                     request_id = %alloc.request_id,
                     namespace = %alloc.namespace,
                     app = %alloc.application,
-                    fn_name = %alloc.function,
+                    "fn" = %alloc.function,
                     "application version not found, cancelling allocation"
                 );
                 update.cancel_allocation(&mut updated_alloc);
@@ -355,7 +355,7 @@ impl ContainerReconciler {
                 request_id = %updated_alloc.request_id,
                 namespace = %updated_alloc.namespace,
                 app = %updated_alloc.application,
-                fn_name = %updated_alloc.function,
+                "fn" = %updated_alloc.function,
                 allocation_outcome = %updated_alloc.outcome,
                 fn_run_status = %function_run.status,
                 fn_run_outcome = ?function_run.outcome.as_ref(),
@@ -510,10 +510,10 @@ impl ContainerReconciler {
             info!(
                 namespace = fe.namespace,
                 app = fe.application_name,
-                fn_name = fe.function_name,
-                fn_executor_id = fe.id.get(),
+                "fn" = fe.function_name,
+                container_id = fe.id.get(),
                 sandbox_id = ?fe.sandbox_id,
-                fe_state = ?fe.state,
+                container_state = ?fe.state,
                 "removing function container from executor",
             );
 

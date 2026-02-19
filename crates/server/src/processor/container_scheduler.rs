@@ -695,6 +695,14 @@ impl ContainerScheduler {
         // Use sandbox's pool_id directly — standalone sandboxes have None.
         let pool_id = sandbox.pool_id.clone();
 
+        info!(
+            namespace = %sandbox.namespace,
+            sandbox_id = %sandbox.id.get(),
+            container_id = %container_id.get(),
+            image = %sandbox.image,
+            "Creating container for sandbox"
+        );
+
         let function_container = ContainerBuilder::default()
             .id(container_id)
             .namespace(sandbox.namespace.clone())
@@ -1489,6 +1497,14 @@ impl ContainerScheduler {
 
         // Pool's warm count changed
         self.mark_pool_dirty(pool_key.clone());
+
+        info!(
+            namespace = %pool_key.namespace,
+            pool_id = %pool_key.pool_id.get(),
+            sandbox_id = %sandbox_id.get(),
+            container_id = %container_id.get(),
+            "Warm pool container claimed for sandbox"
+        );
 
         Some((container_id, executor_id, update))
     }

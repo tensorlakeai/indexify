@@ -70,7 +70,7 @@ impl AllocationController {
                     namespace = %lctx.namespace,
                     app = %lctx.app,
                     version = %lctx.version,
-                    fn_name = %lctx.fn_name,
+                    "fn" = %lctx.fn_name,
                     allocation_id = %alloc_id,
                     request_id = %lctx.request_id,
                     container_id = %fe_id,
@@ -115,7 +115,7 @@ impl AllocationController {
                     namespace = %lctx.namespace,
                     app = %lctx.app,
                     version = %lctx.version,
-                    fn_name = %lctx.fn_name,
+                    "fn" = %lctx.fn_name,
                     allocation_id = %alloc_id,
                     request_id = %lctx.request_id,
                     container_id = %fe_id,
@@ -123,6 +123,7 @@ impl AllocationController {
                 );
             }
 
+            let prep_container_id = fe_id.clone();
             let managed = ManagedAllocation {
                 allocation: allocation.clone(),
                 fe_id,
@@ -150,6 +151,7 @@ impl AllocationController {
             let alloc_id_clone = alloc_id.clone();
             let request_id = allocation.request_id.clone().unwrap_or_default();
             let metrics = self.config.metrics.clone();
+            let lctx = AllocLogCtx::from_allocation(&allocation);
 
             tokio::spawn(async move {
                 let result = tokio::spawn(
@@ -167,6 +169,10 @@ impl AllocationController {
                         "allocation_prep",
                         allocation_id = %alloc_id_clone,
                         request_id = %request_id,
+                        namespace = %lctx.namespace,
+                        app = %lctx.app,
+                        "fn" = %lctx.fn_name,
+                        container_id = %prep_container_id,
                     )),
                 )
                 .await;
@@ -215,7 +221,7 @@ impl AllocationController {
                             namespace = %lctx.namespace,
                             app = %lctx.app,
                             version = %lctx.version,
-                            fn_name = %lctx.fn_name,
+                            "fn" = %lctx.fn_name,
                             allocation_id = %allocation_id,
                             request_id = %lctx.request_id,
                             container_id = %fe_id,
@@ -245,7 +251,7 @@ impl AllocationController {
                             namespace = %lctx.namespace,
                             app = %lctx.app,
                             version = %lctx.version,
-                            fn_name = %lctx.fn_name,
+                            "fn" = %lctx.fn_name,
                             allocation_id = %allocation_id,
                             request_id = %lctx.request_id,
                             container_id = %fe_id,
@@ -269,7 +275,7 @@ impl AllocationController {
                             namespace = %lctx.namespace,
                             app = %lctx.app,
                             version = %lctx.version,
-                            fn_name = %lctx.fn_name,
+                            "fn" = %lctx.fn_name,
                             allocation_id = %allocation_id,
                             request_id = %lctx.request_id,
                             container_id = %fe_id,
@@ -291,7 +297,7 @@ impl AllocationController {
                             namespace = %lctx.namespace,
                             app = %lctx.app,
                             version = %lctx.version,
-                            fn_name = %lctx.fn_name,
+                            "fn" = %lctx.fn_name,
                             allocation_id = %allocation_id,
                             request_id = %lctx.request_id,
                             container_id = %fe_id,
@@ -316,7 +322,7 @@ impl AllocationController {
                     namespace = %lctx.namespace,
                     app = %lctx.app,
                     version = %lctx.version,
-                    fn_name = %lctx.fn_name,
+                    "fn" = %lctx.fn_name,
                     allocation_id = %allocation_id,
                     request_id = %lctx.request_id,
                     container_id = %alloc.fe_id,
@@ -412,7 +418,7 @@ impl AllocationController {
                         namespace = %lctx.namespace,
                         app = %lctx.app,
                         version = %lctx.version,
-                        fn_name = %lctx.fn_name,
+                        "fn" = %lctx.fn_name,
                         allocation_id = %alloc_id,
                         request_id = %lctx.request_id,
                         container_id = %fe_id,
@@ -456,6 +462,8 @@ impl AllocationController {
                 let allocation = alloc.allocation.clone();
                 let request_id = allocation.request_id.clone().unwrap_or_default();
                 let client_clone = (*client).clone();
+                let exec_lctx = AllocLogCtx::from_allocation(&allocation);
+                let exec_container_id = fe_id.clone();
 
                 tokio::spawn(
                     async move {
@@ -484,6 +492,10 @@ impl AllocationController {
                         "allocation_exec",
                         allocation_id = %alloc_id_span,
                         request_id = %request_id,
+                        namespace = %exec_lctx.namespace,
+                        app = %exec_lctx.app,
+                        "fn" = %exec_lctx.fn_name,
+                        container_id = %exec_container_id,
                     )),
                 );
             }
@@ -525,7 +537,7 @@ impl AllocationController {
             namespace = %lctx.namespace,
             app = %lctx.app,
             version = %lctx.version,
-            fn_name = %lctx.fn_name,
+            "fn" = %lctx.fn_name,
             allocation_id = %allocation_id,
             request_id = %lctx.request_id,
             container_id = %fe_id,
@@ -650,7 +662,7 @@ impl AllocationController {
                 namespace = %lctx.namespace,
                 app = %lctx.app,
                 version = %lctx.version,
-                fn_name = %lctx.fn_name,
+                "fn" = %lctx.fn_name,
                 allocation_id = %allocation_id,
                 request_id = %lctx.request_id,
                 container_id = %alloc.fe_id,
@@ -710,11 +722,20 @@ impl AllocationController {
         let blob_store = self.config.blob_store.clone();
         let alloc_id = allocation_id.to_string();
         let alloc_id_span = allocation_id.to_string();
-        let request_id = self
-            .allocations
-            .get(allocation_id)
+        let alloc_for_ctx = self.allocations.get(allocation_id);
+        let request_id = alloc_for_ctx
             .and_then(|a| a.allocation.request_id.clone())
             .unwrap_or_default();
+        let fin_lctx = alloc_for_ctx
+            .map(|a| AllocLogCtx::from_allocation(&a.allocation))
+            .unwrap_or(AllocLogCtx {
+                namespace: String::new(),
+                app: String::new(),
+                version: String::new(),
+                fn_name: String::new(),
+                request_id: String::new(),
+            });
+        let fin_container_id = alloc_for_ctx.map(|a| a.fe_id.clone()).unwrap_or_default();
         let metrics = self.config.metrics.clone();
 
         tokio::spawn(
@@ -747,6 +768,10 @@ impl AllocationController {
                 "allocation_finalize",
                 allocation_id = %alloc_id_span,
                 request_id = %request_id,
+                namespace = %fin_lctx.namespace,
+                app = %fin_lctx.app,
+                "fn" = %fin_lctx.fn_name,
+                container_id = %fin_container_id,
             )),
         );
     }

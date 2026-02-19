@@ -65,8 +65,10 @@ impl AllocationController {
                         namespace = %ctx.namespace,
                         app = %ctx.app,
                         version = %ctx.version,
-                        fn_name = %ctx.fn_name,
+                        "fn" = %ctx.fn_name,
                         container_id = %ctx.container_id,
+                        sandbox_id = %ctx.sandbox_id,
+                        pool_id = %ctx.pool_id,
                         current_state = %fe.state,
                         "Container removed from desired set, initiating removal"
                     );
@@ -88,8 +90,10 @@ impl AllocationController {
                     namespace = %ctx.namespace,
                     app = %ctx.app,
                     version = %ctx.version,
-                    fn_name = %ctx.fn_name,
+                    "fn" = %ctx.fn_name,
                     container_id = %ctx.container_id,
+                    sandbox_id = %ctx.sandbox_id,
+                    pool_id = %ctx.pool_id,
                     "New container requested, creating"
                 );
                 self.create_container(description.clone());
@@ -131,12 +135,12 @@ impl AllocationController {
                 ..
             } = &fe.state
             {
-                info!(fe_id = %fe_id, "Removing Running container");
+                info!(container_id = %fe_id, "Removing Running container");
                 health_checker_cancel.cancel();
                 self.kill_process_fire_and_forget(handle.clone());
             }
         } else if is_starting {
-            info!(fe_id = %fe_id, "Removing Starting container, marking Terminated");
+            info!(container_id = %fe_id, "Removing Starting container, marking Terminated");
         }
 
         // Transition to Terminated
@@ -186,7 +190,7 @@ impl AllocationController {
             match self.config.gpu_allocator.allocate(gpu_count) {
                 Ok(uuids) => uuids,
                 Err(e) => {
-                    warn!(fe_id = %fe_id, gpu_count = gpu_count, error = %e, "GPU allocation failed");
+                    warn!(container_id = %fe_id, gpu_count = gpu_count, error = %e, "GPU allocation failed");
                     Vec::new()
                 }
             }
@@ -194,7 +198,7 @@ impl AllocationController {
             Vec::new()
         };
 
-        info!(fe_id = %fe_id, max_concurrency = max_concurrency, gpus = ?allocated_gpu_uuids, "Creating container");
+        info!(container_id = %fe_id, max_concurrency = max_concurrency, gpus = ?allocated_gpu_uuids, "Creating container");
 
         self.config
             .metrics
@@ -242,6 +246,7 @@ impl AllocationController {
             .to_string();
         let executor_id = config.executor_id.clone();
 
+        let panic_fe_id = fe_id.clone();
         tokio::spawn(async move {
             let result = tokio::spawn(
                 start_fe_process_and_initialize(config, desc_for_task, gpu_uuids_for_task)
@@ -251,7 +256,7 @@ impl AllocationController {
                         executor_id = %executor_id,
                         namespace = %namespace,
                         app = %app,
-                        fn_name = %fn_name,
+                        "fn" = %fn_name,
                         version = %version,
                     )),
             )
@@ -264,7 +269,7 @@ impl AllocationController {
                 },
                 Err(join_err) => {
                     // Panic or cancellation — send failure
-                    error!(error = %join_err, "Container startup task panicked");
+                    error!(container_id = %panic_fe_id, error = %join_err, "Container startup task panicked");
                     ACEvent::ContainerStartupComplete {
                         fe_id: fe_id_for_task,
                         result: Err(anyhow::anyhow!("Startup task panicked: {}", join_err)),
@@ -284,7 +289,7 @@ impl AllocationController {
         let Some(fe) = self.containers.get_mut(&fe_id) else {
             // FE was removed while startup was in progress — kill the handle
             if let Ok((handle, _)) = result {
-                warn!(fe_id = %fe_id, "Startup completed but FE no longer tracked, killing handle");
+                warn!(container_id = %fe_id, "Startup completed but FE no longer tracked, killing handle");
                 self.kill_process_fire_and_forget(handle);
             }
             return;
@@ -295,7 +300,7 @@ impl AllocationController {
                 // FE was removed during startup — kill the returned handle
                 // This is the KEY FIX for orphaned Docker containers.
                 if let Ok((handle, _)) = result {
-                    warn!(fe_id = %fe_id, "Startup completed but FE is Terminated, killing handle");
+                    warn!(container_id = %fe_id, "Startup completed but FE is Terminated, killing handle");
                     self.kill_process_fire_and_forget(handle);
                 }
                 return;
@@ -303,7 +308,7 @@ impl AllocationController {
             ContainerState::Running { .. } => {
                 // Already running (duplicate event?) — kill if we got a new handle
                 if let Ok((handle, _)) = result {
-                    warn!(fe_id = %fe_id, "Startup completed but FE is already Running, killing duplicate");
+                    warn!(container_id = %fe_id, "Startup completed but FE is already Running, killing duplicate");
                     self.kill_process_fire_and_forget(handle);
                 }
                 return;
@@ -328,8 +333,10 @@ impl AllocationController {
                     namespace = %ctx.namespace,
                     app = %ctx.app,
                     version = %ctx.version,
-                    fn_name = %ctx.fn_name,
+                    "fn" = %ctx.fn_name,
                     container_id = %fe_id,
+                    sandbox_id = %ctx.sandbox_id,
+                    pool_id = %ctx.pool_id,
                     latency_ms = %create_start.elapsed().as_millis(),
                     "Container started successfully: Starting -> Running"
                 );
@@ -367,7 +374,7 @@ impl AllocationController {
 
                     if let Err(join_err) = result {
                         // Panic safety — notify controller via the cloned sender
-                        error!(error = %join_err, "Health checker panicked");
+                        error!(container_id = %panic_fe_id, error = %join_err, "Health checker panicked");
                         let _ = panic_event_tx.send(ACEvent::ContainerTerminated {
                             fe_id: panic_fe_id,
                             reason: FunctionExecutorTerminationReason::Unknown,
@@ -400,8 +407,10 @@ impl AllocationController {
                     namespace = %ctx.namespace,
                     app = %ctx.app,
                     version = %ctx.version,
-                    fn_name = %ctx.fn_name,
+                    "fn" = %ctx.fn_name,
                     container_id = %fe_id,
+                    sandbox_id = %ctx.sandbox_id,
+                    pool_id = %ctx.pool_id,
                     error = %e,
                     "Container startup failed: Starting -> Terminated"
                 );
@@ -488,8 +497,10 @@ impl AllocationController {
             namespace = %ctx.namespace,
             app = %ctx.app,
             version = %ctx.version,
-            fn_name = %ctx.fn_name,
+            "fn" = %ctx.fn_name,
             container_id = %fe_id,
+            sandbox_id = %ctx.sandbox_id,
+            pool_id = %ctx.pool_id,
             from_state = %fe.state,
             reason = ?reason,
             "Container terminated: {} -> Terminated({:?})", fe.state, reason
@@ -621,7 +632,7 @@ async fn start_fe_process_and_initialize(
     let metrics = config.metrics.clone();
 
     // Start the FE process
-    info!(fe_id = %fe_id, "Starting function executor process");
+    info!(container_id = %fe_id, "Starting function executor process");
     let start_time = Instant::now();
     let handle = start_fe_process(&config, &description, &gpu_uuids).await?;
     metrics
@@ -665,6 +676,13 @@ async fn start_fe_process(
         .function_image(namespace, app, function, version)
         .await
         .ok();
+
+    info!(
+        container_id = %fe_id,
+        namespace = %namespace,
+        image = ?image,
+        "Image resolved for function container"
+    );
 
     // Build environment variables
     let mut env = vec![

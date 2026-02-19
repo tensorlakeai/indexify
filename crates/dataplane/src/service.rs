@@ -702,14 +702,24 @@ impl ServiceRuntime {
                     if let Err(e) = validation::validate_fe_description(&container) {
                         tracing::warn!(
                             seq,
-                            fe_id = ?container.id,
+                            container_id = ?container.id,
+                            namespace = ?container.function.as_ref().and_then(|f| f.namespace.as_deref()),
+                            app = ?container.function.as_ref().and_then(|f| f.application_name.as_deref()),
+                            "fn" = ?container.function.as_ref().and_then(|f| f.function_name.as_deref()),
+                            sandbox_id = ?container.sandbox_metadata.as_ref().and_then(|m| m.sandbox_id.as_deref()),
+                            pool_id = ?container.pool_id.as_deref(),
                             error = %e,
                             "Skipping invalid AddContainer command"
                         );
                     } else {
                         tracing::info!(
                             seq,
-                            fe_id = ?container.id,
+                            container_id = ?container.id,
+                            namespace = ?container.function.as_ref().and_then(|f| f.namespace.as_deref()),
+                            app = ?container.function.as_ref().and_then(|f| f.application_name.as_deref()),
+                            "fn" = ?container.function.as_ref().and_then(|f| f.function_name.as_deref()),
+                            sandbox_id = ?container.sandbox_metadata.as_ref().and_then(|m| m.sandbox_id.as_deref()),
+                            pool_id = ?container.pool_id.as_deref(),
                             "AddContainer command"
                         );
                         let mut reconciler = self.state_reconciler.lock().await;
@@ -736,6 +746,10 @@ impl ServiceRuntime {
                         tracing::warn!(
                             seq,
                             allocation_id = ?allocation.allocation_id,
+                            request_id = ?allocation.request_id,
+                            container_id = ?allocation.function_executor_id,
+                            namespace = ?allocation.function.as_ref().and_then(|f| f.namespace.as_deref()),
+                            "fn" = ?allocation.function.as_ref().and_then(|f| f.function_name.as_deref()),
                             error = %e,
                             "Skipping invalid RunAllocation command"
                         );
@@ -743,7 +757,10 @@ impl ServiceRuntime {
                         tracing::info!(
                             seq,
                             allocation_id = ?allocation.allocation_id,
-                            fe_id = %fe_id,
+                            request_id = ?allocation.request_id,
+                            container_id = %fe_id,
+                            namespace = ?allocation.function.as_ref().and_then(|f| f.namespace.as_deref()),
+                            "fn" = ?allocation.function.as_ref().and_then(|f| f.function_name.as_deref()),
                             "RunAllocation command"
                         );
                         let mut reconciler = self.state_reconciler.lock().await;
@@ -754,6 +771,9 @@ impl ServiceRuntime {
                         tracing::warn!(
                             seq,
                             allocation_id = ?allocation.allocation_id,
+                            request_id = ?allocation.request_id,
+                            namespace = ?allocation.function.as_ref().and_then(|f| f.namespace.as_deref()),
+                            "fn" = ?allocation.function.as_ref().and_then(|f| f.function_name.as_deref()),
                             "RunAllocation missing function_executor_id"
                         );
                     }
@@ -771,6 +791,8 @@ impl ServiceRuntime {
                     tracing::info!(
                         seq,
                         function_call_id = ?result.function_call_id,
+                        namespace = ?result.namespace,
+                        request_id = ?result.request_id,
                         "DeliverResult command"
                     );
                     let reconciler = self.state_reconciler.lock().await;
@@ -781,7 +803,7 @@ impl ServiceRuntime {
                 tracing::info!(
                     seq,
                     container_id = %update.container_id,
-                    has_sandbox_metadata = update.sandbox_metadata.is_some(),
+                    sandbox_id = ?update.sandbox_metadata.as_ref().and_then(|m| m.sandbox_id.as_deref()),
                     "UpdateContainerDescription command"
                 );
                 let mut reconciler = self.state_reconciler.lock().await;

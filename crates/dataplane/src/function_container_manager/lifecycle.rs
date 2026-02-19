@@ -51,6 +51,15 @@ pub(super) async fn start_container_with_daemon(
         anyhow::bail!("Cannot determine image: no sandbox_metadata.image, pool_id, or sandbox_id")
     };
 
+    tracing::info!(
+        container_id = %info.container_id,
+        namespace = %info.namespace,
+        image = %image,
+        sandbox_id = ?info.sandbox_id,
+        pool_id = ?desc.pool_id,
+        "Image resolved for container"
+    );
+
     // Extract resource limits from the function executor description.
     // Note: sandbox containers don't currently support GPU passthrough.
     // GPU allocation is handled by the FE controller for function containers.

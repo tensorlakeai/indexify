@@ -1048,6 +1048,16 @@ pub async fn process_command_responses(
                     None => (None, None),
                 };
 
+                info!(
+                    executor_id = executor_id.get(),
+                    allocation_id = %allocation_id,
+                    request_id = %request_id,
+                    namespace = %namespace,
+                    app = %application,
+                    "fn" = %fn_name,
+                    "AllocationCompleted ingested"
+                );
+
                 allocation_events.push(AllocationOutputIngestedEvent {
                     namespace,
                     application,
@@ -1064,7 +1074,8 @@ pub async fn process_command_responses(
                 });
             }
             executor_api_pb::command_response::Response::AllocationFailed(failed) => {
-                let failure_reason = proto_failure_reason_to_internal(failed.reason());
+                let proto_reason = failed.reason();
+                let failure_reason = proto_failure_reason_to_internal(proto_reason);
                 let function = failed
                     .function
                     .ok_or_else(|| anyhow::anyhow!("AllocationFailed missing function"))?;
@@ -1118,6 +1129,17 @@ pub async fn process_command_responses(
                     None
                 };
 
+                info!(
+                    executor_id = executor_id.get(),
+                    allocation_id = %allocation_id,
+                    request_id = %request_id,
+                    namespace = %namespace,
+                    app = %application,
+                    "fn" = %fn_name,
+                    failure_reason = ?proto_reason,
+                    "AllocationFailed ingested"
+                );
+
                 allocation_events.push(AllocationOutputIngestedEvent {
                     namespace,
                     application,
@@ -1135,6 +1157,12 @@ pub async fn process_command_responses(
             }
             executor_api_pb::command_response::Response::ContainerTerminated(terminated) => {
                 let reason = proto_container_termination_to_internal(terminated.reason());
+                info!(
+                    executor_id = executor_id.get(),
+                    container_id = %terminated.container_id,
+                    reason = ?reason,
+                    "ContainerTerminated ingested"
+                );
                 container_state_updates.push(ContainerStateUpdateInfo {
                     container_id: data_model::ContainerId::new(terminated.container_id),
                     termination_reason: Some(reason),
@@ -1736,6 +1764,10 @@ async fn command_stream_loop(
                         info!(
                             executor_id = executor_id.get(),
                             allocation_id = %allocation.id,
+                            request_id = %allocation.request_id,
+                            namespace = %allocation.namespace,
+                            app = %allocation.application,
+                            "fn" = %allocation.function,
                             "command_stream: emitting RunAllocation"
                         );
                         if grpc_tx.send(Ok(cmd)).await.is_err() {
@@ -1760,10 +1792,14 @@ async fn command_stream_loop(
                                 }
                                 _ => Default::default(),
                             };
-                            emitter.track_container(cid, desc);
+                            emitter.track_container(cid, desc.clone());
                             info!(
                                 executor_id = executor_id.get(),
                                 container_id = container_id.get(),
+                                namespace = ?desc.function.as_ref().and_then(|f| f.namespace.as_deref()),
+                                app = ?desc.function.as_ref().and_then(|f| f.application_name.as_deref()),
+                                "fn" = ?desc.function.as_ref().and_then(|f| f.function_name.as_deref()),
+                                sandbox_id = ?desc.sandbox_metadata.as_ref().and_then(|m| m.sandbox_id.as_deref()),
                                 "command_stream: emitting AddContainer"
                             );
                             if grpc_tx.send(Ok(cmd)).await.is_err() {
@@ -1773,6 +1809,8 @@ async fn command_stream_loop(
                     }
                     ExecutorEvent::ContainerRemoved(container_id) => {
                         let cid = container_id.get().to_string();
+                        // Capture function context from tracked description before untracking
+                        let tracked_desc = emitter.known_containers.get(&cid).cloned();
                         emitter.untrack_container(&cid);
                         let seq = emitter.next_seq();
                         let cmd = executor_api_pb::Command {
@@ -1787,6 +1825,9 @@ async fn command_stream_loop(
                         info!(
                             executor_id = executor_id.get(),
                             container_id = %cid,
+                            namespace = ?tracked_desc.as_ref().and_then(|d| d.function.as_ref()).and_then(|f| f.namespace.as_deref()),
+                            app = ?tracked_desc.as_ref().and_then(|d| d.function.as_ref()).and_then(|f| f.application_name.as_deref()),
+                            "fn" = ?tracked_desc.as_ref().and_then(|d| d.function.as_ref()).and_then(|f| f.function_name.as_deref()),
                             "command_stream: emitting RemoveContainer"
                         );
                         if grpc_tx.send(Ok(cmd)).await.is_err() {
@@ -1801,9 +1842,13 @@ async fn command_stream_loop(
                         )
                         .await
                         {
+                            let cid = container_id.get().to_string();
+                            let desc = emitter.known_containers.get(&cid);
                             info!(
                                 executor_id = executor_id.get(),
                                 container_id = container_id.get(),
+                                namespace = ?desc.and_then(|d| d.function.as_ref()).and_then(|f| f.namespace.as_deref()),
+                                sandbox_id = ?desc.and_then(|d| d.sandbox_metadata.as_ref()).and_then(|m| m.sandbox_id.as_deref()),
                                 "command_stream: emitting UpdateContainerDescription"
                             );
                             if grpc_tx.send(Ok(cmd)).await.is_err() {
@@ -1833,6 +1878,9 @@ async fn command_stream_loop(
                             info!(
                                 executor_id = executor_id.get(),
                                 function_call_id = %function_call_id,
+                                namespace = %namespace,
+                                app = %application,
+                                request_id = %request_id,
                                 "command_stream: emitting DeliverResult"
                             );
                             if grpc_tx.send(Ok(cmd)).await.is_err() {

@@ -121,6 +121,8 @@ pub(super) struct FELogCtx {
     pub version: String,
     pub fn_name: String,
     pub container_id: String,
+    pub sandbox_id: String,
+    pub pool_id: String,
 }
 
 impl FELogCtx {
@@ -144,6 +146,13 @@ impl FELogCtx {
                 .unwrap_or("")
                 .to_string(),
             container_id: desc.id.clone().unwrap_or_default(),
+            sandbox_id: desc
+                .sandbox_metadata
+                .as_ref()
+                .and_then(|m| m.sandbox_id.as_deref())
+                .unwrap_or("")
+                .to_string(),
+            pool_id: desc.pool_id.as_deref().unwrap_or("").to_string(),
         }
     }
 }
