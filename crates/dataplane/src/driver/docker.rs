@@ -346,7 +346,16 @@ struct ContainerSpec {
 impl DockerDriver {
     /// Create and start a Docker container from the given spec.
     /// Returns `(container_name, container_ip)`.
-    async fn create_and_start_container(&self, spec: ContainerSpec) -> Result<(String, String)> {
+    async fn create_and_start_container(&self, spec: ContainerSpec) -> Result<String> {
+        // Docker requires ExposedPorts in the container config alongside
+        // HostConfig.PortBindings for published ports to appear in
+        // NetworkSettings.Ports on inspect.
+        let exposed_ports: Option<Vec<String>> = spec
+            .host_config
+            .port_bindings
+            .as_ref()
+            .map(|bindings| bindings.keys().cloned().collect());
+
         let container_config = ContainerCreateBody {
             image: Some(spec.image),
             entrypoint: spec.entrypoint,
@@ -355,6 +364,7 @@ impl DockerDriver {
             labels: Some(spec.labels),
             working_dir: spec.working_dir,
             host_config: Some(spec.host_config),
+            exposed_ports,
             ..Default::default()
         };
 
@@ -402,13 +412,7 @@ impl DockerDriver {
                 )
             });
         }
-
-        let container_ip = self
-            .get_container_ip(&spec.container_name)
-            .await
-            .context("Failed to get container IP address")?;
-
-        Ok((spec.container_name, container_ip))
+        Ok(spec.container_name)
     }
 
     /// Build a base HostConfig with resource limits and driver-level settings
@@ -472,6 +476,18 @@ impl DockerDriver {
             Some(vec![config.command.clone()])
         };
 
+        let mut host_config = self.build_host_config(&config.resources);
+        host_config.port_bindings = Some(
+            [(
+                format!("{}/tcp", fe_grpc_port),
+                Some(vec![bollard::models::PortBinding {
+                    host_ip: Some("127.0.0.1".to_string()),
+                    host_port: Some("0".to_string()),
+                }]),
+            )]
+            .into(),
+        );
+
         ContainerSpec {
             container_name: format!("indexify-{}", config.id),
             image: image.to_string(),
@@ -480,7 +496,7 @@ impl DockerDriver {
             env: format_env(&config.env),
             labels: config.labels.iter().cloned().collect(),
             working_dir: config.working_dir.clone(),
-            host_config: self.build_host_config(&config.resources),
+            host_config,
         }
     }
 
@@ -495,6 +511,25 @@ impl DockerDriver {
             daemon_binary_path.display(),
             CONTAINER_DAEMON_PATH
         )]);
+        host_config.port_bindings = Some(
+            [
+                (
+                    format!("{}/tcp", DAEMON_GRPC_PORT),
+                    Some(vec![bollard::models::PortBinding {
+                        host_ip: Some("127.0.0.1".to_string()),
+                        host_port: Some("0".to_string()),
+                    }]),
+                ),
+                (
+                    format!("{}/tcp", DAEMON_HTTP_PORT),
+                    Some(vec![bollard::models::PortBinding {
+                        host_ip: Some("127.0.0.1".to_string()),
+                        host_port: Some("0".to_string()),
+                    }]),
+                ),
+            ]
+            .into(),
+        );
 
         let mut cmd: Vec<String> = vec![
             "--port".to_string(),
@@ -521,6 +556,46 @@ impl DockerDriver {
             working_dir: config.working_dir.clone(),
             host_config,
         })
+    }
+
+    /// Look up the host-side port that Docker mapped a container port to.
+    ///
+    /// Requires the container to have been started with the corresponding port
+    /// binding in its `HostConfig` (e.g. `127.0.0.1:0->9600/tcp`).
+    async fn get_network_binding(
+        &self,
+        container_name: &str,
+        container_port: u16,
+    ) -> Result<String> {
+        let inspect = self
+            .docker
+            .inspect_container(container_name, None::<InspectContainerOptions>)
+            .await
+            .context("Failed to inspect container for port mapping")?;
+
+        let port_key = format!("{}/tcp", container_port);
+        let port_binding = inspect
+            .network_settings
+            .and_then(|ns| ns.ports)
+            .and_then(|ports| ports.get(&port_key).cloned())
+            .flatten()
+            .and_then(|bindings| bindings.into_iter().next())
+            .with_context(|| {
+                format!(
+                    "Port {}/tcp not published by container {}",
+                    container_port, container_name
+                )
+            })?;
+
+        if let (Some(host), Some(port)) = (port_binding.host_ip, port_binding.host_port) {
+            Ok(format!("{}:{}", host, port))
+        } else {
+            Err(anyhow::anyhow!(
+                "Port {}/tcp not published by container {}",
+                container_port,
+                container_name
+            ))
+        }
     }
 }
 
@@ -558,24 +633,27 @@ impl ProcessDriver for DockerDriver {
                 }
             };
 
-        let (container_name, container_ip) = self.create_and_start_container(spec).await?;
+        let container_name = self.create_and_start_container(spec).await?;
 
-        let daemon_addr = format!("{}:{}", container_ip, grpc_port);
-        let http_addr = http_port.map(|p| format!("{}:{}", container_ip, p));
+        let grpc_addr = self.get_network_binding(&container_name, grpc_port).await?;
+        let http_addr = if let Some(hp) = http_port {
+            Some(self.get_network_binding(&container_name, hp).await?)
+        } else {
+            None
+        };
 
         info!(
             container = %container_name,
-            container_ip = %container_ip,
-            daemon_addr = %daemon_addr,
+            daemon_addr = %grpc_addr,
             http_addr = ?http_addr,
             "Container started"
         );
 
         Ok(ProcessHandle {
+            container_ip: self.get_container_ip(&container_name).await?,
             id: container_name,
-            daemon_addr: Some(daemon_addr),
+            daemon_addr: Some(grpc_addr),
             http_addr,
-            container_ip,
         })
     }
 
