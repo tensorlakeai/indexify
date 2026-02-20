@@ -684,8 +684,6 @@ impl ServiceRuntime {
                 return Ok(());
             }
 
-            tracing::debug!("Waiting for new desired executor state");
-
             let message = tokio::select! {
                 _ = self.cancel_token.cancelled() => {
                     tracing::info!("Command stream cancelled");

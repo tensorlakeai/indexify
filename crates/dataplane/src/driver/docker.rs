@@ -473,7 +473,7 @@ impl DockerDriver {
         };
 
         ContainerSpec {
-            container_name: format!("indexify-function-executor-{}", config.id),
+            container_name: format!("indexify-function-{}", config.id),
             image: image.to_string(),
             entrypoint,
             cmd,

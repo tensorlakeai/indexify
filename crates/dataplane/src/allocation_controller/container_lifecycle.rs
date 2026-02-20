@@ -653,7 +653,7 @@ async fn start_fe_process(
     let process_config = ProcessConfig {
         id: fe_id.clone(),
         process_type: ProcessType::Function,
-        image: Some(image),
+        image,
         command: config.fe_binary_path.clone(),
         args: vec![
             format!("--executor-id={}", config.executor_id),

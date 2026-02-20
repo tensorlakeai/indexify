@@ -75,8 +75,8 @@ impl ImageResolver for TestImageResolver {
         _app: &str,
         _function: &str,
         _version: &str,
-    ) -> anyhow::Result<String> {
-        Ok("test-image:latest".to_string())
+    ) -> anyhow::Result<Option<String>> {
+        Ok(Some("test-image:latest".to_string()))
     }
 }
 

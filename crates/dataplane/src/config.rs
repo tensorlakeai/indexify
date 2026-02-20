@@ -250,7 +250,7 @@ impl HttpProxyConfig {
     }
 }
 
-const DEFAULT_MONITORING_PORT: u16 = 7000;
+const DEFAULT_MONITORING_PORT: u16 = 8100;
 
 /// Configuration for the HTTP monitoring server.
 #[serde_inline_default]

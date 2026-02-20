@@ -20,7 +20,7 @@ pub trait ImageResolver: Send + Sync {
         app: &str,
         function: &str,
         version: &str,
-    ) -> anyhow::Result<String>;
+    ) -> anyhow::Result<Option<String>>;
 }
 
 /// Default image resolver that uses a configured fallback image.
@@ -76,7 +76,8 @@ impl ImageResolver for DefaultImageResolver {
         _app: &str,
         _function: &str,
         _version: &str,
-    ) -> anyhow::Result<String> {
-        self.resolve_or_bail("function")
+    ) -> anyhow::Result<Option<String>> {
+        let image = self.resolve_or_bail("function")?;
+        Ok(Some(image))
     }
 }
