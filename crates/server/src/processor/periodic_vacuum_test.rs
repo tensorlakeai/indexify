@@ -306,9 +306,9 @@ mod tests {
         let _alloc_id = add_allocation(&mut scheduler, &cid);
 
         // Container has an active allocation → idle_since is None
-        let candidates = scheduler.periodic_vacuum_candidates(Duration::from_secs(0));
+        let update = scheduler.periodic_vacuum(Duration::from_secs(0)).unwrap();
         assert!(
-            candidates.is_empty(),
+            update.containers.is_empty(),
             "busy container (with allocation) must not be vacuumed"
         );
     }
@@ -326,9 +326,9 @@ mod tests {
         finish_allocation(&mut scheduler, &cid, &alloc_id);
 
         // Container just became idle — too young for 300s threshold
-        let candidates = scheduler.periodic_vacuum_candidates(Duration::from_secs(300));
+        let update = scheduler.periodic_vacuum(Duration::from_secs(300)).unwrap();
         assert!(
-            candidates.is_empty(),
+            update.containers.is_empty(),
             "container that just became idle must not be vacuumed (below max_idle_age)"
         );
     }
@@ -349,13 +349,13 @@ mod tests {
         tokio::time::advance(Duration::from_secs(600)).await;
 
         // Idle for 600s > 300s threshold → vacuumed
-        let candidates = scheduler.periodic_vacuum_candidates(Duration::from_secs(300));
+        let update = scheduler.periodic_vacuum(Duration::from_secs(300)).unwrap();
         assert_eq!(
-            candidates.len(),
+            update.containers.len(),
             1,
             "idle container past threshold must be vacuumed"
         );
-        assert_eq!(candidates[0].0, cid);
+        assert!(update.containers.contains_key(&cid));
     }
 
     // ===================================================================
@@ -373,26 +373,34 @@ mod tests {
         // Step 2: Add allocation → busy
         let alloc_id = add_allocation(&mut scheduler, &cid);
         assert!(
-            scheduler.periodic_vacuum_candidates(max_idle).is_empty(),
+            scheduler
+                .periodic_vacuum(max_idle)
+                .unwrap()
+                .containers
+                .is_empty(),
             "step 2: busy container must not be vacuumed"
         );
 
         // Step 3: Finish allocation → idle again, but just now
         finish_allocation(&mut scheduler, &cid, &alloc_id);
         assert!(
-            scheduler.periodic_vacuum_candidates(max_idle).is_empty(),
+            scheduler
+                .periodic_vacuum(max_idle)
+                .unwrap()
+                .containers
+                .is_empty(),
             "step 3: recently-idle container must not be vacuumed"
         );
 
         // Step 4: Time passes beyond threshold
         tokio::time::advance(Duration::from_secs(600)).await;
-        let candidates = scheduler.periodic_vacuum_candidates(max_idle);
+        let update = scheduler.periodic_vacuum(max_idle).unwrap();
         assert_eq!(
-            candidates.len(),
+            update.containers.len(),
             1,
             "step 4: idle container past threshold must be vacuumed"
         );
-        assert_eq!(candidates[0].0, cid);
+        assert!(update.containers.contains_key(&cid));
     }
 
     // ===================================================================
@@ -408,12 +416,12 @@ mod tests {
             0,
         );
 
-        let warm_cid = add_warm_sandbox_container(&mut scheduler, &executor_id, "sandbox_pool");
+        let _warm_cid = add_warm_sandbox_container(&mut scheduler, &executor_id, "sandbox_pool");
         tokio::time::advance(Duration::from_secs(9999)).await;
 
-        let candidates = scheduler.periodic_vacuum_candidates(Duration::from_secs(0));
+        let update = scheduler.periodic_vacuum(Duration::from_secs(0)).unwrap();
         assert!(
-            !candidates.iter().any(|(id, _)| id == &warm_cid),
+            update.containers.is_empty(),
             "warm sandbox pool container must never be vacuumed"
         );
     }
@@ -433,13 +441,13 @@ mod tests {
             0,
         );
 
-        let claimed_cid =
+        let _claimed_cid =
             add_claimed_sandbox_container(&mut scheduler, &executor_id, "sandbox_pool");
         tokio::time::advance(Duration::from_secs(9999)).await;
 
-        let candidates = scheduler.periodic_vacuum_candidates(Duration::from_secs(0));
+        let update = scheduler.periodic_vacuum(Duration::from_secs(0)).unwrap();
         assert!(
-            !candidates.iter().any(|(id, _)| id == &claimed_cid),
+            update.containers.is_empty(),
             "claimed sandbox container must not be vacuumed (sandbox lifecycle manages these)"
         );
     }
@@ -471,24 +479,22 @@ mod tests {
         // Advance time past threshold for all idle containers
         tokio::time::advance(Duration::from_secs(9999)).await;
 
-        let candidates = scheduler.periodic_vacuum_candidates(Duration::from_secs(300));
-        let vacuumed_ids: HashSet<ContainerId> =
-            candidates.iter().map(|(id, _)| id.clone()).collect();
+        let update = scheduler.periodic_vacuum(Duration::from_secs(300)).unwrap();
 
         assert!(
-            vacuumed_ids.contains(&fn_cid),
+            update.containers.contains_key(&fn_cid),
             "idle function container must be vacuumed"
         );
         assert!(
-            !vacuumed_ids.contains(&busy_cid),
+            !update.containers.contains_key(&busy_cid),
             "busy function container must NOT be vacuumed"
         );
         assert!(
-            !vacuumed_ids.contains(&warm_cid),
+            !update.containers.contains_key(&warm_cid),
             "warm sandbox pool container must NOT be vacuumed"
         );
         assert!(
-            !vacuumed_ids.contains(&claimed_cid),
+            !update.containers.contains_key(&claimed_cid),
             "claimed sandbox container must NOT be vacuumed (sandbox lifecycle)"
         );
     }
@@ -510,14 +516,14 @@ mod tests {
         tokio::time::advance(Duration::from_secs(9999)).await;
 
         // Vacuum → only 1 should be vacuumed (3 - min 2 = 1 evictable)
-        let candidates = scheduler.periodic_vacuum_candidates(Duration::from_secs(0));
+        let update = scheduler.periodic_vacuum(Duration::from_secs(0)).unwrap();
         assert_eq!(
-            candidates.len(),
+            update.containers.len(),
             1,
             "only 1 container should be vacuumed (min_containers=2, total=3)"
         );
 
-        let vacuumed_id = &candidates[0].0;
+        let vacuumed_id = update.containers.keys().next().unwrap();
         assert!(
             *vacuumed_id == cid1 || *vacuumed_id == cid2 || *vacuumed_id == cid3,
             "vacuumed container must be one of the pool's containers"
@@ -547,9 +553,9 @@ mod tests {
         update.containers.insert(cid.clone(), Box::new(terminated));
         apply_update(&mut scheduler, update);
 
-        let candidates = scheduler.periodic_vacuum_candidates(Duration::from_secs(0));
+        let update = scheduler.periodic_vacuum(Duration::from_secs(0)).unwrap();
         assert!(
-            candidates.is_empty(),
+            update.containers.is_empty(),
             "already-terminated container must not appear in vacuum candidates"
         );
     }

@@ -1167,6 +1167,59 @@ impl ContainerScheduler {
         Ok(Some(update))
     }
 
+    /// Perform periodic cluster vacuum: find idle containers, mark them
+    /// terminated, apply locally, and return the update for persistence.
+    ///
+    /// Returns an empty update if nothing was vacuumed.
+    #[tracing::instrument(skip_all)]
+    pub fn periodic_vacuum(
+        &mut self,
+        max_idle_age: std::time::Duration,
+    ) -> Result<SchedulerUpdateRequest> {
+        let candidates = self.periodic_vacuum_candidates(max_idle_age);
+        if candidates.is_empty() {
+            return Ok(SchedulerUpdateRequest::default());
+        }
+
+        info!(
+            num_candidates = candidates.len(),
+            "cluster vacuum: terminating idle containers"
+        );
+
+        // Follow the same pattern as the reactive vacuum in create_container():
+        // mark containers as terminated and include executor state so the
+        // executor gets notified — but do NOT free resources. Resources are
+        // freed later when the executor confirms termination.
+        let mut scheduler_update = SchedulerUpdateRequest::default();
+        for (container_id, fc) in &candidates {
+            let mut terminated = fc.clone();
+            terminated.desired_state = ContainerState::Terminated {
+                reason: ContainerTerminationReason::DesiredStateRemoved,
+            };
+            scheduler_update
+                .containers
+                .insert(container_id.clone(), Box::new(terminated));
+
+            if let Some(executor_state) = self.executor_states.get(&fc.executor_id) {
+                scheduler_update
+                    .updated_executor_states
+                    .insert(fc.executor_id.clone(), executor_state.clone());
+            }
+
+            info!(
+                container_id = container_id.get(),
+                executor_id = fc.executor_id.get(),
+                "cluster vacuum: marking idle container for termination"
+            );
+        }
+
+        self.update(&RequestPayload::SchedulerUpdate(
+            SchedulerUpdatePayload::new(scheduler_update.clone()),
+        ))?;
+
+        Ok(scheduler_update)
+    }
+
     /// Return containers eligible for periodic cluster vacuum.
     ///
     /// A container is eligible when:
@@ -1175,8 +1228,7 @@ impl ContainerScheduler {
     /// - It passes `fe_can_be_removed` (Function type, no allocations, not on
     ///   an executor allowlist — this also excludes all Sandbox containers)
     /// - Removing it would not drop the pool below `min_containers`
-    #[tracing::instrument(skip_all)]
-    pub fn periodic_vacuum_candidates(
+    fn periodic_vacuum_candidates(
         &self,
         max_idle_age: std::time::Duration,
     ) -> Vec<(ContainerId, ContainerServerMetadata)> {

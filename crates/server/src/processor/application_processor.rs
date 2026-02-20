@@ -678,55 +678,12 @@ impl ApplicationProcessor {
         let container_scheduler = self.indexify_state.container_scheduler.read().await.clone();
         let mut container_scheduler_guard = container_scheduler.write().await;
 
-        let candidates =
-            container_scheduler_guard.periodic_vacuum_candidates(self.cluster_vacuum_max_idle_age);
+        let scheduler_update =
+            container_scheduler_guard.periodic_vacuum(self.cluster_vacuum_max_idle_age)?;
 
-        if candidates.is_empty() {
+        if scheduler_update.containers.is_empty() {
             return Ok(());
         }
-
-        info!(
-            num_candidates = candidates.len(),
-            "cluster vacuum: terminating idle containers"
-        );
-
-        // Follow the same pattern as the reactive vacuum in create_container():
-        // mark containers as terminated and include executor state so the
-        // executor gets notified — but do NOT free resources. Resources are
-        // freed later when the executor confirms termination.
-        let mut scheduler_update = SchedulerUpdateRequest::default();
-        for (container_id, fc) in &candidates {
-            let mut terminated = fc.clone();
-            terminated.desired_state = data_model::ContainerState::Terminated {
-                reason: data_model::ContainerTerminationReason::DesiredStateRemoved,
-            };
-            scheduler_update
-                .containers
-                .insert(container_id.clone(), Box::new(terminated));
-
-            // Include executor state so the executor receives the updated
-            // desired state and terminates the container.
-            if let Some(executor_state) = container_scheduler_guard
-                .executor_states
-                .get(&fc.executor_id)
-            {
-                scheduler_update
-                    .updated_executor_states
-                    .insert(fc.executor_id.clone(), executor_state.clone());
-            }
-
-            info!(
-                container_id = container_id.get(),
-                executor_id = fc.executor_id.get(),
-                "cluster vacuum: marking idle container for termination"
-            );
-        }
-
-        // Apply to local clone so subsequent scheduler operations see
-        // the terminated state.
-        container_scheduler_guard.update(&RequestPayload::SchedulerUpdate(
-            SchedulerUpdatePayload::new(scheduler_update.clone()),
-        ))?;
 
         self.indexify_state
             .write(StateMachineUpdateRequest {
