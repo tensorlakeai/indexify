@@ -553,10 +553,10 @@ mod tests {
         test_heartbeat_no_retry(FunctionExecutorTerminationReason::FunctionCancelled, 0).await
     }
 
-    // Command-based: Unknown counts against retries.
+    // Command-based: Unknown → FunctionExecutorTerminated is a free-retry reason.
     #[tokio::test]
-    async fn test_cmd_retry_counted_on_unknown() -> Result<()> {
-        test_cmd_retry_attempt_used(
+    async fn test_cmd_free_retry_on_unknown() -> Result<()> {
+        test_cmd_free_retry_from_termination(
             FunctionExecutorTerminationReason::Unknown,
             TEST_FN_MAX_RETRIES,
         )
@@ -564,14 +564,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_cmd_retry_counted_on_unknown_no_retries() -> Result<()> {
-        test_cmd_retry_attempt_used(FunctionExecutorTerminationReason::Unknown, 0).await
+    async fn test_cmd_free_retry_on_unknown_no_retries() -> Result<()> {
+        test_cmd_free_retry_from_termination(FunctionExecutorTerminationReason::Unknown, 0).await
     }
 
-    // Command-based: DesiredStateRemoved counts against retries.
+    // Command-based: DesiredStateRemoved → FunctionExecutorTerminated is a
+    // free-retry reason.
     #[tokio::test]
-    async fn test_cmd_retry_counted_on_desired_state_removed() -> Result<()> {
-        test_cmd_retry_attempt_used(
+    async fn test_cmd_free_retry_on_desired_state_removed() -> Result<()> {
+        test_cmd_free_retry_from_termination(
             FunctionExecutorTerminationReason::DesiredStateRemoved,
             TEST_FN_MAX_RETRIES,
         )
@@ -579,8 +580,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_cmd_retry_counted_on_desired_state_removed_no_retries() -> Result<()> {
-        test_cmd_retry_attempt_used(FunctionExecutorTerminationReason::DesiredStateRemoved, 0).await
+    async fn test_cmd_free_retry_on_desired_state_removed_no_retries() -> Result<()> {
+        test_cmd_free_retry_from_termination(
+            FunctionExecutorTerminationReason::DesiredStateRemoved,
+            0,
+        )
+        .await
     }
 
     /// Test the command-based ingestion path (AllocationFailed via
@@ -621,6 +626,57 @@ mod tests {
         test_srv.process_all_state_changes().await?;
 
         // Free retry: attempt stays at 0, function run still allocated (re-queued).
+        let function_runs = test_srv.get_all_function_runs().await?;
+        assert_eq!(1, function_runs.len());
+        assert_eq!(0, function_runs.first().unwrap().attempt_number);
+        assert_function_run_counts!(test_srv, total: 1, allocated: 1, pending: 0, completed_success: 0);
+
+        Ok(())
+    }
+
+    /// Test the command-based path for `FunctionExecutorTerminationReason`s
+    /// that map to free-retry failure reasons. Verifies both the
+    /// termination → failure reason conversion AND the free retry behavior
+    /// (re-queued without incrementing attempt_number).
+    async fn test_cmd_free_retry_from_termination(
+        reason: FunctionExecutorTerminationReason,
+        max_retries: u32,
+    ) -> Result<()> {
+        let task_failure_reason = FunctionRunFailureReason::from(&reason);
+        assert!(task_failure_reason.is_retriable());
+        assert!(!task_failure_reason.should_count_against_function_run_retry_attempts());
+
+        let test_srv = testing::TestService::new().await?;
+        let indexify_state = test_srv.service.indexify_state.clone();
+
+        test_state_store::with_simple_retry_application(&indexify_state, max_retries).await;
+        test_srv.process_all_state_changes().await?;
+
+        let mut executor = test_srv
+            .create_executor(mock_executor_metadata(TEST_EXECUTOR_ID.into()))
+            .await?;
+        test_srv.process_all_state_changes().await?;
+
+        assert_function_run_counts!(test_srv, total: 1, allocated: 1, pending: 0, completed_success: 0);
+
+        // Receive the allocation from the command stream.
+        let commands = executor.recv_commands().await;
+        assert_eq!(1, commands.run_allocations.len());
+        let allocation = &commands.run_allocations[0];
+
+        // Fail the allocation with the converted failure reason via the v2 protocol
+        // path.
+        executor
+            .report_allocation_activities(vec![TestExecutor::make_allocation_failed(
+                allocation,
+                task_failure_reason,
+                None,
+                None,
+            )])
+            .await?;
+        test_srv.process_all_state_changes().await?;
+
+        // Free retry: attempt stays at 0, function run re-allocated.
         let function_runs = test_srv.get_all_function_runs().await?;
         assert_eq!(1, function_runs.len());
         assert_eq!(0, function_runs.first().unwrap().attempt_number);

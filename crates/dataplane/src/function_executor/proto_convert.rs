@@ -341,23 +341,27 @@ pub fn allocation_result_to_stream_request(
             ),
         }
     } else {
-        AllocationStreamRequest {
-            executor_id: String::new(),
-            message: Some(executor_api_pb::allocation_stream_request::Message::Failed(
-                executor_api_pb::AllocationFailed {
-                    allocation_id: result.allocation_id.clone().unwrap_or_default(),
-                    reason: result
-                        .failure_reason
-                        .unwrap_or(executor_api_pb::AllocationFailureReason::InternalError as i32),
-                    function: result.function.clone(),
-                    function_call_id: result.function_call_id.clone(),
-                    request_id: result.request_id.clone(),
-                    request_error: result.request_error.clone(),
-                    execution_duration_ms: result.execution_duration_ms,
-                    container_id,
-                },
-            )),
-        }
+        // Build a minimal Allocation to reuse make_allocation_failed_stream_request.
+        let alloc = executor_api_pb::Allocation {
+            allocation_id: result.allocation_id.clone(),
+            function: result.function.clone(),
+            function_call_id: result.function_call_id.clone(),
+            request_id: result.request_id.clone(),
+            ..Default::default()
+        };
+        let failure_reason = executor_api_pb::AllocationFailureReason::try_from(
+            result
+                .failure_reason
+                .unwrap_or(executor_api_pb::AllocationFailureReason::InternalError as i32),
+        )
+        .unwrap_or(executor_api_pb::AllocationFailureReason::InternalError);
+        make_allocation_failed_stream_request(
+            &alloc,
+            failure_reason,
+            result.request_error.clone(),
+            result.execution_duration_ms,
+            container_id,
+        )
     }
 }
 

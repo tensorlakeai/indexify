@@ -882,6 +882,50 @@ mod tests {
         Ok(())
     }
 
+    /// Test that a free-retry failure reason re-queues the function run
+    /// without incrementing attempt_number.
+    async fn test_function_run_free_retry(
+        reason: FunctionRunFailureReason,
+        max_retries: u32,
+    ) -> Result<()> {
+        assert!(reason.is_retriable());
+        assert!(!reason.should_count_against_function_run_retry_attempts());
+
+        let test_srv = testing::TestService::new().await?;
+        let indexify_state = test_srv.service.indexify_state.clone();
+
+        test_state_store::with_simple_retry_application(&indexify_state, max_retries).await;
+        test_srv.process_all_state_changes().await?;
+
+        let mut executor = test_srv
+            .create_executor(mock_executor_metadata(TEST_EXECUTOR_ID.into()))
+            .await?;
+        test_srv.process_all_state_changes().await?;
+
+        assert_function_run_counts!(test_srv, total: 1, allocated: 1, pending: 0, completed_success: 0);
+
+        // Receive and fail the allocation with a free-retry reason.
+        let cmds = executor.recv_commands().await;
+        let allocation = &cmds.run_allocations[0];
+        executor
+            .report_allocation_activities(vec![TestExecutor::make_allocation_failed(
+                allocation,
+                reason.clone(),
+                None,
+                None,
+            )])
+            .await?;
+        test_srv.process_all_state_changes().await?;
+
+        // Free retry: attempt stays at 0, function run re-allocated.
+        let function_runs = test_srv.get_all_function_runs().await?;
+        assert_eq!(1, function_runs.len());
+        assert_eq!(0, function_runs.first().unwrap().attempt_number);
+        assert_function_run_counts!(test_srv, total: 1, allocated: 1, pending: 0, completed_success: 0);
+
+        Ok(())
+    }
+
     #[tokio::test]
     async fn test_task_retry_attempt_used_on_internal_error() -> Result<()> {
         test_function_run_retry_attempt_used(
@@ -925,8 +969,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_function_run_retry_attempt_used_on_function_executor_terminated() -> Result<()> {
-        test_function_run_retry_attempt_used(
+    async fn test_function_run_free_retry_on_function_executor_terminated() -> Result<()> {
+        test_function_run_free_retry(
             FunctionRunFailureReason::FunctionExecutorTerminated,
             TEST_FN_MAX_RETRIES,
         )
@@ -934,13 +978,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_function_run_retry_attempt_used_on_function_executor_terminated_no_retries()
-    -> Result<()> {
-        test_function_run_retry_attempt_used(
-            FunctionRunFailureReason::FunctionExecutorTerminated,
-            0,
-        )
-        .await
+    async fn test_function_run_free_retry_on_function_executor_terminated_no_retries() -> Result<()>
+    {
+        test_function_run_free_retry(FunctionRunFailureReason::FunctionExecutorTerminated, 0).await
     }
 
     #[tokio::test]

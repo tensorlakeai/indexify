@@ -228,6 +228,13 @@ impl AllocationRunner {
         }
     }
 
+    /// Returns `true` if the allocation should time out now.
+    /// Returns `false` (and resets the deadline) if the allocation has active
+    /// child function call watchers — children have their own timeouts.
+    fn should_timeout(&self) -> bool {
+        self.watcher_map.is_empty()
+    }
+
     /// Top-level execution flow: create allocation on FE, open stream, run
     /// reconciliation loop, convert result.
     async fn run(&mut self, prepared: PreparedAllocation) -> AllocationOutcome {
@@ -333,12 +340,7 @@ impl AllocationRunner {
             }
 
             if Instant::now() > deadline {
-                // Don't time out while waiting for child function calls.
-                // The children have their own timeouts; the parent should
-                // wait for them to complete.
-                if !self.watcher_map.is_empty() {
-                    deadline = Instant::now() + self.timeout;
-                } else {
+                if self.should_timeout() {
                     warn!(
                         allocation_id = %self.allocation_id,
                         request_id = ?self.allocation.request_id,
@@ -356,6 +358,7 @@ impl AllocationRunner {
                     );
                     break;
                 }
+                deadline = Instant::now() + self.timeout;
             }
 
             let remaining = deadline.saturating_duration_since(Instant::now());
@@ -441,11 +444,7 @@ impl AllocationRunner {
                             break;
                         }
                         Err(_) => {
-                            // Don't time out while waiting for child function
-                            // calls. The children have their own timeouts.
-                            if !self.watcher_map.is_empty() {
-                                deadline = Instant::now() + self.timeout;
-                            } else {
+                            if self.should_timeout() {
                                 warn!(
                                     allocation_id = %self.allocation_id,
                                     request_id = ?self.allocation.request_id,
@@ -462,6 +461,7 @@ impl AllocationRunner {
                                     .await);
                                 break;
                             }
+                            deadline = Instant::now() + self.timeout;
                         }
                     }
                 }
@@ -520,16 +520,7 @@ impl AllocationRunner {
         &mut self,
         response: proto_api::executor_api_pb::AllocationStreamResponse,
     ) {
-        let fc_id = response
-            .log_entry
-            .as_ref()
-            .and_then(|e| e.entry.as_ref())
-            .and_then(|entry| match entry {
-                proto_api::executor_api_pb::allocation_log_entry::Entry::FunctionCallResult(r) => {
-                    r.function_call_id.clone()
-                }
-                _ => None,
-            });
+        let fc_id = Self::extract_function_call_id(&response);
 
         // Look up watcher_id from the map (keyed by function_call_id which
         // equals the watcher's root_function_call_id for blocking calls).
@@ -645,16 +636,7 @@ impl AllocationRunner {
             let mut still_pending = Vec::new();
 
             for response in pending {
-                let fc_id = response
-                    .log_entry
-                    .as_ref()
-                    .and_then(|e| e.entry.as_ref())
-                    .and_then(|entry| match entry {
-                        proto_api::executor_api_pb::allocation_log_entry::Entry::FunctionCallResult(r) => {
-                            r.function_call_id.clone()
-                        }
-                        _ => None,
-                    });
+                let fc_id = Self::extract_function_call_id(&response);
 
                 let watcher_id = fc_id
                     .as_deref()
@@ -671,6 +653,23 @@ impl AllocationRunner {
 
             self.pending_results = still_pending;
         }
+    }
+
+    /// Extract the function_call_id from an AllocationStreamResponse, if
+    /// present.
+    fn extract_function_call_id(
+        response: &proto_api::executor_api_pb::AllocationStreamResponse,
+    ) -> Option<String> {
+        response
+            .log_entry
+            .as_ref()
+            .and_then(|e| e.entry.as_ref())
+            .and_then(|entry| match entry {
+                proto_api::executor_api_pb::allocation_log_entry::Entry::FunctionCallResult(r) => {
+                    r.function_call_id.clone()
+                }
+                _ => None,
+            })
     }
 
     /// Delegate reconciliation to the focused modules.

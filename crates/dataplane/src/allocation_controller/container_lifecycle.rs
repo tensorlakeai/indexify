@@ -16,7 +16,7 @@ use tracing::{Instrument, error, info, warn};
 use super::{
     AllocationController,
     events::ACEvent,
-    types::{AllocationState, ContainerState, FELogCtx, ManagedFE},
+    types::{ContainerState, FELogCtx, ManagedFE},
 };
 use crate::{
     driver::{ProcessConfig, ProcessHandle, ProcessType},
@@ -150,11 +150,7 @@ impl AllocationController {
 
         // Fail all allocations for this FE (no blame — container removed from desired
         // set)
-        self.fail_allocations_for_fe(
-            fe_id,
-            AllocationFailureReason::FunctionExecutorTerminated,
-            &[],
-        );
+        self.fail_allocations_for_fe(fe_id, AllocationFailureReason::FunctionExecutorTerminated);
 
         // Return GPUs
         let gpu_allocator = self.config.gpu_allocator.clone();
@@ -439,28 +435,13 @@ impl AllocationController {
                     FunctionExecutorTerminationReason::StartupFailedInternalError
                 };
 
-                // Blame all allocations assigned to this container — they
-                // cannot run if the container can't start.
-                let blamed_alloc_ids: Vec<String> = self
-                    .allocations
-                    .iter()
-                    .filter(|(_, alloc)| alloc.fe_id == fe_id)
-                    .filter(|(_, alloc)| {
-                        !matches!(
-                            alloc.state,
-                            AllocationState::Done | AllocationState::Finalizing { .. }
-                        )
-                    })
-                    .map(|(id, _)| id.clone())
-                    .collect();
-
                 let fe = self.containers.get_mut(&fe_id).unwrap();
                 fe.state = ContainerState::Terminated { reason };
 
                 // Fail all allocations — all blamed since container couldn't start.
                 let failure_reason =
                     crate::function_executor::proto_convert::termination_to_failure_reason(reason);
-                self.fail_allocations_for_fe(&fe_id, failure_reason, &blamed_alloc_ids);
+                self.fail_allocations_for_fe(&fe_id, failure_reason);
 
                 // Return GPUs
                 let gpu_allocator = self.config.gpu_allocator.clone();
@@ -519,56 +500,7 @@ impl AllocationController {
             _ => None,
         };
 
-        // Compute blamed allocation IDs before transitioning state.
-        //
-        // If allocations were Running when the container died, blame them —
-        // their code likely caused the termination (OOM, crash, etc.).
-        // Non-blamed allocations (e.g. WaitingForSlot) get a free retry.
-        //
-        // Special case: OOM with no Running allocations means the container's
-        // own startup/overhead exceeded the memory limit. Blame all allocations
-        // so the server applies the retry policy instead of retrying forever.
-        //
-        // `blamed_allocation_id` is set when the gRPC stream breaks due to a
-        // process crash. The allocation runner detects the failure and
-        // transitions the allocation to Finalizing *before* the health checker
-        // fires ContainerTerminated. By the time we get here, the allocation
-        // is no longer Running. The caller passes the allocation ID explicitly
-        // so we can include it in the blamed list regardless of its current
-        // state.
-        let mut running_allocs: Vec<String> = self
-            .allocations
-            .iter()
-            .filter(|(_, alloc)| alloc.fe_id == fe_id)
-            .filter(|(_, alloc)| matches!(alloc.state, AllocationState::Running { .. }))
-            .map(|(id, _)| id.clone())
-            .collect();
-
-        // Merge in the explicitly blamed allocation (if not already present).
-        if let Some(blamed_id) = blamed_allocation_id &&
-            !running_allocs.contains(&blamed_id)
-        {
-            running_allocs.push(blamed_id);
-        }
-
-        let blamed_alloc_ids = if !running_allocs.is_empty() {
-            running_allocs
-        } else if reason == FunctionExecutorTerminationReason::Oom {
-            // OOM during container startup/overhead — blame all non-terminal allocations.
-            self.allocations
-                .iter()
-                .filter(|(_, alloc)| alloc.fe_id == fe_id)
-                .filter(|(_, alloc)| {
-                    !matches!(
-                        alloc.state,
-                        AllocationState::Done | AllocationState::Finalizing { .. }
-                    )
-                })
-                .map(|(id, _)| id.clone())
-                .collect()
-        } else {
-            vec![]
-        };
+        let _ = blamed_allocation_id; // No longer used for per-alloc blame.
 
         fe.state = ContainerState::Terminated { reason };
 
@@ -576,7 +508,7 @@ impl AllocationController {
         // failure reason; non-blamed get FunctionExecutorTerminated (free retry).
         let failure_reason =
             crate::function_executor::proto_convert::termination_to_failure_reason(reason);
-        self.fail_allocations_for_fe(&fe_id, failure_reason, &blamed_alloc_ids);
+        self.fail_allocations_for_fe(&fe_id, failure_reason);
 
         // Kill process & return GPUs
         if let Some(handle) = handle_to_kill {
