@@ -557,4 +557,99 @@ mod tests {
             "Executor with sandbox should NOT be ready for teardown"
         );
     }
+
+    #[tokio::test]
+    async fn test_executor_ready_for_teardown_with_pool_container() {
+        let test_srv = TestService::new().await.unwrap();
+        let indexify_state = test_srv.service.indexify_state.clone();
+
+        // Create an executor
+        let executor_id = format!("{}-pool", TEST_EXECUTOR_ID);
+        let executor = mock_executor_metadata(executor_id.clone().into());
+        test_srv.create_executor(executor).await.unwrap();
+
+        // Process state changes to register the executor
+        test_srv.process_all_state_changes().await.unwrap();
+
+        // Simulate a warm sandbox pool container by inserting a Sandbox-type
+        // container with a pool_id (no active allocation, no sandbox)
+        {
+            use crate::data_model::{
+                ContainerBuilder,
+                ContainerPoolId,
+                ContainerServerMetadataBuilder,
+                ContainerState,
+                ContainerType,
+            };
+
+            let container_id =
+                crate::data_model::ContainerId::new("warm-pool-container-1".to_string());
+
+            let container = ContainerBuilder::default()
+                .id(container_id.clone())
+                .namespace(TEST_NAMESPACE.to_string())
+                .application_name(String::new())
+                .function_name("pool:test-pool".to_string())
+                .version(String::new())
+                .state(ContainerState::Running)
+                .resources(ContainerResources {
+                    cpu_ms_per_sec: 100,
+                    memory_mb: 256,
+                    ephemeral_disk_mb: 1024,
+                    gpu: None,
+                })
+                .max_concurrency(1u32)
+                .pool_id(Some(ContainerPoolId::new("test-pool")))
+                .build()
+                .unwrap();
+
+            let container_meta = ContainerServerMetadataBuilder::default()
+                .executor_id(executor_id.clone().into())
+                .function_container(container)
+                .desired_state(ContainerState::Running)
+                .container_type(ContainerType::Sandbox)
+                .build()
+                .unwrap();
+
+            let mut container_sched = indexify_state.container_scheduler.write().await;
+            if let Some(executor_state) = container_sched
+                .executor_states
+                .get_mut(&executor_id.clone().into())
+            {
+                executor_state
+                    .function_container_ids
+                    .insert(container_id.clone());
+            }
+            container_sched
+                .function_containers
+                .insert(container_id, Box::new(container_meta));
+        }
+
+        // Create route state
+        let route_state = RouteState {
+            indexify_state: indexify_state.clone(),
+            blob_storage: test_srv.service.blob_storage_registry.clone(),
+            executor_manager: test_srv.service.executor_manager.clone(),
+            metrics: std::sync::Arc::new(crate::metrics::api_io_stats::Metrics::new()),
+            config: test_srv.service.config.clone(),
+        };
+
+        // Call list_executors
+        let result = crate::routes_internal::list_executors(axum::extract::State(route_state))
+            .await
+            .unwrap();
+
+        // Find our executor
+        let executor_metadata = result
+            .0
+            .iter()
+            .find(|e| e.id == executor_id)
+            .expect("Executor should be in the list");
+
+        // Executor with a warm pool container should NOT be ready for teardown
+        assert!(
+            !executor_metadata.ready_for_teardown,
+            "Executor with warm pool container should NOT be ready for teardown"
+        );
+    }
 }

@@ -21,6 +21,7 @@ use crate::{
         Allocation as DataModelAllocation,
         AllocationId,
         ContainerId,
+        ContainerType,
         ExecutorId,
         SandboxKey,
     },
@@ -339,20 +340,27 @@ pub(crate) async fn list_executors(
     for executor in executors {
         if let Some(fe_server_metadata) = container_sched.executor_states.get(&executor.id) {
             let mut function_container_server_meta = HashMap::new();
+            let mut has_pool_containers = false;
             for container_id in &fe_server_metadata.function_container_ids {
                 let Some(fe_metadata) = container_sched.function_containers.get(container_id)
                 else {
                     continue;
                 };
+                if fe_metadata.container_type == ContainerType::Sandbox &&
+                    fe_metadata.function_container.pool_id.is_some()
+                {
+                    has_pool_containers = true;
+                }
                 function_container_server_meta.insert(container_id.clone(), fe_metadata.clone());
             }
 
             // Compute readiness for teardown
-            let ready_for_teardown = is_executor_ready_for_teardown(
-                &executor.id,
-                &in_memory_state.allocations_by_executor,
-                &in_memory_state.sandboxes_by_executor,
-            );
+            let ready_for_teardown = !has_pool_containers &&
+                is_executor_ready_for_teardown(
+                    &executor.id,
+                    &in_memory_state.allocations_by_executor,
+                    &in_memory_state.sandboxes_by_executor,
+                );
 
             http_executors.push(from_data_model_executor_metadata(
                 executor,
