@@ -77,7 +77,6 @@ impl ImageResolver for DefaultImageResolver {
         _function: &str,
         _version: &str,
     ) -> anyhow::Result<Option<String>> {
-        let image = self.resolve_or_bail("function")?;
-        Ok(Some(image))
+        Ok(self.default_image.clone())
     }
 }

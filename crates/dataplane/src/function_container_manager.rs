@@ -928,14 +928,11 @@ mod tests {
                 .contains("No image configured")
         );
 
-        let result = resolver.function_image("ns", "app", "fn", "v1").await;
-        assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("No image configured")
-        );
+        let result = resolver
+            .function_image("ns", "app", "fn", "v1")
+            .await
+            .unwrap();
+        assert!(result.is_none());
     }
 
     #[test]
