@@ -1190,6 +1190,7 @@ impl ContainerScheduler {
         // mark containers as terminated and include executor state so the
         // executor gets notified — but do NOT free resources. Resources are
         // freed later when the executor confirms termination.
+        let now = tokio::time::Instant::now();
         let mut scheduler_update = SchedulerUpdateRequest::default();
         for (container_id, fc) in &candidates {
             let mut terminated = fc.clone();
@@ -1209,6 +1210,14 @@ impl ContainerScheduler {
             info!(
                 container_id = container_id.get(),
                 executor_id = fc.executor_id.get(),
+                namespace = fc.function_container.namespace,
+                application = fc.function_container.application_name,
+                function = fc.function_container.function_name,
+                version = fc.function_container.version,
+                idle_secs = fc
+                    .idle_since
+                    .map(|t| now.duration_since(t).as_secs())
+                    .unwrap_or(0),
                 "cluster vacuum: marking idle container for termination"
             );
         }

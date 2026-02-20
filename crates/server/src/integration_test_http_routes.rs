@@ -23,7 +23,12 @@ mod tests {
         routes::routes_state::RouteState,
         routes_internal::list_executors,
         state_store::{
-            requests::{CreateSandboxRequest, RequestPayload, StateMachineUpdateRequest},
+            requests::{
+                CreateSandboxRequest,
+                RequestPayload,
+                SchedulerUpdatePayload,
+                StateMachineUpdateRequest,
+            },
             test_state_store::with_simple_application,
         },
         testing::{TestExecutor, TestService},
@@ -419,7 +424,7 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn test_executor_ready_for_teardown_with_terminal_allocations() {
         let test_srv = TestService::new().await.unwrap();
         let indexify_state = test_srv.service.indexify_state.clone();
@@ -460,7 +465,8 @@ mod tests {
 
         test_srv.process_all_state_changes().await.unwrap();
 
-        // Create route state
+        // --- Phase 1: executor has idle container → NOT ready for teardown ---
+
         let route_state = RouteState {
             indexify_state: indexify_state.clone(),
             blob_storage: test_srv.service.blob_storage_registry.clone(),
@@ -469,22 +475,74 @@ mod tests {
             config: test_srv.service.config.clone(),
         };
 
-        // Call list_executors
         let result = crate::routes_internal::list_executors(axum::extract::State(route_state))
             .await
             .unwrap();
 
-        // Find our executor
         let executor_metadata = result
             .0
             .iter()
             .find(|e| e.id == executor_id)
             .expect("Executor should be in the list");
 
-        // Executor with only terminal allocations should be ready for teardown
+        // Executor still has a non-terminated function container (the one that
+        // ran the allocation), so it should NOT be ready for teardown yet.
+        assert!(
+            !executor_metadata.ready_for_teardown,
+            "Executor with non-terminated containers should NOT be ready for teardown"
+        );
+
+        // --- Phase 2: advance time, run vacuum → container terminated → ready ---
+
+        // Advance time past the vacuum idle threshold
+        let max_idle_age = std::time::Duration::from_secs(300);
+        tokio::time::advance(std::time::Duration::from_secs(600)).await;
+
+        // Run periodic vacuum on the container scheduler
+        let scheduler_update = {
+            let container_scheduler = indexify_state.container_scheduler.read().await.clone();
+            let mut guard = container_scheduler.write().await;
+            guard.periodic_vacuum(max_idle_age).unwrap()
+        };
+
+        assert!(
+            !scheduler_update.containers.is_empty(),
+            "vacuum should have terminated the idle container"
+        );
+
+        // Persist the vacuum update (mirrors handle_cluster_vacuum)
+        indexify_state
+            .write(StateMachineUpdateRequest {
+                payload: RequestPayload::SchedulerUpdate(SchedulerUpdatePayload {
+                    update: Box::new(scheduler_update),
+                    processed_state_changes: vec![],
+                }),
+            })
+            .await
+            .unwrap();
+
+        // Re-query: executor should now be ready for teardown
+        let route_state = RouteState {
+            indexify_state: indexify_state.clone(),
+            blob_storage: test_srv.service.blob_storage_registry.clone(),
+            executor_manager: test_srv.service.executor_manager.clone(),
+            metrics: std::sync::Arc::new(crate::metrics::api_io_stats::Metrics::new()),
+            config: test_srv.service.config.clone(),
+        };
+
+        let result = crate::routes_internal::list_executors(axum::extract::State(route_state))
+            .await
+            .unwrap();
+
+        let executor_metadata = result
+            .0
+            .iter()
+            .find(|e| e.id == executor_id)
+            .expect("Executor should be in the list after vacuum");
+
         assert!(
             executor_metadata.ready_for_teardown,
-            "Executor with only terminal allocations should be ready for teardown"
+            "Executor should be ready for teardown after vacuum terminates its containers"
         );
     }
 
