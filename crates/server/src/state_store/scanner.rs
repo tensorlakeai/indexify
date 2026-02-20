@@ -528,6 +528,7 @@ impl StateReader {
         )))
     }
 
+    #[allow(dead_code)] // Will be used by allocation_stream handler
     pub async fn get_function_run(
         &self,
         namespace: &str,

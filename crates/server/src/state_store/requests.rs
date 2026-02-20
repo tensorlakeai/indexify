@@ -33,7 +33,7 @@ use crate::{
         SandboxKey,
         StateChange,
     },
-    state_store::{IndexifyState, executor_watches::ExecutorWatch, state_changes},
+    state_store::{IndexifyState, state_changes},
 };
 
 #[derive(Debug)]
@@ -124,11 +124,6 @@ pub enum RequestPayload {
     TerminateSandbox(TerminateSandboxRequest),
     CreateContainerPool(CreateContainerPoolRequest),
     UpdateContainerPool(UpdateContainerPoolRequest),
-
-    /// Add a single watch for an executor (from AllocationEvents RPC).
-    AddExecutorWatch(AddExecutorWatchRequest),
-    /// Remove a single watch for an executor (from AllocationEvents RPC).
-    RemoveExecutorWatch(RemoveExecutorWatchRequest),
 
     /// Dataplane reports allocation results + container state changes
     /// atomically.
@@ -369,7 +364,6 @@ pub struct UpsertExecutorRequest {
     pub executor: ExecutorMetadata,
     pub allocation_outputs: Vec<AllocationOutput>,
     pub update_executor_state: bool,
-    pub watch_function_calls: HashSet<ExecutorWatch>,
     state_changes: Vec<StateChange>,
 }
 
@@ -385,7 +379,6 @@ impl UpsertExecutorRequest {
         executor: ExecutorMetadata,
         allocation_outputs: Vec<AllocationOutput>,
         update_executor_state: bool,
-        watch_function_calls: HashSet<ExecutorWatch>,
         indexify_state: Arc<IndexifyState>,
     ) -> Result<Self> {
         let mut state_changes = Vec::new();
@@ -401,23 +394,8 @@ impl UpsertExecutorRequest {
             allocation_outputs,
             state_changes,
             update_executor_state,
-            watch_function_calls,
         })
     }
-}
-
-/// Add a single watch for an executor (from AllocationEvents RPC).
-#[derive(Debug, Clone)]
-pub struct AddExecutorWatchRequest {
-    pub executor_id: ExecutorId,
-    pub watch: ExecutorWatch,
-}
-
-/// Remove a single watch for an executor (from AllocationEvents RPC).
-#[derive(Debug, Clone)]
-pub struct RemoveExecutorWatchRequest {
-    pub executor_id: ExecutorId,
-    pub watch: ExecutorWatch,
 }
 
 #[derive(Debug, Clone)]

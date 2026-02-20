@@ -4,7 +4,11 @@
 //! `function_executor_pb` (FE-side) and `executor_api_pb` (server-side)
 //! protobuf types.
 
-use proto_api::{executor_api_pb, executor_api_pb::CommandResponse, function_executor_pb};
+use proto_api::{
+    executor_api_pb,
+    executor_api_pb::{AllocationStreamRequest, CommandResponse},
+    function_executor_pb,
+};
 
 /// Map enum variants between two protobuf types with identical variant names.
 macro_rules! convert_enum {
@@ -174,95 +178,13 @@ pub fn make_failure_result(
 // CommandResponse builders (v2 protocol)
 // ---------------------------------------------------------------------------
 
-/// Build a `CommandResponse` wrapping an `AllocationFailed`.
-pub fn make_allocation_failed_response(
-    allocation: &executor_api_pb::Allocation,
-    failure_reason: executor_api_pb::AllocationFailureReason,
-    request_error: Option<executor_api_pb::DataPayload>,
-    execution_duration_ms: Option<u64>,
-) -> CommandResponse {
-    CommandResponse {
-        command_seq: 0, // unsolicited
-        response: Some(
-            executor_api_pb::command_response::Response::AllocationFailed(
-                executor_api_pb::AllocationFailed {
-                    allocation_id: allocation.allocation_id.clone().unwrap_or_default(),
-                    reason: failure_reason.into(),
-                    function: allocation.function.clone(),
-                    function_call_id: allocation.function_call_id.clone(),
-                    request_id: allocation.request_id.clone(),
-                    request_error,
-                    execution_duration_ms,
-                },
-            ),
-        ),
-    }
-}
-
-/// Convert a server `AllocationResult` into a `CommandResponse`.
-///
-/// Success results become `AllocationCompleted`; failures become
-/// `AllocationFailed`.
-pub fn allocation_result_to_command_response(
-    result: &executor_api_pb::AllocationResult,
-) -> CommandResponse {
-    let outcome_code = result.outcome_code.unwrap_or(0);
-    if outcome_code == executor_api_pb::AllocationOutcomeCode::Success as i32 {
-        CommandResponse {
-            command_seq: 0,
-            response: Some(
-                executor_api_pb::command_response::Response::AllocationCompleted(
-                    executor_api_pb::AllocationCompleted {
-                        allocation_id: result.allocation_id.clone().unwrap_or_default(),
-                        function: result.function.clone(),
-                        function_call_id: result.function_call_id.clone(),
-                        request_id: result.request_id.clone(),
-                        return_value: result.return_value.as_ref().map(|rv| match rv {
-                            executor_api_pb::allocation_result::ReturnValue::Value(dp) => {
-                                executor_api_pb::allocation_completed::ReturnValue::Value(
-                                    dp.clone(),
-                                )
-                            }
-                            executor_api_pb::allocation_result::ReturnValue::Updates(u) => {
-                                executor_api_pb::allocation_completed::ReturnValue::Updates(
-                                    u.clone(),
-                                )
-                            }
-                        }),
-                        execution_duration_ms: result.execution_duration_ms,
-                    },
-                ),
-            ),
-        }
-    } else {
-        CommandResponse {
-            command_seq: 0,
-            response: Some(
-                executor_api_pb::command_response::Response::AllocationFailed(
-                    executor_api_pb::AllocationFailed {
-                        allocation_id: result.allocation_id.clone().unwrap_or_default(),
-                        reason: result.failure_reason.unwrap_or(
-                            executor_api_pb::AllocationFailureReason::InternalError as i32,
-                        ),
-                        function: result.function.clone(),
-                        function_call_id: result.function_call_id.clone(),
-                        request_id: result.request_id.clone(),
-                        request_error: result.request_error.clone(),
-                        execution_duration_ms: result.execution_duration_ms,
-                    },
-                ),
-            ),
-        }
-    }
-}
-
 /// Build a `CommandResponse` wrapping a `ContainerStarted`.
 ///
 /// Sent as an unsolicited event (command_seq = 0) when a container
 /// transitions to Running state.
 pub fn make_container_started_response(container_id: &str) -> CommandResponse {
     CommandResponse {
-        command_seq: 0, // unsolicited
+        command_seq: None, // unsolicited
         response: Some(
             executor_api_pb::command_response::Response::ContainerStarted(
                 executor_api_pb::ContainerStarted {
@@ -279,7 +201,7 @@ pub fn make_container_terminated_response(
     reason: executor_api_pb::FunctionExecutorTerminationReason,
 ) -> CommandResponse {
     CommandResponse {
-        command_seq: 0, // unsolicited
+        command_seq: None, // unsolicited
         response: Some(
             executor_api_pb::command_response::Response::ContainerTerminated(
                 executor_api_pb::ContainerTerminated {
@@ -330,16 +252,136 @@ pub fn termination_reason_to_container_termination_reason(
     }
 }
 
-/// Extract the allocation_id from a `CommandResponse`, if it contains an
-/// allocation-related variant.
-pub fn command_response_allocation_id(response: &CommandResponse) -> Option<&str> {
-    match &response.response {
-        Some(executor_api_pb::command_response::Response::AllocationCompleted(c)) => {
-            Some(&c.allocation_id)
+// ---------------------------------------------------------------------------
+// AllocationScheduled builder (v2 fast ack)
+// ---------------------------------------------------------------------------
+
+/// Build a `CommandResponse` wrapping an `AllocationScheduled` ack.
+///
+/// `command_seq` ties the ack back to the original `RunAllocation` command.
+pub fn make_allocation_scheduled_response(
+    allocation_id: &str,
+    command_seq: u64,
+) -> CommandResponse {
+    CommandResponse {
+        command_seq: Some(command_seq),
+        response: Some(
+            executor_api_pb::command_response::Response::AllocationScheduled(
+                executor_api_pb::AllocationScheduled {
+                    allocation_id: allocation_id.to_string(),
+                },
+            ),
+        ),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// AllocationStreamRequest builders (outcomes via allocation stream)
+// ---------------------------------------------------------------------------
+
+/// Build an `AllocationStreamRequest` wrapping an `AllocationFailed`.
+pub fn make_allocation_failed_stream_request(
+    allocation: &executor_api_pb::Allocation,
+    failure_reason: executor_api_pb::AllocationFailureReason,
+    request_error: Option<executor_api_pb::DataPayload>,
+    execution_duration_ms: Option<u64>,
+) -> AllocationStreamRequest {
+    AllocationStreamRequest {
+        executor_id: String::new(),
+        message: Some(executor_api_pb::allocation_stream_request::Message::Failed(
+            executor_api_pb::AllocationFailed {
+                allocation_id: allocation.allocation_id.clone().unwrap_or_default(),
+                reason: failure_reason.into(),
+                function: allocation.function.clone(),
+                function_call_id: allocation.function_call_id.clone(),
+                request_id: allocation.request_id.clone(),
+                request_error,
+                execution_duration_ms,
+            },
+        )),
+    }
+}
+
+/// Convert a server `AllocationResult` into an `AllocationStreamRequest`.
+///
+/// Success results become `AllocationCompleted`; failures become
+/// `AllocationFailed`.
+pub fn allocation_result_to_stream_request(
+    result: &executor_api_pb::AllocationResult,
+) -> AllocationStreamRequest {
+    let outcome_code = result.outcome_code.unwrap_or(0);
+    if outcome_code == executor_api_pb::AllocationOutcomeCode::Success as i32 {
+        AllocationStreamRequest {
+            executor_id: String::new(),
+            message: Some(
+                executor_api_pb::allocation_stream_request::Message::Completed(
+                    executor_api_pb::AllocationCompleted {
+                        allocation_id: result.allocation_id.clone().unwrap_or_default(),
+                        function: result.function.clone(),
+                        function_call_id: result.function_call_id.clone(),
+                        request_id: result.request_id.clone(),
+                        return_value: result.return_value.as_ref().map(|rv| match rv {
+                            executor_api_pb::allocation_result::ReturnValue::Value(dp) => {
+                                executor_api_pb::allocation_completed::ReturnValue::Value(
+                                    dp.clone(),
+                                )
+                            }
+                            executor_api_pb::allocation_result::ReturnValue::Updates(u) => {
+                                executor_api_pb::allocation_completed::ReturnValue::Updates(
+                                    u.clone(),
+                                )
+                            }
+                        }),
+                        execution_duration_ms: result.execution_duration_ms,
+                    },
+                ),
+            ),
         }
-        Some(executor_api_pb::command_response::Response::AllocationFailed(f)) => {
-            Some(&f.allocation_id)
+    } else {
+        AllocationStreamRequest {
+            executor_id: String::new(),
+            message: Some(executor_api_pb::allocation_stream_request::Message::Failed(
+                executor_api_pb::AllocationFailed {
+                    allocation_id: result.allocation_id.clone().unwrap_or_default(),
+                    reason: result
+                        .failure_reason
+                        .unwrap_or(executor_api_pb::AllocationFailureReason::InternalError as i32),
+                    function: result.function.clone(),
+                    function_call_id: result.function_call_id.clone(),
+                    request_id: result.request_id.clone(),
+                    request_error: result.request_error.clone(),
+                    execution_duration_ms: result.execution_duration_ms,
+                },
+            )),
         }
-        _ => None,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Metrics for AllocationStreamRequest
+// ---------------------------------------------------------------------------
+
+/// Record allocation outcome metrics from an `AllocationStreamRequest`.
+pub fn record_activity_metrics(
+    activity: &AllocationStreamRequest,
+    counters: &crate::metrics::DataplaneCounters,
+) {
+    use executor_api_pb::allocation_stream_request::Message;
+
+    match &activity.message {
+        Some(Message::Completed(c)) => {
+            counters.record_allocation_completed("success", None, c.execution_duration_ms);
+        }
+        Some(Message::Failed(f)) => {
+            let failure_reason = executor_api_pb::AllocationFailureReason::try_from(f.reason)
+                .ok()
+                .map(|reason| format!("{:?}", reason));
+            counters.record_allocation_completed(
+                "failure",
+                failure_reason.as_deref(),
+                f.execution_duration_ms,
+            );
+        }
+        _ => {}
     }
 }

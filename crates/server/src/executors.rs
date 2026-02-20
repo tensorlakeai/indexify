@@ -27,7 +27,6 @@ use crate::{
         ExecutorId,
         ExecutorMetadata,
         ExecutorRemovedEvent,
-        FunctionRunOutcome,
         FunctionURI,
         SandboxStatus,
         StateChange,
@@ -48,8 +47,7 @@ use crate::{
     pb_helpers::*,
     state_store::{
         IndexifyState,
-        executor_watches::ExecutorWatch,
-        in_memory_state::{self, DesiredStateFunctionExecutor, FunctionCallOutcome},
+        in_memory_state::{self, DesiredStateFunctionExecutor},
         requests::{DeregisterExecutorRequest, RequestPayload, StateMachineUpdateRequest},
     },
     utils::{dynamic_sleep::DynamicSleepFuture, get_epoch_time_in_ms},
@@ -358,7 +356,6 @@ impl ExecutorManager {
     pub async fn desired_state(
         &self,
         executor_id: &ExecutorId,
-        executor_watches: HashSet<ExecutorWatch>,
     ) -> Option<in_memory_state::DesiredExecutorState> {
         let indexes = self.indexify_state.in_memory_state.read().await;
         let container_scheduler = self.indexify_state.container_scheduler.read().await;
@@ -368,55 +365,6 @@ impl ExecutorManager {
             }
         } else {
             return None;
-        }
-        let mut function_call_outcomes = Vec::new();
-        let reader = self.indexify_state.reader();
-        for executor_watch in executor_watches.iter() {
-            let function_run = if let Some(fr) = indexes.function_runs.get(&executor_watch.into()) {
-                fr.clone()
-            } else {
-                // Function run was deleted from in-memory state
-                // Fall back to RocksDB where the data is still persisted.
-                let Some(fr) = reader
-                    .get_function_run(
-                        &executor_watch.namespace,
-                        &executor_watch.application,
-                        &executor_watch.request_id,
-                        &executor_watch.function_call_id,
-                    )
-                    .await
-                else {
-                    continue;
-                };
-                Box::new(fr)
-            };
-            let function_run = &function_run;
-            info!(
-                function_call_id = %executor_watch.function_call_id,
-                request_id = %executor_watch.request_id,
-                fn_run_status = %function_run.status,
-                fn_run_outcome = ?function_run.outcome,
-                has_output = function_run.output.is_some(),
-                "found function run for executor watch"
-            );
-            // Skip if function run hasn't completed yet.
-            let Some(ref outcome) = function_run.outcome else {
-                continue;
-            };
-
-            let failure_reason = match outcome {
-                FunctionRunOutcome::Failure(failure_reason) => Some(failure_reason.clone()),
-                _ => None,
-            };
-            function_call_outcomes.push(FunctionCallOutcome {
-                namespace: function_run.namespace.clone(),
-                request_id: function_run.request_id.clone(),
-                function_call_id: function_run.id.clone(),
-                outcome: outcome.clone(),
-                failure_reason,
-                return_value: function_run.output.clone(),
-                request_error: function_run.request_error.clone(),
-            });
         }
         let Some(executor_server_metadata) = container_scheduler.executor_states.get(executor_id)
         else {
@@ -542,7 +490,6 @@ impl ExecutorManager {
             function_executors,
             function_run_allocations: task_allocations,
             clock: indexes.clock,
-            function_call_outcomes,
         })
     }
 
@@ -551,48 +498,11 @@ impl ExecutorManager {
         &self,
         executor_id: &ExecutorId,
     ) -> Option<ExecutorStateSnapshot> {
-        let fn_call_watches = self
-            .indexify_state
-            .executor_watches
-            .get_watches(executor_id.get())
-            .await;
+        let desired_executor_state = self.desired_state(executor_id).await?;
 
-        if !fn_call_watches.is_empty() {
-            info!(
-                executor_id = executor_id.get(),
-                num_watches = fn_call_watches.len(),
-                watches = ?fn_call_watches.iter().map(|w| format!("{}:{}", w.function_call_id, w.request_id)).collect::<Vec<_>>(),
-                "computing desired state with watches"
-            );
-        }
+        // function_call_results removed from DesiredExecutorState proto (reserved 4).
+        // Results are now delivered via the allocation_stream RPC.
 
-        let desired_executor_state = self.desired_state(executor_id, fn_call_watches).await?;
-
-        if !desired_executor_state.function_call_outcomes.is_empty() {
-            info!(
-                executor_id = executor_id.get(),
-                num_results = desired_executor_state.function_call_outcomes.len(),
-                results = ?desired_executor_state.function_call_outcomes.iter().map(|r| format!("{}:{:?}", r.function_call_id, r.outcome)).collect::<Vec<_>>(),
-                "sending function_call_results to executor"
-            );
-        }
-
-        let mut function_call_results_pb = vec![];
-        for function_call_outcome in desired_executor_state.function_call_outcomes.iter() {
-            let blob_store_url_schema = self
-                .blob_store_registry
-                .get_blob_store(&function_call_outcome.namespace)
-                .get_url_scheme();
-            let blob_store_url = self
-                .blob_store_registry
-                .get_blob_store(&function_call_outcome.namespace)
-                .get_url();
-            function_call_results_pb.push(fn_call_outcome_to_pb(
-                function_call_outcome,
-                &blob_store_url_schema,
-                &blob_store_url,
-            ));
-        }
         let mut function_executors_pb = vec![];
         let mut allocations_pb = vec![];
         for desired_state_fe in desired_executor_state.function_executors.iter() {
@@ -760,7 +670,6 @@ impl ExecutorManager {
                 function_executors: function_executors_pb,
                 allocations: allocations_pb,
                 clock: Some(desired_executor_state.clock),
-                function_call_results: function_call_results_pb,
             },
         })
     }
@@ -869,8 +778,6 @@ pub fn tombstone_executor(
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
-
     use anyhow::Result;
     use tokio::time;
 
@@ -897,7 +804,6 @@ mod tests {
             &test_srv.service.executor_manager,
             test_srv.service.indexify_state.clone(),
             executor,
-            HashSet::new(),
         )
         .await?;
         Ok(())

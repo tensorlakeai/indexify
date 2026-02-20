@@ -21,7 +21,7 @@ use crate::function_executor::{
     allocation_finalize,
     allocation_prep,
     allocation_runner::{self, AllocationContext},
-    controller::{record_allocation_metrics, timed_phase},
+    controller::timed_phase,
     events::{AllocationOutcome, FinalizationContext, PreparedAllocation},
     proto_convert,
 };
@@ -47,8 +47,11 @@ impl AllocationController {
     }
 
     /// Add new allocations, spawning preparation tasks for each.
-    pub(super) fn add_allocations(&mut self, new_allocations: Vec<(String, ServerAllocation)>) {
-        for (fe_id, allocation) in new_allocations {
+    pub(super) fn add_allocations(
+        &mut self,
+        new_allocations: Vec<(String, ServerAllocation, u64)>,
+    ) {
+        for (fe_id, allocation, command_seq) in new_allocations {
             let alloc_id = allocation.allocation_id.clone().unwrap_or_default();
 
             // Skip if already tracked
@@ -76,6 +79,10 @@ impl AllocationController {
                     container_id = %fe_id,
                     "FE not found or terminated, failing allocation immediately -> Done"
                 );
+                // Ack the command so the server knows it was received.
+                let ack = proto_convert::make_allocation_scheduled_response(&alloc_id, command_seq);
+                let _ = self.config.result_tx.send(ack);
+
                 let failure_reason = self
                     .containers
                     .get(&fe_id)
@@ -86,17 +93,15 @@ impl AllocationController {
                         _ => None,
                     })
                     .unwrap_or(AllocationFailureReason::FunctionExecutorTerminated);
-                let response = proto_convert::make_allocation_failed_response(
+                let activity = proto_convert::make_allocation_failed_stream_request(
                     &allocation,
                     failure_reason,
                     None,
                     None,
                 );
-                // Send result directly — no blobs to clean up.
-                // This matches the old per-FE controller behavior and avoids
-                // the latency of spawning a finalization task.
-                record_allocation_metrics(&response, &self.config.metrics.counters);
-                let _ = self.config.result_tx.send(response);
+                // Send failure via activity channel — no blobs to clean up.
+                proto_convert::record_activity_metrics(&activity, &self.config.metrics.counters);
+                let _ = self.config.activity_tx.send(activity);
                 let managed = ManagedAllocation {
                     allocation: allocation.clone(),
                     fe_id: fe_id.clone(),
@@ -106,6 +111,10 @@ impl AllocationController {
                 self.allocations.insert(alloc_id.clone(), managed);
                 continue;
             }
+
+            // Send AllocationScheduled ack back on the command response channel
+            let ack = proto_convert::make_allocation_scheduled_response(&alloc_id, command_seq);
+            let _ = self.config.result_tx.send(ack);
 
             let cancel_token = self.cancel_token.child_token();
 
@@ -119,6 +128,8 @@ impl AllocationController {
                     allocation_id = %alloc_id,
                     request_id = %lctx.request_id,
                     container_id = %fe_id,
+                    executor_id = %self.config.executor_id,
+                    function_call_id = %lctx.function_call_id,
                     "Allocation added -> Preparing"
                 );
             }
@@ -225,6 +236,8 @@ impl AllocationController {
                             allocation_id = %allocation_id,
                             request_id = %lctx.request_id,
                             container_id = %fe_id,
+                            executor_id = %self.config.executor_id,
+                            function_call_id = %lctx.function_call_id,
                             "Allocation prepared: Preparing -> WaitingForSlot"
                         );
                         alloc.state = AllocationState::WaitingForSlot;
@@ -255,6 +268,8 @@ impl AllocationController {
                             allocation_id = %allocation_id,
                             request_id = %lctx.request_id,
                             container_id = %fe_id,
+                            executor_id = %self.config.executor_id,
+                            function_call_id = %lctx.function_call_id,
                             "Allocation prepared, container not ready: Preparing -> WaitingForContainer"
                         );
                         alloc.state = AllocationState::WaitingForContainer;
@@ -422,6 +437,8 @@ impl AllocationController {
                         allocation_id = %alloc_id,
                         request_id = %lctx.request_id,
                         container_id = %fe_id,
+                        executor_id = %self.config.executor_id,
+                        function_call_id = %lctx.function_call_id,
                         running_count = running + 1,
                         max_concurrency = max_concurrency,
                         "Allocation scheduled: {} -> Running", alloc.state
@@ -452,11 +469,12 @@ impl AllocationController {
                 let ctx = AllocationContext {
                     server_channel: self.config.server_channel.clone(),
                     blob_store: self.config.blob_store.clone(),
-                    watcher_registry: self.watcher_registry.clone(),
                     metrics: metrics.clone(),
                     driver: self.config.driver.clone(),
                     process_handle: process_handle.clone(),
                     executor_id: self.config.executor_id.clone(),
+                    stream_tx: self.config.activity_tx.clone(),
+                    allocation_result_dispatcher: self.allocation_result_dispatcher.clone(),
                 };
 
                 let allocation = alloc.allocation.clone();
@@ -541,6 +559,8 @@ impl AllocationController {
             allocation_id = %allocation_id,
             request_id = %lctx.request_id,
             container_id = %fe_id,
+            executor_id = %self.config.executor_id,
+            function_call_id = %lctx.function_call_id,
             outcome = outcome_label,
             elapsed_ms = %alloc.created_at.elapsed().as_millis(),
             "Allocation execution finished: Running -> Finalizing"
@@ -666,16 +686,18 @@ impl AllocationController {
                 allocation_id = %allocation_id,
                 request_id = %lctx.request_id,
                 container_id = %alloc.fe_id,
+                executor_id = %self.config.executor_id,
+                function_call_id = %lctx.function_call_id,
                 success = is_success,
                 total_elapsed_ms = %alloc.created_at.elapsed().as_millis(),
                 "Allocation finalized: Finalizing -> Done (result sent)"
             );
         }
 
-        // Record metrics and send result as CommandResponse
-        let response = proto_convert::allocation_result_to_command_response(&result);
-        record_allocation_metrics(&response, &self.config.metrics.counters);
-        let _ = self.config.result_tx.send(response);
+        // Record metrics and send result as AllocationActivity
+        let activity = proto_convert::allocation_result_to_stream_request(&result);
+        proto_convert::record_activity_metrics(&activity, &self.config.metrics.counters);
+        let _ = self.config.activity_tx.send(activity);
 
         // Keep the allocation in Done state — do NOT remove it.
         // The server may re-send this allocation before it processes the
@@ -734,6 +756,7 @@ impl AllocationController {
                 version: String::new(),
                 fn_name: String::new(),
                 request_id: String::new(),
+                function_call_id: String::new(),
             });
         let fin_container_id = alloc_for_ctx.map(|a| a.fe_id.clone()).unwrap_or_default();
         let metrics = self.config.metrics.clone();
@@ -869,12 +892,12 @@ impl AllocationController {
             }
         }
 
-        // Send any remaining results as CommandResponses
+        // Send any remaining results as AllocationActivities
         for (_alloc_id, alloc) in self.allocations.drain() {
             if let AllocationState::Finalizing { result } = alloc.state {
-                let response = proto_convert::allocation_result_to_command_response(&result);
-                record_allocation_metrics(&response, &self.config.metrics.counters);
-                let _ = self.config.result_tx.send(response);
+                let activity = proto_convert::allocation_result_to_stream_request(&result);
+                proto_convert::record_activity_metrics(&activity, &self.config.metrics.counters);
+                let _ = self.config.activity_tx.send(activity);
             }
         }
 

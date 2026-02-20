@@ -103,7 +103,7 @@ mod tests {
         assert_eq!(commands.run_allocations.len(), 1);
         let allocation = &commands.run_allocations[0];
         executor
-            .report_command_responses(vec![TestExecutor::make_allocation_completed(
+            .report_allocation_activities(vec![TestExecutor::make_allocation_completed(
                 allocation,
                 Some(test_objects::mock_updates()),
                 None,

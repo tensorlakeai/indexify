@@ -2,7 +2,7 @@
 
 use std::{sync::Arc, time::Instant};
 
-use proto_api::executor_api_pb::{AllocationFailureReason, CommandResponse};
+use proto_api::executor_api_pb::{AllocationStreamRequest, CommandResponse};
 use tokio::sync::mpsc;
 use tonic::transport::Channel;
 
@@ -21,11 +21,15 @@ pub struct FESpawnConfig {
     pub image_resolver: Arc<dyn ImageResolver>,
     pub gpu_allocator: Arc<crate::gpu_allocator::GpuAllocator>,
     pub secrets_provider: Arc<dyn SecretsProvider>,
-    /// Channel for allocation results (AllocationCompleted/AllocationFailed).
+    /// Channel for command responses (ContainerStarted/ContainerTerminated,
+    /// AllocationScheduled acks).
     pub result_tx: mpsc::UnboundedSender<CommandResponse>,
     /// Channel for container lifecycle events
     /// (ContainerTerminated/ContainerStarted).
     pub container_state_tx: mpsc::UnboundedSender<CommandResponse>,
+    /// Channel for allocation outcomes (AllocationCompleted/AllocationFailed),
+    /// sent via the allocation stream.
+    pub activity_tx: mpsc::UnboundedSender<AllocationStreamRequest>,
     pub server_channel: Channel,
     pub blob_store: Arc<BlobStore>,
     pub code_cache: Arc<CodeCache>,
@@ -53,29 +57,4 @@ pub(crate) async fn timed_phase<T>(
         counter.add(1, &[]);
     }
     result
-}
-
-/// Record allocation outcome metrics from a `CommandResponse`.
-pub(crate) fn record_allocation_metrics(
-    response: &CommandResponse,
-    counters: &crate::metrics::DataplaneCounters,
-) {
-    use proto_api::executor_api_pb::command_response::Response;
-
-    match &response.response {
-        Some(Response::AllocationCompleted(c)) => {
-            counters.record_allocation_completed("success", None, c.execution_duration_ms);
-        }
-        Some(Response::AllocationFailed(f)) => {
-            let failure_reason = AllocationFailureReason::try_from(f.reason)
-                .ok()
-                .map(|reason| format!("{:?}", reason));
-            counters.record_allocation_completed(
-                "failure",
-                failure_reason.as_deref(),
-                f.execution_duration_ms,
-            );
-        }
-        _ => {}
-    }
 }

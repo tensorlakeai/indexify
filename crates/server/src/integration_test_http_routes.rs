@@ -449,7 +449,7 @@ mod tests {
 
         let allocation = &commands.run_allocations[0];
         test_executor
-            .report_command_responses(vec![TestExecutor::make_allocation_completed(
+            .report_allocation_activities(vec![TestExecutor::make_allocation_completed(
                 allocation,
                 None,
                 None,

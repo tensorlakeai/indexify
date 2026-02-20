@@ -1,17 +1,13 @@
 //! Function call forwarding for allocation execution.
 
-use std::{collections::HashSet, time::Duration};
+use std::collections::HashSet;
 
 use prost::Message as _;
 use proto_api::{
-    executor_api_pb::{
-        self,
-        Allocation as ServerAllocation,
-        executor_api_client::ExecutorApiClient,
-    },
+    executor_api_pb::{self, Allocation as ServerAllocation, AllocationStreamRequest},
     function_executor_pb::{self, AllocationFunctionCallCreationResult, AllocationState},
 };
-use tonic::transport::Channel;
+use tokio::sync::mpsc;
 use tracing::{debug, warn};
 
 use super::{
@@ -26,21 +22,15 @@ const MAX_FUNCTION_CALL_SIZE: usize = 1024 * 1024;
 /// Maximum number of items in execution plan updates.
 const MAX_EXECUTION_PLAN_UPDATE_ITEMS: usize = 1000;
 
-/// Maximum retries for server RPCs.
-const SERVER_RPC_MAX_RETRIES: u32 = 5;
-/// Initial retry delay for server RPCs.
-const SERVER_RPC_INITIAL_DELAY: Duration = Duration::from_millis(100);
-/// Maximum retry delay for server RPCs.
-const SERVER_RPC_MAX_DELAY: Duration = Duration::from_secs(15);
-
-/// Handle new function calls from the FE (send via add_allocation_events RPC).
+/// Handle new function calls from the FE (send via allocation stream channel).
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn reconcile_function_calls(
     client: &mut FunctionExecutorGrpcClient,
     allocation_id: &str,
     allocation: &ServerAllocation,
-    server_channel: &Channel,
+    stream_tx: &mpsc::UnboundedSender<AllocationStreamRequest>,
     seen_function_call_ids: &mut HashSet<String>,
+    seen_op_ids: &mut HashSet<String>,
     metrics: &crate::metrics::DataplaneMetrics,
     state: &AllocationState,
     uri_prefix: &str,
@@ -55,8 +45,6 @@ pub(super) async fn reconcile_function_calls(
                 function_call_id = %fc_id,
                 "New function call from allocation"
             );
-
-            let mut server_client = ExecutorApiClient::new(server_channel.clone());
 
             let root_fc_id = fc
                 .updates
@@ -100,6 +88,59 @@ pub(super) async fn reconcile_function_calls(
                 .updates
                 .as_ref()
                 .map(|u| convert_execution_plan_updates(u, args_blob_uri.as_deref()));
+
+            // Deduplicate individual function call / reduce op IDs across all
+            // AllocationFunctionCall entries.  The SDK may serialize the same
+            // logical function call both as a blocking child call *and* inside
+            // the tail-call execution plan updates.  Without dedup the server
+            // creates duplicate function runs that never get consumed, causing
+            // the request to hang.
+            let server_updates = server_updates.map(|mut updates| {
+                updates.updates.retain(|u| {
+                    let op_id = u.op.as_ref().and_then(|op| match op {
+                        executor_api_pb::execution_plan_update::Op::FunctionCall(fc) => {
+                            fc.id.clone()
+                        }
+                        executor_api_pb::execution_plan_update::Op::Reduce(r) => r.id.clone(),
+                    });
+                    match op_id {
+                        Some(id) if !id.is_empty() => seen_op_ids.insert(id),
+                        _ => true, // keep ops without IDs
+                    }
+                });
+                updates
+            });
+
+            // If all ops were duplicates, skip sending to the server entirely
+            // but still report success to the FE so it doesn't retry.
+            if server_updates
+                .as_ref()
+                .map(|u| u.updates.is_empty())
+                .unwrap_or(false)
+            {
+                debug!(
+                    function_call_id = %fc_id,
+                    "Skipping function call with all duplicate ops"
+                );
+                let creation_result = AllocationFunctionCallCreationResult {
+                    function_call_id: root_fc_id,
+                    allocation_function_call_id: Some(fc_id.to_string()),
+                    status: Some(ok_status()),
+                };
+                let update = make_allocation_update(
+                    allocation_id,
+                    function_executor_pb::allocation_update::Update::FunctionCallCreationResult(
+                        creation_result,
+                    ),
+                );
+                if let Err(e) = client.send_allocation_update(update).await {
+                    warn!(
+                        error = %e,
+                        "Failed to send function call creation result"
+                    );
+                }
+                continue;
+            }
 
             let fc_request = executor_api_pb::FunctionCallRequest {
                 namespace: allocation
@@ -165,51 +206,44 @@ pub(super) async fn reconcile_function_calls(
                 continue;
             }
 
-            // Wrap the FunctionCallRequest in an AllocationEvent for the
-            // add_allocation_events RPC (replaces the removed call_function RPC).
-            let events_request = executor_api_pb::AllocationEvents {
-                namespace: allocation
-                    .function
-                    .as_ref()
-                    .and_then(|f| f.namespace.clone()),
-                application: allocation
-                    .function
-                    .as_ref()
-                    .and_then(|f| f.application_name.clone()),
-                function_call_id: allocation.function_call_id.clone(),
-                allocation_id: allocation.allocation_id.clone(),
-                events: vec![executor_api_pb::AllocationEvent {
-                    event: Some(executor_api_pb::allocation_event::Event::CallFunction(
-                        fc_request,
-                    )),
-                }],
-                executor_id: Some(executor_id.to_string()),
+            // Wrap the FunctionCallRequest in an AllocationStreamRequest
+            // with an AllocationLogEntry containing a call_function entry.
+            let stream_request = AllocationStreamRequest {
+                executor_id: executor_id.to_string(),
+                message: Some(
+                    executor_api_pb::allocation_stream_request::Message::LogEntry(
+                        executor_api_pb::AllocationLogEntry {
+                            allocation_id: allocation.allocation_id.clone().unwrap_or_default(),
+                            clock: 0,
+                            entry: Some(
+                                executor_api_pb::allocation_log_entry::Entry::CallFunction(
+                                    fc_request,
+                                ),
+                            ),
+                        },
+                    ),
+                ),
             };
 
-            let creation_result = match send_function_call_event_with_retry(
-                &mut server_client,
-                events_request,
-                metrics,
-            )
-            .await
-            {
-                Ok(_) => AllocationFunctionCallCreationResult {
-                    function_call_id: root_fc_id,
-                    allocation_function_call_id: Some(fc_id.to_string()),
-                    status: Some(ok_status()),
-                },
-                Err(e) => {
-                    warn!(
-                        error = %e,
-                        "add_allocation_events RPC failed after retries"
-                    );
-                    AllocationFunctionCallCreationResult {
+            let creation_result =
+                match send_execution_update_with_retry(stream_tx, stream_request, metrics).await {
+                    Ok(_) => AllocationFunctionCallCreationResult {
                         function_call_id: root_fc_id,
                         allocation_function_call_id: Some(fc_id.to_string()),
-                        status: Some(error_status(13, e.to_string())),
+                        status: Some(ok_status()),
+                    },
+                    Err(e) => {
+                        warn!(
+                            error = %e,
+                            "Failed to send function call via allocation stream"
+                        );
+                        AllocationFunctionCallCreationResult {
+                            function_call_id: root_fc_id,
+                            allocation_function_call_id: Some(fc_id.to_string()),
+                            status: Some(error_status(13, e.to_string())),
+                        }
                     }
-                }
-            };
+                };
 
             let update = make_allocation_update(
                 allocation_id,
@@ -249,13 +283,12 @@ async fn send_fc_validation_error(
     let _ = client.send_allocation_update(update).await;
 }
 
-/// Send a function call event via add_allocation_events with exponential
-/// backoff retry.
-async fn send_function_call_event_with_retry(
-    client: &mut ExecutorApiClient<Channel>,
-    request: executor_api_pb::AllocationEvents,
+/// Send an execution update via the allocation stream channel.
+async fn send_execution_update_with_retry(
+    stream_tx: &mpsc::UnboundedSender<AllocationStreamRequest>,
+    request: AllocationStreamRequest,
     metrics: &crate::metrics::DataplaneMetrics,
-) -> Result<(), tonic::Status> {
+) -> Result<(), String> {
     let msg_size = prost::Message::encoded_len(&request);
     metrics
         .histograms
@@ -263,50 +296,17 @@ async fn send_function_call_event_with_retry(
         .record(msg_size as f64 / (1024.0 * 1024.0), &[]);
 
     metrics.counters.call_function_rpcs.add(1, &[]);
-    let mut delay = SERVER_RPC_INITIAL_DELAY;
 
-    for attempt in 0..=SERVER_RPC_MAX_RETRIES {
-        let rpc_start = std::time::Instant::now();
-        match client.add_allocation_events(request.clone()).await {
-            Ok(_) => {
-                metrics
-                    .histograms
-                    .call_function_rpc_latency_seconds
-                    .record(rpc_start.elapsed().as_secs_f64(), &[]);
-                return Ok(());
-            }
-            Err(status) => {
-                let retryable = matches!(
-                    status.code(),
-                    tonic::Code::Unavailable |
-                        tonic::Code::Internal |
-                        tonic::Code::DeadlineExceeded
-                );
-
-                if !retryable || attempt == SERVER_RPC_MAX_RETRIES {
-                    metrics.counters.call_function_rpc_errors.add(1, &[]);
-                    metrics
-                        .histograms
-                        .call_function_rpc_latency_seconds
-                        .record(rpc_start.elapsed().as_secs_f64(), &[]);
-                    return Err(status);
-                }
-
-                warn!(
-                    attempt = attempt + 1,
-                    max_retries = SERVER_RPC_MAX_RETRIES,
-                    code = ?status.code(),
-                    delay_ms = delay.as_millis() as u64,
-                    "add_allocation_events RPC failed, retrying"
-                );
-
-                tokio::time::sleep(delay).await;
-                delay = std::cmp::min(delay * 2, SERVER_RPC_MAX_DELAY);
-            }
+    match stream_tx.send(request) {
+        Ok(_) => Ok(()),
+        Err(e) => {
+            metrics.counters.call_function_rpc_errors.add(1, &[]);
+            Err(format!(
+                "Failed to send via allocation stream channel: {}",
+                e
+            ))
         }
     }
-
-    unreachable!()
 }
 
 /// Convert FE ExecutionPlanUpdates to server ExecutionPlanUpdates.

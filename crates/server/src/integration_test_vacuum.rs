@@ -265,7 +265,7 @@ mod tests {
             assert_eq!(commands.run_allocations.len(), 1);
             let allocation = &commands.run_allocations[0];
             executor
-                .report_command_responses(vec![TestExecutor::make_allocation_completed(
+                .report_allocation_activities(vec![TestExecutor::make_allocation_completed(
                     allocation,
                     None,
                     Some(mock_data_payload()),
@@ -381,7 +381,7 @@ mod tests {
             if !commands.run_allocations.is_empty() {
                 let allocation = &commands.run_allocations[0];
                 executor
-                    .report_command_responses(vec![TestExecutor::make_allocation_completed(
+                    .report_allocation_activities(vec![TestExecutor::make_allocation_completed(
                         allocation,
                         None,
                         Some(mock_data_payload()),
@@ -402,7 +402,7 @@ mod tests {
             if !commands.run_allocations.is_empty() {
                 let allocation = &commands.run_allocations[0];
                 executor
-                    .report_command_responses(vec![TestExecutor::make_allocation_completed(
+                    .report_allocation_activities(vec![TestExecutor::make_allocation_completed(
                         allocation,
                         None,
                         Some(mock_data_payload()),
@@ -520,7 +520,7 @@ mod tests {
             if !commands.run_allocations.is_empty() {
                 let allocation = &commands.run_allocations[0];
                 executor
-                    .report_command_responses(vec![TestExecutor::make_allocation_completed(
+                    .report_allocation_activities(vec![TestExecutor::make_allocation_completed(
                         allocation,
                         None,
                         Some(mock_data_payload()),
@@ -626,7 +626,7 @@ mod tests {
             if !commands.run_allocations.is_empty() {
                 let allocation = &commands.run_allocations[0];
                 executor1
-                    .report_command_responses(vec![TestExecutor::make_allocation_completed(
+                    .report_allocation_activities(vec![TestExecutor::make_allocation_completed(
                         allocation,
                         None,
                         Some(mock_data_payload()),
@@ -706,12 +706,14 @@ mod tests {
                 if !commands.run_allocations.is_empty() {
                     let allocation = &commands.run_allocations[0];
                     executor
-                        .report_command_responses(vec![TestExecutor::make_allocation_completed(
-                            allocation,
-                            None,
-                            Some(mock_data_payload()),
-                            Some(1000),
-                        )])
+                        .report_allocation_activities(vec![
+                            TestExecutor::make_allocation_completed(
+                                allocation,
+                                None,
+                                Some(mock_data_payload()),
+                                Some(1000),
+                            ),
+                        ])
                         .await?;
                     test_srv.process_all_state_changes().await?;
                 }
@@ -799,7 +801,7 @@ mod tests {
             if !commands.run_allocations.is_empty() {
                 let allocation = &commands.run_allocations[0];
                 executor
-                    .report_command_responses(vec![TestExecutor::make_allocation_completed(
+                    .report_allocation_activities(vec![TestExecutor::make_allocation_completed(
                         allocation,
                         None,
                         Some(mock_data_payload()),
@@ -869,7 +871,7 @@ mod tests {
             let commands = executor.recv_commands().await;
             let allocation = &commands.run_allocations[0];
             executor
-                .report_command_responses(vec![TestExecutor::make_allocation_completed(
+                .report_allocation_activities(vec![TestExecutor::make_allocation_completed(
                     allocation,
                     None,
                     Some(mock_data_payload()),
@@ -895,7 +897,7 @@ mod tests {
             if !commands.run_allocations.is_empty() {
                 let allocation = &commands.run_allocations[0];
                 executor
-                    .report_command_responses(vec![TestExecutor::make_allocation_completed(
+                    .report_allocation_activities(vec![TestExecutor::make_allocation_completed(
                         allocation,
                         None,
                         Some(mock_data_payload()),
@@ -1006,12 +1008,14 @@ mod tests {
                 if !commands.run_allocations.is_empty() {
                     let allocation = &commands.run_allocations[0];
                     executor
-                        .report_command_responses(vec![TestExecutor::make_allocation_completed(
-                            allocation,
-                            None,
-                            Some(mock_data_payload()),
-                            Some(1000),
-                        )])
+                        .report_allocation_activities(vec![
+                            TestExecutor::make_allocation_completed(
+                                allocation,
+                                None,
+                                Some(mock_data_payload()),
+                                Some(1000),
+                            ),
+                        ])
                         .await?;
                     test_srv.process_all_state_changes().await?;
                 }
@@ -1265,7 +1269,7 @@ mod tests {
             if !commands.run_allocations.is_empty() {
                 let allocation = &commands.run_allocations[0];
                 executor1
-                    .report_command_responses(vec![TestExecutor::make_allocation_completed(
+                    .report_allocation_activities(vec![TestExecutor::make_allocation_completed(
                         allocation,
                         None,
                         Some(mock_data_payload()),
@@ -1291,7 +1295,7 @@ mod tests {
             if !commands.run_allocations.is_empty() {
                 let allocation = &commands.run_allocations[0];
                 executor2
-                    .report_command_responses(vec![TestExecutor::make_allocation_completed(
+                    .report_allocation_activities(vec![TestExecutor::make_allocation_completed(
                         allocation,
                         None,
                         Some(mock_data_payload()),
@@ -1408,7 +1412,7 @@ mod tests {
             assert_eq!(commands.run_allocations.len(), 1);
             let allocation = &commands.run_allocations[0];
             executor
-                .report_command_responses(vec![TestExecutor::make_allocation_completed(
+                .report_allocation_activities(vec![TestExecutor::make_allocation_completed(
                     allocation,
                     None,
                     Some(mock_data_payload()),

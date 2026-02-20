@@ -1,19 +1,23 @@
-//! State reporter that collects command responses for inclusion in
-//! `report_command_responses` RPCs.
+//! State reporter that collects command responses and allocation activities
+//! for inclusion in `report_command_responses` and
+//! `report_allocation_activities` RPCs.
 //!
-//! Allocation results (AllocationCompleted/AllocationFailed) and container
-//! lifecycle events (ContainerTerminated/ContainerStarted) are buffered as
-//! `CommandResponse` messages and sent when new responses arrive.
+//! Command responses (ContainerStarted/ContainerTerminated,
+//! AllocationScheduled) are buffered as `CommandResponse` messages.
 //!
-//! Message size limiting: responses are fragmented across multiple RPCs if
-//! the total message would exceed 10 MB. Responses are drained from the
-//! buffer on collect and only re-added on RPC failure, eliminating race
-//! conditions between the drain task and the heartbeat loop.
+//! Allocation outcomes (AllocationCompleted/AllocationFailed) are buffered as
+//! `AllocationStreamRequest` messages and sent via the dedicated
+//! `report_allocation_activities` RPC.
+//!
+//! Message size limiting: items are fragmented across multiple RPCs if the
+//! total message would exceed 10 MB. Items are drained from the buffer on
+//! collect and only re-added on RPC failure, eliminating race conditions
+//! between the drain task and the heartbeat loop.
 
 use std::sync::Arc;
 
 use prost::Message;
-use proto_api::executor_api_pb::CommandResponse;
+use proto_api::executor_api_pb::{AllocationStreamRequest, CommandResponse};
 use tokio::sync::{Mutex, Notify, mpsc};
 use tracing::debug;
 
@@ -21,147 +25,188 @@ use tracing::debug;
 /// Matches Python executor's `_STATE_REPORT_MAX_MESSAGE_SIZE_MB`.
 const STATE_REPORT_MAX_MESSAGE_SIZE: usize = 10 * 1024 * 1024;
 
-/// Collects command responses for `report_command_responses`.
-pub struct StateReporter {
-    /// Buffered responses waiting to be sent (allocation results +
-    /// container lifecycle events).
-    pending_responses: Arc<Mutex<Vec<CommandResponse>>>,
-    /// Notify when new responses are available.
-    results_notify: Arc<Notify>,
+// ---------------------------------------------------------------------------
+// Generic pending buffer shared by responses and activities
+// ---------------------------------------------------------------------------
+
+/// A size-aware append-only buffer that supports collect-then-drain semantics.
+///
+/// Items arrive via an `mpsc::UnboundedReceiver` and are buffered in a `Vec`
+/// behind a `Mutex`. The heartbeat loop collects a batch that fits within the
+/// message size limit, sends the RPC, and then drains exactly the sent items.
+struct PendingBuffer<T> {
+    items: Arc<Mutex<Vec<T>>>,
+    notify: Arc<Notify>,
 }
 
-impl StateReporter {
-    /// Create a new state reporter and spawn background tasks that drain
-    /// the response and container response channels and notify the result
-    /// loop.
-    pub fn new(
-        response_rx: mpsc::UnboundedReceiver<CommandResponse>,
-        container_response_rx: mpsc::UnboundedReceiver<CommandResponse>,
-    ) -> Self {
-        let pending_responses = Arc::new(Mutex::new(Vec::new()));
-        let results_notify = Arc::new(Notify::new());
-
-        // Spawn background drainer for allocation responses
-        {
-            let pending = pending_responses.clone();
-            let notify = results_notify.clone();
-            tokio::spawn(async move {
-                drain_responses(response_rx, pending, notify).await;
-            });
-        }
-
-        // Spawn background drainer for container lifecycle responses
-        {
-            let pending = pending_responses.clone();
-            let notify = results_notify.clone();
-            tokio::spawn(async move {
-                drain_responses(container_response_rx, pending, notify).await;
-            });
-        }
-
+impl<T: Message + Clone + Send + 'static> PendingBuffer<T> {
+    fn new() -> Self {
         Self {
-            pending_responses,
-            results_notify,
+            items: Arc::new(Mutex::new(Vec::new())),
+            notify: Arc::new(Notify::new()),
         }
     }
 
-    /// Get a handle to the notify for waking up the result loop.
-    pub fn results_notify(&self) -> Arc<Notify> {
-        self.results_notify.clone()
+    /// Spawn a background task that drains `rx` into the buffer and wakes
+    /// the heartbeat loop via `notify`.
+    fn spawn_drainer(&self, mut rx: mpsc::UnboundedReceiver<T>) {
+        let items = self.items.clone();
+        let notify = self.notify.clone();
+        tokio::spawn(async move {
+            while let Some(item) = rx.recv().await {
+                let mut buf = items.lock().await;
+                buf.push(item);
+                drop(buf);
+                notify.notify_one();
+            }
+        });
     }
 
-    /// Collect command responses that fit within the message size limit.
+    /// Collect items that fit within the message size limit.
     ///
-    /// `base_message_size` is the encoded size of the request without any
-    /// responses (executor_id + overhead).
+    /// `base_message_size` is the encoded size of the request envelope.
     ///
-    /// Returns `(responses, count, has_remaining)`. Responses are **cloned**
-    /// from the buffer. On success, call [`drain_sent`] with the returned
-    /// `count` to remove them. On failure, do nothing — items stay in the
-    /// buffer for retry.
-    pub async fn collect_responses(
-        &self,
-        base_message_size: usize,
-    ) -> (Vec<CommandResponse>, usize, bool) {
-        let pending = self.pending_responses.lock().await;
+    /// Returns `(items, count, has_remaining)`. Items are **cloned** from the
+    /// buffer. On success, call [`drain_sent`] with the returned `count` to
+    /// remove them. On failure, do nothing — items stay for retry.
+    async fn collect(&self, base_message_size: usize, label: &str) -> (Vec<T>, usize, bool) {
+        let pending = self.items.lock().await;
         if pending.is_empty() {
             return (Vec::new(), 0, false);
         }
 
-        let mut responses = Vec::new();
+        let mut batch = Vec::new();
         let mut current_size = base_message_size;
 
-        for response in pending.iter() {
-            let response_size = response.encoded_len();
+        for item in pending.iter() {
+            let item_size = item.encoded_len();
 
-            if responses.is_empty() {
-                // Always include at least one response to make forward progress.
-                responses.push(response.clone());
-                current_size += response_size;
+            if batch.is_empty() {
+                // Always include at least one item to make forward progress.
+                batch.push(item.clone());
+                current_size += item_size;
 
                 if current_size >= STATE_REPORT_MAX_MESSAGE_SIZE {
                     tracing::warn!(
                         size = current_size,
                         limit = STATE_REPORT_MAX_MESSAGE_SIZE,
-                        "Single command response exceeds message size limit"
+                        label,
+                        "Single item exceeds message size limit"
                     );
                 }
-            } else if current_size + response_size < STATE_REPORT_MAX_MESSAGE_SIZE {
-                responses.push(response.clone());
-                current_size += response_size;
+            } else if current_size + item_size < STATE_REPORT_MAX_MESSAGE_SIZE {
+                batch.push(item.clone());
+                current_size += item_size;
             } else {
-                // Would exceed limit — stop and let remaining responses be sent
-                // in the next heartbeat.
                 debug!(
-                    included = responses.len(),
-                    remaining = pending.len() - responses.len(),
+                    included = batch.len(),
+                    remaining = pending.len() - batch.len(),
                     message_size = current_size,
-                    "Fragmenting state report due to message size limit"
+                    label,
+                    "Fragmenting report due to message size limit"
                 );
                 break;
             }
         }
 
-        let count = responses.len();
+        let count = batch.len();
         let has_remaining = count < pending.len();
 
-        debug!(
-            count,
-            has_remaining, "Collected command responses for report_command_responses"
-        );
+        debug!(count, has_remaining, label, "Collected items for report");
 
-        (responses, count, has_remaining)
+        (batch, count, has_remaining)
     }
 
-    /// Remove the first `count` responses from the buffer after a successful
-    /// RPC.
+    /// Remove the first `count` items from the buffer after a successful RPC.
     ///
-    /// This is safe because new items are always appended to the end by
-    /// `drain_responses`, so the first `count` items are exactly the ones
-    /// that were returned by [`collect_responses`].
-    pub async fn drain_sent(&self, count: usize) {
+    /// Safe because new items are always appended to the end, so the first
+    /// `count` items are exactly the ones returned by [`collect`].
+    async fn drain_sent(&self, count: usize) {
         if count == 0 {
             return;
         }
-        let mut pending = self.pending_responses.lock().await;
-        // Guard against underflow if the buffer shrank (shouldn't happen, but
-        // be defensive).
+        let mut pending = self.items.lock().await;
         let n = count.min(pending.len());
         pending.drain(..n);
     }
 }
 
-/// Background task: drains a command response channel into the shared buffer.
-async fn drain_responses(
-    mut rx: mpsc::UnboundedReceiver<CommandResponse>,
-    pending: Arc<Mutex<Vec<CommandResponse>>>,
-    notify: Arc<Notify>,
-) {
-    while let Some(response) = rx.recv().await {
-        let mut buf = pending.lock().await;
-        buf.push(response);
-        drop(buf);
-        notify.notify_one();
+// ---------------------------------------------------------------------------
+// StateReporter
+// ---------------------------------------------------------------------------
+
+/// Collects command responses and allocation activities for reporting.
+pub struct StateReporter {
+    responses: PendingBuffer<CommandResponse>,
+    activities: PendingBuffer<AllocationStreamRequest>,
+}
+
+impl StateReporter {
+    /// Create a new state reporter and spawn background tasks that drain
+    /// the response, container response, and activity channels and notify
+    /// the respective loops.
+    pub fn new(
+        response_rx: mpsc::UnboundedReceiver<CommandResponse>,
+        container_response_rx: mpsc::UnboundedReceiver<CommandResponse>,
+        activity_rx: mpsc::UnboundedReceiver<AllocationStreamRequest>,
+    ) -> Self {
+        let responses = PendingBuffer::new();
+        let activities = PendingBuffer::new();
+
+        // Two drainers feed the same response buffer (acks + container events).
+        responses.spawn_drainer(response_rx);
+        responses.spawn_drainer(container_response_rx);
+
+        activities.spawn_drainer(activity_rx);
+
+        Self {
+            responses,
+            activities,
+        }
+    }
+
+    /// Get a handle to the notify for waking up the result loop.
+    pub fn results_notify(&self) -> Arc<Notify> {
+        self.responses.notify.clone()
+    }
+
+    /// Get a handle to the notify for waking up when activities arrive.
+    pub fn activities_notify(&self) -> Arc<Notify> {
+        self.activities.notify.clone()
+    }
+
+    // ---------------------------------------------------------------
+    // Command responses (report_command_responses)
+    // ---------------------------------------------------------------
+
+    /// Collect command responses that fit within the message size limit.
+    pub async fn collect_responses(
+        &self,
+        base_message_size: usize,
+    ) -> (Vec<CommandResponse>, usize, bool) {
+        self.responses
+            .collect(base_message_size, "command_responses")
+            .await
+    }
+
+    /// Remove the first `count` responses from the buffer after a successful
+    /// RPC.
+    pub async fn drain_sent(&self, count: usize) {
+        self.responses.drain_sent(count).await;
+    }
+
+    // ---------------------------------------------------------------
+    // Allocation activities (report_allocation_activities)
+    // ---------------------------------------------------------------
+
+    /// Drain all pending activities from the buffer and return them.
+    ///
+    /// Used by the allocation stream loop to take items out of the buffer
+    /// and forward them via the bidi stream. Items are removed immediately
+    /// (no separate drain step needed).
+    pub async fn drain_all_activities(&self) -> Vec<AllocationStreamRequest> {
+        let mut pending = self.activities.items.lock().await;
+        std::mem::take(&mut *pending)
     }
 }
 
@@ -174,9 +219,10 @@ mod tests {
     async fn setup_reporter(responses: Vec<CommandResponse>) -> StateReporter {
         let (_tx, rx) = mpsc::unbounded_channel::<CommandResponse>();
         let (_cs_tx, cs_rx) = mpsc::unbounded_channel::<CommandResponse>();
-        let reporter = StateReporter::new(rx, cs_rx);
+        let (_act_tx, act_rx) = mpsc::unbounded_channel::<AllocationStreamRequest>();
+        let reporter = StateReporter::new(rx, cs_rx, act_rx);
         {
-            let mut pending = reporter.pending_responses.lock().await;
+            let mut pending = reporter.responses.items.lock().await;
             pending.extend(responses);
         }
         reporter
@@ -184,33 +230,26 @@ mod tests {
 
     fn make_response(id: &str) -> CommandResponse {
         CommandResponse {
-            command_seq: 0,
+            command_seq: Some(1),
             response: Some(
-                proto_api::executor_api_pb::command_response::Response::AllocationFailed(
-                    proto_api::executor_api_pb::AllocationFailed {
+                proto_api::executor_api_pb::command_response::Response::AllocationScheduled(
+                    proto_api::executor_api_pb::AllocationScheduled {
                         allocation_id: id.to_string(),
-                        reason: proto_api::executor_api_pb::AllocationFailureReason::InternalError
-                            .into(),
-                        ..Default::default()
                     },
                 ),
             ),
         }
     }
 
-    /// Create a CommandResponse with a large request_id to control encoded
+    /// Create a CommandResponse with a large allocation_id to control encoded
     /// size.
     fn make_large_response(id: &str, payload_size: usize) -> CommandResponse {
         CommandResponse {
-            command_seq: 0,
+            command_seq: Some(1),
             response: Some(
-                proto_api::executor_api_pb::command_response::Response::AllocationFailed(
-                    proto_api::executor_api_pb::AllocationFailed {
-                        allocation_id: id.to_string(),
-                        reason: proto_api::executor_api_pb::AllocationFailureReason::InternalError
-                            .into(),
-                        request_id: Some("x".repeat(payload_size)),
-                        ..Default::default()
+                proto_api::executor_api_pb::command_response::Response::AllocationScheduled(
+                    proto_api::executor_api_pb::AllocationScheduled {
+                        allocation_id: format!("{}{}", id, "x".repeat(payload_size)),
                     },
                 ),
             ),
@@ -358,7 +397,7 @@ mod tests {
 
         // Simulate new item arriving between collect and drain.
         {
-            let mut pending = reporter.pending_responses.lock().await;
+            let mut pending = reporter.responses.items.lock().await;
             pending.push(make_response("a3"));
         }
 
@@ -402,7 +441,8 @@ mod tests {
     async fn test_drain_from_channel() {
         let (tx, rx) = mpsc::unbounded_channel::<CommandResponse>();
         let (_cs_tx, cs_rx) = mpsc::unbounded_channel::<CommandResponse>();
-        let reporter = StateReporter::new(rx, cs_rx);
+        let (_act_tx, act_rx) = mpsc::unbounded_channel::<AllocationStreamRequest>();
+        let reporter = StateReporter::new(rx, cs_rx, act_rx);
 
         // Send responses through the channel
         tx.send(make_response("c1")).unwrap();
@@ -418,7 +458,7 @@ mod tests {
     #[tokio::test]
     async fn test_container_terminated_sent_and_drained() {
         let container_terminated = CommandResponse {
-            command_seq: 0,
+            command_seq: None,
             response: Some(
                 proto_api::executor_api_pb::command_response::Response::ContainerTerminated(
                     proto_api::executor_api_pb::ContainerTerminated {
@@ -453,7 +493,7 @@ mod tests {
     async fn test_container_started_sent_and_drained() {
         // ContainerStarted responses are collected and drained like everything else.
         let container_started = CommandResponse {
-            command_seq: 0,
+            command_seq: None,
             response: Some(
                 proto_api::executor_api_pb::command_response::Response::ContainerStarted(
                     proto_api::executor_api_pb::ContainerStarted {

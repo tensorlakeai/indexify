@@ -50,7 +50,7 @@ mod tests {
         assert_eq!(1, commands.run_allocations.len());
         let task_allocation = &commands.run_allocations[0];
         executor
-            .report_command_responses(vec![TestExecutor::make_allocation_completed(
+            .report_allocation_activities(vec![TestExecutor::make_allocation_completed(
                 task_allocation,
                 Some(mock_updates()),
                 None,
@@ -95,7 +95,7 @@ mod tests {
         assert_eq!(1, commands.run_allocations.len());
         let task_allocation = &commands.run_allocations[0];
         executor
-            .report_command_responses(vec![TestExecutor::make_allocation_completed(
+            .report_allocation_activities(vec![TestExecutor::make_allocation_completed(
                 task_allocation,
                 Some(mock_updates()),
                 None,
@@ -187,7 +187,7 @@ mod tests {
             assert_eq!(1, commands.run_allocations.len());
             let task_allocation = &commands.run_allocations[0];
             executor
-                .report_command_responses(vec![TestExecutor::make_allocation_completed(
+                .report_allocation_activities(vec![TestExecutor::make_allocation_completed(
                     task_allocation,
                     Some(mock_updates()),
                     None,
@@ -293,7 +293,7 @@ mod tests {
             // Respond with AllocationFailed via report_command_responses.
             // This is the v2 protocol path production dataplanes use.
             executor
-                .report_command_responses(vec![TestExecutor::make_allocation_failed(
+                .report_allocation_activities(vec![TestExecutor::make_allocation_failed(
                     allocation,
                     task_failure_reason.clone(),
                     None,
@@ -611,7 +611,7 @@ mod tests {
 
         // Fail the allocation with a free-retry reason via the v2 protocol path.
         executor
-            .report_command_responses(vec![TestExecutor::make_allocation_failed(
+            .report_allocation_activities(vec![TestExecutor::make_allocation_failed(
                 allocation,
                 reason.clone(),
                 None,
@@ -736,7 +736,7 @@ mod tests {
         // reason. The server must NOT retry — the function run should complete
         // with failure immediately.
         executor
-            .report_command_responses(vec![TestExecutor::make_allocation_failed(
+            .report_allocation_activities(vec![TestExecutor::make_allocation_failed(
                 allocation,
                 reason.clone(),
                 None,

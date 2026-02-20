@@ -9,6 +9,7 @@ use std::{
 
 use anyhow::{Context, Result};
 use proto_api::executor_api_pb::{
+    AllocationStreamRequest,
     ExecutorStatus,
     GetCommandStreamRequest,
     HostResources,
@@ -18,11 +19,13 @@ use tokio::{
     sync::{Mutex, Notify, mpsc},
     task::JoinSet,
 };
+use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::sync::CancellationToken;
 use tonic::transport::{Channel, ClientTlsConfig, Endpoint};
 use tracing::Instrument;
 
 use crate::{
+    allocation_result_dispatcher::AllocationResultDispatcher,
     blob_ops::BlobStore,
     code_cache::CodeCache,
     config::{DataplaneConfig, DriverConfig},
@@ -59,6 +62,7 @@ pub struct Service {
     state_reconciler: Arc<Mutex<StateReconciler>>,
     state_reporter: Arc<StateReporter>,
     monitoring_state: Arc<MonitoringState>,
+    allocation_result_dispatcher: Arc<AllocationResultDispatcher>,
 }
 
 impl Service {
@@ -117,8 +121,9 @@ impl Service {
 
         let driver = create_process_driver(&config)?;
 
-        let (result_tx, result_rx) = mpsc::unbounded_channel(); // CommandResponse (allocation results)
+        let (result_tx, result_rx) = mpsc::unbounded_channel(); // CommandResponse (acks + container events)
         let (container_state_tx, container_state_rx) = mpsc::unbounded_channel(); // CommandResponse (ContainerTerminated)
+        let (activity_tx, activity_rx) = mpsc::unbounded_channel(); // AllocationStreamRequest (completed/failed)
 
         let state_file = Arc::new(
             StateFile::new(&config.state_file)
@@ -152,6 +157,7 @@ impl Service {
             secrets_provider,
             result_tx,
             container_state_tx,
+            activity_tx,
             server_channel: channel.clone(),
             blob_store,
             code_cache,
@@ -164,15 +170,22 @@ impl Service {
             metrics: metrics.clone(),
         };
 
+        let allocation_result_dispatcher = AllocationResultDispatcher::new();
+
         let cancel_token = CancellationToken::new();
         let state_reconciler = Arc::new(Mutex::new(StateReconciler::new(
             container_manager.clone(),
             spawn_config,
             cancel_token,
             state_change_notify.clone(),
+            allocation_result_dispatcher.clone(),
         )));
 
-        let state_reporter = Arc::new(StateReporter::new(result_rx, container_state_rx));
+        let state_reporter = Arc::new(StateReporter::new(
+            result_rx,
+            container_state_rx,
+            activity_rx,
+        ));
 
         let allowed_functions = config.parse_allowed_functions();
         if !allowed_functions.is_empty() {
@@ -194,6 +207,7 @@ impl Service {
             state_reconciler,
             state_reporter,
             monitoring_state,
+            allocation_result_dispatcher,
         })
     }
 
@@ -240,6 +254,7 @@ impl Service {
             metrics: self.metrics.clone(),
             monitoring_state: self.monitoring_state.clone(),
             command_stream_last_seq: Arc::new(AtomicU64::new(0)),
+            allocation_result_dispatcher: self.allocation_result_dispatcher.clone(),
         });
 
         let mut tasks = JoinSet::new();
@@ -254,6 +269,12 @@ impl Service {
             let span = span.clone();
             let rt = runtime.clone();
             async move { rt.run_command_stream_loop().await }.instrument(span)
+        });
+
+        tasks.spawn({
+            let span = span.clone();
+            let rt = runtime.clone();
+            async move { rt.run_allocation_stream_loop().await }.instrument(span)
         });
 
         tasks.spawn({
@@ -363,14 +384,15 @@ struct ServiceRuntime {
     monitoring_state: Arc<MonitoringState>,
     /// Last processed command sequence number for the command stream.
     command_stream_last_seq: Arc<AtomicU64>,
+    /// Dispatcher for routing allocation stream results to allocation runners.
+    allocation_result_dispatcher: Arc<AllocationResultDispatcher>,
 }
 
 impl ServiceRuntime {
-    /// Build a full state sync message (identity + all containers + watches).
+    /// Build a full state sync message (identity + all containers).
     fn build_full_state(
         &self,
         fe_states: &[proto_api::executor_api_pb::FunctionExecutorState],
-        watches: &[proto_api::executor_api_pb::FunctionCallWatch],
     ) -> proto_api::executor_api_pb::DataplaneStateFullSync {
         let hostname = hostname::get()
             .map(|h| h.to_string_lossy().to_string())
@@ -385,7 +407,6 @@ impl ServiceRuntime {
             catalog_entry_name: None,
             proxy_address: Some(self.identity.proxy_address.clone()),
             function_executor_states: fe_states.to_vec(),
-            function_call_watches: watches.to_vec(),
         }
     }
 
@@ -469,6 +490,10 @@ impl ServiceRuntime {
                 continue;
             }
 
+            // Allocation activities (AllocationCompleted/AllocationFailed and
+            // CallFunction log entries) are sent via the separate
+            // run_allocation_stream_loop bidi RPC, not the heartbeat loop.
+
             // Phase 2: Build and send heartbeat
             let report_start = std::time::Instant::now();
 
@@ -477,9 +502,8 @@ impl ServiceRuntime {
                 tracing::info!("Sending full state in heartbeat");
                 let reconciler_guard = self.state_reconciler.lock().await;
                 let fe_states = reconciler_guard.get_all_fe_states().await;
-                let function_call_watches = reconciler_guard.get_function_call_watches().await;
                 drop(reconciler_guard);
-                Some(self.build_full_state(&fe_states, &function_call_watches))
+                Some(self.build_full_state(&fe_states))
             } else {
                 None
             };
@@ -562,6 +586,12 @@ impl ServiceRuntime {
             }
 
             // Phase 3: Wait for next trigger
+            // If the server requested full state, send it immediately without
+            // waiting for the heartbeat interval.
+            if send_full_state {
+                continue;
+            }
+
             let results_notify = self.state_reporter.results_notify();
             let reconciler = self.state_reconciler.lock().await;
             let state_change_notify = reconciler.state_change_notify();
@@ -684,6 +714,207 @@ impl ServiceRuntime {
         }
     }
 
+    // ---------------------------------------------------------------
+    // Allocation stream (bidi RPC for allocation traffic)
+    // ---------------------------------------------------------------
+
+    /// Outer reconnect loop for the allocation stream.
+    async fn run_allocation_stream_loop(&self) {
+        loop {
+            if self.cancel_token.is_cancelled() {
+                tracing::info!("Allocation stream loop cancelled");
+                return;
+            }
+
+            // Wait for heartbeat to be healthy before starting stream
+            while !self.heartbeat_healthy.load(Ordering::SeqCst) {
+                tracing::debug!("Allocation stream waiting for heartbeat to be healthy");
+                tokio::select! {
+                    _ = self.cancel_token.cancelled() => {
+                        tracing::info!("Allocation stream loop cancelled");
+                        return;
+                    }
+                    _ = self.stream_notify.notified() => {}
+                }
+            }
+
+            tracing::info!("Starting allocation stream");
+            if let Err(e) = self.run_allocation_stream().await {
+                tracing::warn!(error = %e, "Allocation stream ended");
+            }
+
+            // Small delay before reconnecting
+            tokio::select! {
+                _ = self.cancel_token.cancelled() => {
+                    tracing::info!("Allocation stream loop cancelled");
+                    return;
+                }
+                _ = tokio::time::sleep(Duration::from_secs(1)) => {}
+            }
+        }
+    }
+
+    /// Single connection for the allocation stream (bidi).
+    ///
+    /// The outbound side drains allocation activities (AllocationCompleted,
+    /// AllocationFailed, CallFunction log entries) from the state reporter
+    /// buffer and sends them to the server.
+    ///
+    /// The inbound side receives FunctionCallResult log entries from the
+    /// server for delivery to allocation runners.
+    async fn run_allocation_stream(&self) -> Result<()> {
+        let mut client = ExecutorApiClient::new(self.channel.clone());
+
+        // Create a channel for outbound messages. The drainer task sends
+        // items here; the ReceiverStream feeds them to the bidi stream.
+        let (outbound_tx, outbound_rx) = mpsc::channel::<AllocationStreamRequest>(64);
+
+        // Open the bidi stream
+        let response = client
+            .allocation_stream(ReceiverStream::new(outbound_rx))
+            .await
+            .context("Failed to open allocation stream")?;
+
+        let mut inbound = response.into_inner();
+
+        // Spawn a task to drain activities from state_reporter and send
+        // via outbound_tx. The task ends when the cancel token fires, the
+        // outbound_tx is dropped (stream closed), or the receiver side of
+        // outbound_tx is dropped (stream reconnecting).
+        let drainer_cancel = self.cancel_token.clone();
+        let drainer_reporter = self.state_reporter.clone();
+        let drainer_executor_id = self.identity.executor_id.clone();
+        let drainer_tx = outbound_tx.clone();
+        let drainer_handle = tokio::spawn(async move {
+            Self::drain_activities_to_stream(
+                drainer_reporter,
+                drainer_tx,
+                drainer_executor_id,
+                drainer_cancel,
+            )
+            .await;
+        });
+
+        // Main loop: read from inbound stream
+        let result = loop {
+            let message = tokio::select! {
+                _ = self.cancel_token.cancelled() => {
+                    break Ok(());
+                }
+                result = tokio::time::timeout(STREAM_IDLE_TIMEOUT, inbound.message()) => result
+            };
+
+            match message {
+                Ok(Ok(Some(response))) => {
+                    self.handle_allocation_stream_response(response);
+                }
+                Ok(Ok(None)) => {
+                    tracing::info!("Allocation stream closed by server");
+                    break Ok(());
+                }
+                Ok(Err(e)) => {
+                    break Err(e).context("Allocation stream error");
+                }
+                Err(_) => {
+                    tracing::warn!("Allocation stream idle timeout, reconnecting");
+                    break Ok(());
+                }
+            }
+        };
+
+        // Drop the outbound sender to signal the drainer task to stop, and
+        // wait for it to finish.
+        drop(outbound_tx);
+        let _ = drainer_handle.await;
+
+        result
+    }
+
+    /// Background task: drain activities from the state reporter buffer and
+    /// forward them via the outbound channel to the bidi stream.
+    async fn drain_activities_to_stream(
+        reporter: Arc<StateReporter>,
+        tx: mpsc::Sender<AllocationStreamRequest>,
+        executor_id: String,
+        cancel_token: CancellationToken,
+    ) {
+        let activities_notify = reporter.activities_notify();
+
+        loop {
+            // Wait for activities to arrive
+            tokio::select! {
+                _ = cancel_token.cancelled() => {
+                    return;
+                }
+                _ = activities_notify.notified() => {}
+            }
+
+            // Drain all pending activities and send them
+            let items = reporter.drain_all_activities().await;
+            for mut item in items {
+                // Ensure executor_id is set on every outbound message
+                if item.executor_id.is_empty() {
+                    item.executor_id.clone_from(&executor_id);
+                }
+
+                if tx.send(item).await.is_err() {
+                    // Receiver dropped — stream is closing
+                    return;
+                }
+            }
+        }
+    }
+
+    /// Handle a single response from the allocation stream.
+    ///
+    /// Dispatches incoming `FunctionCallResult` entries to the allocation
+    /// runner handling the target allocation via the shared
+    /// `AllocationResultDispatcher`.
+    fn handle_allocation_stream_response(
+        &self,
+        response: proto_api::executor_api_pb::AllocationStreamResponse,
+    ) {
+        if let Some(ref log_entry) = response.log_entry {
+            let allocation_id = &log_entry.allocation_id;
+            match &log_entry.entry {
+                Some(
+                    proto_api::executor_api_pb::allocation_log_entry::Entry::FunctionCallResult(
+                        result,
+                    ),
+                ) => {
+                    tracing::debug!(
+                        allocation_id = %allocation_id,
+                        function_call_id = ?result.function_call_id,
+                        "Received FunctionCallResult from allocation stream"
+                    );
+                    let dispatcher = self.allocation_result_dispatcher.clone();
+                    let alloc_id = allocation_id.clone();
+                    let resp = response;
+                    tokio::spawn(async move {
+                        if !dispatcher.dispatch(&alloc_id, resp).await {
+                            tracing::warn!(
+                                allocation_id = %alloc_id,
+                                "No allocation runner registered for result dispatch"
+                            );
+                        }
+                    });
+                }
+                Some(proto_api::executor_api_pb::allocation_log_entry::Entry::CallFunction(_)) => {
+                    tracing::warn!(
+                        allocation_id = %allocation_id,
+                        "Unexpected CallFunction entry from server on allocation stream"
+                    );
+                }
+                None => {
+                    tracing::warn!(
+                        allocation_id = %allocation_id,
+                        "Received empty log entry on allocation stream"
+                    );
+                }
+            }
+        }
+    }
+
     /// Handle a single Command from the command stream.
     async fn handle_command(&self, command: proto_api::executor_api_pb::Command) {
         let seq = command.seq;
@@ -765,7 +996,7 @@ impl ServiceRuntime {
                         );
                         let mut reconciler = self.state_reconciler.lock().await;
                         reconciler
-                            .reconcile_allocations(vec![(fe_id, allocation)], &[])
+                            .reconcile_allocations(vec![(fe_id, allocation, seq)])
                             .await;
                     } else {
                         tracing::warn!(
@@ -786,19 +1017,8 @@ impl ServiceRuntime {
                     "KillAllocation command received (not yet implemented)"
                 );
             }
-            Cmd::DeliverResult(deliver) => {
-                if let Some(result) = deliver.result {
-                    tracing::info!(
-                        seq,
-                        function_call_id = ?result.function_call_id,
-                        namespace = ?result.namespace,
-                        request_id = ?result.request_id,
-                        "DeliverResult command"
-                    );
-                    let reconciler = self.state_reconciler.lock().await;
-                    reconciler.deliver_function_call_results(&[result]).await;
-                }
-            }
+            // DeliverResult was removed from Command — function call results
+            // are now delivered via the AllocationEvent log.
             Cmd::UpdateContainerDescription(update) => {
                 tracing::info!(
                     seq,

@@ -31,11 +31,9 @@ use self::{
     events::{ACCommand, ACEvent},
     types::{AllocLogCtx, AllocationState, ContainerState, ManagedAllocation, ManagedFE},
 };
-use crate::function_executor::{
-    controller::FESpawnConfig,
-    events::FinalizationContext,
-    proto_convert,
-    watcher_registry::WatcherRegistry,
+use crate::{
+    allocation_result_dispatcher::AllocationResultDispatcher,
+    function_executor::{controller::FESpawnConfig, events::FinalizationContext, proto_convert},
 };
 
 /// Handle returned to service.rs / StateReconciler for communicating with the
@@ -43,7 +41,6 @@ use crate::function_executor::{
 pub struct AllocationControllerHandle {
     pub command_tx: mpsc::UnboundedSender<ACCommand>,
     pub state_rx: watch::Receiver<Vec<FunctionExecutorState>>,
-    pub watcher_registry: WatcherRegistry,
 }
 
 /// Unified controller managing all function executor containers and
@@ -74,9 +71,9 @@ pub struct AllocationController {
 
     // -- Shared dependencies --
     config: FESpawnConfig,
-    watcher_registry: WatcherRegistry,
     state_tx: watch::Sender<Vec<FunctionExecutorState>>,
     state_change_notify: Arc<Notify>,
+    allocation_result_dispatcher: Arc<AllocationResultDispatcher>,
 
     // -- Shutdown --
     cancel_token: CancellationToken,
@@ -89,12 +86,11 @@ impl AllocationController {
         config: FESpawnConfig,
         cancel_token: CancellationToken,
         state_change_notify: Arc<Notify>,
+        allocation_result_dispatcher: Arc<AllocationResultDispatcher>,
     ) -> AllocationControllerHandle {
         let (command_tx, command_rx) = mpsc::unbounded_channel();
         let (event_tx, event_rx) = mpsc::unbounded_channel();
         let (state_tx, state_rx) = watch::channel(Vec::new());
-        let watcher_registry = WatcherRegistry::new();
-
         let controller = Self {
             containers: HashMap::new(),
             allocations: HashMap::new(),
@@ -105,9 +101,9 @@ impl AllocationController {
             event_tx,
             event_rx,
             config,
-            watcher_registry: watcher_registry.clone(),
             state_tx,
             state_change_notify,
+            allocation_result_dispatcher,
             cancel_token,
         };
 
@@ -125,7 +121,6 @@ impl AllocationController {
         AllocationControllerHandle {
             command_tx,
             state_rx,
-            watcher_registry,
         }
     }
 
@@ -149,7 +144,7 @@ impl AllocationController {
                             if !new_allocations.is_empty() {
                                 let current_ids: std::collections::HashSet<String> = new_allocations
                                     .iter()
-                                    .map(|(_, a)| a.allocation_id.clone().unwrap_or_default())
+                                    .map(|(_, a, _)| a.allocation_id.clone().unwrap_or_default())
                                     .collect();
                                 self.cleanup_done_allocations(&current_ids);
                             }
@@ -364,12 +359,9 @@ impl AllocationController {
                 ctx.output_blob_handles.is_empty() &&
                 ctx.fe_result.is_none()
             {
-                let response = proto_convert::allocation_result_to_command_response(&result);
-                crate::function_executor::controller::record_allocation_metrics(
-                    &response,
-                    &self.config.metrics.counters,
-                );
-                let _ = self.config.result_tx.send(response);
+                let activity = proto_convert::allocation_result_to_stream_request(&result);
+                proto_convert::record_activity_metrics(&activity, &self.config.metrics.counters);
+                let _ = self.config.activity_tx.send(activity);
                 alloc.state = AllocationState::Done;
             } else {
                 self.start_finalization(&alloc_id, result, ctx);

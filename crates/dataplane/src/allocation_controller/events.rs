@@ -25,8 +25,8 @@ pub enum ACCommand {
         added_or_updated_fes: Vec<FunctionExecutorDescription>,
         /// Container IDs to destroy.
         removed_fe_ids: Vec<String>,
-        /// (fe_id, allocation) pairs to route.
-        new_allocations: Vec<(String, ServerAllocation)>,
+        /// (fe_id, allocation, command_seq) tuples to route.
+        new_allocations: Vec<(String, ServerAllocation, u64)>,
     },
     /// Graceful shutdown of the entire controller.
     Shutdown,

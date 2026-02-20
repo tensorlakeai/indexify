@@ -249,7 +249,7 @@ message ExecutorState {
     // Catalog entry name that this executor is associated with.
     optional string catalog_entry_name = 14;
 
-    repeated FunctionCallWatch function_call_watches = 15;
+    reserved 15; // was function_call_watches — watchers eliminated by allocation_stream
 
     // Address of the HTTP proxy (host:port) for routing sandbox traffic.
     optional string proxy_address = 16;
@@ -262,11 +262,12 @@ message ExecutorUpdate {
     repeated AllocationResult allocation_results = 2;
 }
 
-message FunctionCallWatch {
-    optional string namespace = 1;
-    optional string application = 2;
-    optional string request_id = 3;
-    optional string function_call_id = 4;
+// FunctionCallWatch removed — watchers eliminated by allocation_stream.
+
+enum ReplayMode {
+    REPLAY_MODE_NONE = 0;        // Initial run, no replay
+    REPLAY_MODE_STRICT = 1;      // Deterministic replay, fail on mismatch
+    REPLAY_MODE_ADAPTIVE = 2;    // Replay what matches, re-execute on divergence
 }
 
 message Allocation {
@@ -287,12 +288,13 @@ message Allocation {
     // Always set. An empty bytes array if no metadata, e.g. for API function call.
     optional bytes function_call_metadata = 9;
 
-    // === New fields for durable execution (v2) ===
+    // === Durable execution (v2) ===
 
-    // True if this allocation is a replay of a previously started execution.
-    // Executor fetches the event log via get_allocation_events and replays
-    // deterministically instead of executing user code from scratch.
-    optional bool replay_mode = 10;
+    // Controls how the executor handles this allocation.
+    // Unset or REPLAY_MODE_NONE for initial runs (no replay).
+    // REPLAY_MODE_STRICT: deterministic replay, fail on mismatch.
+    // REPLAY_MODE_ADAPTIVE: replay what matches, re-execute on divergence.
+    optional ReplayMode replay_mode = 10;
 
     // Clock value of the last event in the server-side log for this allocation.
     // Executor uses this to know how far to replay before resuming live execution.
@@ -316,7 +318,7 @@ message DesiredExecutorState {
     // Server supplied clock value used to deduplicate messages. Executor records max clock value
     // it observed and ignores all the messages with clock value <= the max observed value.
     optional uint64 clock = 3;
-    repeated FunctionCallResult function_call_results = 4;
+    reserved 4; // was function_call_results — results now delivered via allocation_stream
 }
 
 enum AllocationOutcomeCode {
@@ -494,7 +496,7 @@ message DataplaneStateFullSync {
     optional string catalog_entry_name = 7;
     optional string proxy_address = 8;
     repeated FunctionExecutorState function_executor_states = 9;
-    repeated FunctionCallWatch function_call_watches = 10;
+    reserved 10; // was function_call_watches — watchers eliminated by allocation_stream
 }
 
 // ════════════════════════════════════════════
@@ -527,9 +529,9 @@ message Command {
         RemoveContainer remove_container = 3;
         RunAllocation run_allocation = 4;
         KillAllocation kill_allocation = 5;
-        DeliverResult deliver_result = 6;
         UpdateContainerDescription update_container_description = 7;
     }
+    reserved 6; // was DeliverResult — results now delivered via AllocationEvent log
 }
 
 message UpdateContainerDescription {
@@ -557,9 +559,8 @@ message KillAllocation {
     string allocation_id = 1;
 }
 
-message DeliverResult {
-    FunctionCallResult result = 1;
-}
+// DeliverResult was removed. Function call results are now delivered
+// deterministically via the AllocationEvent log.
 
 enum ContainerTerminationReason {
     CONTAINER_TERMINATION_REASON_UNKNOWN = 0;
@@ -585,18 +586,22 @@ enum ContainerTerminationReason {
 //
 // V2 protocol contract:
 // - The dataplane sends individual AllocationFailed/AllocationCompleted messages
-//   for each allocation with the correct failure reason. The server does NOT
-//   infer allocation outcomes from container termination events.
+//   for each allocation with the correct failure reason via report_allocation_activities.
 // - ContainerTerminated is a container-lifecycle-only event. The server uses it
 //   to update container state but does NOT derive allocation outcomes from it.
+// - AllocationScheduled is a fast ack confirming the dataplane accepted the allocation.
 message CommandResponse {
-    uint64 command_seq = 1;  // 0 = unsolicited event
+    optional uint64 command_seq = 1;
     oneof response {
         ContainerStarted container_started = 2;
         ContainerTerminated container_terminated = 3;
-        AllocationCompleted allocation_completed = 4;
-        AllocationFailed allocation_failed = 5;
+        AllocationScheduled allocation_scheduled = 6;
     }
+    reserved 4, 5;
+}
+
+message AllocationScheduled {
+    string allocation_id = 1;
 }
 
 message ContainerStarted { string container_id = 1; }
@@ -646,65 +651,51 @@ message ReportCommandResponsesRequest {
 message ReportCommandResponsesResponse {}
 
 // ════════════════════════════════════════════
-// ALLOCATION EVENTS (per-allocation event log)
+// ALLOCATION LOG (deterministic event log)
 // ════════════════════════════════════════════
 
-// A single event that occurred during allocation execution.
-// These form an ordered log that enables deterministic replay
-// for durable execution.
-message AllocationEvent {
-    oneof event {
-        FunctionCallRequest call_function = 1;   // SDK called another function
-        AddWatcherRequest add_watcher = 2;       // SDK registered a watcher for a function call result
-        RemoveWatcherRequest remove_watcher = 3; // Watcher result delivered, stop watching
+// A single entry in an allocation's deterministic event log.
+// The server persists entries from both directions for replay.
+message AllocationLogEntry {
+    string allocation_id = 1;                        // Which allocation this entry belongs to
+    uint64 clock = 2;                                // Server-assigned monotonic clock
+    oneof entry {
+        FunctionCallRequest call_function = 3;       // Executor → Server: SDK called another function
+        FunctionCallResult function_call_result = 4; // Server → Executor: result of a function call
     }
 }
 
-message AddWatcherRequest {
-    optional string watcher_id = 1;
-    optional string namespace = 2;
-    optional string application = 3;
-    optional string request_id = 4;
-    optional string function_call_id = 5;      // Function call to watch
+// Fetch historical log entries for replay (called before joining the live stream).
+message GetAllocationLogRequest {
+    string allocation_id = 1;
+    uint64 after_clock = 2;                          // Resume point (0 = full log)
+    optional uint32 max_entries = 3;                 // Pagination limit
 }
 
-message RemoveWatcherRequest {
-    optional string watcher_id = 1;
-    optional string namespace = 2;
-    optional string application = 3;
-    optional string request_id = 4;
-    optional string function_call_id = 5;      // Function call to stop watching
+message GetAllocationLogResponse {
+    repeated AllocationLogEntry entries = 1;
+    optional uint64 last_clock = 2;                  // Clock of last returned entry
+    optional bool has_more = 3;                      // True if more entries exist
 }
 
-// Batch of events from a single allocation execution.
-// Executor → Server: records events in the server-side log.
-message AllocationEvents {
-    optional string namespace = 1;
-    optional string application = 2;
-    optional string function_call_id = 3;
-    optional string allocation_id = 4;
-    repeated AllocationEvent events = 5;
-    // Executor sending the events — needed for watch add/remove routing.
-    optional string executor_id = 6;
+// ════════════════════════════════════════════
+// ALLOCATION STREAM (per-executor live bidi)
+// ════════════════════════════════════════════
+
+// Executor → Server messages on the allocation stream.
+// Live traffic only — no replay, no mode switching.
+message AllocationStreamRequest {
+    string executor_id = 1;
+    oneof message {
+        AllocationLogEntry log_entry = 2;            // SDK actions (call_function entries)
+        AllocationCompleted completed = 3;           // Allocation finished successfully (final)
+        AllocationFailed failed = 4;                 // Allocation failed (final)
+    }
 }
 
-message AllocationEventsResponse {}
-
-// Server → Executor: fetch events from the server-side log
-// for deterministic replay on allocation restart.
-message GetAllocationEventsRequest {
-    optional string namespace = 1;
-    optional string application = 2;
-    optional string function_call_id = 3;
-    optional string allocation_id = 4;
-    optional uint64 after_clock = 5;           // Pagination: events after this clock value
-    optional uint32 max_events = 6;            // Max events to return per page
-}
-
-message GetAllocationEventsResponse {
-    repeated AllocationEvent events = 1;
-    optional uint64 last_clock = 2;            // Clock of last returned event (pagination token)
-    optional bool has_more = 3;                // True if more events exist after last_clock
+// Server → Executor messages on the allocation stream.
+message AllocationStreamResponse {
+    AllocationLogEntry log_entry = 1;                // Function call results (live)
 }
 
 // Internal API for scheduling and running allocations on Executors. Executors are acting as clients of this API.
@@ -720,10 +711,15 @@ service ExecutorAPI {
     // Server → dataplane: command stream
     rpc command_stream(GetCommandStreamRequest) returns (stream Command) {}
 
-    // Dataplane → server: command responses (allocation results, container state)
+    // Dataplane → server: command responses (container state, allocation acks)
     rpc report_command_responses(ReportCommandResponsesRequest) returns (ReportCommandResponsesResponse) {}
 
-    // Per-allocation event log (durable execution, includes function calls)
-    rpc add_allocation_events(AllocationEvents) returns (AllocationEventsResponse) {}
-    rpc get_allocation_events(GetAllocationEventsRequest) returns (GetAllocationEventsResponse) {}
+    // Fetch historical allocation log entries for deterministic replay.
+    rpc get_allocation_log(GetAllocationLogRequest) returns (GetAllocationLogResponse) {}
+
+    // Per-executor bidirectional stream for live allocation execution traffic.
+    // Multiplexes all allocations on a single stream, tagged by allocation_id.
+    // Executor sends SDK actions (call_function) and allocation outcomes.
+    // Server pushes function call results as they complete.
+    rpc allocation_stream(stream AllocationStreamRequest) returns (stream AllocationStreamResponse) {}
 }

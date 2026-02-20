@@ -27,8 +27,6 @@ use crate::{
         FunctionCall,
         FunctionCallId,
         FunctionRun,
-        FunctionRunFailureReason,
-        FunctionRunOutcome,
         FunctionRunStatus,
         Namespace,
         NamespaceBuilder,
@@ -42,7 +40,6 @@ use crate::{
     },
     state_store::{
         ExecutorCatalog,
-        executor_watches::ExecutorWatch,
         in_memory_metrics::InMemoryStoreMetrics,
         requests::RequestPayload,
         scanner::StateReader,
@@ -165,39 +162,16 @@ pub struct DesiredStateFunctionExecutor {
     pub network_policy: Option<NetworkPolicy>,
 }
 
-pub struct FunctionCallOutcome {
-    pub namespace: String,
-    pub request_id: String,
-    pub function_call_id: FunctionCallId,
-    pub outcome: FunctionRunOutcome,
-    pub failure_reason: Option<FunctionRunFailureReason>,
-    pub return_value: Option<DataPayload>,
-    pub request_error: Option<DataPayload>,
-}
-
 pub struct DesiredExecutorState {
     #[allow(clippy::vec_box)]
     pub function_executors: Vec<Box<DesiredStateFunctionExecutor>>,
     #[allow(clippy::box_collection)]
     pub function_run_allocations: std::collections::HashMap<ContainerId, Vec<Allocation>>,
-    pub function_call_outcomes: Vec<FunctionCallOutcome>,
     pub clock: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct FunctionRunKey(String);
-
-impl From<&ExecutorWatch> for FunctionRunKey {
-    fn from(executor_watch: &ExecutorWatch) -> Self {
-        FunctionRunKey(format!(
-            "{}|{}|{}|{}",
-            executor_watch.namespace,
-            executor_watch.application,
-            executor_watch.request_id,
-            executor_watch.function_call_id
-        ))
-    }
-}
 
 impl From<&FunctionRun> for FunctionRunKey {
     fn from(function_run: &FunctionRun) -> Self {

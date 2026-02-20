@@ -164,6 +164,7 @@ pub(super) struct AllocLogCtx {
     pub version: String,
     pub fn_name: String,
     pub request_id: String,
+    pub function_call_id: String,
 }
 
 impl AllocLogCtx {
@@ -187,6 +188,7 @@ impl AllocLogCtx {
                 .unwrap_or("")
                 .to_string(),
             request_id: alloc.request_id.clone().unwrap_or_default(),
+            function_call_id: alloc.function_call_id.clone().unwrap_or_default(),
         }
     }
 }

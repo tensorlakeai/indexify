@@ -31,7 +31,6 @@ use crate::{
         ContainerPoolKey,
         ContainerState,
         ExecutorId,
-        FunctionRunStatus,
         StateChange,
         StateMachineMetadata,
     },
@@ -48,9 +47,7 @@ use crate::{
     },
 };
 
-pub mod executor_watches;
 pub mod request_event_buffers;
-use executor_watches::{ExecutorWatch, ExecutorWatches};
 use request_event_buffers::RequestEventBuffers;
 
 #[derive(Debug, Clone, Default)]
@@ -85,15 +82,6 @@ pub enum ExecutorEvent {
     /// on warm-pool claim). Consumer builds an UpdateContainerDescription
     /// command with only the changed fields.
     ContainerDescriptionChanged(ContainerId),
-
-    /// A watched function call completed. Consumer looks up the
-    /// FunctionRun from state for proto conversion.
-    WatchCompleted {
-        namespace: String,
-        application: String,
-        request_id: String,
-        function_call_id: String,
-    },
 
     /// Fallback: consumer does full state recompute via
     /// get_executor_state() + CommandEmitter.
@@ -170,8 +158,6 @@ pub struct IndexifyState {
     pub metrics: Arc<StateStoreMetrics>,
     pub in_memory_state: Arc<RwLock<in_memory_state::InMemoryState>>,
     pub container_scheduler: Arc<RwLock<ContainerScheduler>>,
-    // Executor watches for function call results streaming
-    pub executor_watches: ExecutorWatches,
     /// Per-executor event channels for event-driven command streaming.
     /// `write()` pushes typed events; `command_stream_loop` consumes them.
     pub executor_event_channels: RwLock<HashMap<ExecutorId, mpsc::UnboundedSender<ExecutorEvent>>>,
@@ -287,7 +273,6 @@ impl IndexifyState {
             usage_events_rx,
             request_events_tx,
             _request_events_rx,
-            executor_watches: ExecutorWatches::new(),
             executor_event_channels: RwLock::new(HashMap::new()),
             request_event_buffers: RequestEventBuffers::new(),
             _in_memory_store_gauges: in_memory_store_gauges,
@@ -407,36 +392,6 @@ impl IndexifyState {
                 );
             }
 
-            // Watch completion events (uses enhanced impacted_executor_watches)
-            let watch_data = self
-                .executor_watches
-                .impacted_executor_watches(
-                    &payload.update.updated_function_runs,
-                    &payload.update.updated_request_states,
-                )
-                .await;
-            if !watch_data.is_empty() {
-                info!(
-                    num_impacted = watch_data.len(),
-                    "notifying executors with completed watched function runs"
-                );
-            }
-            for (executor_id_str, watches) in &watch_data {
-                changed_executors.insert(ExecutorId::new(executor_id_str.clone()));
-                for watch in watches {
-                    Self::send_event(
-                        &event_channels,
-                        &ExecutorId::new(executor_id_str.clone()),
-                        ExecutorEvent::WatchCompleted {
-                            namespace: watch.namespace.clone(),
-                            application: watch.application.clone(),
-                            request_id: watch.request_id.clone(),
-                            function_call_id: watch.function_call_id.clone(),
-                        },
-                    );
-                }
-            }
-
             for executor_id in payload.update.updated_executor_states.keys() {
                 changed_executors.insert(executor_id.clone());
             }
@@ -474,59 +429,6 @@ impl IndexifyState {
                 }
             }
         }
-        // Check if any watched function runs have already completed — handles
-        // races where children complete before watches are registered.
-        let watches_to_check: Option<(ExecutorId, HashSet<ExecutorWatch>)> = match &request.payload
-        {
-            RequestPayload::UpsertExecutor(req) if !req.watch_function_calls.is_empty() => {
-                Some((req.executor.id.clone(), req.watch_function_calls.clone()))
-            }
-            // Check in-memory state only — if the function run already
-            // completed we must notify now because there won't be another
-            // SchedulerUpdate for it.  If the function run doesn't exist yet
-            // (watch registered before scheduler creates it), the in-memory
-            // lookup simply returns None and we do nothing; notification will
-            // happen via impacted_executors when the run eventually completes.
-            RequestPayload::AddExecutorWatch(req) => {
-                let mut set = HashSet::new();
-                set.insert(req.watch.clone());
-                Some((req.executor_id.clone(), set))
-            }
-            _ => None,
-        };
-        if let Some((executor_id, watches)) = watches_to_check.as_ref() {
-            let in_memory = self.in_memory_state.read().await;
-            let mut completed_watches = Vec::new();
-            for watch in watches {
-                let key = in_memory_state::FunctionRunKey::from(watch);
-                if let Some(run) = in_memory.function_runs.get(&key) &&
-                    matches!(run.status, FunctionRunStatus::Completed)
-                {
-                    completed_watches.push(watch.function_call_id.clone());
-                }
-            }
-            drop(in_memory);
-
-            if !completed_watches.is_empty() {
-                info!(
-                    executor_id = executor_id.get(),
-                    num_completed_watches = completed_watches.len(),
-                    completed_watches = ?completed_watches,
-                    "notifying executor: watched function runs already completed"
-                );
-                changed_executors.insert(executor_id.clone());
-                // FullSync for watch race condition — simpler than tracking
-                // individual completed watches here.
-                Self::send_event(&event_channels, executor_id, ExecutorEvent::FullSync);
-            } else {
-                info!(
-                    executor_id = executor_id.get(),
-                    num_watches = watches.len(),
-                    "executor has watches but none completed yet, will notify via SchedulerUpdate path"
-                );
-            }
-        }
-
         drop(event_channels);
 
         // Notify the executors with state changes
@@ -678,41 +580,6 @@ impl IndexifyState {
                         .entry(request.executor.id.clone())
                         .or_default();
                 }
-                // Update executor watches for efficient sync
-                if !request.watch_function_calls.is_empty() {
-                    info!(
-                        executor_id = request.executor.id.get(),
-                        num_watches = request.watch_function_calls.len(),
-                        watches = ?request.watch_function_calls.iter().map(|w| format!("{}:{}", w.function_call_id, w.request_id)).collect::<Vec<_>>(),
-                        "syncing executor watches to state store"
-                    );
-                }
-                self.executor_watches
-                    .sync_watches(
-                        request.executor.id.get().to_string(),
-                        request.watch_function_calls.clone(),
-                    )
-                    .await;
-            }
-            RequestPayload::AddExecutorWatch(request) => {
-                info!(
-                    executor_id = request.executor_id.get(),
-                    watch = ?format!("{}:{}", request.watch.function_call_id, request.watch.request_id),
-                    "adding executor watch"
-                );
-                self.executor_watches
-                    .add_watch(request.executor_id.get().to_string(), request.watch.clone())
-                    .await;
-            }
-            RequestPayload::RemoveExecutorWatch(request) => {
-                info!(
-                    executor_id = request.executor_id.get(),
-                    watch = ?format!("{}:{}", request.watch.function_call_id, request.watch.request_id),
-                    "removing executor watch"
-                );
-                self.executor_watches
-                    .remove_watch(request.executor_id.get().to_string(), request.watch.clone())
-                    .await;
             }
             RequestPayload::DeregisterExecutor(request) => {
                 self.executor_states
@@ -723,10 +590,6 @@ impl IndexifyState {
                     executor_id = request.executor_id.get(),
                     "marking executor as tombstoned"
                 );
-                // Cleanup all watches for this executor
-                self.executor_watches
-                    .remove_executor(request.executor_id.get())
-                    .await;
             }
             RequestPayload::ProcessStateChanges(state_changes) => {
                 state_machine::mark_state_changes_processed(&txn, state_changes).await?;

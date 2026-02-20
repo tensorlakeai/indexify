@@ -220,9 +220,6 @@ impl ContainerScheduler {
             RequestPayload::DeleteContainerPool((request, _)) => {
                 self.delete_container_pool(&request.namespace, &request.pool_id);
             }
-            RequestPayload::AddExecutorWatch(_) | RequestPayload::RemoveExecutorWatch(_) => {
-                // No-op at this level. Watches don't affect scheduling.
-            }
             RequestPayload::CreateOrUpdateApplication(req) => {
                 // Only update pools if container_pools is non-empty.
                 // Empty container_pools means "no change to pools" (e.g., from

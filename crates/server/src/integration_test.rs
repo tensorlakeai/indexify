@@ -194,7 +194,7 @@ mod tests {
                 None,
                 Some(1000),
             );
-            executor.report_command_responses(vec![cmd]).await?;
+            executor.report_allocation_activities(vec![cmd]).await?;
 
             test_srv.process_all_state_changes().await?;
 
@@ -218,7 +218,7 @@ mod tests {
                     )
                 })
                 .collect();
-            executor.report_command_responses(responses).await?;
+            executor.report_allocation_activities(responses).await?;
 
             test_srv.process_all_state_changes().await?;
         }
@@ -233,7 +233,7 @@ mod tests {
                 Some(mock_data_payload()),
                 Some(1000),
             );
-            executor.report_command_responses(vec![cmd]).await?;
+            executor.report_allocation_activities(vec![cmd]).await?;
 
             test_srv.process_all_state_changes().await?;
         }
@@ -422,7 +422,7 @@ mod tests {
             assert_eq!(cmds.run_allocations.len(), 1);
             let task_allocation = &cmds.run_allocations[0];
             executor
-                .report_command_responses(vec![TestExecutor::make_allocation_completed(
+                .report_allocation_activities(vec![TestExecutor::make_allocation_completed(
                     task_allocation,
                     None,
                     Some(mock_data_payload()),
@@ -613,7 +613,7 @@ mod tests {
             );
             let task_allocation = &cmds.run_allocations[0];
             executor
-                .report_command_responses(vec![TestExecutor::make_allocation_completed(
+                .report_allocation_activities(vec![TestExecutor::make_allocation_completed(
                     task_allocation,
                     Some(mock_updates()),
                     None,
@@ -638,7 +638,7 @@ mod tests {
 
             for allocation in &cmds.run_allocations {
                 executor
-                    .report_command_responses(vec![TestExecutor::make_allocation_completed(
+                    .report_allocation_activities(vec![TestExecutor::make_allocation_completed(
                         allocation,
                         None,
                         Some(mock_data_payload()),
@@ -653,7 +653,7 @@ mod tests {
             let cmds = executor.recv_commands().await;
             let task_allocation = &cmds.run_allocations[0];
             executor
-                .report_command_responses(vec![TestExecutor::make_allocation_completed(
+                .report_allocation_activities(vec![TestExecutor::make_allocation_completed(
                     task_allocation,
                     None,
                     Some(mock_data_payload()),
@@ -758,7 +758,7 @@ mod tests {
 
             // NB RequestError is a user request for a permanent failure.
             executor
-                .report_command_responses(vec![TestExecutor::make_allocation_failed(
+                .report_allocation_activities(vec![TestExecutor::make_allocation_failed(
                     allocation,
                     FunctionRunFailureReason::RequestError,
                     None,
@@ -833,7 +833,7 @@ mod tests {
                 let task_allocation = &cmds.run_allocations[0];
 
                 executor
-                    .report_command_responses(vec![TestExecutor::make_allocation_failed(
+                    .report_allocation_activities(vec![TestExecutor::make_allocation_failed(
                         task_allocation,
                         reason.clone(),
                         None,
@@ -1263,7 +1263,7 @@ mod tests {
         assert_eq!(cmds.run_allocations.len(), 1);
         let allocation = &cmds.run_allocations[0];
         executor
-            .report_command_responses(vec![TestExecutor::make_allocation_failed(
+            .report_allocation_activities(vec![TestExecutor::make_allocation_failed(
                 allocation,
                 FunctionRunFailureReason::OutOfMemory,
                 None,
@@ -1396,7 +1396,7 @@ mod tests {
             assert_eq!(cmds.run_allocations.len(), 1);
             let allocation = &cmds.run_allocations[0];
             executor
-                .report_command_responses(vec![TestExecutor::make_allocation_completed(
+                .report_allocation_activities(vec![TestExecutor::make_allocation_completed(
                     allocation,
                     Some(mock_updates()),
                     None,
@@ -1425,7 +1425,7 @@ mod tests {
 
             for allocation in &cmds.run_allocations {
                 executor
-                    .report_command_responses(vec![TestExecutor::make_allocation_completed(
+                    .report_allocation_activities(vec![TestExecutor::make_allocation_completed(
                         allocation,
                         None,
                         Some(mock_data_payload()),
@@ -1441,7 +1441,7 @@ mod tests {
             let cmds = executor.recv_commands().await;
             let allocation = &cmds.run_allocations[0];
             executor
-                .report_command_responses(vec![TestExecutor::make_allocation_completed(
+                .report_allocation_activities(vec![TestExecutor::make_allocation_completed(
                     allocation,
                     None,
                     Some(mock_data_payload()),
@@ -1594,7 +1594,7 @@ mod tests {
         );
         let new_allocation = &cmds.run_allocations[0];
         executor2
-            .report_command_responses(vec![TestExecutor::make_allocation_completed(
+            .report_allocation_activities(vec![TestExecutor::make_allocation_completed(
                 new_allocation,
                 Some(mock_updates()),
                 None,

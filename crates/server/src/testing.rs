@@ -1,7 +1,4 @@
-use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-};
+use std::{collections::HashMap, sync::Arc};
 
 use anyhow::Result;
 use nanoid::nanoid;
@@ -34,7 +31,6 @@ use crate::{
     service::Service,
     state_store::{
         driver::rocksdb::RocksDBConfig,
-        executor_watches::ExecutorWatch,
         requests::{
             DeregisterExecutorRequest,
             FunctionCallRequest,
@@ -325,7 +321,6 @@ pub struct ReceivedCommands {
     pub add_containers: Vec<executor_api_pb::FunctionExecutorDescription>,
     pub remove_containers: Vec<String>,
     pub run_allocations: Vec<AllocationPb>,
-    pub deliver_results: Vec<executor_api_pb::FunctionCallResult>,
 }
 
 pub struct TestExecutor<'a> {
@@ -368,11 +363,6 @@ impl TestExecutor<'_> {
                         received.run_allocations.push(allocation);
                     }
                 }
-                Some(executor_api_pb::command::Command::DeliverResult(r)) => {
-                    if let Some(result) = r.result {
-                        received.deliver_results.push(result);
-                    }
-                }
                 _ => {}
             }
         }
@@ -411,7 +401,6 @@ impl TestExecutor<'_> {
             &self.test_service.service.executor_manager,
             self.test_service.service.indexify_state.clone(),
             executor,
-            HashSet::new(),
         )
         .await?;
 
@@ -568,64 +557,48 @@ impl TestExecutor<'_> {
         Ok(function_call_id)
     }
 
-    /// Add a single watch — mirrors the production `AddExecutorWatch`
-    /// path from the `add_allocation_events` RPC.
-    pub async fn add_watch(&self, watch: ExecutorWatch) -> Result<()> {
-        self.test_service
-            .service
-            .indexify_state
-            .write(StateMachineUpdateRequest {
-                payload: RequestPayload::AddExecutorWatch(
-                    crate::state_store::requests::AddExecutorWatchRequest {
-                        executor_id: self.executor_id.clone(),
-                        watch,
-                    },
-                ),
-            })
-            .await?;
-        Ok(())
-    }
-
-    /// Remove a single watch — mirrors the production `RemoveExecutorWatch`
-    /// path from the `add_allocation_events` RPC.
-    pub async fn remove_watch(&self, watch: ExecutorWatch) -> Result<()> {
-        self.test_service
-            .service
-            .indexify_state
-            .write(StateMachineUpdateRequest {
-                payload: RequestPayload::RemoveExecutorWatch(
-                    crate::state_store::requests::RemoveExecutorWatchRequest {
-                        executor_id: self.executor_id.clone(),
-                        watch,
-                    },
-                ),
-            })
-            .await?;
-        Ok(())
-    }
-
-    /// Process command responses through the full `DataplaneResultsIngested`
-    /// path — the same logic that the `report_command_responses` RPC uses.
-    pub async fn report_command_responses(
+    /// Process allocation stream requests through the internal
+    /// `process_allocation_completed` / `process_allocation_failed` paths.
+    pub async fn report_allocation_activities(
         &self,
-        responses: Vec<executor_api_pb::CommandResponse>,
+        messages: Vec<executor_api_pb::AllocationStreamRequest>,
     ) -> Result<()> {
-        crate::executor_api::process_command_responses(
-            &self.test_service.service.indexify_state,
-            &self.test_service.service.blob_storage_registry,
-            &self.executor_id,
-            responses,
-        )
-        .await
+        for msg in messages {
+            if let Some(message) = msg.message {
+                match message {
+                    executor_api_pb::allocation_stream_request::Message::Completed(c) => {
+                        crate::executor_api::process_allocation_completed(
+                            &self.test_service.service.indexify_state,
+                            &self.test_service.service.blob_storage_registry,
+                            &self.executor_id,
+                            c,
+                        )
+                        .await?;
+                    }
+                    executor_api_pb::allocation_stream_request::Message::Failed(f) => {
+                        crate::executor_api::process_allocation_failed(
+                            &self.test_service.service.indexify_state,
+                            &self.test_service.service.blob_storage_registry,
+                            &self.executor_id,
+                            f,
+                        )
+                        .await?;
+                    }
+                    _ => {}
+                }
+            }
+        }
+        Ok(())
     }
 
-    /// Build an `AllocationCompleted` `CommandResponse` proto from test data.
+    /// Build an `AllocationCompleted` wrapped in `AllocationStreamRequest`
+    /// from test data.
     pub fn make_allocation_completed(
         allocation: &AllocationPb,
         graph_updates: Option<RequestUpdates>,
         data_payload: Option<DataPayload>,
         execution_duration_ms: Option<u64>,
-    ) -> executor_api_pb::CommandResponse {
+    ) -> executor_api_pb::AllocationStreamRequest {
         let function = allocation.function.clone();
         // Extract namespace from the allocation's FunctionRef for child compute ops
         let namespace = function
@@ -653,48 +626,49 @@ impl TestExecutor<'_> {
             None
         };
 
-        executor_api_pb::CommandResponse {
-            command_seq: 0,
-            response: Some(
-                executor_api_pb::command_response::Response::AllocationCompleted(
-                    executor_api_pb::AllocationCompleted {
-                        allocation_id: allocation.allocation_id.clone().unwrap_or_default(),
-                        function,
-                        function_call_id: allocation.function_call_id.clone(),
-                        request_id: allocation.request_id.clone(),
-                        return_value,
-                        execution_duration_ms,
-                    },
-                ),
+        let completed = executor_api_pb::AllocationCompleted {
+            allocation_id: allocation.allocation_id.clone().unwrap_or_default(),
+            function,
+            function_call_id: allocation.function_call_id.clone(),
+            request_id: allocation.request_id.clone(),
+            return_value,
+            execution_duration_ms,
+        };
+
+        executor_api_pb::AllocationStreamRequest {
+            executor_id: String::new(),
+            message: Some(
+                executor_api_pb::allocation_stream_request::Message::Completed(completed),
             ),
         }
     }
 
-    /// Build an `AllocationFailed` `CommandResponse` proto from test data.
+    /// Build an `AllocationFailed` wrapped in `AllocationStreamRequest`
+    /// from test data.
     pub fn make_allocation_failed(
         allocation: &AllocationPb,
         reason: FunctionRunFailureReason,
         request_error: Option<DataPayload>,
         execution_duration_ms: Option<u64>,
-    ) -> executor_api_pb::CommandResponse {
+    ) -> executor_api_pb::AllocationStreamRequest {
         let function = allocation.function.clone();
         let proto_reason = internal_failure_reason_to_proto(&reason);
 
-        executor_api_pb::CommandResponse {
-            command_seq: 0,
-            response: Some(
-                executor_api_pb::command_response::Response::AllocationFailed(
-                    executor_api_pb::AllocationFailed {
-                        allocation_id: allocation.allocation_id.clone().unwrap_or_default(),
-                        reason: proto_reason.into(),
-                        function,
-                        function_call_id: allocation.function_call_id.clone(),
-                        request_id: allocation.request_id.clone(),
-                        request_error: request_error.map(internal_data_payload_to_proto),
-                        execution_duration_ms,
-                    },
-                ),
-            ),
+        let failed = executor_api_pb::AllocationFailed {
+            allocation_id: allocation.allocation_id.clone().unwrap_or_default(),
+            reason: proto_reason.into(),
+            function,
+            function_call_id: allocation.function_call_id.clone(),
+            request_id: allocation.request_id.clone(),
+            request_error: request_error.map(internal_data_payload_to_proto),
+            execution_duration_ms,
+        };
+
+        executor_api_pb::AllocationStreamRequest {
+            executor_id: String::new(),
+            message: Some(executor_api_pb::allocation_stream_request::Message::Failed(
+                failed,
+            )),
         }
     }
 }

@@ -36,8 +36,6 @@ use std::sync::Arc;
 
 use proto_api::executor_api_pb::{
     Allocation,
-    FunctionCallResult as ServerFunctionCallResult,
-    FunctionCallWatch,
     FunctionExecutorDescription,
     FunctionExecutorState,
     FunctionExecutorType,
@@ -48,6 +46,7 @@ use tracing::info;
 
 use crate::{
     allocation_controller::{AllocationController, AllocationControllerHandle, events::ACCommand},
+    allocation_result_dispatcher::AllocationResultDispatcher,
     function_container_manager::FunctionContainerManager,
     function_executor::controller::FESpawnConfig,
 };
@@ -71,9 +70,14 @@ impl StateReconciler {
         spawn_config: FESpawnConfig,
         cancel_token: CancellationToken,
         state_change_notify: Arc<Notify>,
+        allocation_result_dispatcher: Arc<AllocationResultDispatcher>,
     ) -> Self {
-        let ac_handle =
-            AllocationController::spawn(spawn_config, cancel_token, state_change_notify.clone());
+        let ac_handle = AllocationController::spawn(
+            spawn_config,
+            cancel_token,
+            state_change_notify.clone(),
+            allocation_result_dispatcher,
+        );
         Self {
             allocation_controller: ac_handle,
             container_manager,
@@ -149,12 +153,10 @@ impl StateReconciler {
             .await;
     }
 
-    /// Reconcile allocation stream update: route allocations and call results.
-    pub async fn reconcile_allocations(
-        &mut self,
-        allocations: Vec<(String, Allocation)>,
-        call_results: &[ServerFunctionCallResult],
-    ) {
+    /// Reconcile allocation stream update: route allocations.
+    ///
+    /// Each allocation tuple is `(fe_id, allocation, command_seq)`.
+    pub async fn reconcile_allocations(&mut self, allocations: Vec<(String, Allocation, u64)>) {
         if !allocations.is_empty() {
             let allocation_count = allocations.len();
             let _ = self
@@ -170,25 +172,6 @@ impl StateReconciler {
                 "Sent allocation Reconcile to AllocationController"
             );
         }
-        if !call_results.is_empty() {
-            self.deliver_function_call_results(call_results).await;
-        }
-    }
-
-    /// Route function call results from the server to registered watchers.
-    pub async fn deliver_function_call_results(&self, results: &[ServerFunctionCallResult]) {
-        self.allocation_controller
-            .watcher_registry
-            .deliver_results(results)
-            .await;
-    }
-
-    /// Get active function call watches for inclusion in heartbeats.
-    pub async fn get_function_call_watches(&self) -> Vec<FunctionCallWatch> {
-        self.allocation_controller
-            .watcher_registry
-            .get_function_call_watches()
-            .await
     }
 
     /// Get the notify for waking up the heartbeat loop when state changes (FEs

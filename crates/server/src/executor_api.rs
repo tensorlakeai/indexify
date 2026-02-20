@@ -19,9 +19,10 @@ use executor_api_pb::{
     executor_api_server::ExecutorApi,
 };
 pub use proto_api::executor_api_pb;
+use tokio::sync::{RwLock, mpsc};
 use tokio_stream::Stream;
 use tonic::{Request, Response, Status};
-use tracing::{error, info, trace, warn};
+use tracing::{debug, info, trace, warn};
 
 use crate::{
     blob_store::registry::BlobStorageRegistry,
@@ -41,19 +42,11 @@ use crate::{
     },
     executor_api::executor_api_pb::{FunctionExecutorState, FunctionExecutorTerminationReason},
     executors::ExecutorManager,
-    pb_helpers::{blob_store_path_to_url, blob_store_url_to_path, fn_call_outcome_to_pb},
+    pb_helpers::{blob_store_path_to_url, blob_store_url_to_path},
     state_store::{
         ExecutorEvent,
         IndexifyState,
-        executor_watches::ExecutorWatch,
-        in_memory_state::FunctionCallOutcome,
-        requests::{
-            FunctionCallRequest,
-            RequestPayload,
-            RequestUpdates,
-            StateMachineUpdateRequest,
-            UpsertExecutorRequest,
-        },
+        requests::{RequestPayload, StateMachineUpdateRequest, UpsertExecutorRequest},
     },
 };
 
@@ -553,75 +546,16 @@ fn to_internal_compute_op(
     }
 }
 
-/// Shared helper for converting proto watcher-like messages to `ExecutorWatch`.
-/// All three proto types (`FunctionCallWatch`, `AddWatcherRequest`,
-/// `RemoveWatcherRequest`) carry the same four required fields.
-fn try_into_executor_watch(
-    namespace: Option<String>,
-    application: Option<String>,
-    request_id: Option<String>,
-    function_call_id: Option<String>,
-    type_name: &str,
-) -> Result<ExecutorWatch> {
-    Ok(ExecutorWatch {
-        namespace: namespace.ok_or_else(|| anyhow::anyhow!("Missing namespace in {type_name}"))?,
-        application: application
-            .ok_or_else(|| anyhow::anyhow!("Missing application in {type_name}"))?,
-        request_id: request_id
-            .ok_or_else(|| anyhow::anyhow!("Missing request_id in {type_name}"))?,
-        function_call_id: function_call_id
-            .ok_or_else(|| anyhow::anyhow!("Missing function_call_id in {type_name}"))?,
-    })
-}
-
-impl TryFrom<&executor_api_pb::FunctionCallWatch> for ExecutorWatch {
-    type Error = anyhow::Error;
-
-    fn try_from(value: &executor_api_pb::FunctionCallWatch) -> Result<Self> {
-        try_into_executor_watch(
-            value.namespace.clone(),
-            value.application.clone(),
-            value.request_id.clone(),
-            value.function_call_id.clone(),
-            "FunctionCallWatch",
-        )
-    }
-}
-
-impl TryFrom<&executor_api_pb::AddWatcherRequest> for ExecutorWatch {
-    type Error = anyhow::Error;
-
-    fn try_from(value: &executor_api_pb::AddWatcherRequest) -> Result<Self> {
-        try_into_executor_watch(
-            value.namespace.clone(),
-            value.application.clone(),
-            value.request_id.clone(),
-            value.function_call_id.clone(),
-            "AddWatcherRequest",
-        )
-    }
-}
-
-impl TryFrom<&executor_api_pb::RemoveWatcherRequest> for ExecutorWatch {
-    type Error = anyhow::Error;
-
-    fn try_from(value: &executor_api_pb::RemoveWatcherRequest) -> Result<Self> {
-        try_into_executor_watch(
-            value.namespace.clone(),
-            value.application.clone(),
-            value.request_id.clone(),
-            value.function_call_id.clone(),
-            "RemoveWatcherRequest",
-        )
-    }
-}
+// try_into_executor_watch and TryFrom impls for FunctionCallWatch,
+// AddWatcherRequest, RemoveWatcherRequest removed — these proto types no longer
+// exist (watchers eliminated by allocation_stream).
 
 /// Pure, stateful diff engine that compares the current `DesiredExecutorState`
 /// against what it previously saw and produces typed `Command` messages.
 ///
 /// On the first call, the tracking sets are empty so everything is "new" —
-/// producing AddContainer + RunAllocation + DeliverResult for full state
-/// (equivalent to initial sync).
+/// producing AddContainer + RunAllocation for full state (equivalent to
+/// initial sync).
 ///
 /// `command_seq = 0` means the command is informational / unsolicited.
 pub struct CommandEmitter {
@@ -632,9 +566,6 @@ pub struct CommandEmitter {
     pub(crate) known_containers: HashMap<String, executor_api_pb::FunctionExecutorDescription>,
     /// Allocation IDs sent via RunAllocation.
     pub(crate) known_allocations: HashSet<String>,
-    /// Function call result IDs sent via DeliverResult (keyed by
-    /// function_call_id).
-    pub(crate) known_call_results: HashSet<String>,
 }
 
 impl CommandEmitter {
@@ -643,7 +574,6 @@ impl CommandEmitter {
             next_seq: 1,
             known_containers: HashMap::new(),
             known_allocations: HashSet::new(),
-            known_call_results: HashSet::new(),
         }
     }
 
@@ -664,11 +594,6 @@ impl CommandEmitter {
     /// Untrack a container ID (removed).
     pub fn untrack_container(&mut self, id: &str) {
         self.known_containers.remove(id);
-    }
-
-    /// Track a call result ID so FullSync won't re-emit it.
-    pub fn track_call_result(&mut self, id: String) {
-        self.known_call_results.insert(id);
     }
 
     pub(crate) fn next_seq(&mut self) -> u64 {
@@ -783,30 +708,8 @@ impl CommandEmitter {
         // Allocations that disappear are completed, not killed. We just stop tracking.
         self.known_allocations = current_allocations;
 
-        // --- Function call results → DeliverResult ---
-        let current_results: HashSet<String> = desired_state
-            .function_call_results
-            .iter()
-            .filter_map(|r| r.function_call_id.clone())
-            .collect();
-
-        for result in &desired_state.function_call_results {
-            if let Some(id) = &result.function_call_id &&
-                !self.known_call_results.contains(id)
-            {
-                let seq = self.next_seq();
-                commands.push(executor_api_pb::Command {
-                    seq,
-                    command: Some(executor_api_pb::command::Command::DeliverResult(
-                        executor_api_pb::DeliverResult {
-                            result: Some(result.clone()),
-                        },
-                    )),
-                });
-            }
-        }
-
-        self.known_call_results = current_results;
+        // Function call results are delivered via the AllocationEvent log
+        // (get_allocation_events RPC), not via Commands.
 
         commands
     }
@@ -826,7 +729,6 @@ pub async fn sync_executor_full_state(
     executor_manager: &ExecutorManager,
     indexify_state: Arc<IndexifyState>,
     executor: ExecutorMetadata,
-    watch_function_calls: HashSet<ExecutorWatch>,
 ) -> Result<()> {
     // Register runtime data (state hash + clock)
     executor_manager.register_executor(executor.clone()).await?;
@@ -836,7 +738,6 @@ pub async fn sync_executor_full_state(
         executor,
         vec![], // allocation_outputs come through a separate path
         true,   // v2 full state sync always updates executor state
-        watch_function_calls,
         indexify_state.clone(),
     )?;
 
@@ -849,8 +750,7 @@ pub async fn sync_executor_full_state(
 }
 
 /// Convert a proto `AllocationFailureReason` to the internal
-/// `FunctionRunFailureReason`. This is the reverse of
-/// `pb_helpers::fn_call_outcome_to_pb`'s failure_reason mapping.
+/// `FunctionRunFailureReason`.
 fn proto_failure_reason_to_internal(
     reason: executor_api_pb::AllocationFailureReason,
 ) -> data_model::FunctionRunFailureReason {
@@ -950,19 +850,11 @@ fn proto_container_termination_to_internal(
 /// the `report_command_responses` RPC handler and tests.
 pub async fn process_command_responses(
     indexify_state: &Arc<IndexifyState>,
-    blob_storage_registry: &Arc<BlobStorageRegistry>,
     executor_id: &ExecutorId,
     responses: Vec<executor_api_pb::CommandResponse>,
 ) -> Result<()> {
-    use data_model::{
-        AllocationOutputIngestedEvent,
-        ContainerStateUpdateInfo,
-        DataplaneResultsIngestedEvent,
-        FunctionRunOutcome,
-        GraphUpdates,
-    };
+    use data_model::ContainerStateUpdateInfo;
 
-    let mut allocation_events = Vec::new();
     let mut container_state_updates = Vec::new();
     let mut container_started_ids = Vec::new();
 
@@ -973,187 +865,15 @@ pub async fn process_command_responses(
         };
 
         match response {
-            executor_api_pb::command_response::Response::AllocationCompleted(completed) => {
-                let function = completed
-                    .function
-                    .ok_or_else(|| anyhow::anyhow!("AllocationCompleted missing function"))?;
-                let namespace = function
-                    .namespace
-                    .ok_or_else(|| anyhow::anyhow!("AllocationCompleted missing namespace"))?;
-                let application = function.application_name.ok_or_else(|| {
-                    anyhow::anyhow!("AllocationCompleted missing application_name")
-                })?;
-                let fn_name = function
-                    .function_name
-                    .ok_or_else(|| anyhow::anyhow!("AllocationCompleted missing function_name"))?;
-                let request_id = completed
-                    .request_id
-                    .ok_or_else(|| anyhow::anyhow!("AllocationCompleted missing request_id"))?;
-                let function_call_id = completed.function_call_id.ok_or_else(|| {
-                    anyhow::anyhow!("AllocationCompleted missing function_call_id")
-                })?;
-                let allocation_id = completed.allocation_id;
-
-                // Look up the allocation from the state store
-                let allocation_key = data_model::Allocation::key_from(
-                    &namespace,
-                    &application,
-                    &request_id,
-                    &allocation_id,
-                );
-                let allocation = indexify_state
-                    .reader()
-                    .get_allocation(&allocation_key)
-                    .await?
-                    .ok_or_else(|| {
-                        anyhow::anyhow!(
-                            "AllocationCompleted: allocation not found: {}",
-                            allocation_key
-                        )
-                    })?;
-
-                // Convert return_value oneof
-                let (data_payload, graph_updates) = match completed.return_value {
-                    Some(executor_api_pb::allocation_completed::ReturnValue::Value(dp)) => {
-                        let blob_store_url_scheme = blob_storage_registry
-                            .get_blob_store(&namespace)
-                            .get_url_scheme();
-                        let blob_store_url =
-                            blob_storage_registry.get_blob_store(&namespace).get_url();
-                        let payload =
-                            prepare_data_payload(dp, &blob_store_url_scheme, &blob_store_url)?;
-                        (Some(payload), None)
-                    }
-                    Some(executor_api_pb::allocation_completed::ReturnValue::Updates(updates)) => {
-                        let root_function_call_id = updates
-                            .root_function_call_id
-                            .map(FunctionCallId::from)
-                            .unwrap_or_else(|| FunctionCallId::from(nanoid::nanoid!()));
-                        let mut compute_ops = Vec::new();
-                        for update in updates.updates {
-                            compute_ops.push(to_internal_compute_op(
-                                update,
-                                blob_storage_registry,
-                                Some(function_call_id.clone()),
-                            )?);
-                        }
-                        (
-                            None,
-                            Some(GraphUpdates {
-                                graph_updates: compute_ops,
-                                output_function_call_id: root_function_call_id,
-                            }),
-                        )
-                    }
-                    None => (None, None),
-                };
-
+            executor_api_pb::command_response::Response::AllocationScheduled(scheduled) => {
                 info!(
                     executor_id = executor_id.get(),
-                    allocation_id = %allocation_id,
-                    request_id = %request_id,
-                    namespace = %namespace,
-                    app = %application,
-                    "fn" = %fn_name,
-                    "AllocationCompleted ingested"
+                    allocation_id = %scheduled.allocation_id,
+                    command_seq = ?resp.command_seq,
+                    "AllocationScheduled ack received"
                 );
-
-                allocation_events.push(AllocationOutputIngestedEvent {
-                    namespace,
-                    application,
-                    function: fn_name,
-                    request_id,
-                    function_call_id: FunctionCallId::from(function_call_id),
-                    data_payload,
-                    graph_updates,
-                    request_exception: None,
-                    allocation_id: allocation.id,
-                    allocation_target: allocation.target,
-                    allocation_outcome: FunctionRunOutcome::Success,
-                    execution_duration_ms: completed.execution_duration_ms,
-                });
-            }
-            executor_api_pb::command_response::Response::AllocationFailed(failed) => {
-                let proto_reason = failed.reason();
-                let failure_reason = proto_failure_reason_to_internal(proto_reason);
-                let function = failed
-                    .function
-                    .ok_or_else(|| anyhow::anyhow!("AllocationFailed missing function"))?;
-                let namespace = function
-                    .namespace
-                    .ok_or_else(|| anyhow::anyhow!("AllocationFailed missing namespace"))?;
-                let application = function
-                    .application_name
-                    .ok_or_else(|| anyhow::anyhow!("AllocationFailed missing application_name"))?;
-                let fn_name = function
-                    .function_name
-                    .ok_or_else(|| anyhow::anyhow!("AllocationFailed missing function_name"))?;
-                let request_id = failed
-                    .request_id
-                    .ok_or_else(|| anyhow::anyhow!("AllocationFailed missing request_id"))?;
-                let function_call_id = failed
-                    .function_call_id
-                    .ok_or_else(|| anyhow::anyhow!("AllocationFailed missing function_call_id"))?;
-                let allocation_id = failed.allocation_id;
-
-                // Look up the allocation from the state store
-                let allocation_key = data_model::Allocation::key_from(
-                    &namespace,
-                    &application,
-                    &request_id,
-                    &allocation_id,
-                );
-                let allocation = indexify_state
-                    .reader()
-                    .get_allocation(&allocation_key)
-                    .await?
-                    .ok_or_else(|| {
-                        anyhow::anyhow!(
-                            "AllocationFailed: allocation not found: {}",
-                            allocation_key
-                        )
-                    })?;
-
-                // Convert request_error if present
-                let request_exception = if let Some(dp) = failed.request_error {
-                    let blob_store_url_scheme = blob_storage_registry
-                        .get_blob_store(&namespace)
-                        .get_url_scheme();
-                    let blob_store_url = blob_storage_registry.get_blob_store(&namespace).get_url();
-                    Some(prepare_data_payload(
-                        dp,
-                        &blob_store_url_scheme,
-                        &blob_store_url,
-                    )?)
-                } else {
-                    None
-                };
-
-                info!(
-                    executor_id = executor_id.get(),
-                    allocation_id = %allocation_id,
-                    request_id = %request_id,
-                    namespace = %namespace,
-                    app = %application,
-                    "fn" = %fn_name,
-                    failure_reason = ?proto_reason,
-                    "AllocationFailed ingested"
-                );
-
-                allocation_events.push(AllocationOutputIngestedEvent {
-                    namespace,
-                    application,
-                    function: fn_name,
-                    request_id,
-                    function_call_id: FunctionCallId::from(function_call_id),
-                    data_payload: None,
-                    graph_updates: None,
-                    request_exception,
-                    allocation_id: allocation.id,
-                    allocation_target: allocation.target,
-                    allocation_outcome: FunctionRunOutcome::Failure(failure_reason),
-                    execution_duration_ms: failed.execution_duration_ms,
-                });
+                // State tracking for allocation scheduling acks can be added
+                // later. For now, we just log the ack.
             }
             executor_api_pb::command_response::Response::ContainerTerminated(terminated) => {
                 let reason = proto_container_termination_to_internal(terminated.reason());
@@ -1179,14 +899,256 @@ pub async fn process_command_responses(
         }
     }
 
-    if allocation_events.is_empty() &&
-        container_state_updates.is_empty() &&
-        container_started_ids.is_empty()
-    {
+    if container_state_updates.is_empty() && container_started_ids.is_empty() {
         return Ok(());
     }
 
-    let event = DataplaneResultsIngestedEvent {
+    write_dataplane_results(
+        indexify_state,
+        executor_id,
+        vec![],
+        container_state_updates,
+        container_started_ids,
+    )
+    .await
+}
+
+/// Process a single AllocationCompleted message.
+pub async fn process_allocation_completed(
+    indexify_state: &Arc<IndexifyState>,
+    blob_storage_registry: &Arc<BlobStorageRegistry>,
+    executor_id: &ExecutorId,
+    completed: executor_api_pb::AllocationCompleted,
+) -> Result<()> {
+    use data_model::{AllocationOutputIngestedEvent, FunctionRunOutcome, GraphUpdates};
+
+    let function = completed
+        .function
+        .ok_or_else(|| anyhow::anyhow!("AllocationCompleted missing function"))?;
+    let namespace = function
+        .namespace
+        .ok_or_else(|| anyhow::anyhow!("AllocationCompleted missing namespace"))?;
+    let application = function
+        .application_name
+        .ok_or_else(|| anyhow::anyhow!("AllocationCompleted missing application_name"))?;
+    let fn_name = function
+        .function_name
+        .ok_or_else(|| anyhow::anyhow!("AllocationCompleted missing function_name"))?;
+    let request_id = completed
+        .request_id
+        .ok_or_else(|| anyhow::anyhow!("AllocationCompleted missing request_id"))?;
+    let function_call_id = completed
+        .function_call_id
+        .ok_or_else(|| anyhow::anyhow!("AllocationCompleted missing function_call_id"))?;
+    let allocation_id = completed.allocation_id;
+
+    let allocation_key =
+        data_model::Allocation::key_from(&namespace, &application, &request_id, &allocation_id);
+    let allocation = indexify_state
+        .reader()
+        .get_allocation(&allocation_key)
+        .await?
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "AllocationCompleted: allocation not found: {}",
+                allocation_key
+            )
+        })?;
+
+    let (data_payload, graph_updates) = match completed.return_value {
+        Some(executor_api_pb::allocation_completed::ReturnValue::Value(dp)) => {
+            info!(
+                executor_id = executor_id.get(),
+                allocation_id = %allocation_id,
+                request_id = %request_id,
+                namespace = %namespace,
+                app = %application,
+                "fn" = %fn_name,
+                function_call_id = %function_call_id,
+                "AllocationCompleted: ReturnValue::Value"
+            );
+            let blob_store_url_scheme = blob_storage_registry
+                .get_blob_store(&namespace)
+                .get_url_scheme();
+            let blob_store_url = blob_storage_registry.get_blob_store(&namespace).get_url();
+            let payload = prepare_data_payload(dp, &blob_store_url_scheme, &blob_store_url)?;
+            (Some(payload), None)
+        }
+        Some(executor_api_pb::allocation_completed::ReturnValue::Updates(updates)) => {
+            let num_updates = updates.updates.len();
+            let root_fc_id_str = updates.root_function_call_id.as_deref().unwrap_or("none");
+            info!(
+                executor_id = executor_id.get(),
+                allocation_id = %allocation_id,
+                request_id = %request_id,
+                namespace = %namespace,
+                app = %application,
+                "fn" = %fn_name,
+                function_call_id = %function_call_id,
+                num_updates,
+                root_function_call_id = %root_fc_id_str,
+                "AllocationCompleted: ReturnValue::Updates (tail call)"
+            );
+            let root_function_call_id = updates
+                .root_function_call_id
+                .map(FunctionCallId::from)
+                .unwrap_or_else(|| FunctionCallId::from(nanoid::nanoid!()));
+            let mut compute_ops = Vec::new();
+            for update in updates.updates {
+                compute_ops.push(to_internal_compute_op(
+                    update,
+                    blob_storage_registry,
+                    Some(function_call_id.clone()),
+                )?);
+            }
+            (
+                None,
+                Some(GraphUpdates {
+                    graph_updates: compute_ops,
+                    output_function_call_id: root_function_call_id,
+                }),
+            )
+        }
+        None => {
+            info!(
+                executor_id = executor_id.get(),
+                allocation_id = %allocation_id,
+                request_id = %request_id,
+                namespace = %namespace,
+                app = %application,
+                "fn" = %fn_name,
+                function_call_id = %function_call_id,
+                "AllocationCompleted: ReturnValue::None"
+            );
+            (None, None)
+        }
+    };
+
+    info!(
+        executor_id = executor_id.get(),
+        allocation_id = %allocation_id,
+        request_id = %request_id,
+        namespace = %namespace,
+        app = %application,
+        "fn" = %fn_name,
+        function_call_id = %function_call_id,
+        "AllocationCompleted ingested"
+    );
+
+    let event = AllocationOutputIngestedEvent {
+        namespace,
+        application,
+        function: fn_name,
+        request_id,
+        function_call_id: FunctionCallId::from(function_call_id),
+        data_payload,
+        graph_updates,
+        request_exception: None,
+        allocation_id: allocation.id,
+        allocation_target: allocation.target,
+        allocation_outcome: FunctionRunOutcome::Success,
+        execution_duration_ms: completed.execution_duration_ms,
+    };
+
+    write_dataplane_results(indexify_state, executor_id, vec![event], vec![], vec![]).await
+}
+
+/// Process a single AllocationFailed message.
+pub async fn process_allocation_failed(
+    indexify_state: &Arc<IndexifyState>,
+    blob_storage_registry: &Arc<BlobStorageRegistry>,
+    executor_id: &ExecutorId,
+    failed: executor_api_pb::AllocationFailed,
+) -> Result<()> {
+    use data_model::{AllocationOutputIngestedEvent, FunctionRunOutcome};
+
+    let proto_reason = failed.reason();
+    let failure_reason = proto_failure_reason_to_internal(proto_reason);
+    let function = failed
+        .function
+        .ok_or_else(|| anyhow::anyhow!("AllocationFailed missing function"))?;
+    let namespace = function
+        .namespace
+        .ok_or_else(|| anyhow::anyhow!("AllocationFailed missing namespace"))?;
+    let application = function
+        .application_name
+        .ok_or_else(|| anyhow::anyhow!("AllocationFailed missing application_name"))?;
+    let fn_name = function
+        .function_name
+        .ok_or_else(|| anyhow::anyhow!("AllocationFailed missing function_name"))?;
+    let request_id = failed
+        .request_id
+        .ok_or_else(|| anyhow::anyhow!("AllocationFailed missing request_id"))?;
+    let function_call_id = failed
+        .function_call_id
+        .ok_or_else(|| anyhow::anyhow!("AllocationFailed missing function_call_id"))?;
+    let allocation_id = failed.allocation_id;
+
+    let allocation_key =
+        data_model::Allocation::key_from(&namespace, &application, &request_id, &allocation_id);
+    let allocation = indexify_state
+        .reader()
+        .get_allocation(&allocation_key)
+        .await?
+        .ok_or_else(|| {
+            anyhow::anyhow!("AllocationFailed: allocation not found: {}", allocation_key)
+        })?;
+
+    let request_exception = if let Some(dp) = failed.request_error {
+        let blob_store_url_scheme = blob_storage_registry
+            .get_blob_store(&namespace)
+            .get_url_scheme();
+        let blob_store_url = blob_storage_registry.get_blob_store(&namespace).get_url();
+        Some(prepare_data_payload(
+            dp,
+            &blob_store_url_scheme,
+            &blob_store_url,
+        )?)
+    } else {
+        None
+    };
+
+    info!(
+        executor_id = executor_id.get(),
+        allocation_id = %allocation_id,
+        request_id = %request_id,
+        namespace = %namespace,
+        app = %application,
+        "fn" = %fn_name,
+        failure_reason = ?proto_reason,
+        "AllocationFailed ingested"
+    );
+
+    let event = AllocationOutputIngestedEvent {
+        namespace,
+        application,
+        function: fn_name,
+        request_id,
+        function_call_id: FunctionCallId::from(function_call_id),
+        data_payload: None,
+        graph_updates: None,
+        request_exception,
+        allocation_id: allocation.id,
+        allocation_target: allocation.target,
+        allocation_outcome: FunctionRunOutcome::Failure(failure_reason),
+        execution_duration_ms: failed.execution_duration_ms,
+    };
+
+    write_dataplane_results(indexify_state, executor_id, vec![event], vec![], vec![]).await
+}
+
+/// Write a `DataplaneResultsIngestedEvent` to the state machine.
+///
+/// Shared by `process_command_responses` (container events only) and
+/// `process_allocation_activities` (allocation events only).
+async fn write_dataplane_results(
+    indexify_state: &Arc<IndexifyState>,
+    executor_id: &ExecutorId,
+    allocation_events: Vec<data_model::AllocationOutputIngestedEvent>,
+    container_state_updates: Vec<data_model::ContainerStateUpdateInfo>,
+    container_started_ids: Vec<data_model::ContainerId>,
+) -> Result<()> {
+    let event = data_model::DataplaneResultsIngestedEvent {
         executor_id: executor_id.clone(),
         allocation_events,
         container_state_updates,
@@ -1204,10 +1166,55 @@ pub async fn process_command_responses(
     Ok(())
 }
 
+struct PendingFunctionCall {
+    parent_allocation_id: String,
+    /// The function_call_id from the original CallFunction that the parent FE
+    /// registered its watcher under. Preserved through re-registrations so
+    /// the final result is delivered with the ID the FE expects.
+    original_function_call_id: String,
+    result_tx: mpsc::UnboundedSender<executor_api_pb::AllocationStreamResponse>,
+}
+
+/// Routes function call results from child allocation completions
+/// back to the parent executor's allocation stream.
+pub struct FunctionCallResultRouter {
+    pending: RwLock<HashMap<String, PendingFunctionCall>>,
+}
+
+impl FunctionCallResultRouter {
+    pub fn new() -> Self {
+        Self {
+            pending: RwLock::new(HashMap::new()),
+        }
+    }
+
+    pub async fn register(
+        &self,
+        function_call_id: String,
+        parent_allocation_id: String,
+        original_function_call_id: String,
+        result_tx: mpsc::UnboundedSender<executor_api_pb::AllocationStreamResponse>,
+    ) {
+        self.pending.write().await.insert(
+            function_call_id,
+            PendingFunctionCall {
+                parent_allocation_id,
+                original_function_call_id,
+                result_tx,
+            },
+        );
+    }
+
+    async fn take(&self, function_call_id: &str) -> Option<PendingFunctionCall> {
+        self.pending.write().await.remove(function_call_id)
+    }
+}
+
 pub struct ExecutorAPIService {
     indexify_state: Arc<IndexifyState>,
     executor_manager: Arc<ExecutorManager>,
     blob_storage_registry: Arc<BlobStorageRegistry>,
+    function_call_result_router: Arc<FunctionCallResultRouter>,
 }
 
 impl ExecutorAPIService {
@@ -1220,6 +1227,7 @@ impl ExecutorAPIService {
             indexify_state,
             executor_manager,
             blob_storage_registry,
+            function_call_result_router: Arc::new(FunctionCallResultRouter::new()),
         }
     }
 
@@ -1284,28 +1292,11 @@ impl ExecutorAPIService {
             .build()
             .map_err(|e| Status::internal(e.to_string()))?;
 
-        let mut watch_function_calls = HashSet::new();
-        for function_call_watch in &full_state.function_call_watches {
-            match ExecutorWatch::try_from(function_call_watch) {
-                Ok(watch) => {
-                    watch_function_calls.insert(watch);
-                }
-                Err(e) => {
-                    warn!(
-                        executor_id = executor_id.get(),
-                        error = %e,
-                        "skipping invalid watch in full state sync"
-                    );
-                }
-            }
-        }
-
         // --- Shared registration logic ---
         sync_executor_full_state(
             &self.executor_manager,
             self.indexify_state.clone(),
             executor,
-            watch_function_calls,
         )
         .await
         .map_err(|e| Status::internal(e.to_string()))?;
@@ -1608,73 +1599,6 @@ fn cg_node_secret_names(
         .unwrap_or_default()
 }
 
-/// Build a DeliverResult command for a completed watch.
-async fn build_deliver_result_command(
-    emitter: &mut CommandEmitter,
-    namespace: &str,
-    application: &str,
-    request_id: &str,
-    function_call_id: &str,
-    blob_storage_registry: &BlobStorageRegistry,
-    indexify_state: &IndexifyState,
-) -> Option<executor_api_pb::Command> {
-    let indexes = indexify_state.in_memory_state.read().await;
-
-    let watch_key = ExecutorWatch {
-        namespace: namespace.to_string(),
-        application: application.to_string(),
-        request_id: request_id.to_string(),
-        function_call_id: function_call_id.to_string(),
-    };
-
-    let function_run = if let Some(fr) = indexes.function_runs.get(&(&watch_key).into()) {
-        fr.clone()
-    } else {
-        drop(indexes);
-        // Fall back to RocksDB
-        let reader = indexify_state.reader();
-        let fr = reader
-            .get_function_run(namespace, application, request_id, function_call_id)
-            .await?;
-        Box::new(fr)
-    };
-
-    // Skip if not completed
-    let outcome = function_run.outcome.as_ref()?;
-
-    let failure_reason = match outcome {
-        data_model::FunctionRunOutcome::Failure(reason) => Some(reason.clone()),
-        _ => None,
-    };
-
-    let call_outcome = FunctionCallOutcome {
-        namespace: function_run.namespace.clone(),
-        request_id: function_run.request_id.clone(),
-        function_call_id: function_run.id.clone(),
-        outcome: outcome.clone(),
-        failure_reason,
-        return_value: function_run.output.clone(),
-        request_error: function_run.request_error.clone(),
-    };
-
-    let blob_store_url_scheme = blob_storage_registry
-        .get_blob_store(namespace)
-        .get_url_scheme();
-    let blob_store_url = blob_storage_registry.get_blob_store(namespace).get_url();
-
-    let result_pb = fn_call_outcome_to_pb(&call_outcome, &blob_store_url_scheme, &blob_store_url);
-
-    let seq = emitter.next_seq();
-    Some(executor_api_pb::Command {
-        seq,
-        command: Some(executor_api_pb::command::Command::DeliverResult(
-            executor_api_pb::DeliverResult {
-                result: Some(result_pb),
-            },
-        )),
-    })
-}
-
 /// Perform a full sync: fetch complete executor state, diff via emitter,
 /// and send all resulting commands.
 async fn do_full_sync(
@@ -1856,38 +1780,6 @@ async fn command_stream_loop(
                             }
                         }
                     }
-                    ExecutorEvent::WatchCompleted {
-                        namespace,
-                        application,
-                        request_id,
-                        function_call_id,
-                    } => {
-                        if emitter.known_call_results.contains(&function_call_id) {
-                            continue;
-                        }
-                        if let Some(cmd) = build_deliver_result_command(
-                            &mut emitter,
-                            &namespace,
-                            &application,
-                            &request_id,
-                            &function_call_id,
-                            &blob_storage_registry,
-                            &indexify_state,
-                        ).await {
-                            emitter.track_call_result(function_call_id.clone());
-                            info!(
-                                executor_id = executor_id.get(),
-                                function_call_id = %function_call_id,
-                                namespace = %namespace,
-                                app = %application,
-                                request_id = %request_id,
-                                "command_stream: emitting DeliverResult"
-                            );
-                            if grpc_tx.send(Ok(cmd)).await.is_err() {
-                                break;
-                            }
-                        }
-                    }
                     ExecutorEvent::FullSync => {
                         if !do_full_sync(
                             &executor_id,
@@ -1908,6 +1800,10 @@ async fn command_stream_loop(
 
 #[tonic::async_trait]
 impl ExecutorApi for ExecutorAPIService {
+    #[allow(non_camel_case_types)]
+    type allocation_streamStream = Pin<
+        Box<dyn Stream<Item = Result<executor_api_pb::AllocationStreamResponse, Status>> + Send>,
+    >;
     #[allow(non_camel_case_types)]
     type command_streamStream =
         Pin<Box<dyn Stream<Item = Result<executor_api_pb::Command, Status>> + Send>>;
@@ -2017,182 +1913,469 @@ impl ExecutorApi for ExecutorAPIService {
             "report_command_responses"
         );
 
-        process_command_responses(
-            &self.indexify_state,
-            &self.blob_storage_registry,
-            &executor_id,
-            req.responses,
-        )
-        .await
-        .map_err(|e| Status::internal(e.to_string()))?;
+        process_command_responses(&self.indexify_state, &executor_id, req.responses)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
 
         Ok(Response::new(
             executor_api_pb::ReportCommandResponsesResponse {},
         ))
     }
 
-    async fn add_allocation_events(
+    async fn get_allocation_log(
         &self,
-        request: Request<executor_api_pb::AllocationEvents>,
-    ) -> Result<Response<executor_api_pb::AllocationEventsResponse>, Status> {
+        request: Request<executor_api_pb::GetAllocationLogRequest>,
+    ) -> Result<Response<executor_api_pb::GetAllocationLogResponse>, Status> {
         let req = request.into_inner();
-        let executor_id = ExecutorId::new(
-            req.executor_id
-                .ok_or(Status::invalid_argument("executor_id is required"))?,
+        trace!(
+            allocation_id = %req.allocation_id,
+            after_clock = req.after_clock,
+            "get_allocation_log"
         );
+        Ok(Response::new(executor_api_pb::GetAllocationLogResponse {
+            entries: vec![],
+            last_clock: None,
+            has_more: Some(false),
+        }))
+    }
 
-        for event in &req.events {
-            let event = event
-                .event
-                .as_ref()
-                .ok_or(Status::invalid_argument("event is required"))?;
-            match event {
-                executor_api_pb::allocation_event::Event::AddWatcher(add_req) => {
-                    let watch: ExecutorWatch = add_req
-                        .try_into()
-                        .map_err(|e: anyhow::Error| Status::invalid_argument(e.to_string()))?;
-                    info!(
-                        executor_id = executor_id.get(),
-                        function_call_id = %watch.function_call_id,
-                        request_id = %watch.request_id,
-                        "add_allocation_events: adding watcher"
-                    );
-                    let sm_req = StateMachineUpdateRequest {
-                        payload: RequestPayload::AddExecutorWatch(
-                            crate::state_store::requests::AddExecutorWatchRequest {
-                                executor_id: executor_id.clone(),
-                                watch,
-                            },
-                        ),
-                    };
-                    if let Err(e) = self.indexify_state.write(sm_req).await {
-                        error!(
-                            executor_id = executor_id.get(),
-                            "failed to write AddExecutorWatch: {e:?}"
+    async fn allocation_stream(
+        &self,
+        request: Request<tonic::Streaming<executor_api_pb::AllocationStreamRequest>>,
+    ) -> Result<Response<Self::allocation_streamStream>, Status> {
+        let mut inbound = request.into_inner();
+        let indexify_state = self.indexify_state.clone();
+        let blob_storage_registry = self.blob_storage_registry.clone();
+        let executor_manager = self.executor_manager.clone();
+        let router = self.function_call_result_router.clone();
+
+        let (grpc_tx, grpc_rx) =
+            mpsc::channel::<Result<executor_api_pb::AllocationStreamResponse, Status>>(32);
+
+        // Channel for receiving function call results to push to this executor
+        let (result_tx, mut result_rx) =
+            mpsc::unbounded_channel::<executor_api_pb::AllocationStreamResponse>();
+
+        tokio::spawn(async move {
+            let mut last_executor_id: Option<ExecutorId> = None;
+            loop {
+                tokio::select! {
+                    _ = grpc_tx.closed() => {
+                        info!(
+                            executor_id = last_executor_id.as_ref().map(|e| e.get()).unwrap_or("unknown"),
+                            "allocation_stream: client disconnected"
                         );
-                        return Err(Status::internal("failed to write AddExecutorWatch"));
+                        break;
                     }
-                }
-                executor_api_pb::allocation_event::Event::RemoveWatcher(remove_req) => {
-                    let watch: ExecutorWatch = remove_req
-                        .try_into()
-                        .map_err(|e: anyhow::Error| Status::invalid_argument(e.to_string()))?;
-                    info!(
-                        executor_id = executor_id.get(),
-                        function_call_id = %watch.function_call_id,
-                        request_id = %watch.request_id,
-                        "add_allocation_events: removing watcher"
-                    );
-                    let sm_req = StateMachineUpdateRequest {
-                        payload: RequestPayload::RemoveExecutorWatch(
-                            crate::state_store::requests::RemoveExecutorWatchRequest {
-                                executor_id: executor_id.clone(),
-                                watch,
-                            },
-                        ),
-                    };
-                    if let Err(e) = self.indexify_state.write(sm_req).await {
-                        error!(
-                            executor_id = executor_id.get(),
-                            "failed to write RemoveExecutorWatch: {e:?}"
-                        );
-                        return Err(Status::internal("failed to write RemoveExecutorWatch"));
+                    msg = inbound.message() => {
+                        match msg {
+                            Ok(Some(msg)) => {
+                                let executor_id = ExecutorId::new(msg.executor_id.clone());
+                                last_executor_id = Some(executor_id.clone());
+
+                                // Refresh liveness
+                                if let Err(e) = executor_manager.heartbeat_v2(&executor_id).await {
+                                    warn!(error = %e, "allocation_stream: heartbeat failed");
+                                    break;
+                                }
+
+                                if let Some(message) = msg.message {
+                                    match message {
+                                        executor_api_pb::allocation_stream_request::Message::Completed(
+                                            completed,
+                                        ) => {
+                                            let function_call_id = completed.function_call_id.clone();
+
+                                            if let Err(e) = process_allocation_completed(
+                                                &indexify_state,
+                                                &blob_storage_registry,
+                                                &executor_id,
+                                                completed.clone(),
+                                            )
+                                            .await
+                                            {
+                                                warn!(error = %e, "allocation_stream: process_allocation_completed failed");
+                                            }
+
+                                            // Route result to parent executor if anyone is waiting
+                                            if let Some(fc_id) = &function_call_id {
+                                                try_route_result(&router, fc_id, &completed).await;
+                                            }
+                                        }
+                                        executor_api_pb::allocation_stream_request::Message::Failed(
+                                            failed,
+                                        ) => {
+                                            let function_call_id = failed.function_call_id.clone();
+
+                                            if let Err(e) = process_allocation_failed(
+                                                &indexify_state,
+                                                &blob_storage_registry,
+                                                &executor_id,
+                                                failed.clone(),
+                                            )
+                                            .await
+                                            {
+                                                warn!(error = %e, "allocation_stream: process_allocation_failed failed");
+                                            }
+
+                                            // Route result to parent executor if anyone is waiting
+                                            if let Some(fc_id) = &function_call_id {
+                                                try_route_failure(&router, fc_id, &failed).await;
+                                            }
+                                        }
+                                        executor_api_pb::allocation_stream_request::Message::LogEntry(
+                                            log_entry,
+                                        ) => {
+                                            if let Err(e) = handle_log_entry(
+                                                &log_entry,
+                                                &executor_id,
+                                                &router,
+                                                &result_tx,
+                                                &indexify_state,
+                                                &blob_storage_registry,
+                                            )
+                                            .await
+                                            {
+                                                warn!(error = %e, "allocation_stream: handle_log_entry failed");
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            Ok(None) => {
+                                info!(
+                                    executor_id = last_executor_id.as_ref().map(|e| e.get()).unwrap_or("unknown"),
+                                    "allocation_stream: client stream ended"
+                                );
+                                break;
+                            }
+                            Err(e) => {
+                                warn!(error = %e, "allocation_stream: error reading from client");
+                                break;
+                            }
+                        }
                     }
-                }
-                executor_api_pb::allocation_event::Event::CallFunction(call_req) => {
-                    let updates = call_req
-                        .updates
-                        .clone()
-                        .ok_or(Status::invalid_argument("updates is required"))?;
-                    let request_id = call_req
-                        .request_id
-                        .clone()
-                        .ok_or(Status::invalid_argument("request_id is required"))?;
-                    let source_function_call_id = call_req.source_function_call_id.clone().ok_or(
-                        Status::invalid_argument("source_function_call_id is required"),
-                    )?;
-                    let namespace = call_req
-                        .namespace
-                        .clone()
-                        .ok_or(Status::invalid_argument("namespace is required"))?;
-                    let application_name = call_req
-                        .application
-                        .clone()
-                        .ok_or(Status::invalid_argument("application is required"))?;
-                    let root_function_call_id =
-                        updates
-                            .root_function_call_id
-                            .clone()
-                            .ok_or(Status::invalid_argument(
-                                "root function call id is required",
-                            ))?;
-                    let mut compute_ops = Vec::new();
-                    for update in updates.updates {
-                        compute_ops.push(
-                            to_internal_compute_op(
-                                update,
-                                &self.blob_storage_registry,
-                                Some(source_function_call_id.clone()),
-                            )
-                            .map_err(|e| Status::internal(e.to_string()))?,
-                        );
-                    }
-                    info!(
-                        executor_id = executor_id.get(),
-                        namespace = %namespace,
-                        application = %application_name,
-                        request_id = %request_id,
-                        "add_allocation_events: processing function call"
-                    );
-                    let sm_req = StateMachineUpdateRequest {
-                        payload: RequestPayload::CreateFunctionCall(FunctionCallRequest {
-                            namespace,
-                            application_name,
-                            request_id,
-                            graph_updates: RequestUpdates {
-                                request_updates: compute_ops,
-                                output_function_call_id: FunctionCallId(root_function_call_id),
-                            },
-                            source_function_call_id: FunctionCallId(source_function_call_id),
-                        }),
-                    };
-                    if let Err(e) = self.indexify_state.write(sm_req).await {
-                        error!(
-                            executor_id = executor_id.get(),
-                            "failed to write CreateFunctionCall: {e:?}"
-                        );
-                        return Err(Status::internal("failed to write CreateFunctionCall"));
+                    // Push results to client
+                    Some(response) = result_rx.recv() => {
+                        if grpc_tx.send(Ok(response)).await.is_err() {
+                            break;
+                        }
                     }
                 }
             }
-        }
+        });
 
-        Ok(Response::new(executor_api_pb::AllocationEventsResponse {}))
-    }
-
-    async fn get_allocation_events(
-        &self,
-        request: Request<executor_api_pb::GetAllocationEventsRequest>,
-    ) -> Result<Response<executor_api_pb::GetAllocationEventsResponse>, Status> {
-        let req = request.into_inner();
-        trace!(
-            function_call_id = ?req.function_call_id,
-            allocation_id = ?req.allocation_id,
-            after_clock = ?req.after_clock,
-            "get_allocation_events"
-        );
-
-        // Allocation events are processed as immediate side-effects
-        // (add/remove watches, call_function) and not persisted to a
-        // log yet.  Return an empty result until a persistent event
-        // log is implemented.
         Ok(Response::new(
-            executor_api_pb::GetAllocationEventsResponse {
-                events: vec![],
-                last_clock: None,
-                has_more: Some(false),
-            },
+            Box::pin(tokio_stream::wrappers::ReceiverStream::new(grpc_rx))
+                as Self::allocation_streamStream,
         ))
+    }
+}
+
+async fn handle_log_entry(
+    log_entry: &executor_api_pb::AllocationLogEntry,
+    executor_id: &ExecutorId,
+    router: &Arc<FunctionCallResultRouter>,
+    result_tx: &mpsc::UnboundedSender<executor_api_pb::AllocationStreamResponse>,
+    indexify_state: &Arc<IndexifyState>,
+    blob_storage_registry: &Arc<BlobStorageRegistry>,
+) -> Result<()> {
+    let allocation_id = &log_entry.allocation_id;
+
+    match &log_entry.entry {
+        Some(executor_api_pb::allocation_log_entry::Entry::CallFunction(call)) => {
+            // Register in router so results get pushed back to this stream.
+            // We register each individual function call ID from the updates,
+            // not just the root_function_call_id. When a CallFunction contains
+            // multiple function calls (e.g. a .map() that fans out), each child
+            // allocation completes with its own function_call_id. The router
+            // must match on those individual IDs to route results back.
+            if let Some(ref updates) = call.updates {
+                for update in &updates.updates {
+                    if let Some(ref op) = update.op &&
+                        let executor_api_pb::execution_plan_update::Op::FunctionCall(fc) = op &&
+                        let Some(ref individual_fc_id) = fc.id
+                    {
+                        router
+                            .register(
+                                individual_fc_id.clone(),
+                                allocation_id.clone(),
+                                individual_fc_id.clone(),
+                                result_tx.clone(),
+                            )
+                            .await;
+
+                        debug!(
+                            executor_id = executor_id.get(),
+                            allocation_id = %allocation_id,
+                            function_call_id = %individual_fc_id,
+                            "allocation_stream: registered individual function call in router"
+                        );
+                    }
+                }
+            }
+
+            // Extract namespace/application/request_id from the proto message
+            let namespace = call
+                .namespace
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("CallFunction missing namespace"))?
+                .clone();
+            let application = call
+                .application
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("CallFunction missing application"))?
+                .clone();
+            let request_id = call
+                .request_id
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("CallFunction missing request_id"))?
+                .clone();
+            let source_function_call_id = call
+                .source_function_call_id
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("CallFunction missing source_function_call_id"))?
+                .clone();
+
+            let updates = call
+                .updates
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("CallFunction missing updates"))?;
+
+            let root_function_call_id = updates
+                .root_function_call_id
+                .clone()
+                .map(FunctionCallId::from)
+                .unwrap_or_else(|| FunctionCallId::from(nanoid::nanoid!()));
+
+            let mut compute_ops = Vec::new();
+            for update in &updates.updates {
+                compute_ops.push(to_internal_compute_op(
+                    update.clone(),
+                    blob_storage_registry,
+                    Some(source_function_call_id.clone()),
+                )?);
+            }
+
+            info!(
+                executor_id = executor_id.get(),
+                allocation_id = %allocation_id,
+                namespace = %namespace,
+                app = %application,
+                request_id = %request_id,
+                source_function_call_id = %source_function_call_id,
+                "allocation_stream: dispatching CallFunction to state machine"
+            );
+
+            let request = StateMachineUpdateRequest {
+                payload: RequestPayload::CreateFunctionCall(
+                    crate::state_store::requests::FunctionCallRequest {
+                        namespace: namespace.clone(),
+                        application_name: application.clone(),
+                        request_id: request_id.clone(),
+                        graph_updates: crate::state_store::requests::RequestUpdates {
+                            request_updates: compute_ops,
+                            output_function_call_id: root_function_call_id,
+                        },
+                        source_function_call_id: FunctionCallId::from(source_function_call_id),
+                    },
+                ),
+            };
+
+            indexify_state.write(request).await?;
+        }
+        Some(executor_api_pb::allocation_log_entry::Entry::FunctionCallResult(_)) => {
+            // Server -> Executor direction only -- should not be received from client
+            warn!(
+                executor_id = executor_id.get(),
+                allocation_id = %allocation_id,
+                "allocation_stream: unexpected FunctionCallResult from client"
+            );
+        }
+        None => {
+            warn!(
+                executor_id = executor_id.get(),
+                allocation_id = %allocation_id,
+                "allocation_stream: empty log entry"
+            );
+        }
+    }
+    Ok(())
+}
+
+/// After processing a child AllocationCompleted, check if any parent is waiting
+/// for this function call result and push it via their allocation stream.
+///
+/// When the child returns a direct `Value`, the result is routed immediately
+/// to the parent. When the child returns `Updates` (graph updates that spawn
+/// downstream function calls), the pending entry is re-registered under the
+/// downstream `root_function_call_id` so the final value in the chain gets
+/// routed to the parent.
+async fn try_route_result(
+    router: &Arc<FunctionCallResultRouter>,
+    function_call_id: &str,
+    completed: &executor_api_pb::AllocationCompleted,
+) {
+    if let Some(pending) = router.take(function_call_id).await {
+        match &completed.return_value {
+            Some(executor_api_pb::allocation_completed::ReturnValue::Value(dp)) => {
+                debug!(
+                    function_call_id = %function_call_id,
+                    parent_allocation_id = %pending.parent_allocation_id,
+                    "allocation_stream: routing Value result to parent"
+                );
+
+                let response = executor_api_pb::AllocationStreamResponse {
+                    log_entry: Some(executor_api_pb::AllocationLogEntry {
+                        allocation_id: pending.parent_allocation_id,
+                        clock: 0, // TODO: server-assigned monotonic clock
+                        entry: Some(
+                            executor_api_pb::allocation_log_entry::Entry::FunctionCallResult(
+                                executor_api_pb::FunctionCallResult {
+                                    namespace: completed
+                                        .function
+                                        .as_ref()
+                                        .and_then(|f| f.namespace.clone()),
+                                    request_id: completed.request_id.clone(),
+                                    function_call_id: Some(
+                                        pending.original_function_call_id.clone(),
+                                    ),
+                                    outcome_code: Some(
+                                        executor_api_pb::AllocationOutcomeCode::Success.into(),
+                                    ),
+                                    failure_reason: None,
+                                    return_value: Some(dp.clone()),
+                                    request_error: None,
+                                },
+                            ),
+                        ),
+                    }),
+                };
+
+                if pending.result_tx.send(response).is_err() {
+                    warn!(
+                        function_call_id = %function_call_id,
+                        "allocation_stream: parent stream disconnected, dropping result"
+                    );
+                }
+            }
+            Some(executor_api_pb::allocation_completed::ReturnValue::Updates(updates)) => {
+                // The child returned graph updates that will spawn downstream
+                // function calls. Re-register the pending entry under the
+                // downstream root_function_call_id so that when the final
+                // function in the chain completes with a Value, the result
+                // gets routed back to the parent.
+                if let Some(ref downstream_fc_id) = updates.root_function_call_id {
+                    info!(
+                        function_call_id = %function_call_id,
+                        downstream_function_call_id = %downstream_fc_id,
+                        parent_allocation_id = %pending.parent_allocation_id,
+                        original_function_call_id = %pending.original_function_call_id,
+                        "allocation_stream: child returned Updates, re-registering \
+                         pending entry for downstream function call"
+                    );
+                    router
+                        .register(
+                            downstream_fc_id.clone(),
+                            pending.parent_allocation_id,
+                            pending.original_function_call_id,
+                            pending.result_tx,
+                        )
+                        .await;
+                } else {
+                    warn!(
+                        function_call_id = %function_call_id,
+                        "allocation_stream: child returned Updates without \
+                         root_function_call_id, cannot re-register"
+                    );
+                }
+            }
+            None => {
+                // No return value at all — send success with empty payload
+                debug!(
+                    function_call_id = %function_call_id,
+                    parent_allocation_id = %pending.parent_allocation_id,
+                    "allocation_stream: routing empty result to parent"
+                );
+
+                let response = executor_api_pb::AllocationStreamResponse {
+                    log_entry: Some(executor_api_pb::AllocationLogEntry {
+                        allocation_id: pending.parent_allocation_id,
+                        clock: 0,
+                        entry: Some(
+                            executor_api_pb::allocation_log_entry::Entry::FunctionCallResult(
+                                executor_api_pb::FunctionCallResult {
+                                    namespace: completed
+                                        .function
+                                        .as_ref()
+                                        .and_then(|f| f.namespace.clone()),
+                                    request_id: completed.request_id.clone(),
+                                    function_call_id: Some(
+                                        pending.original_function_call_id.clone(),
+                                    ),
+                                    outcome_code: Some(
+                                        executor_api_pb::AllocationOutcomeCode::Success.into(),
+                                    ),
+                                    failure_reason: None,
+                                    return_value: None,
+                                    request_error: None,
+                                },
+                            ),
+                        ),
+                    }),
+                };
+
+                if pending.result_tx.send(response).is_err() {
+                    warn!(
+                        function_call_id = %function_call_id,
+                        "allocation_stream: parent stream disconnected, dropping result"
+                    );
+                }
+            }
+        }
+    } else {
+        debug!(
+            function_call_id = %function_call_id,
+            allocation_id = %completed.allocation_id,
+            "allocation_stream: try_route_result no match in router"
+        );
+    }
+}
+
+async fn try_route_failure(
+    router: &Arc<FunctionCallResultRouter>,
+    function_call_id: &str,
+    failed: &executor_api_pb::AllocationFailed,
+) {
+    if let Some(pending) = router.take(function_call_id).await {
+        let response = executor_api_pb::AllocationStreamResponse {
+            log_entry: Some(executor_api_pb::AllocationLogEntry {
+                allocation_id: pending.parent_allocation_id,
+                clock: 0,
+                entry: Some(
+                    executor_api_pb::allocation_log_entry::Entry::FunctionCallResult(
+                        executor_api_pb::FunctionCallResult {
+                            namespace: failed.function.as_ref().and_then(|f| f.namespace.clone()),
+                            request_id: failed.request_id.clone(),
+                            function_call_id: Some(pending.original_function_call_id.clone()),
+                            outcome_code: Some(
+                                executor_api_pb::AllocationOutcomeCode::Failure.into(),
+                            ),
+                            failure_reason: Some(failed.reason),
+                            return_value: None,
+                            request_error: failed.request_error.clone(),
+                        },
+                    ),
+                ),
+            }),
+        };
+
+        if pending.result_tx.send(response).is_err() {
+            warn!(
+                function_call_id = %function_call_id,
+                "allocation_stream: parent stream disconnected, dropping result"
+            );
+        }
     }
 }
 
@@ -2444,18 +2627,6 @@ mod tests {
         }
     }
 
-    fn make_call_result(fc_id: &str) -> executor_api_pb::FunctionCallResult {
-        executor_api_pb::FunctionCallResult {
-            namespace: Some("ns".to_string()),
-            request_id: Some("req-1".to_string()),
-            function_call_id: Some(fc_id.to_string()),
-            outcome_code: Some(executor_api_pb::AllocationOutcomeCode::Success.into()),
-            failure_reason: None,
-            return_value: None,
-            request_error: None,
-        }
-    }
-
     #[test]
     fn test_command_emitter_first_call_emits_full_state() {
         let mut emitter = super::CommandEmitter::new();
@@ -2463,14 +2634,15 @@ mod tests {
         let desired = executor_api_pb::DesiredExecutorState {
             function_executors: vec![make_fe_description("c1")],
             allocations: vec![make_allocation("a1")],
-            function_call_results: vec![make_call_result("fc-result-1")],
+            // function_call_results removed (reserved 4)
             clock: Some(1),
         };
 
         let commands = emitter.emit_commands(&desired);
 
-        // First call: everything is new
-        assert_eq!(commands.len(), 3, "expected 3 commands: {commands:?}");
+        // First call: AddContainer + RunAllocation (function_call_results
+        // are delivered via the AllocationEvent log, not Commands)
+        assert_eq!(commands.len(), 2, "expected 2 commands: {commands:?}");
 
         let add_container = commands.iter().find(|c| {
             matches!(
@@ -2488,17 +2660,9 @@ mod tests {
         });
         assert!(run_alloc.is_some(), "expected RunAllocation command");
 
-        let deliver_result = commands.iter().find(|c| {
-            matches!(
-                &c.command,
-                Some(executor_api_pb::command::Command::DeliverResult(_))
-            )
-        });
-        assert!(deliver_result.is_some(), "expected DeliverResult command");
-
         // Sequence numbers should be monotonically increasing
         let seqs: Vec<u64> = commands.iter().map(|c| c.seq).collect();
-        assert_eq!(seqs, vec![1, 2, 3]);
+        assert_eq!(seqs, vec![1, 2]);
     }
 
     #[test]
@@ -2508,7 +2672,7 @@ mod tests {
         let desired = executor_api_pb::DesiredExecutorState {
             function_executors: vec![make_fe_description("c1")],
             allocations: vec![make_allocation("a1")],
-            function_call_results: vec![],
+            // function_call_results removed (reserved 4)
             clock: Some(1),
         };
 
@@ -2529,7 +2693,7 @@ mod tests {
         let desired1 = executor_api_pb::DesiredExecutorState {
             function_executors: vec![make_fe_description("c1")],
             allocations: vec![],
-            function_call_results: vec![],
+            // function_call_results removed (reserved 4)
             clock: Some(1),
         };
         emitter.emit_commands(&desired1);
@@ -2538,7 +2702,7 @@ mod tests {
         let desired2 = executor_api_pb::DesiredExecutorState {
             function_executors: vec![],
             allocations: vec![],
-            function_call_results: vec![],
+            // function_call_results removed (reserved 4)
             clock: Some(2),
         };
         let commands = emitter.emit_commands(&desired2);
@@ -2558,7 +2722,7 @@ mod tests {
         let desired1 = executor_api_pb::DesiredExecutorState {
             function_executors: vec![make_fe_description("c1")],
             allocations: vec![make_allocation("a1")],
-            function_call_results: vec![],
+            // function_call_results removed (reserved 4)
             clock: Some(1),
         };
         emitter.emit_commands(&desired1);
@@ -2567,7 +2731,7 @@ mod tests {
         let desired2 = executor_api_pb::DesiredExecutorState {
             function_executors: vec![make_fe_description("c1")],
             allocations: vec![make_allocation("a1"), make_allocation("a2")],
-            function_call_results: vec![],
+            // function_call_results removed (reserved 4)
             clock: Some(2),
         };
         let commands = emitter.emit_commands(&desired2);
@@ -2587,7 +2751,7 @@ mod tests {
         let desired1 = executor_api_pb::DesiredExecutorState {
             function_executors: vec![make_fe_description("c1")],
             allocations: vec![make_allocation("a1")],
-            function_call_results: vec![],
+            // function_call_results removed (reserved 4)
             clock: Some(1),
         };
         emitter.emit_commands(&desired1);
@@ -2596,7 +2760,7 @@ mod tests {
         let desired2 = executor_api_pb::DesiredExecutorState {
             function_executors: vec![make_fe_description("c1")],
             allocations: vec![],
-            function_call_results: vec![],
+            // function_call_results removed (reserved 4)
             clock: Some(2),
         };
         let commands = emitter.emit_commands(&desired2);
@@ -2612,7 +2776,7 @@ mod tests {
         let desired1 = executor_api_pb::DesiredExecutorState {
             function_executors: vec![make_fe_description("c1")],
             allocations: vec![make_allocation("a1")],
-            function_call_results: vec![],
+            // function_call_results removed (reserved 4)
             clock: Some(1),
         };
         let cmds1 = emitter.emit_commands(&desired1);
@@ -2622,7 +2786,7 @@ mod tests {
         let desired2 = executor_api_pb::DesiredExecutorState {
             function_executors: vec![make_fe_description("c1")],
             allocations: vec![make_allocation("a1"), make_allocation("a2")],
-            function_call_results: vec![],
+            // function_call_results removed (reserved 4)
             clock: Some(2),
         };
         let cmds2 = emitter.emit_commands(&desired2);
