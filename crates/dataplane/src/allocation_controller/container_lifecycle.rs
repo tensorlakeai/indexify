@@ -347,6 +347,7 @@ impl AllocationController {
                 let health_handle = handle.clone();
                 let health_fe_id = fe_id.clone();
                 let panic_fe_id = fe_id.clone();
+                let health_metrics = self.config.metrics.clone();
 
                 tokio::spawn(async move {
                     let result = tokio::spawn(async move {
@@ -356,6 +357,7 @@ impl AllocationController {
                             health_handle,
                             health_cancel_clone,
                             &health_fe_id,
+                            health_metrics,
                         )
                         .await
                         {
@@ -523,6 +525,11 @@ impl AllocationController {
             .up_down_counters
             .containers_count
             .add(-1, &[]);
+        self.config
+            .metrics
+            .counters
+            .function_executor_destroys
+            .add(1, &[]);
 
         // Notify result pipeline so container termination is merged with
         // allocation results in the next report_results RPC.
@@ -566,6 +573,10 @@ async fn start_fe_process_and_initialize(
         Ok(handle) => handle,
         Err(e) => {
             tracing::error!(error = ?e, %fe_id, "Failed to start function executor process");
+            metrics
+                .counters
+                .function_executor_create_server_errors
+                .add(1, &[]);
             return Err(e);
         }
     };
@@ -697,7 +708,9 @@ async fn connect_to_fe(
     let driver = config.driver.clone();
     let process_handle = Some(handle.clone());
     let addr_owned = addr.to_string();
-    let mut client = crate::retry::retry_until_deadline(
+
+    let connect_start = Instant::now();
+    let connect_result = crate::retry::retry_until_deadline(
         FE_READY_TIMEOUT,
         Duration::from_millis(100),
         &format!("connecting to function executor at {}", addr),
@@ -720,10 +733,47 @@ async fn connect_to_fe(
             }
         },
     )
-    .await?;
+    .await;
+    config
+        .metrics
+        .histograms
+        .function_executor_establish_channel_latency_seconds
+        .record(connect_start.elapsed().as_secs_f64(), &[]);
+    if connect_result.is_err() {
+        config
+            .metrics
+            .counters
+            .function_executor_establish_channel_errors
+            .add(1, &[]);
+    }
+    let mut client = connect_result?;
 
     // Verify connectivity
-    let info = client.get_info().await?;
+    let info_start = Instant::now();
+    let info_result = client.get_info().await;
+    config
+        .metrics
+        .histograms
+        .function_executor_get_info_rpc_latency_seconds
+        .record(info_start.elapsed().as_secs_f64(), &[]);
+    match &info_result {
+        Ok(info) => {
+            config.metrics.counters.record_function_executor_info(
+                info.version.as_deref().unwrap_or(""),
+                info.sdk_version.as_deref().unwrap_or(""),
+                info.sdk_language.as_deref().unwrap_or(""),
+                info.sdk_language_version.as_deref().unwrap_or(""),
+            );
+        }
+        Err(_) => {
+            config
+                .metrics
+                .counters
+                .function_executor_get_info_rpc_errors
+                .add(1, &[]);
+        }
+    }
+    let info = info_result?;
     info!(
         version = ?info.version,
         sdk_version = ?info.sdk_version,
@@ -757,20 +807,35 @@ async fn initialize_fe(
     let timeout_ms = description.initialization_timeout_ms.unwrap_or(0);
     let init_future = client.initialize(init_request);
 
-    let init_response = if timeout_ms > 0 {
-        tokio::time::timeout(Duration::from_millis(timeout_ms as u64), init_future)
-            .await
-            .map_err(|_| InitTimedOut(timeout_ms as u64))?
-            .map_err(|e| {
+    let init_start = Instant::now();
+    let init_result: Result<_> = if timeout_ms > 0 {
+        match tokio::time::timeout(Duration::from_millis(timeout_ms as u64), init_future).await {
+            Err(_) => Err(anyhow::Error::from(InitTimedOut(timeout_ms as u64))),
+            Ok(Err(e)) => {
                 error!(error = ?e, "FE initialize RPC call failed");
-                e
-            })?
+                Err(e)
+            }
+            Ok(Ok(resp)) => Ok(resp),
+        }
     } else {
         init_future.await.map_err(|e| {
             error!(error = ?e, "FE initialize RPC call failed");
             e
-        })?
+        })
     };
+    config
+        .metrics
+        .histograms
+        .function_executor_initialize_rpc_latency_seconds
+        .record(init_start.elapsed().as_secs_f64(), &[]);
+    if init_result.is_err() {
+        config
+            .metrics
+            .counters
+            .function_executor_initialize_rpc_errors
+            .add(1, &[]);
+    }
+    let init_response = init_result?;
 
     use proto_api::function_executor_pb::InitializationOutcomeCode;
     match init_response.outcome_code() {

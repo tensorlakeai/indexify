@@ -3,7 +3,10 @@
 //! Handles image resolution, container creation, daemon connection,
 //! network rule application, and post-startup result handling.
 
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use proto_api::executor_api_pb::{
     CommandResponse,
@@ -33,6 +36,7 @@ pub(super) async fn start_container_with_daemon(
     secrets_provider: &Arc<dyn SecretsProvider>,
     executor_id: &str,
     desc: &ContainerDescription,
+    metrics: &Arc<DataplaneMetrics>,
 ) -> anyhow::Result<(ProcessHandle, DaemonClient)> {
     let info = ContainerInfo::from_description(desc, executor_id);
 
@@ -142,6 +146,7 @@ pub(super) async fn start_container_with_daemon(
             error = ?e,
             "Failed to apply network rules (continuing anyway)"
         );
+        metrics.counters.sandbox_network_rules_errors.add(1, &[]);
         // Continue anyway - rules are defense-in-depth
     }
 
@@ -161,6 +166,7 @@ pub(super) async fn start_container_with_daemon(
     );
 
     // Connect to the daemon with retry (container may take a moment to start)
+    let connect_start = Instant::now();
     let daemon_result = async {
         let mut daemon_client =
             DaemonClient::connect_with_retry(daemon_addr, DAEMON_READY_TIMEOUT).await?;
@@ -168,6 +174,11 @@ pub(super) async fn start_container_with_daemon(
         Ok::<_, anyhow::Error>(daemon_client)
     }
     .await;
+
+    metrics
+        .histograms
+        .sandbox_daemon_connect_latency_seconds
+        .record(connect_start.elapsed().as_secs_f64(), &[]);
 
     match daemon_result {
         Ok(daemon_client) => {
@@ -181,6 +192,8 @@ pub(super) async fn start_container_with_daemon(
             Ok((handle, daemon_client))
         }
         Err(e) => {
+            metrics.counters.sandbox_daemon_connect_errors.add(1, &[]);
+
             // Daemon failed to start — capture container logs for diagnostics
             let container_logs = match driver.get_logs(&handle, 50).await {
                 Ok(logs) if !logs.is_empty() => logs,
@@ -240,6 +253,10 @@ pub(super) async fn handle_container_startup_result(
     match result {
         Ok((handle, daemon_client)) => {
             metrics.counters.record_container_started(container_type);
+            metrics
+                .histograms
+                .sandbox_startup_latency_seconds
+                .record(startup_duration_ms as f64 / 1000.0, &[]);
 
             tracing::info!(
                 parent: &span,
@@ -288,6 +305,10 @@ pub(super) async fn handle_container_startup_result(
             metrics
                 .counters
                 .record_container_terminated(container_type, "startup_failed");
+            metrics
+                .histograms
+                .sandbox_startup_latency_seconds
+                .record(startup_duration_ms as f64 / 1000.0, &[]);
 
             tracing::error!(
                 parent: &span,

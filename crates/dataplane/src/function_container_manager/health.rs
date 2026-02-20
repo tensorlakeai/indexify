@@ -1,6 +1,6 @@
 //! Health check and timeout management for managed containers.
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use proto_api::executor_api_pb::ContainerTerminationReason;
 use tokio_util::sync::CancellationToken;
@@ -110,8 +110,18 @@ impl FunctionContainerManager {
                 // User-started processes (via HTTP API) may complete independently
                 // without affecting the container's lifecycle.
                 if let Some(mut client) = daemon_client {
-                    match client.health().await {
+                    let health_start = Instant::now();
+                    let health_result = client.health().await;
+                    self.metrics
+                        .histograms
+                        .sandbox_health_check_latency_seconds
+                        .record(health_start.elapsed().as_secs_f64(), &[]);
+                    match health_result {
                         Ok(healthy) if !healthy => {
+                            self.metrics
+                                .counters
+                                .sandbox_failed_health_checks
+                                .add(1, &[]);
                             tracing::info!(
                                 parent: span,
                                 "Daemon is unhealthy, terminating container"
@@ -131,6 +141,10 @@ impl FunctionContainerManager {
                             }
                         }
                         Err(e) => {
+                            self.metrics
+                                .counters
+                                .sandbox_failed_health_checks
+                                .add(1, &[]);
                             tracing::warn!(
                                 parent: span,
                                 error = ?e,

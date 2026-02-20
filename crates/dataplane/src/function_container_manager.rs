@@ -318,6 +318,7 @@ impl FunctionContainerManager {
                     &secrets_provider,
                     &executor_id,
                     &desc,
+                    &metrics,
                 )
                 .await;
                 lifecycle::handle_container_startup_result(
@@ -441,6 +442,7 @@ impl FunctionContainerManager {
                 "Warm container claimed by sandbox"
             );
             container.sandbox_claimed_at = Some(Instant::now());
+            self.metrics.counters.sandbox_warm_pool_claims.add(1, &[]);
             if matches!(container.state, ContainerState::Running { .. }) {
                 Self::send_container_started(&self.container_state_tx, id);
             }

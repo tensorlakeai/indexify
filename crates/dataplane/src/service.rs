@@ -68,11 +68,12 @@ pub struct Service {
 impl Service {
     /// Create a new dataplane service with default (no-op) providers.
     pub async fn new(config: DataplaneConfig) -> Result<Self> {
+        let metrics = Arc::new(DataplaneMetrics::new());
         let image_resolver: Arc<dyn ImageResolver> = Arc::new(DefaultImageResolver::new(
             config.default_function_image.clone(),
         ));
         let secrets_provider: Arc<dyn SecretsProvider> = Arc::new(NoopSecretsProvider::new());
-        Self::with_providers(config, image_resolver, secrets_provider).await
+        Self::with_providers(config, image_resolver, secrets_provider, metrics).await
     }
 
     /// Create a new dataplane service with custom image resolver and secrets
@@ -80,10 +81,13 @@ impl Service {
     ///
     /// This is the extension point used by custom binaries (e.g.
     /// compute-engine-internal) to inject platform-specific implementations.
+    /// The `metrics` instance is shared with the providers so all telemetry
+    /// flows into the same OTel instruments.
     pub async fn with_providers(
         config: DataplaneConfig,
         image_resolver: Arc<dyn ImageResolver>,
         secrets_provider: Arc<dyn SecretsProvider>,
+        metrics: Arc<DataplaneMetrics>,
     ) -> Result<Self> {
         let channel = create_channel(&config).await?;
         let discovered_gpus = crate::gpu_allocator::discover_gpus();
@@ -116,8 +120,6 @@ impl Service {
             gpu_model = ?host_resources.gpu.as_ref().and_then(|g| g.model),
             "Host resources discovered"
         );
-
-        let metrics = Arc::new(DataplaneMetrics::new());
 
         let driver = create_process_driver(&config)?;
 
@@ -666,6 +668,7 @@ impl ServiceRuntime {
             .context("Failed to open command stream")?;
 
         let mut stream = response.into_inner();
+        self.metrics.counters.stream_creations.add(1, &[]);
 
         loop {
             if self.cancel_token.is_cancelled() {

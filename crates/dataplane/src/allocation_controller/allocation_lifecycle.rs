@@ -242,6 +242,11 @@ impl AllocationController {
                             "Allocation prepared: Preparing -> WaitingForSlot"
                         );
                         alloc.state = AllocationState::WaitingForSlot;
+                        self.config
+                            .metrics
+                            .up_down_counters
+                            .runnable_allocations
+                            .add(1, &[]);
                         self.waiting_queue
                             .entry(fe_id)
                             .or_default()
@@ -274,6 +279,11 @@ impl AllocationController {
                             "Allocation prepared, container not ready: Preparing -> WaitingForContainer"
                         );
                         alloc.state = AllocationState::WaitingForContainer;
+                        self.config
+                            .metrics
+                            .up_down_counters
+                            .runnable_allocations
+                            .add(1, &[]);
                         self.waiting_queue
                             .entry(fe_id)
                             .or_default()
@@ -429,6 +439,11 @@ impl AllocationController {
                         .up_down_counters
                         .allocations_finalizing
                         .add(1, &[]);
+                    self.config
+                        .metrics
+                        .up_down_counters
+                        .runnable_allocations
+                        .add(-1, &[]);
                     self.spawn_finalization_task(&alloc_id, FinalizationContext::default());
                     continue;
                 };
@@ -468,6 +483,11 @@ impl AllocationController {
                     .up_down_counters
                     .allocation_runs_in_progress
                     .add(1, &[]);
+                self.config
+                    .metrics
+                    .up_down_counters
+                    .runnable_allocations
+                    .add(-1, &[]);
 
                 let event_tx = self.event_tx.clone();
                 let alloc_id_clone = alloc_id.clone();
@@ -587,6 +607,14 @@ impl AllocationController {
         let mut trigger_fe_termination = false;
         let mut fe_termination_reason =
             proto_api::executor_api_pb::ContainerTerminationReason::Unhealthy;
+
+        if matches!(outcome, AllocationOutcome::Failed { .. }) {
+            self.config
+                .metrics
+                .counters
+                .allocation_run_errors
+                .add(1, &[]);
+        }
 
         let server_result = match outcome {
             AllocationOutcome::Completed {

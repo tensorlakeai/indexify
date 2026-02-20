@@ -5,14 +5,20 @@
 //! This is critical for OOM kills where the TCP connection may be
 //! half-open and gRPC calls hang.
 
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use proto_api::executor_api_pb::ContainerTerminationReason;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
 use super::fe_client::FunctionExecutorGrpcClient;
-use crate::driver::{ProcessDriver, ProcessHandle};
+use crate::{
+    driver::{ProcessDriver, ProcessHandle},
+    metrics::DataplaneMetrics,
+};
 
 const HEALTH_CHECK_INTERVAL: Duration = Duration::from_secs(1);
 const HEALTH_CHECK_TIMEOUT: Duration = Duration::from_secs(5);
@@ -25,6 +31,7 @@ pub async fn run_health_check_loop(
     process_handle: ProcessHandle,
     cancel_token: CancellationToken,
     fe_id: &str,
+    metrics: Arc<DataplaneMetrics>,
 ) -> Option<ContainerTerminationReason> {
     // Apply gRPC-level timeout so health checks don't hang on half-open
     // TCP connections (e.g. after OOM kills).
@@ -78,12 +85,21 @@ pub async fn run_health_check_loop(
                 }
 
                 // Second: gRPC health check (timeout is set on the client)
+                let check_start = Instant::now();
                 match client.check_health().await {
                     Ok(response) => {
+                        metrics
+                            .histograms
+                            .function_executor_health_check_latency_seconds
+                            .record(check_start.elapsed().as_secs_f64(), &[]);
                         if response.healthy.unwrap_or(false) {
                             consecutive_failures = 0;
                         } else {
                             consecutive_failures += 1;
+                            metrics
+                                .counters
+                                .function_executor_failed_health_checks
+                                .add(1, &[]);
                             warn!(
                                 fe_id = %fe_id,
                                 consecutive_failures = consecutive_failures,
@@ -93,7 +109,15 @@ pub async fn run_health_check_loop(
                         }
                     }
                     Err(e) => {
+                        metrics
+                            .histograms
+                            .function_executor_health_check_latency_seconds
+                            .record(check_start.elapsed().as_secs_f64(), &[]);
                         consecutive_failures += 1;
+                        metrics
+                            .counters
+                            .function_executor_failed_health_checks
+                            .add(1, &[]);
                         warn!(
                             fe_id = %fe_id,
                             consecutive_failures = consecutive_failures,
