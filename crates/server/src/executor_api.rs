@@ -366,8 +366,8 @@ impl TryFrom<ContainerState> for data_model::Container {
         // Get container_type from description (moved from ContainerState)
         let container_type = description
             .map(|d| match d.container_type() {
-                ContainerTypePb::Unknown => ContainerType::Function, /* Default for backwards
-                                                                       * compat */
+                ContainerTypePb::Unknown => ContainerType::Function, /* Default for backwards */
+                // compat
                 ContainerTypePb::Function => ContainerType::Function,
                 ContainerTypePb::Sandbox => ContainerType::Sandbox,
             })
