@@ -1919,7 +1919,7 @@ impl ExecutorApi for ExecutorAPIService {
         let req = request.into_inner();
         let executor_id = ExecutorId::new(req.executor_id);
 
-        trace!(
+        debug!(
             executor_id = executor_id.get(),
             "Got command_stream request",
         );

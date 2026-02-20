@@ -186,6 +186,16 @@ impl BlobStore {
 
     /// Download a blob and return its contents.
     pub async fn get(&self, uri: &str) -> Result<Bytes> {
+        record_blob_op(
+            &self.metrics.counters.blob_store_get_requests,
+            &self.metrics.histograms.blob_store_get_latency_seconds,
+            &self.metrics.counters.blob_store_get_errors,
+            self.get_impl(uri),
+        )
+        .await
+    }
+
+    async fn get_impl(&self, uri: &str) -> Result<Bytes> {
         match &self.inner {
             BlobStoreInner::S3 { client } => {
                 let (bucket, key) = parse_s3_uri(uri)?;

@@ -491,7 +491,7 @@ impl ProxyHttp for HttpProxy {
 
         ctx.span.in_scope(|| match (e, status_code) {
             (Some(err), _) => {
-                error!(error = %err, error_type = err.etype().as_str(), "Request failed");
+                error!(error = ?err, error_type = err.etype().as_str(), "Request failed");
             }
             (None, code) if code >= 500 => {
                 error!("Upstream server error");
@@ -527,7 +527,7 @@ impl ProxyHttp for HttpProxy {
 
         let _guard = ctx.span.enter();
         error!(
-            error = %e,
+            error = ?e,
             error_debug = ?e,
             error_type = e.etype().as_str(),
             cause_chain = ?cause_chain,
@@ -560,7 +560,7 @@ impl ProxyHttp for HttpProxy {
         if ctx.grpc_trailers_only {
             ctx.span.in_scope(|| {
                 debug!(
-                    error = %e,
+                    error = ?e,
                     "gRPC trailers-only response completed (stream close is expected)"
                 );
             });

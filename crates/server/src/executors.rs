@@ -369,6 +369,7 @@ impl ExecutorManager {
         } else {
             return None;
         }
+
         let Some(executor_server_metadata) = container_scheduler.executor_states.get(executor_id)
         else {
             info!(
@@ -497,14 +498,14 @@ impl ExecutorManager {
     }
 
     /// Get the desired state for an executor
+    ///
+    /// Function call results are delivered via the allocation_stream RPC,
+    /// not included in the executor state snapshot.
     pub async fn get_executor_state(
         &self,
         executor_id: &ExecutorId,
     ) -> Option<ExecutorStateSnapshot> {
         let desired_executor_state = self.desired_state(executor_id).await?;
-
-        // Function call results are delivered via the allocation_stream RPC,
-        // not included in the executor state snapshot.
 
         let mut containers_pb = vec![];
         let mut allocations_pb = vec![];

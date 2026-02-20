@@ -93,7 +93,7 @@ impl DaemonClient {
                     warn!("Daemon health check returned false");
                 }
                 Err(e) => {
-                    debug!(error = %e, "Health check error, retrying...");
+                    debug!(error = ?e, "Health check error, retrying...");
                 }
             }
             tokio::time::sleep(crate::grpc::POLL_INTERVAL).await;

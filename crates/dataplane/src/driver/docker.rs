@@ -196,7 +196,7 @@ impl DockerDriver {
                     tracing::error!(
                         image = %image,
                         duration_ms = %duration_ms,
-                        error = %e,
+                        error = ?e,
                         is_not_found = is_not_found,
                         event = "image_pull_failed",
                         "Failed to pull Docker image"
@@ -473,7 +473,7 @@ impl DockerDriver {
         };
 
         ContainerSpec {
-            container_name: format!("indexify-{}", config.id),
+            container_name: format!("indexify-function-{}", config.id),
             image: image.to_string(),
             entrypoint,
             cmd,
@@ -512,7 +512,7 @@ impl DockerDriver {
         }
 
         Ok(ContainerSpec {
-            container_name: format!("indexify-{}", config.id),
+            container_name: format!("indexify-sandbox-{}", config.id),
             image: image.to_string(),
             entrypoint: Some(vec![CONTAINER_DAEMON_PATH.to_string()]),
             cmd,

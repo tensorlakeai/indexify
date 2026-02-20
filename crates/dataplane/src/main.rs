@@ -63,6 +63,7 @@ async fn main() -> anyhow::Result<()> {
 #[instrument(skip(config), fields(env = config.env, instance_id = config.instance_id(), executor_id = %config.executor_id))]
 async fn start_dataplane(config: DataplaneConfig) -> anyhow::Result<()> {
     info!(
+        driver = ?config.driver,
         server_addr = %config.server_addr,
         tls_enabled = config.tls.enabled,
         http_proxy_listen = %config.http_proxy.socket_addr(),

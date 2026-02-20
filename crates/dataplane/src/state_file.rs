@@ -86,7 +86,7 @@ impl StateFile {
                 Err(e) => {
                     warn!(
                         path = %path.display(),
-                        error = %e,
+                        error = ?e,
                         "Failed to load state file, starting fresh"
                     );
                     StateFileContents::default()

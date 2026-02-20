@@ -376,6 +376,7 @@ pub(super) async fn update_container_counts(
     metrics: &DataplaneMetrics,
 ) {
     let mut counts = ContainerCounts::default();
+    let (mut sb_pending, mut sb_running, mut sb_stopping) = (0u64, 0u64, 0u64);
 
     for container in containers.values() {
         let is_sandbox = matches!(
@@ -387,6 +388,7 @@ pub(super) async fn update_container_counts(
             ContainerState::Pending => {
                 if is_sandbox {
                     counts.pending_sandboxes += 1;
+                    sb_pending += 1;
                 } else {
                     counts.pending_functions += 1;
                 }
@@ -394,14 +396,16 @@ pub(super) async fn update_container_counts(
             ContainerState::Running { .. } => {
                 if is_sandbox {
                     counts.running_sandboxes += 1;
+                    sb_running += 1;
                 } else {
                     counts.running_functions += 1;
                 }
             }
             ContainerState::Stopping { .. } => {
-                // Count stopping as still running for metrics purposes
+                // Count stopping as still running for the existing running gauge
                 if is_sandbox {
                     counts.running_sandboxes += 1;
+                    sb_stopping += 1;
                 } else {
                     counts.running_functions += 1;
                 }
@@ -413,4 +417,7 @@ pub(super) async fn update_container_counts(
     }
 
     metrics.update_container_counts(counts).await;
+    metrics
+        .update_sandbox_state_counts(sb_pending, sb_running, sb_stopping)
+        .await;
 }

@@ -57,7 +57,7 @@ pub(super) async fn reconcile_output_blobs(
                     if let Err(e) = client.send_allocation_update(update).await {
                         warn!(
                             blob_id = %blob_id,
-                            error = %e,
+                            error = ?e,
                             "Failed to send output blob update"
                         );
                     }
@@ -65,7 +65,7 @@ pub(super) async fn reconcile_output_blobs(
                 Err(e) => {
                     warn!(
                         blob_id = %blob_id,
-                        error = %e,
+                        error = ?e,
                         "Failed to create output blob"
                     );
                     // Send error status back to FE

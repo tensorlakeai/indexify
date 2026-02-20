@@ -24,6 +24,7 @@ const MAX_EXECUTION_PLAN_UPDATE_ITEMS: usize = 1000;
 
 /// Handle new function calls from the FE (send via allocation stream channel).
 #[allow(clippy::too_many_arguments)]
+#[tracing::instrument(skip_all, fields(executor_id, allocation_id))]
 pub(super) async fn reconcile_function_calls(
     client: &mut FunctionExecutorGrpcClient,
     allocation_id: &str,
@@ -78,7 +79,7 @@ pub(super) async fn reconcile_function_calls(
                 {
                     warn!(
                         blob_uri = %blob_uri,
-                        error = %e,
+                        error = ?e,
                         "Failed to complete multipart upload for args blob"
                     );
                 }
@@ -234,7 +235,7 @@ pub(super) async fn reconcile_function_calls(
                     },
                     Err(e) => {
                         warn!(
-                            error = %e,
+                            error = ?e,
                             "Failed to send function call via allocation stream"
                         );
                         AllocationFunctionCallCreationResult {
@@ -253,7 +254,7 @@ pub(super) async fn reconcile_function_calls(
             );
             if let Err(e) = client.send_allocation_update(update).await {
                 warn!(
-                    error = %e,
+                    error = ?e,
                     "Failed to send function call creation result"
                 );
             }

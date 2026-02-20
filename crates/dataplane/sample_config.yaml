@@ -61,7 +61,7 @@ http_proxy:
   advertise_address: '127.0.0.1:8095'
 
 monitoring:
-  # Port to listen on for HTTP monitoring requests (default: 7000)
+  # Port to listen on for HTTP monitoring requests (default: 8100)
   port: 8099
   # Listen address (default: 0.0.0.0)
   listen_addr: '0.0.0.0'

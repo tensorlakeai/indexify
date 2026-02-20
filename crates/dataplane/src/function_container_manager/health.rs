@@ -1,6 +1,6 @@
 //! Health check and timeout management for managed containers.
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use proto_api::executor_api_pb::ContainerTerminationReason;
 use tokio_util::sync::CancellationToken;
@@ -81,8 +81,14 @@ impl FunctionContainerManager {
         span: &tracing::Span,
     ) {
         if let Ok(false) = self.driver.alive(handle).await {
-            tracing::info!(parent: span, reason = ?reason, "Container stopped");
-            if container.transition_to_terminated(reason).is_ok() {
+            tracing::info!(parent: span, ?reason, "Container stopped");
+            if container
+                .transition_to_terminated(reason)
+                .inspect_err(
+                    |error| tracing::warn!(parent: span, ?error, "Invalid state transition"),
+                )
+                .is_ok()
+            {
                 let id = container.description.id.as_deref().unwrap_or("");
                 Self::send_container_terminated(&self.container_state_tx, id, reason);
             }
@@ -104,8 +110,18 @@ impl FunctionContainerManager {
                 // User-started processes (via HTTP API) may complete independently
                 // without affecting the container's lifecycle.
                 if let Some(mut client) = daemon_client {
-                    match client.health().await {
+                    let health_start = Instant::now();
+                    let health_result = client.health().await;
+                    self.metrics
+                        .histograms
+                        .sandbox_health_check_latency_seconds
+                        .record(health_start.elapsed().as_secs_f64(), &[]);
+                    match health_result {
                         Ok(healthy) if !healthy => {
+                            self.metrics
+                                .counters
+                                .sandbox_failed_health_checks
+                                .add(1, &[]);
                             tracing::info!(
                                 parent: span,
                                 "Daemon is unhealthy, terminating container"
@@ -113,7 +129,9 @@ impl FunctionContainerManager {
                             let _ = network_rules::remove_rules(&handle.id, &handle.container_ip);
                             let _ = self.driver.kill(handle).await;
                             let reason = ContainerTerminationReason::Unhealthy;
-                            if container.transition_to_terminated(reason).is_ok() {
+                            if container.transition_to_terminated(reason)
+                                .inspect_err(|error| tracing::warn!(parent: span, ?error, "Invalid state transition"))
+                                .is_ok() {
                                 let id = container.description.id.as_deref().unwrap_or("");
                                 Self::send_container_terminated(
                                     &self.container_state_tx,
@@ -123,9 +141,13 @@ impl FunctionContainerManager {
                             }
                         }
                         Err(e) => {
+                            self.metrics
+                                .counters
+                                .sandbox_failed_health_checks
+                                .add(1, &[]);
                             tracing::warn!(
                                 parent: span,
-                                error = %e,
+                                error = ?e,
                                 "Failed to check daemon health"
                             );
                         }
@@ -143,7 +165,13 @@ impl FunctionContainerManager {
                     reason = ?reason,
                     "Container is no longer alive"
                 );
-                if container.transition_to_terminated(reason).is_ok() {
+                if container
+                    .transition_to_terminated(reason)
+                    .inspect_err(
+                        |error| tracing::warn!(parent: span, ?error, "Invalid state transition"),
+                    )
+                    .is_ok()
+                {
                     let id = container.description.id.as_deref().unwrap_or("");
                     Self::send_container_terminated(&self.container_state_tx, id, reason);
                 }
@@ -151,7 +179,7 @@ impl FunctionContainerManager {
             Err(e) => {
                 tracing::warn!(
                     parent: span,
-                    error = %e,
+                    error = ?e,
                     "Failed to check container status"
                 );
             }
