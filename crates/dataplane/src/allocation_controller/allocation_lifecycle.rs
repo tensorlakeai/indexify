@@ -242,6 +242,11 @@ impl AllocationController {
                             "Allocation prepared: Preparing -> WaitingForSlot"
                         );
                         alloc.state = AllocationState::WaitingForSlot;
+                        self.config
+                            .metrics
+                            .up_down_counters
+                            .runnable_allocations
+                            .add(1, &[]);
                         self.waiting_queue
                             .entry(fe_id)
                             .or_default()
@@ -274,6 +279,11 @@ impl AllocationController {
                             "Allocation prepared, container not ready: Preparing -> WaitingForContainer"
                         );
                         alloc.state = AllocationState::WaitingForContainer;
+                        self.config
+                            .metrics
+                            .up_down_counters
+                            .runnable_allocations
+                            .add(1, &[]);
                         self.waiting_queue
                             .entry(fe_id)
                             .or_default()
@@ -342,7 +352,7 @@ impl AllocationController {
                     allocation_id = %allocation_id,
                     request_id = %lctx.request_id,
                     container_id = %alloc.fe_id,
-                    error = %e,
+                    error = ?e,
                     "Allocation preparation failed: Preparing -> Finalizing(failure)"
                 );
                 let result = proto_convert::make_failure_result(
@@ -429,6 +439,11 @@ impl AllocationController {
                         .up_down_counters
                         .allocations_finalizing
                         .add(1, &[]);
+                    self.config
+                        .metrics
+                        .up_down_counters
+                        .runnable_allocations
+                        .add(-1, &[]);
                     self.spawn_finalization_task(&alloc_id, FinalizationContext::default());
                     continue;
                 };
@@ -468,6 +483,11 @@ impl AllocationController {
                     .up_down_counters
                     .allocation_runs_in_progress
                     .add(1, &[]);
+                self.config
+                    .metrics
+                    .up_down_counters
+                    .runnable_allocations
+                    .add(-1, &[]);
 
                 let event_tx = self.event_tx.clone();
                 let alloc_id_clone = alloc_id.clone();
@@ -588,6 +608,14 @@ impl AllocationController {
         let mut fe_termination_reason =
             proto_api::executor_api_pb::ContainerTerminationReason::Unhealthy;
 
+        if matches!(outcome, AllocationOutcome::Failed { .. }) {
+            self.config
+                .metrics
+                .counters
+                .allocation_run_errors
+                .add(1, &[]);
+        }
+
         let server_result = match outcome {
             AllocationOutcome::Completed {
                 result,
@@ -627,7 +655,7 @@ impl AllocationController {
                 if likely_fe_crash {
                     warn!(
                         allocation_id = %allocation_id,
-                        error = %error_message,
+                        error = ?error_message,
                         termination_reason = ?termination_reason,
                         "Allocation failed due to likely FE crash"
                     );
@@ -637,7 +665,25 @@ impl AllocationController {
                     );
                 }
                 ctx.output_blob_handles = output_blob_handles;
-                proto_convert::make_failure_result(&alloc.allocation, reason)
+
+                // If the container is already known to be terminated (e.g. the health
+                // checker fired before this outcome was processed), prefer the container's
+                // known termination reason over the runner's reason.  This handles the race
+                // where determine_crash_reason() inspects Docker before the OOMKilled flag
+                // is set, but the health checker subsequently detects OOM and updates
+                // container state first.
+                let effective_reason = self
+                    .containers
+                    .get(&fe_id)
+                    .and_then(|fe| match &fe.state {
+                        ContainerState::Terminated { reason, .. } => {
+                            Some(proto_convert::termination_to_failure_reason(*reason))
+                        }
+                        _ => None,
+                    })
+                    .unwrap_or(reason);
+
+                proto_convert::make_failure_result(&alloc.allocation, effective_reason)
             }
         };
 

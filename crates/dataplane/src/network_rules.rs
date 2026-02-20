@@ -143,7 +143,7 @@ pub fn remove_rules(container_id: &str, container_ip: &str) -> Result<()> {
     if let Err(e) = iptables(&["-D", "DOCKER-USER", "-s", container_ip, "-j", &chain]) {
         warn!(
             container_id = container_id,
-            error = %e,
+            error = ?e,
             "Failed to remove jump rule (may not exist)"
         );
     }
@@ -152,7 +152,7 @@ pub fn remove_rules(container_id: &str, container_ip: &str) -> Result<()> {
     if let Err(e) = iptables(&["-F", &chain]) {
         warn!(
             container_id = container_id,
-            error = %e,
+            error = ?e,
             "Failed to flush chain (may not exist)"
         );
     }
@@ -161,7 +161,7 @@ pub fn remove_rules(container_id: &str, container_ip: &str) -> Result<()> {
     if let Err(e) = iptables(&["-X", &chain]) {
         warn!(
             container_id = container_id,
-            error = %e,
+            error = ?e,
             "Failed to delete chain (may not exist)"
         );
     }

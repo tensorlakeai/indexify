@@ -98,7 +98,7 @@ pub fn discover_gpus() -> Vec<GpuInfo> {
             gpus
         }
         Err(e) => {
-            warn!(error = %e, "nvidia-smi discovery failed, no GPUs available");
+            warn!(error = ?e, "nvidia-smi discovery failed, no GPUs available");
             Vec::new()
         }
     }

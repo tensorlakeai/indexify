@@ -135,7 +135,7 @@ async fn try_read_cache(cache_path: &Path) -> Option<Bytes> {
         Ok(data) => Some(Bytes::from(data)),
         Err(e) => {
             warn!(
-                error = %e,
+                error = ?e,
                 cache_path = %cache_path.display(),
                 "Cache read failed, will download"
             );
@@ -164,7 +164,7 @@ fn spawn_cache_write(cache_dir: PathBuf, cache_path: PathBuf, data: Bytes) {
     tokio::spawn(async move {
         if let Err(e) = write_cache_atomically(&cache_dir, &cache_path, &data).await {
             warn!(
-                error = %e,
+                error = ?e,
                 path = %cache_path.display(),
                 "Failed to write application code to cache"
             );

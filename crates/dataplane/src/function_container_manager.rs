@@ -128,7 +128,7 @@ impl FunctionContainerManager {
                 tracing::warn!(
                     container_id = %entry.container_id,
                     handle_id = %entry.handle_id,
-                    error = %e,
+                    error = ?e,
                     "Failed to check container status, removing from state"
                 );
                 let _ = self.state_file.remove(&entry.container_id).await;
@@ -148,7 +148,7 @@ impl FunctionContainerManager {
                 tracing::warn!(
                     container_id = %entry.container_id,
                     handle_id = %entry.handle_id,
-                    error = %e,
+                    error = ?e,
                     "Failed to reconnect to daemon, removing from state"
                 );
                 let _ = self.state_file.remove(&entry.container_id).await;
@@ -219,7 +219,7 @@ impl FunctionContainerManager {
         let all_containers = match self.driver.list_containers().await {
             Ok(containers) => containers,
             Err(e) => {
-                tracing::warn!(error = %e, "Failed to list containers for orphan cleanup");
+                tracing::warn!(error = ?e, "Failed to list containers for orphan cleanup");
                 return 0;
             }
         };
@@ -242,7 +242,7 @@ impl FunctionContainerManager {
                 if let Err(e) = self.driver.kill(&handle).await {
                     tracing::warn!(
                         container_id = %container_id,
-                        error = %e,
+                        error = ?e,
                         "Failed to remove orphaned container"
                     );
                 } else {
@@ -318,6 +318,7 @@ impl FunctionContainerManager {
                     &secrets_provider,
                     &executor_id,
                     &desc,
+                    &metrics,
                 )
                 .await;
                 lifecycle::handle_container_startup_result(
@@ -441,6 +442,7 @@ impl FunctionContainerManager {
                 "Warm container claimed by sandbox"
             );
             container.sandbox_claimed_at = Some(Instant::now());
+            self.metrics.counters.sandbox_warm_pool_claims.add(1, &[]);
             if matches!(container.state, ContainerState::Running { .. }) {
                 Self::send_container_started(&self.container_state_tx, id);
             }
@@ -540,7 +542,13 @@ impl FunctionContainerManager {
             self.metrics
                 .counters
                 .record_container_terminated(container_type, "cancelled_pending");
-            if container.transition_to_terminated(reason).is_ok() {
+            if container
+                .transition_to_terminated(reason)
+                .inspect_err(
+                    |error| tracing::warn!(container_id = %id, ?error, "Invalid state transition"),
+                )
+                .is_ok()
+            {
                 Self::send_container_terminated(&self.container_state_tx, &id, reason);
             }
             return;
@@ -567,7 +575,7 @@ impl FunctionContainerManager {
         if let Err(e) = self.state_file.remove(&id).await {
             tracing::warn!(
                 parent: &span,
-                error = %e,
+                error = ?e,
                 "Failed to remove container from state file"
             );
         }
@@ -649,13 +657,13 @@ async fn send_stop_signal(
         if let Err(e) = client.send_signal(15).await {
             tracing::info!(
                 parent: span,
-                error = %e,
+                error = ?e,
                 "No process to signal via daemon, falling back to container signal"
             );
             if let Err(e) = driver.send_sig(handle, 15).await {
                 tracing::warn!(
                     parent: span,
-                    error = %e,
+                    error = ?e,
                     "Failed to send signal to container"
                 );
             }
@@ -663,13 +671,14 @@ async fn send_stop_signal(
     } else if let Err(e) = driver.send_sig(handle, 15).await {
         tracing::warn!(
             parent: span,
-            error = %e,
+            error = ?e,
             "Failed to send signal to container"
         );
     }
 }
 
 /// Spawn a task that kills a container after the grace period expires.
+#[tracing::instrument(skip_all, fields(container_id = %container_id, container_type = %container_type))]
 fn spawn_grace_period_kill(
     container_id: String,
     container_type: String,
@@ -695,18 +704,17 @@ fn spawn_grace_period_kill(
                     .unwrap_or(0);
 
                 tracing::info!(
-                    container_type = %container_type,
-                    run_duration_ms = %run_duration_ms,
+                    %run_duration_ms,
                     event = "container_killing",
                     "Killing container after grace period"
                 );
 
                 if let Err(e) = network_rules::remove_rules(&handle.id, &handle.container_ip) {
-                    tracing::warn!(error = %e, "Failed to remove network rules");
+                    tracing::warn!(error = ?e, "Failed to remove network rules");
                 }
 
                 if let Err(e) = driver.kill(&handle).await {
-                    tracing::warn!(error = %e, "Failed to kill container");
+                    tracing::warn!(error = ?e, "Failed to kill container");
                 }
 
                 metrics
@@ -714,7 +722,6 @@ fn spawn_grace_period_kill(
                     .record_container_terminated(&container_type, "grace_period_kill");
 
                 tracing::info!(
-                    container_type = %container_type,
                     run_duration_ms = %run_duration_ms,
                     event = "container_terminated",
                     "Container terminated"
@@ -722,6 +729,9 @@ fn spawn_grace_period_kill(
 
                 if container
                     .transition_to_terminated(termination_reason)
+                    .inspect_err(|error| {
+                        tracing::warn!(?error, "Invalid state transition in grace period kill")
+                    })
                     .is_ok()
                 {
                     FunctionContainerManager::send_container_terminated(
@@ -918,14 +928,11 @@ mod tests {
                 .contains("No image configured")
         );
 
-        let result = resolver.function_image("ns", "app", "fn", "v1").await;
-        assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("No image configured")
-        );
+        let result = resolver
+            .function_image("ns", "app", "fn", "v1")
+            .await
+            .unwrap();
+        assert!(result.is_none());
     }
 
     #[test]

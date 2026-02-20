@@ -237,15 +237,12 @@ impl AllocationRunner {
 
     /// Top-level execution flow: create allocation on FE, open stream, run
     /// reconciliation loop, convert result.
+    #[tracing::instrument(skip_all, fields(allocation_id = %self.allocation_id, executor_id = %self.ctx.executor_id, request_id = ?self.allocation.request_id, function_call_id = ?self.allocation.function_call_id))]
     async fn run(&mut self, prepared: PreparedAllocation) -> AllocationOutcome {
         let start_time = Instant::now();
 
         let func_ref = self.allocation.function.as_ref();
         info!(
-            allocation_id = %self.allocation_id,
-            executor_id = %self.ctx.executor_id,
-            request_id = ?self.allocation.request_id,
-            function_call_id = ?self.allocation.function_call_id,
             namespace = ?func_ref.and_then(|f| f.namespace.as_deref()),
             app = ?func_ref.and_then(|f| f.application_name.as_deref()),
             "fn" = ?func_ref.and_then(|f| f.function_name.as_deref()),
@@ -281,7 +278,8 @@ impl AllocationRunner {
         };
 
         if let Err(e) = self.client.create_allocation(create_request).await {
-            error!(error = %e, "Failed to create allocation on FE");
+            error!(
+                error = ?e, "Failed to create allocation on FE");
             self.ctx
                 .allocation_result_dispatcher
                 .deregister(&self.allocation_id)
@@ -308,7 +306,7 @@ impl AllocationRunner {
         {
             Ok(s) => s,
             Err(e) => {
-                error!(error = %e, "Failed to open allocation state stream");
+                error!(error = ?e, "Failed to open allocation state stream");
                 self.ctx
                     .allocation_result_dispatcher
                     .deregister(&self.allocation_id)
@@ -429,7 +427,7 @@ impl AllocationRunner {
                                 tonic::Code::Unavailable | tonic::Code::Internal | tonic::Code::Unknown
                             );
                             error!(
-                                error = %e,
+                                error = ?e,
                                 code = ?e.code(),
                                 likely_fe_crash = likely_fe_crash,
                                 "Allocation state stream error"
@@ -479,7 +477,7 @@ impl AllocationRunner {
             let execution_duration_ms = start_time.elapsed().as_millis() as u64;
 
             if let Err(e) = self.client.delete_allocation(&self.allocation_id).await {
-                warn!(error = %e, "Failed to delete allocation from FE");
+                warn!(error = ?e, "Failed to delete allocation from FE");
             }
 
             let server_result = convert_fe_result_to_server(

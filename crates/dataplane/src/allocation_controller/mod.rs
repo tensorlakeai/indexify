@@ -224,6 +224,22 @@ impl AllocationController {
             .collect();
         let _ = self.state_tx.send(states);
         self.state_change_notify.notify_one();
+
+        // Update FE state counts for the observable gauge
+        let (mut starting, mut running, mut terminated) = (0u64, 0u64, 0u64);
+        for fe in self.containers.values() {
+            match &fe.state {
+                ContainerState::Starting => starting += 1,
+                ContainerState::Running { .. } => running += 1,
+                ContainerState::Terminated { .. } => terminated += 1,
+            }
+        }
+        let metrics = self.config.metrics.clone();
+        tokio::spawn(async move {
+            metrics
+                .update_fe_state_counts(starting, running, terminated)
+                .await;
+        });
     }
 
     /// Return GPUs to the allocator pool.
@@ -320,6 +336,13 @@ impl AllocationController {
                 }
                 AllocationState::Preparing { cancel_token } => {
                     cancel_token.cancel();
+                }
+                AllocationState::WaitingForContainer | AllocationState::WaitingForSlot => {
+                    self.config
+                        .metrics
+                        .up_down_counters
+                        .runnable_allocations
+                        .add(-1, &[]);
                 }
                 _ => {}
             }
