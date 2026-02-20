@@ -34,9 +34,7 @@ pub(super) enum ContainerState {
         health_checker_cancel: CancellationToken,
     },
     /// Container has terminated (crash, shutdown, OOM, etc.)
-    Terminated {
-        reason: ContainerTerminationReason,
-    },
+    Terminated { reason: ContainerTerminationReason },
 }
 
 /// A function executor managed by the AllocationController.

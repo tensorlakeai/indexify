@@ -1837,15 +1837,9 @@ impl From<&ContainerTerminationReason> for FunctionRunFailureReason {
             ContainerTerminationReason::StartupFailedBadImage => {
                 FunctionRunFailureReason::ContainerStartupBadImage
             }
-            ContainerTerminationReason::Unhealthy => {
-                FunctionRunFailureReason::FunctionTimeout
-            }
-            ContainerTerminationReason::InternalError => {
-                FunctionRunFailureReason::InternalError
-            }
-            ContainerTerminationReason::FunctionError => {
-                FunctionRunFailureReason::FunctionError
-            }
+            ContainerTerminationReason::Unhealthy => FunctionRunFailureReason::FunctionTimeout,
+            ContainerTerminationReason::InternalError => FunctionRunFailureReason::InternalError,
+            ContainerTerminationReason::FunctionError => FunctionRunFailureReason::FunctionError,
             ContainerTerminationReason::FunctionTimeout => {
                 FunctionRunFailureReason::FunctionTimeout
             }
@@ -1859,9 +1853,7 @@ impl From<&ContainerTerminationReason> for FunctionRunFailureReason {
                 FunctionRunFailureReason::ExecutorRemoved
             }
             ContainerTerminationReason::Oom => FunctionRunFailureReason::OutOfMemory,
-            ContainerTerminationReason::ProcessCrash => {
-                FunctionRunFailureReason::FunctionError
-            }
+            ContainerTerminationReason::ProcessCrash => FunctionRunFailureReason::FunctionError,
         }
     }
 }
@@ -3504,10 +3496,7 @@ mod tests {
         assert_eq!(allocation.request_id, "invoc-1");
         assert_eq!(allocation.function_call_id, "task-1".into());
         assert_eq!(allocation.target.executor_id, target.executor_id);
-        assert_eq!(
-            allocation.target.container_id,
-            target.container_id
-        );
+        assert_eq!(allocation.target.container_id, target.container_id);
         assert_eq!(allocation.attempt_number, 1);
         assert_eq!(allocation.outcome, FunctionRunOutcome::Success);
         assert!(!allocation.id.is_empty());

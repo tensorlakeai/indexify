@@ -189,11 +189,8 @@ impl FunctionContainerManager {
                 elapsed_secs = elapsed,
                 "Sandbox container timed out, terminating"
             );
-            self.initiate_stop(
-                container,
-                ContainerTerminationReason::FunctionTimeout,
-            )
-            .await;
+            self.initiate_stop(container, ContainerTerminationReason::FunctionTimeout)
+                .await;
         }
     }
 }

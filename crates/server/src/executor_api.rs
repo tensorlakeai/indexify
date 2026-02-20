@@ -8,13 +8,13 @@ use std::{
 use anyhow::Result;
 use executor_api_pb::{
     AllowedFunction,
+    ContainerResources,
+    ContainerStatus,
+    ContainerType as ContainerTypePb,
     DataPayload as DataPayloadPb,
     DataPayloadEncoding,
     ExecutorState,
     ExecutorStatus,
-    ContainerResources,
-    ContainerStatus,
-    ContainerType as ContainerTypePb,
     HostResources,
     executor_api_server::ExecutorApi,
 };
@@ -41,7 +41,7 @@ use crate::{
         GPUResources,
     },
     executor_api::executor_api_pb::{ContainerState, ContainerTerminationReason},
-    executors::ExecutorManager,
+    executors::{ExecutorManager, ExecutorStateSnapshot},
     pb_helpers::{blob_store_path_to_url, blob_store_url_to_path},
     state_store::{
         ExecutorEvent,
@@ -277,9 +277,7 @@ impl TryFrom<ExecutorState> for ExecutorMetadata {
 impl TryFrom<ContainerTerminationReason> for data_model::ContainerTerminationReason {
     type Error = anyhow::Error;
 
-    fn try_from(
-        termination_reason: ContainerTerminationReason,
-    ) -> Result<Self, Self::Error> {
+    fn try_from(termination_reason: ContainerTerminationReason) -> Result<Self, Self::Error> {
         match termination_reason {
             ContainerTerminationReason::Unknown => {
                 Ok(data_model::ContainerTerminationReason::Unknown)
@@ -305,9 +303,7 @@ impl TryFrom<ContainerTerminationReason> for data_model::ContainerTerminationRea
             ContainerTerminationReason::FunctionCancelled => {
                 Ok(data_model::ContainerTerminationReason::FunctionCancelled)
             }
-            ContainerTerminationReason::Oom => {
-                Ok(data_model::ContainerTerminationReason::Oom)
-            }
+            ContainerTerminationReason::Oom => Ok(data_model::ContainerTerminationReason::Oom),
             ContainerTerminationReason::ProcessCrash => {
                 Ok(data_model::ContainerTerminationReason::ProcessCrash)
             }
@@ -370,7 +366,8 @@ impl TryFrom<ContainerState> for data_model::Container {
         // Get container_type from description (moved from ContainerState)
         let container_type = description
             .map(|d| match d.container_type() {
-                ContainerTypePb::Unknown => ContainerType::Function, // Default for backwards compat
+                ContainerTypePb::Unknown => ContainerType::Function, /* Default for backwards
+                                                                       * compat */
                 ContainerTypePb::Function => ContainerType::Function,
                 ContainerTypePb::Sandbox => ContainerType::Sandbox,
             })
@@ -550,7 +547,7 @@ fn to_internal_compute_op(
 // AddWatcherRequest, RemoveWatcherRequest removed — these proto types no longer
 // exist (watchers eliminated by allocation_stream).
 
-/// Pure, stateful diff engine that compares the current `DesiredExecutorState`
+/// Pure, stateful diff engine that compares the current `ExecutorStateSnapshot`
 /// against what it previously saw and produces typed `Command` messages.
 ///
 /// On the first call, the tracking sets are empty so everything is "new" —
@@ -606,19 +603,18 @@ impl CommandEmitter {
     /// produce a batch of `Command` messages for the delta.
     pub fn emit_commands(
         &mut self,
-        desired_state: &executor_api_pb::DesiredExecutorState,
+        snapshot: &ExecutorStateSnapshot,
     ) -> Vec<executor_api_pb::Command> {
         let mut commands = Vec::new();
 
         // --- Containers ---
-        let current_containers: HashMap<String, executor_api_pb::ContainerDescription> =
-            desired_state
-                .containers
-                .iter()
-                .filter_map(|fe| fe.id.clone().map(|id| (id, fe.clone())))
-                .collect();
+        let current_containers: HashMap<String, executor_api_pb::ContainerDescription> = snapshot
+            .containers
+            .iter()
+            .filter_map(|fe| fe.id.clone().map(|id| (id, fe.clone())))
+            .collect();
 
-        for fe in &desired_state.containers {
+        for fe in &snapshot.containers {
             if let Some(id) = &fe.id {
                 if let Some(known) = self.known_containers.get(id) {
                     // Known container — check if description changed
@@ -682,14 +678,14 @@ impl CommandEmitter {
         self.known_containers = current_containers;
 
         // --- Allocations ---
-        let current_allocations: HashSet<String> = desired_state
+        let current_allocations: HashSet<String> = snapshot
             .allocations
             .iter()
             .filter_map(|a| a.allocation_id.clone())
             .collect();
 
         // New allocations → RunAllocation
-        for allocation in &desired_state.allocations {
+        for allocation in &snapshot.allocations {
             if let Some(id) = &allocation.allocation_id &&
                 !self.known_allocations.contains(id)
             {
@@ -1683,7 +1679,7 @@ async fn do_full_sync(
         return true; // continue loop
     };
 
-    let commands = emitter.emit_commands(&snapshot.desired_state);
+    let commands = emitter.emit_commands(&snapshot);
     if !commands.is_empty() {
         info!(
             executor_id = executor_id.get(),
@@ -2509,7 +2505,10 @@ mod tests {
     };
     use proto_api::executor_api_pb;
 
-    use crate::data_model::{self, ContainerType, ContainerTerminationReason};
+    use crate::{
+        data_model::{self, ContainerTerminationReason, ContainerType},
+        executors::ExecutorStateSnapshot,
+    };
 
     /// Build a minimal sandbox ContainerState proto with the given
     /// sandbox_id and termination status, simulating what the dataplane reports
@@ -2699,17 +2698,15 @@ mod tests {
     fn test_command_emitter_first_call_emits_full_state() {
         let mut emitter = super::CommandEmitter::new();
 
-        let desired = executor_api_pb::DesiredExecutorState {
+        let desired = ExecutorStateSnapshot {
             containers: vec![make_fe_description("c1")],
             allocations: vec![make_allocation("a1")],
-            // function_call_results removed (reserved 4)
             clock: Some(1),
         };
 
         let commands = emitter.emit_commands(&desired);
 
-        // First call: AddContainer + RunAllocation (function_call_results
-        // are delivered via the AllocationEvent log, not Commands)
+        // First call: AddContainer + RunAllocation
         assert_eq!(commands.len(), 2, "expected 2 commands: {commands:?}");
 
         let add_container = commands.iter().find(|c| {
@@ -2737,10 +2734,9 @@ mod tests {
     fn test_command_emitter_no_change_emits_nothing() {
         let mut emitter = super::CommandEmitter::new();
 
-        let desired = executor_api_pb::DesiredExecutorState {
+        let desired = ExecutorStateSnapshot {
             containers: vec![make_fe_description("c1")],
             allocations: vec![make_allocation("a1")],
-            // function_call_results removed (reserved 4)
             clock: Some(1),
         };
 
@@ -2758,19 +2754,17 @@ mod tests {
         let mut emitter = super::CommandEmitter::new();
 
         // First: one container
-        let desired1 = executor_api_pb::DesiredExecutorState {
+        let desired1 = ExecutorStateSnapshot {
             containers: vec![make_fe_description("c1")],
             allocations: vec![],
-            // function_call_results removed (reserved 4)
             clock: Some(1),
         };
         emitter.emit_commands(&desired1);
 
         // Second: container removed
-        let desired2 = executor_api_pb::DesiredExecutorState {
+        let desired2 = ExecutorStateSnapshot {
             containers: vec![],
             allocations: vec![],
-            // function_call_results removed (reserved 4)
             clock: Some(2),
         };
         let commands = emitter.emit_commands(&desired2);
@@ -2787,19 +2781,17 @@ mod tests {
         let mut emitter = super::CommandEmitter::new();
 
         // First: one container, one allocation
-        let desired1 = executor_api_pb::DesiredExecutorState {
+        let desired1 = ExecutorStateSnapshot {
             containers: vec![make_fe_description("c1")],
             allocations: vec![make_allocation("a1")],
-            // function_call_results removed (reserved 4)
             clock: Some(1),
         };
         emitter.emit_commands(&desired1);
 
         // Second: same container, new allocation added
-        let desired2 = executor_api_pb::DesiredExecutorState {
+        let desired2 = ExecutorStateSnapshot {
             containers: vec![make_fe_description("c1")],
             allocations: vec![make_allocation("a1"), make_allocation("a2")],
-            // function_call_results removed (reserved 4)
             clock: Some(2),
         };
         let commands = emitter.emit_commands(&desired2);
@@ -2816,19 +2808,17 @@ mod tests {
         let mut emitter = super::CommandEmitter::new();
 
         // First: one allocation
-        let desired1 = executor_api_pb::DesiredExecutorState {
+        let desired1 = ExecutorStateSnapshot {
             containers: vec![make_fe_description("c1")],
             allocations: vec![make_allocation("a1")],
-            // function_call_results removed (reserved 4)
             clock: Some(1),
         };
         emitter.emit_commands(&desired1);
 
         // Second: allocation completed (removed from desired state)
-        let desired2 = executor_api_pb::DesiredExecutorState {
+        let desired2 = ExecutorStateSnapshot {
             containers: vec![make_fe_description("c1")],
             allocations: vec![],
-            // function_call_results removed (reserved 4)
             clock: Some(2),
         };
         let commands = emitter.emit_commands(&desired2);
@@ -2841,20 +2831,18 @@ mod tests {
         let mut emitter = super::CommandEmitter::new();
 
         // First batch: 2 commands (seq 1, 2)
-        let desired1 = executor_api_pb::DesiredExecutorState {
+        let desired1 = ExecutorStateSnapshot {
             containers: vec![make_fe_description("c1")],
             allocations: vec![make_allocation("a1")],
-            // function_call_results removed (reserved 4)
             clock: Some(1),
         };
         let cmds1 = emitter.emit_commands(&desired1);
         assert_eq!(cmds1.last().unwrap().seq, 2);
 
         // Second batch: 1 command (seq 3)
-        let desired2 = executor_api_pb::DesiredExecutorState {
+        let desired2 = ExecutorStateSnapshot {
             containers: vec![make_fe_description("c1")],
             allocations: vec![make_allocation("a1"), make_allocation("a2")],
-            // function_call_results removed (reserved 4)
             clock: Some(2),
         };
         let cmds2 = emitter.emit_commands(&desired2);

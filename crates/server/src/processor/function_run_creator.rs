@@ -153,10 +153,7 @@ impl FunctionRunCreator {
         {
             fc.allocations.remove(&alloc_finished_event.allocation_id);
             scheduler_update.containers.insert(
-                alloc_finished_event
-                    .allocation_target
-                    .container_id
-                    .clone(),
+                alloc_finished_event.allocation_target.container_id.clone(),
                 fc.clone(),
             );
         }

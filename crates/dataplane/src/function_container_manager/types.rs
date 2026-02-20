@@ -37,9 +37,7 @@ pub(super) enum ContainerState {
         reason: ContainerTerminationReason,
     },
     /// Container has terminated.
-    Terminated {
-        reason: ContainerTerminationReason,
-    },
+    Terminated { reason: ContainerTerminationReason },
 }
 
 // ---------------------------------------------------------------------------
@@ -133,9 +131,7 @@ impl ManagedContainer {
             ContainerState::Pending => (ContainerStatus::Pending, None),
             ContainerState::Running { .. } => (ContainerStatus::Running, None),
             ContainerState::Stopping { .. } => (ContainerStatus::Running, None),
-            ContainerState::Terminated { reason } => {
-                (ContainerStatus::Terminated, Some(*reason))
-            }
+            ContainerState::Terminated { reason } => (ContainerStatus::Terminated, Some(*reason)),
         };
 
         ProtoContainerState {

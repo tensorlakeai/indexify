@@ -34,12 +34,7 @@
 
 use std::sync::Arc;
 
-use proto_api::executor_api_pb::{
-    Allocation,
-    ContainerDescription,
-    ContainerState,
-    ContainerType,
-};
+use proto_api::executor_api_pb::{Allocation, ContainerDescription, ContainerState, ContainerType};
 use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
 use tracing::info;

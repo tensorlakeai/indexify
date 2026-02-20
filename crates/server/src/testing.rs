@@ -275,10 +275,9 @@ macro_rules! assert_executor_state {
             .get_executor_state(&$executor.executor_id)
             .await
             .unwrap();
-        let desired_state = &snapshot.desired_state;
 
         // Check function executor count
-        let func_executors_count = desired_state.containers.len();
+        let func_executors_count = snapshot.containers.len();
         assert_eq!(
             $num_func_executors, func_executors_count,
             "function executors: expected {}, got {}",
@@ -286,7 +285,7 @@ macro_rules! assert_executor_state {
         );
 
         // Check task allocation count
-        let tasks_count = desired_state.allocations.len();
+        let tasks_count = snapshot.allocations.len();
         assert_eq!(
             $num_allocated_tasks, tasks_count,
             "tasks: expected {}, got {}",
@@ -340,7 +339,7 @@ impl TestExecutor<'_> {
             .get_executor_state(&self.executor_id)
             .await
             .unwrap();
-        self.command_emitter.emit_commands(&snapshot.desired_state)
+        self.command_emitter.emit_commands(&snapshot)
     }
 
     /// Receive pending commands from the CommandEmitter, categorized by type.
@@ -444,8 +443,7 @@ impl TestExecutor<'_> {
     }
 
     pub async fn mark_function_executors_as_running(&mut self) -> Result<()> {
-        self.set_container_states(ContainerState::Running)
-            .await
+        self.set_container_states(ContainerState::Running).await
     }
 
     pub async fn get_executor_server_state(&self) -> Result<ExecutorMetadata> {
@@ -490,16 +488,13 @@ impl TestExecutor<'_> {
     /// Returns the server's desired executor state. Use only for assertions,
     /// not for driving side effects. Use `recv_commands()` to get allocations
     /// for responding with AllocationCompleted/AllocationFailed.
-    pub async fn srv_executor_state(
-        &self,
-    ) -> crate::executor_api::executor_api_pb::DesiredExecutorState {
+    pub async fn srv_executor_state(&self) -> crate::executors::ExecutorStateSnapshot {
         self.test_service
             .service
             .executor_manager
             .get_executor_state(&self.executor_id)
             .await
             .unwrap()
-            .desired_state
     }
 
     pub async fn deregister(&self) -> Result<()> {

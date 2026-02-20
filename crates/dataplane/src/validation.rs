@@ -6,9 +6,9 @@
 
 use proto_api::executor_api_pb::{
     Allocation,
-    DataPayload,
     ContainerDescription,
     ContainerType,
+    DataPayload,
     FunctionRef,
 };
 

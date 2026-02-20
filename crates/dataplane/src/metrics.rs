@@ -269,8 +269,7 @@ impl DataplaneCounters {
     #[allow(dead_code)]
     pub fn record_desired_state(&self, num_containers: u64, num_allocations: u64) {
         self.desired_state_received.add(1, &[]);
-        self.desired_containers
-            .add(num_containers, &[]);
+        self.desired_containers.add(num_containers, &[]);
         self.desired_allocations.add(num_allocations, &[]);
     }
 

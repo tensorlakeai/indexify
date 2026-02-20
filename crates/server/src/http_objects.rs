@@ -669,9 +669,7 @@ pub fn from_data_model_executor_metadata(
         .containers
         .iter()
         .filter(|(fe_id, _)| !function_container_server_metadata.contains_key(fe_id))
-        .map(|(_fe_id, fe)| {
-            from_data_model_container(fe.clone(), ContainerState::Unknown, 0)
-        })
+        .map(|(_fe_id, fe)| from_data_model_container(fe.clone(), ContainerState::Unknown, 0))
         .collect();
     ExecutorMetadata {
         id: executor.id.to_string(),

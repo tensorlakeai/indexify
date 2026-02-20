@@ -272,15 +272,6 @@ message FunctionCallResult {
     optional DataPayload request_error = 9;
 }
 
-// Used internally by get_executor_state() and tests.
-message DesiredExecutorState {
-    repeated ContainerDescription containers = 1;
-    repeated Allocation allocations = 2;
-    // Server supplied clock value used to deduplicate messages. Executor records max clock value
-    // it observed and ignores all the messages with clock value <= the max observed value.
-    optional uint64 clock = 3;
-    reserved 4; // was function_call_results — results now delivered via allocation_stream
-}
 
 enum AllocationOutcomeCode {
     ALLOCATION_OUTCOME_CODE_UNKNOWN = 0;

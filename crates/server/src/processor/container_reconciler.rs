@@ -10,11 +10,11 @@ use crate::{
         ContainerId,
         ContainerServerMetadata,
         ContainerState,
+        ContainerTerminationReason,
         ContainerType,
         ExecutorId,
         ExecutorMetadata,
         ExecutorServerMetadata,
-        ContainerTerminationReason,
         FunctionRunOutcome,
         FunctionRunStatus,
         RunningFunctionRunStatus,
@@ -460,9 +460,7 @@ impl ContainerReconciler {
             let mut updated_sandbox = sandbox.as_ref().clone();
             updated_sandbox.status = SandboxStatus::Terminated;
             updated_sandbox.outcome = Some(SandboxOutcome::Failure(
-                SandboxFailureReason::ContainerTerminated(
-                    ContainerTerminationReason::Unknown,
-                ),
+                SandboxFailureReason::ContainerTerminated(ContainerTerminationReason::Unknown),
             ));
 
             let mut sandbox_update = SchedulerUpdateRequest::default();

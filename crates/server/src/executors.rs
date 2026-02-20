@@ -36,10 +36,9 @@ use crate::{
     executor_api::executor_api_pb::{
         self,
         Allocation,
-        DataPayloadEncoding,
-        DesiredExecutorState,
         ContainerDescription,
         ContainerType as ContainerTypePb,
+        DataPayloadEncoding,
         FunctionRef,
         SandboxMetadata,
     },
@@ -53,10 +52,14 @@ use crate::{
     utils::{dynamic_sleep::DynamicSleepFuture, get_epoch_time_in_ms},
 };
 
-/// Snapshot of executor state returned by `get_executor_state`. Bundles the
-/// proto `DesiredExecutorState` (sent to the dataplane).
+/// Snapshot of executor state returned by `get_executor_state`.
+/// Contains the containers, allocations, and clock that describe what the
+/// server wants the dataplane to converge to.
 pub struct ExecutorStateSnapshot {
-    pub desired_state: DesiredExecutorState,
+    pub containers: Vec<ContainerDescription>,
+    pub allocations: Vec<Allocation>,
+    #[allow(dead_code)]
+    pub clock: Option<u64>,
 }
 
 /// Executor timeout duration for heartbeat
@@ -500,8 +503,8 @@ impl ExecutorManager {
     ) -> Option<ExecutorStateSnapshot> {
         let desired_executor_state = self.desired_state(executor_id).await?;
 
-        // function_call_results removed from DesiredExecutorState proto (reserved 4).
-        // Results are now delivered via the allocation_stream RPC.
+        // Function call results are delivered via the allocation_stream RPC,
+        // not included in the executor state snapshot.
 
         let mut containers_pb = vec![];
         let mut allocations_pb = vec![];
@@ -666,11 +669,9 @@ impl ExecutorManager {
         }
 
         Some(ExecutorStateSnapshot {
-            desired_state: DesiredExecutorState {
-                containers: containers_pb,
-                allocations: allocations_pb,
-                clock: Some(desired_executor_state.clock),
-            },
+            containers: containers_pb,
+            allocations: allocations_pb,
+            clock: Some(desired_executor_state.clock),
         })
     }
 

@@ -8,8 +8,8 @@ mod tests {
         assert_function_run_counts,
         data_model::{
             ContainerState,
-            FunctionAllowlist,
             ContainerTerminationReason,
+            FunctionAllowlist,
             FunctionRunFailureReason,
             test_objects::tests::{
                 TEST_EXECUTOR_ID,
@@ -351,11 +351,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_cmd_retry_counted_on_startup_failed_internal_error_no_retries() -> Result<()> {
-        test_cmd_retry_attempt_used(
-            ContainerTerminationReason::StartupFailedInternalError,
-            0,
-        )
-        .await
+        test_cmd_retry_attempt_used(ContainerTerminationReason::StartupFailedInternalError, 0).await
     }
 
     // Command-based: StartupFailedFunctionError counts against retries.
@@ -370,11 +366,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_cmd_retry_counted_on_startup_failed_function_error_no_retries() -> Result<()> {
-        test_cmd_retry_attempt_used(
-            ContainerTerminationReason::StartupFailedFunctionError,
-            0,
-        )
-        .await
+        test_cmd_retry_attempt_used(ContainerTerminationReason::StartupFailedFunctionError, 0).await
     }
 
     // Command-based: StartupFailedFunctionTimeout counts against retries.
@@ -389,21 +381,15 @@ mod tests {
 
     #[tokio::test]
     async fn test_cmd_retry_counted_on_startup_failed_function_timeout_no_retries() -> Result<()> {
-        test_cmd_retry_attempt_used(
-            ContainerTerminationReason::StartupFailedFunctionTimeout,
-            0,
-        )
-        .await
+        test_cmd_retry_attempt_used(ContainerTerminationReason::StartupFailedFunctionTimeout, 0)
+            .await
     }
 
     // Command-based: Unhealthy counts against retries.
     #[tokio::test]
     async fn test_cmd_retry_counted_on_unhealthy() -> Result<()> {
-        test_cmd_retry_attempt_used(
-            ContainerTerminationReason::Unhealthy,
-            TEST_FN_MAX_RETRIES,
-        )
-        .await
+        test_cmd_retry_attempt_used(ContainerTerminationReason::Unhealthy, TEST_FN_MAX_RETRIES)
+            .await
     }
 
     #[tokio::test]
@@ -581,11 +567,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_cmd_free_retry_on_desired_state_removed_no_retries() -> Result<()> {
-        test_cmd_free_retry_from_termination(
-            ContainerTerminationReason::DesiredStateRemoved,
-            0,
-        )
-        .await
+        test_cmd_free_retry_from_termination(ContainerTerminationReason::DesiredStateRemoved, 0)
+            .await
     }
 
     /// Test the command-based ingestion path (AllocationFailed via

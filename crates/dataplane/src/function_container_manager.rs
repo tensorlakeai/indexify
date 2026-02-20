@@ -257,11 +257,7 @@ impl FunctionContainerManager {
     /// Create a new container from a desired description.
     /// Inserts a Pending container, indexes sandbox, and spawns the lifecycle
     /// task.
-    async fn create_container(
-        &self,
-        containers: &mut ContainerStore,
-        desc: ContainerDescription,
-    ) {
+    async fn create_container(&self, containers: &mut ContainerStore, desc: ContainerDescription) {
         let id = match &desc.id {
             Some(id) => id.clone(),
             None => return,
@@ -496,11 +492,8 @@ impl FunctionContainerManager {
                     // Already stopping, let it continue
                 }
                 ContainerState::Pending | ContainerState::Running { .. } => {
-                    self.initiate_stop(
-                        container,
-                        ContainerTerminationReason::FunctionCancelled,
-                    )
-                    .await;
+                    self.initiate_stop(container, ContainerTerminationReason::FunctionCancelled)
+                        .await;
                 }
             }
         }
@@ -947,10 +940,7 @@ mod tests {
         };
 
         let proto_state = container.to_proto_state();
-        assert_eq!(
-            proto_state.status,
-            Some(ContainerStatus::Pending.into())
-        );
+        assert_eq!(proto_state.status, Some(ContainerStatus::Pending.into()));
         assert!(proto_state.termination_reason.is_none());
     }
 
@@ -968,10 +958,7 @@ mod tests {
         };
 
         let proto_state = container.to_proto_state();
-        assert_eq!(
-            proto_state.status,
-            Some(ContainerStatus::Terminated.into())
-        );
+        assert_eq!(proto_state.status, Some(ContainerStatus::Terminated.into()));
         assert_eq!(
             proto_state.termination_reason,
             Some(ContainerTerminationReason::StartupFailedInternalError.into())
@@ -1030,10 +1017,7 @@ mod tests {
         // Should have one container in pending state
         let states = manager.get_states().await;
         assert_eq!(states.len(), 1);
-        assert_eq!(
-            states[0].status,
-            Some(ContainerStatus::Pending.into())
-        );
+        assert_eq!(states[0].status, Some(ContainerStatus::Pending.into()));
 
         // Wait a bit for the spawn task to run
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
@@ -1042,10 +1026,7 @@ mod tests {
         // so it should transition to Terminated
         let states = manager.get_states().await;
         assert_eq!(states.len(), 1);
-        assert_eq!(
-            states[0].status,
-            Some(ContainerStatus::Terminated.into())
-        );
+        assert_eq!(states[0].status, Some(ContainerStatus::Terminated.into()));
     }
 
     #[tokio::test]

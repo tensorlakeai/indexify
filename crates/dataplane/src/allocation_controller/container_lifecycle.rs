@@ -534,11 +534,7 @@ impl AllocationController {
     /// Send a `ContainerTerminated` `CommandResponse` to the result pipeline
     /// so it gets sent via `report_command_responses` alongside allocation
     /// results.
-    fn send_container_terminated(
-        &self,
-        container_id: &str,
-        reason: ContainerTerminationReason,
-    ) {
+    fn send_container_terminated(&self, container_id: &str, reason: ContainerTerminationReason) {
         let response = crate::function_executor::proto_convert::make_container_terminated_response(
             container_id,
             reason,

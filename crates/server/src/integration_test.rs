@@ -524,8 +524,7 @@ mod tests {
             // Mark all function executors as terminated (mimicking executor response)
             for (_, fe) in executor_state.containers.iter_mut() {
                 fe.state = crate::data_model::ContainerState::Terminated {
-                    reason:
-                        crate::data_model::ContainerTerminationReason::DesiredStateRemoved,
+                    reason: crate::data_model::ContainerTerminationReason::DesiredStateRemoved,
                 };
             }
 
