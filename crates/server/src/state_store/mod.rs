@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fs,
     path::PathBuf,
     sync::{
@@ -16,7 +16,7 @@ use requests::{RequestPayload, StateMachineUpdateRequest};
 use rocksdb::{ColumnFamilyDescriptor, Options};
 use state_machine::IndexifyObjectsColumns;
 use strum::IntoEnumIterator;
-use tokio::sync::{RwLock, watch};
+use tokio::sync::{RwLock, mpsc, watch};
 
 /// Channel capacity for request state change event broadcast.
 /// This provides backpressure if workers are slow.
@@ -26,9 +26,11 @@ use tracing::{debug, error, info, span};
 use crate::{
     config::ExecutorCatalogEntry,
     data_model::{
+        Allocation,
+        ContainerId,
         ContainerPoolKey,
+        ContainerState,
         ExecutorId,
-        FunctionRunStatus,
         StateChange,
         StateMachineMetadata,
     },
@@ -45,9 +47,7 @@ use crate::{
     },
 };
 
-pub mod executor_watches;
 pub mod request_event_buffers;
-use executor_watches::ExecutorWatches;
 use request_event_buffers::RequestEventBuffers;
 
 #[derive(Debug, Clone, Default)]
@@ -60,6 +60,34 @@ impl ExecutorCatalog {
     pub fn empty(&self) -> bool {
         self.entries.is_empty()
     }
+}
+
+/// Typed event pushed onto per-executor channels from `write()`.
+/// Consumers convert to proto commands — O(1) per event instead of
+/// O(total-state) per notification.
+#[derive(Debug, Clone)]
+pub enum ExecutorEvent {
+    /// New allocation assigned to this executor. Carries full data so
+    /// the consumer only needs blob store for URL conversion.
+    AllocationCreated(Box<Allocation>),
+
+    /// New container added. Consumer looks up ContainerServerMetadata
+    /// + ApplicationVersion from state for proto conversion.
+    ContainerAdded(ContainerId),
+
+    /// Container should be removed.
+    ContainerRemoved(ContainerId),
+
+    /// Pre-existing container's description changed (e.g. sandbox_id set
+    /// on warm-pool claim). Consumer builds an UpdateContainerDescription
+    /// command with only the changed fields.
+    ContainerDescriptionChanged(ContainerId),
+
+    /// Fallback: consumer does full state recompute via
+    /// get_executor_state() + CommandEmitter.
+    /// Used for bulk ops (DeleteApplication, DeleteContainerPool)
+    /// and edge cases.
+    FullSync,
 }
 
 pub mod driver;
@@ -98,10 +126,6 @@ impl ExecutorState {
             );
         }
     }
-
-    pub fn subscribe(&mut self) -> watch::Receiver<()> {
-        self.new_state_channel.subscribe()
-    }
 }
 
 impl Default for ExecutorState {
@@ -134,8 +158,9 @@ pub struct IndexifyState {
     pub metrics: Arc<StateStoreMetrics>,
     pub in_memory_state: Arc<RwLock<in_memory_state::InMemoryState>>,
     pub container_scheduler: Arc<RwLock<ContainerScheduler>>,
-    // Executor watches for function call results streaming
-    pub executor_watches: ExecutorWatches,
+    /// Per-executor event channels for event-driven command streaming.
+    /// `write()` pushes typed events; `command_stream_loop` consumes them.
+    pub executor_event_channels: RwLock<HashMap<ExecutorId, mpsc::UnboundedSender<ExecutorEvent>>>,
     pub request_event_buffers: RequestEventBuffers,
     // Observable gauges - must be kept alive for callbacks to fire
     _in_memory_store_gauges: InMemoryStoreGauges,
@@ -248,7 +273,7 @@ impl IndexifyState {
             usage_events_rx,
             request_events_tx,
             _request_events_rx,
-            executor_watches: ExecutorWatches::new(),
+            executor_event_channels: RwLock::new(HashMap::new()),
             request_event_buffers: RequestEventBuffers::new(),
             _in_memory_store_gauges: in_memory_store_gauges,
             _container_scheduler_gauges: container_scheduler_gauges,
@@ -301,6 +326,22 @@ impl IndexifyState {
                 )
                 .map_err(|e| anyhow!("error updating in memory state: {e:?}"))?
         };
+        // Snapshot pre-existing containers before updating the scheduler,
+        // so we can distinguish new containers from updates in event emission.
+        let pre_existing_containers: HashSet<ContainerId> =
+            if let RequestPayload::SchedulerUpdate(payload) = &request.payload {
+                let cs = self.container_scheduler.read().await;
+                payload
+                    .update
+                    .containers
+                    .keys()
+                    .filter(|id| cs.function_containers.contains_key(id))
+                    .cloned()
+                    .collect()
+            } else {
+                HashSet::new()
+            };
+
         {
             let _timer =
                 Timer::start_with_labels(&self.metrics.state_write_container_scheduler, timer_kv);
@@ -311,15 +352,45 @@ impl IndexifyState {
                 .map_err(|e| anyhow!("error updating container scheduler: {e:?}"))?;
         }
 
+        // --- Event-driven emission + legacy watch notification ---
+        let event_channels = self.executor_event_channels.read().await;
+
         if let RequestPayload::SchedulerUpdate(payload) = &request.payload {
-            let impacted_executors = self
-                .executor_watches
-                .impacted_executors(
-                    &payload.update.updated_function_runs,
-                    &payload.update.updated_request_states,
-                )
-                .await;
-            changed_executors.extend(impacted_executors.into_iter().map(|e| e.into()));
+            // Container events FIRST (before allocations, so consumer sees
+            // AddContainer before RunAllocation for the same container)
+            for (container_id, meta) in &payload.update.containers {
+                if matches!(meta.desired_state, ContainerState::Terminated { .. }) {
+                    Self::send_event(
+                        &event_channels,
+                        &meta.executor_id,
+                        ExecutorEvent::ContainerRemoved(container_id.clone()),
+                    );
+                } else if !pre_existing_containers.contains(container_id) {
+                    Self::send_event(
+                        &event_channels,
+                        &meta.executor_id,
+                        ExecutorEvent::ContainerAdded(container_id.clone()),
+                    );
+                } else {
+                    // Pre-existing, non-terminated container included in this
+                    // update → its description may have changed (e.g. sandbox_id
+                    // set on warm-pool claim).
+                    Self::send_event(
+                        &event_channels,
+                        &meta.executor_id,
+                        ExecutorEvent::ContainerDescriptionChanged(container_id.clone()),
+                    );
+                }
+            }
+
+            // Allocation events
+            for allocation in &payload.update.new_allocations {
+                Self::send_event(
+                    &event_channels,
+                    &allocation.target.executor_id,
+                    ExecutorEvent::AllocationCreated(Box::new(allocation.clone())),
+                );
+            }
 
             for executor_id in payload.update.updated_executor_states.keys() {
                 changed_executors.insert(executor_id.clone());
@@ -341,6 +412,7 @@ impl IndexifyState {
             for (_, meta) in container_scheduler.function_containers.iter() {
                 if meta.function_container.belongs_to_pool(&pool_key) {
                     changed_executors.insert(meta.executor_id.clone());
+                    Self::send_event(&event_channels, &meta.executor_id, ExecutorEvent::FullSync);
                 }
             }
         }
@@ -353,43 +425,11 @@ impl IndexifyState {
                     meta.function_container.application_name == delete_req.name
                 {
                     changed_executors.insert(meta.executor_id.clone());
+                    Self::send_event(&event_channels, &meta.executor_id, ExecutorEvent::FullSync);
                 }
             }
         }
-        if let RequestPayload::UpsertExecutor(req) = &request.payload &&
-            !req.watch_function_calls.is_empty()
-        {
-            // Check if any watched function runs have already completed.
-            // This handles the race condition where children complete before watches
-            // are registered, while avoiding spurious notifications on server restart.
-            let in_memory = self.in_memory_state.read().await;
-            let mut completed_watches = Vec::new();
-            for watch in &req.watch_function_calls {
-                let key = in_memory_state::FunctionRunKey::from(watch);
-                if let Some(run) = in_memory.function_runs.get(&key) &&
-                    matches!(run.status, FunctionRunStatus::Completed)
-                {
-                    completed_watches.push(watch.function_call_id.clone());
-                }
-            }
-            drop(in_memory);
-
-            if !completed_watches.is_empty() {
-                info!(
-                    executor_id = req.executor.id.get(),
-                    num_completed_watches = completed_watches.len(),
-                    completed_watches = ?completed_watches,
-                    "notifying executor: watched function runs already completed"
-                );
-                changed_executors.insert(req.executor.id.clone());
-            } else {
-                info!(
-                    executor_id = req.executor.id.get(),
-                    num_watches = req.watch_function_calls.len(),
-                    "executor has watches but none completed yet, will notify via SchedulerUpdate path"
-                );
-            }
-        }
+        drop(event_channels);
 
         // Notify the executors with state changes
         {
@@ -540,21 +580,6 @@ impl IndexifyState {
                         .entry(request.executor.id.clone())
                         .or_default();
                 }
-                // Update executor watches for efficient sync
-                if !request.watch_function_calls.is_empty() {
-                    info!(
-                        executor_id = request.executor.id.get(),
-                        num_watches = request.watch_function_calls.len(),
-                        watches = ?request.watch_function_calls.iter().map(|w| format!("{}:{}", w.function_call_id, w.request_id)).collect::<Vec<_>>(),
-                        "syncing executor watches to state store"
-                    );
-                }
-                self.executor_watches
-                    .sync_watches(
-                        request.executor.id.get().to_string(),
-                        request.watch_function_calls.clone(),
-                    )
-                    .await;
             }
             RequestPayload::DeregisterExecutor(request) => {
                 self.executor_states
@@ -565,10 +590,6 @@ impl IndexifyState {
                     executor_id = request.executor_id.get(),
                     "marking executor as tombstoned"
                 );
-                // Cleanup all watches for this executor
-                self.executor_watches
-                    .remove_executor(request.executor_id.get())
-                    .await;
             }
             RequestPayload::ProcessStateChanges(state_changes) => {
                 state_machine::mark_state_changes_processed(&txn, state_changes).await?;
@@ -660,6 +681,42 @@ impl IndexifyState {
         &self,
     ) -> async_broadcast::Receiver<RequestStateChangeEvent> {
         self.request_events_tx.new_receiver()
+    }
+
+    /// Register an event channel for an executor. Returns the receiving end.
+    /// Called when `command_stream` RPC connects — must be called BEFORE
+    /// initial sync so no events are missed.
+    pub async fn register_event_channel(
+        &self,
+        executor_id: ExecutorId,
+    ) -> mpsc::UnboundedReceiver<ExecutorEvent> {
+        let (tx, rx) = mpsc::unbounded_channel();
+        self.executor_event_channels
+            .write()
+            .await
+            .insert(executor_id, tx);
+        rx
+    }
+
+    /// Remove the event channel for an executor. Called on disconnect.
+    pub async fn deregister_event_channel(&self, executor_id: &ExecutorId) {
+        self.executor_event_channels
+            .write()
+            .await
+            .remove(executor_id);
+    }
+
+    /// Send an event to an executor's channel. Silently drops if no channel
+    /// is registered (executor not connected or channel closed).
+    fn send_event(
+        channels: &HashMap<ExecutorId, mpsc::UnboundedSender<ExecutorEvent>>,
+        executor_id: &ExecutorId,
+        event: ExecutorEvent,
+    ) {
+        if let Some(tx) = channels.get(executor_id) {
+            // Silently drop if channel closed — executor disconnected.
+            let _ = tx.send(event);
+        }
     }
 }
 
@@ -1008,5 +1065,256 @@ mod tests {
                 )),
             })
             .await
+    }
+
+    // --- Event emission tests ---
+
+    use crate::data_model::{
+        AllocationBuilder,
+        AllocationTarget,
+        Container,
+        ContainerBuilder,
+        ContainerResources,
+        ContainerServerMetadata,
+        FunctionCallId,
+        FunctionRunOutcome,
+    };
+
+    fn test_allocation(executor_id: &ExecutorId) -> crate::data_model::Allocation {
+        AllocationBuilder::default()
+            .target(AllocationTarget::new(
+                executor_id.clone(),
+                ContainerId::new("c1".to_string()),
+            ))
+            .function_call_id(FunctionCallId("fc-1".to_string()))
+            .namespace("ns".to_string())
+            .application("app".to_string())
+            .application_version("v1".to_string())
+            .function("fn1".to_string())
+            .request_id("req-1".to_string())
+            .outcome(FunctionRunOutcome::Unknown)
+            .input_args(vec![])
+            .call_metadata(bytes::Bytes::new())
+            .build()
+            .unwrap()
+    }
+
+    fn test_container(container_id: &str) -> Container {
+        ContainerBuilder::default()
+            .id(ContainerId::new(container_id.to_string()))
+            .namespace("ns".to_string())
+            .application_name("app".to_string())
+            .function_name("fn1".to_string())
+            .version("v1".to_string())
+            .state(ContainerState::Running)
+            .resources(ContainerResources {
+                cpu_ms_per_sec: 100,
+                memory_mb: 256,
+                ephemeral_disk_mb: 1024,
+                gpu: None,
+            })
+            .max_concurrency(1)
+            .build()
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn test_event_emission_allocation_created() -> Result<()> {
+        let state = TestStateStore::new().await?.indexify_state;
+        let executor_id = ExecutorId::new(TEST_EXECUTOR_ID.to_string());
+
+        // Register event channel
+        let mut rx = state.register_event_channel(executor_id.clone()).await;
+
+        // Write a SchedulerUpdate with a new allocation
+        let allocation = test_allocation(&executor_id);
+        let mut update = requests::SchedulerUpdateRequest::default();
+        update.new_allocations.push(allocation.clone());
+
+        state
+            .write(StateMachineUpdateRequest {
+                payload: RequestPayload::SchedulerUpdate(requests::SchedulerUpdatePayload::new(
+                    update,
+                )),
+            })
+            .await?;
+
+        // Verify AllocationCreated event
+        let event = rx.try_recv().unwrap();
+        assert!(
+            matches!(&event, ExecutorEvent::AllocationCreated(a) if a.id == allocation.id),
+            "expected AllocationCreated, got {event:?}"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_event_emission_container_added_and_removed() -> Result<()> {
+        let state = TestStateStore::new().await?.indexify_state;
+        let executor_id = ExecutorId::new(TEST_EXECUTOR_ID.to_string());
+        let mut rx = state.register_event_channel(executor_id.clone()).await;
+
+        // New container → ContainerAdded
+        let container = test_container("c1");
+        let container_meta = ContainerServerMetadata::new(
+            executor_id.clone(),
+            container.clone(),
+            ContainerState::Running,
+        );
+        let mut update = requests::SchedulerUpdateRequest::default();
+        update
+            .containers
+            .insert(ContainerId::new("c1".to_string()), Box::new(container_meta));
+
+        state
+            .write(StateMachineUpdateRequest {
+                payload: RequestPayload::SchedulerUpdate(requests::SchedulerUpdatePayload::new(
+                    update,
+                )),
+            })
+            .await?;
+
+        let event = rx.try_recv().unwrap();
+        assert!(
+            matches!(&event, ExecutorEvent::ContainerAdded(id) if id.get() == "c1"),
+            "expected ContainerAdded, got {event:?}"
+        );
+
+        // Terminated container → ContainerRemoved
+        let container2 = test_container("c2");
+        let container_meta2 = ContainerServerMetadata::new(
+            executor_id.clone(),
+            container2,
+            ContainerState::Terminated {
+                reason: crate::data_model::ContainerTerminationReason::Unknown,
+            },
+        );
+        let mut update2 = requests::SchedulerUpdateRequest::default();
+        update2.containers.insert(
+            ContainerId::new("c2".to_string()),
+            Box::new(container_meta2),
+        );
+
+        state
+            .write(StateMachineUpdateRequest {
+                payload: RequestPayload::SchedulerUpdate(requests::SchedulerUpdatePayload::new(
+                    update2,
+                )),
+            })
+            .await?;
+
+        let event = rx.try_recv().unwrap();
+        assert!(
+            matches!(&event, ExecutorEvent::ContainerRemoved(id) if id.get() == "c2"),
+            "expected ContainerRemoved, got {event:?}"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_event_emission_full_sync_on_delete_app() -> Result<()> {
+        let state = TestStateStore::new().await?.indexify_state;
+        let executor_id = ExecutorId::new(TEST_EXECUTOR_ID.to_string());
+        let mut rx = state.register_event_channel(executor_id.clone()).await;
+
+        // First create an application and a container so the executor shows up
+        // in the container_scheduler during DeleteApplication.
+        let app = mock_application();
+        _write_to_test_state_store(&state, app).await?;
+
+        // Container must match the application's namespace/name for the
+        // DeleteApplication handler to find it.
+        let mut container = test_container("c1");
+        container.namespace = TEST_NAMESPACE.to_string();
+        container.application_name = "graph_A".to_string();
+        let container_meta =
+            ContainerServerMetadata::new(executor_id.clone(), container, ContainerState::Running);
+        let mut update = requests::SchedulerUpdateRequest::default();
+        update
+            .containers
+            .insert(ContainerId::new("c1".to_string()), Box::new(container_meta));
+        state
+            .write(StateMachineUpdateRequest {
+                payload: RequestPayload::SchedulerUpdate(requests::SchedulerUpdatePayload::new(
+                    update,
+                )),
+            })
+            .await?;
+
+        // Drain the ContainerAdded event
+        let _ = rx.try_recv();
+
+        // Delete the application
+        state
+            .write(StateMachineUpdateRequest {
+                payload: RequestPayload::DeleteApplicationRequest((
+                    requests::DeleteApplicationRequest {
+                        namespace: TEST_NAMESPACE.to_string(),
+                        name: "graph_A".to_string(),
+                    },
+                    vec![],
+                )),
+            })
+            .await?;
+
+        // Should receive FullSync
+        let event = rx.try_recv().unwrap();
+        assert!(
+            matches!(&event, ExecutorEvent::FullSync),
+            "expected FullSync, got {event:?}"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_event_no_emission_when_no_channel() -> Result<()> {
+        // Events are silently dropped when no channel is registered.
+        let state = TestStateStore::new().await?.indexify_state;
+        let executor_id = ExecutorId::new(TEST_EXECUTOR_ID.to_string());
+
+        // No channel registered — should not panic or error.
+        let allocation = test_allocation(&executor_id);
+        let mut update = requests::SchedulerUpdateRequest::default();
+        update.new_allocations.push(allocation);
+
+        state
+            .write(StateMachineUpdateRequest {
+                payload: RequestPayload::SchedulerUpdate(requests::SchedulerUpdatePayload::new(
+                    update,
+                )),
+            })
+            .await?;
+
+        // Success — no panic, no error.
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_event_channel_register_deregister() -> Result<()> {
+        let state = TestStateStore::new().await?.indexify_state;
+        let executor_id = ExecutorId::new(TEST_EXECUTOR_ID.to_string());
+
+        let _rx = state.register_event_channel(executor_id.clone()).await;
+        assert!(
+            state
+                .executor_event_channels
+                .read()
+                .await
+                .contains_key(&executor_id)
+        );
+
+        state.deregister_event_channel(&executor_id).await;
+        assert!(
+            !state
+                .executor_event_channels
+                .read()
+                .await
+                .contains_key(&executor_id)
+        );
+
+        Ok(())
     }
 }

@@ -95,7 +95,7 @@ pub struct MetricsState {
     pub container_counts: ContainerCounts,
     pub resources: ResourceAvailability,
     pub last_desired_state_allocations: u64,
-    pub last_desired_state_function_executors: u64,
+    pub last_desired_state_containers: u64,
 }
 
 /// Generate a `DataplaneCounters` struct with `new()` and `Default`.
@@ -108,6 +108,7 @@ pub struct MetricsState {
 macro_rules! define_counters {
     ( $( $field:ident : $name:literal, $desc:literal; )* ) => {
         #[derive(Clone)]
+        #[allow(dead_code)]
         pub struct DataplaneCounters {
             $( pub $field: Counter<u64>, )*
             // Histogram that lives in counters for historical reasons
@@ -141,6 +142,7 @@ macro_rules! define_counters {
 macro_rules! define_histograms {
     ( $( $field:ident : $name:literal, $desc:literal, $unit:literal; )* ) => {
         #[derive(Clone)]
+        #[allow(dead_code)]
         pub struct DataplaneHistograms {
             $( pub $field: Histogram<f64>, )*
         }
@@ -192,7 +194,7 @@ define_counters! {
     containers_started: "indexify.dataplane.containers.started", "Number of containers started";
     containers_terminated: "indexify.dataplane.containers.terminated", "Number of containers terminated";
     desired_state_received: "indexify.dataplane.desired_state.received", "Number of desired state messages received from server";
-    desired_function_executors: "indexify.dataplane.desired_state.function_executors", "Total function executors received in desired state messages";
+    desired_containers: "indexify.dataplane.desired_state.containers", "Total function executors received in desired state messages";
     desired_allocations: "indexify.dataplane.desired_state.allocations", "Total allocations received in desired state messages";
     heartbeat_success: "indexify.dataplane.heartbeat.success", "Number of successful heartbeats";
     heartbeat_failures: "indexify.dataplane.heartbeat.failures", "Number of failed heartbeats";
@@ -264,10 +266,10 @@ impl DataplaneCounters {
     }
 
     /// Record desired state received from server.
-    pub fn record_desired_state(&self, num_function_executors: u64, num_allocations: u64) {
+    #[allow(dead_code)]
+    pub fn record_desired_state(&self, num_containers: u64, num_allocations: u64) {
         self.desired_state_received.add(1, &[]);
-        self.desired_function_executors
-            .add(num_function_executors, &[]);
+        self.desired_containers.add(num_containers, &[]);
         self.desired_allocations.add(num_allocations, &[]);
     }
 
@@ -341,7 +343,7 @@ define_histograms! {
 // --- UpDownCounter definitions ---
 
 define_up_down_counters! {
-    function_executors_count: "indexify.dataplane.function_executors_count", "Current number of function executors";
+    containers_count: "indexify.dataplane.containers_count", "Current number of containers";
     allocations_getting_prepared: "indexify.dataplane.allocations_getting_prepared", "Current number of allocations being prepared";
     allocation_runs_in_progress: "indexify.dataplane.allocation_runs_in_progress", "Current number of allocation runs in progress";
     allocations_finalizing: "indexify.dataplane.allocations_finalizing", "Current number of allocations being finalized";
@@ -359,7 +361,7 @@ pub struct DataplaneGauges {
     free_memory_bytes: ObservableGauge<u64>,
     free_disk_bytes: ObservableGauge<u64>,
     last_desired_state_allocations: ObservableGauge<u64>,
-    last_desired_state_function_executors: ObservableGauge<u64>,
+    last_desired_state_containers: ObservableGauge<u64>,
 }
 
 impl DataplaneGauges {
@@ -449,10 +451,10 @@ impl DataplaneGauges {
                 "Number of allocations in last desired state",
                 last_desired_state_allocations
             ),
-            last_desired_state_function_executors: u64_gauge!(
-                "indexify.dataplane.last_desired_state_function_executors",
-                "Number of function executors in last desired state",
-                last_desired_state_function_executors
+            last_desired_state_containers: u64_gauge!(
+                "indexify.dataplane.last_desired_state_containers",
+                "Number of containers in last desired state",
+                last_desired_state_containers
             ),
         }
     }

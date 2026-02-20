@@ -8,7 +8,6 @@ mod tests {
     use crate::{
         data_model::{
             Allocation,
-            FunctionRunOutcome,
             Namespace,
             test_objects::tests::{self as test_objects, TEST_EXECUTOR_ID, TEST_NAMESPACE},
         },
@@ -23,7 +22,7 @@ mod tests {
             state_machine::IndexifyObjectsColumns,
             test_state_store,
         },
-        testing::{FinalizeFunctionRunArgs, TestService, allocation_key_from_proto},
+        testing::{TestExecutor, TestService},
     };
 
     #[tokio::test]
@@ -93,26 +92,23 @@ mod tests {
         let _request_id = test_state_store::with_simple_application(&indexify_state).await;
         test_srv.process_all_state_changes().await?;
 
-        let executor = test_srv
+        let mut executor = test_srv
             .create_executor(test_objects::mock_executor_metadata(
                 TEST_EXECUTOR_ID.into(),
             ))
             .await?;
         test_srv.process_all_state_changes().await?;
 
-        let desired_state = executor.desired_state().await;
-        assert_eq!(desired_state.allocations.len(), 1);
-        let allocation = desired_state.allocations.first().unwrap();
+        let commands = executor.recv_commands().await;
+        assert_eq!(commands.run_allocations.len(), 1);
+        let allocation = &commands.run_allocations[0];
         executor
-            .finalize_allocation(
+            .report_allocation_activities(vec![TestExecutor::make_allocation_completed(
                 allocation,
-                FinalizeFunctionRunArgs::new(
-                    allocation_key_from_proto(allocation),
-                    Some(test_objects::mock_updates()),
-                    None,
-                )
-                .function_run_outcome(FunctionRunOutcome::Success),
-            )
+                Some(test_objects::mock_updates()),
+                None,
+                Some(1000),
+            )])
             .await?;
         test_srv.process_all_state_changes().await?;
 

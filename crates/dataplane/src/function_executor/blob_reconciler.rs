@@ -86,6 +86,10 @@ pub(super) async fn reconcile_output_blobs(
 }
 
 /// Create a presigned read-only BLOB for a server DataPayload.
+///
+/// Used when delivering function call results from the allocation stream to the
+/// FE — the server-side DataPayload blob URIs must be presigned so the FE can
+/// read them.
 pub(super) async fn presign_read_only_blob_for_data_payload(
     data_payload: &proto_api::executor_api_pb::DataPayload,
     blob_store: &BlobStore,

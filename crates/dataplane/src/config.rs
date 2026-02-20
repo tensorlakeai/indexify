@@ -265,7 +265,7 @@ pub struct MonitoringConfig {
 impl Default for MonitoringConfig {
     fn default() -> Self {
         Self {
-            port: 7000,
+            port: 8100,
             listen_addr: "0.0.0.0".to_string(),
         }
     }

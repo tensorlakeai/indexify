@@ -21,7 +21,7 @@ use crate::function_executor::{
     allocation_finalize,
     allocation_prep,
     allocation_runner::{self, AllocationContext},
-    controller::{record_allocation_metrics, timed_phase},
+    controller::timed_phase,
     events::{AllocationOutcome, FinalizationContext, PreparedAllocation},
     proto_convert,
 };
@@ -47,8 +47,11 @@ impl AllocationController {
     }
 
     /// Add new allocations, spawning preparation tasks for each.
-    pub(super) fn add_allocations(&mut self, new_allocations: Vec<(String, ServerAllocation)>) {
-        for (fe_id, allocation) in new_allocations {
+    pub(super) fn add_allocations(
+        &mut self,
+        new_allocations: Vec<(String, ServerAllocation, u64)>,
+    ) {
+        for (fe_id, allocation, command_seq) in new_allocations {
             let alloc_id = allocation.allocation_id.clone().unwrap_or_default();
 
             // Skip if already tracked
@@ -70,12 +73,16 @@ impl AllocationController {
                     namespace = %lctx.namespace,
                     app = %lctx.app,
                     version = %lctx.version,
-                    fn_name = %lctx.fn_name,
+                    "fn" = %lctx.fn_name,
                     allocation_id = %alloc_id,
                     request_id = %lctx.request_id,
                     container_id = %fe_id,
                     "FE not found or terminated, failing allocation immediately -> Done"
                 );
+                // Ack the command so the server knows it was received.
+                let ack = proto_convert::make_allocation_scheduled_response(&alloc_id, command_seq);
+                let _ = self.config.result_tx.send(ack);
+
                 let failure_reason = self
                     .containers
                     .get(&fe_id)
@@ -85,13 +92,17 @@ impl AllocationController {
                         }
                         _ => None,
                     })
-                    .unwrap_or(AllocationFailureReason::FunctionExecutorTerminated);
-                let result = proto_convert::make_failure_result(&allocation, failure_reason);
-                // Send result directly — no blobs to clean up.
-                // This matches the old per-FE controller behavior and avoids
-                // the latency of spawning a finalization task.
-                record_allocation_metrics(&result, &self.config.metrics.counters);
-                let _ = self.config.result_tx.send(result);
+                    .unwrap_or(AllocationFailureReason::ContainerTerminated);
+                let activity = proto_convert::make_allocation_failed_stream_request(
+                    &allocation,
+                    failure_reason,
+                    None,
+                    None,
+                    Some(fe_id.clone()),
+                );
+                // Send failure via activity channel — no blobs to clean up.
+                proto_convert::record_activity_metrics(&activity, &self.config.metrics.counters);
+                let _ = self.config.activity_tx.send(activity);
                 let managed = ManagedAllocation {
                     allocation: allocation.clone(),
                     fe_id: fe_id.clone(),
@@ -102,6 +113,10 @@ impl AllocationController {
                 continue;
             }
 
+            // Send AllocationScheduled ack back on the command response channel
+            let ack = proto_convert::make_allocation_scheduled_response(&alloc_id, command_seq);
+            let _ = self.config.result_tx.send(ack);
+
             let cancel_token = self.cancel_token.child_token();
 
             {
@@ -110,14 +125,17 @@ impl AllocationController {
                     namespace = %lctx.namespace,
                     app = %lctx.app,
                     version = %lctx.version,
-                    fn_name = %lctx.fn_name,
+                    "fn" = %lctx.fn_name,
                     allocation_id = %alloc_id,
                     request_id = %lctx.request_id,
                     container_id = %fe_id,
+                    executor_id = %self.config.executor_id,
+                    function_call_id = %lctx.function_call_id,
                     "Allocation added -> Preparing"
                 );
             }
 
+            let prep_container_id = fe_id.clone();
             let managed = ManagedAllocation {
                 allocation: allocation.clone(),
                 fe_id,
@@ -145,6 +163,7 @@ impl AllocationController {
             let alloc_id_clone = alloc_id.clone();
             let request_id = allocation.request_id.clone().unwrap_or_default();
             let metrics = self.config.metrics.clone();
+            let lctx = AllocLogCtx::from_allocation(&allocation);
 
             tokio::spawn(async move {
                 let result = tokio::spawn(
@@ -162,6 +181,10 @@ impl AllocationController {
                         "allocation_prep",
                         allocation_id = %alloc_id_clone,
                         request_id = %request_id,
+                        namespace = %lctx.namespace,
+                        app = %lctx.app,
+                        "fn" = %lctx.fn_name,
+                        container_id = %prep_container_id,
                     )),
                 )
                 .await;
@@ -210,10 +233,12 @@ impl AllocationController {
                             namespace = %lctx.namespace,
                             app = %lctx.app,
                             version = %lctx.version,
-                            fn_name = %lctx.fn_name,
+                            "fn" = %lctx.fn_name,
                             allocation_id = %allocation_id,
                             request_id = %lctx.request_id,
                             container_id = %fe_id,
+                            executor_id = %self.config.executor_id,
+                            function_call_id = %lctx.function_call_id,
                             "Allocation prepared: Preparing -> WaitingForSlot"
                         );
                         alloc.state = AllocationState::WaitingForSlot;
@@ -240,10 +265,12 @@ impl AllocationController {
                             namespace = %lctx.namespace,
                             app = %lctx.app,
                             version = %lctx.version,
-                            fn_name = %lctx.fn_name,
+                            "fn" = %lctx.fn_name,
                             allocation_id = %allocation_id,
                             request_id = %lctx.request_id,
                             container_id = %fe_id,
+                            executor_id = %self.config.executor_id,
+                            function_call_id = %lctx.function_call_id,
                             "Allocation prepared, container not ready: Preparing -> WaitingForContainer"
                         );
                         alloc.state = AllocationState::WaitingForContainer;
@@ -264,7 +291,7 @@ impl AllocationController {
                             namespace = %lctx.namespace,
                             app = %lctx.app,
                             version = %lctx.version,
-                            fn_name = %lctx.fn_name,
+                            "fn" = %lctx.fn_name,
                             allocation_id = %allocation_id,
                             request_id = %lctx.request_id,
                             container_id = %fe_id,
@@ -279,14 +306,14 @@ impl AllocationController {
                             output_blob_handles: Vec::new(),
                             fe_result: None,
                         };
-                        self.start_finalization(&allocation_id, result, ctx);
+                        self.start_finalization(&allocation_id, result, ctx, Some(fe_id.clone()));
                     }
                     None => {
                         warn!(
                             namespace = %lctx.namespace,
                             app = %lctx.app,
                             version = %lctx.version,
-                            fn_name = %lctx.fn_name,
+                            "fn" = %lctx.fn_name,
                             allocation_id = %allocation_id,
                             request_id = %lctx.request_id,
                             container_id = %fe_id,
@@ -294,14 +321,14 @@ impl AllocationController {
                         );
                         let result = proto_convert::make_failure_result(
                             &alloc.allocation,
-                            AllocationFailureReason::FunctionExecutorTerminated,
+                            AllocationFailureReason::ContainerTerminated,
                         );
                         let ctx = FinalizationContext {
                             request_error_blob_handle: prepared.request_error_blob_handle,
                             output_blob_handles: Vec::new(),
                             fe_result: None,
                         };
-                        self.start_finalization(&allocation_id, result, ctx);
+                        self.start_finalization(&allocation_id, result, ctx, Some(fe_id.clone()));
                     }
                 }
             }
@@ -311,7 +338,7 @@ impl AllocationController {
                     namespace = %lctx.namespace,
                     app = %lctx.app,
                     version = %lctx.version,
-                    fn_name = %lctx.fn_name,
+                    "fn" = %lctx.fn_name,
                     allocation_id = %allocation_id,
                     request_id = %lctx.request_id,
                     container_id = %alloc.fe_id,
@@ -322,7 +349,12 @@ impl AllocationController {
                     &alloc.allocation,
                     AllocationFailureReason::InternalError,
                 );
-                self.start_finalization(&allocation_id, result, FinalizationContext::default());
+                self.start_finalization(
+                    &allocation_id,
+                    result,
+                    FinalizationContext::default(),
+                    None,
+                );
             }
         }
     }
@@ -383,7 +415,10 @@ impl AllocationController {
                     );
                     // Can't call self.start_finalization here directly due to
                     // borrow, so collect for deferred finalization
-                    alloc.state = AllocationState::Finalizing { result };
+                    alloc.state = AllocationState::Finalizing {
+                        result,
+                        terminated_container_id: None,
+                    };
                     self.config
                         .metrics
                         .counters
@@ -407,10 +442,12 @@ impl AllocationController {
                         namespace = %lctx.namespace,
                         app = %lctx.app,
                         version = %lctx.version,
-                        fn_name = %lctx.fn_name,
+                        "fn" = %lctx.fn_name,
                         allocation_id = %alloc_id,
                         request_id = %lctx.request_id,
                         container_id = %fe_id,
+                        executor_id = %self.config.executor_id,
+                        function_call_id = %lctx.function_call_id,
                         running_count = running + 1,
                         max_concurrency = max_concurrency,
                         "Allocation scheduled: {} -> Running", alloc.state
@@ -441,15 +478,19 @@ impl AllocationController {
                 let ctx = AllocationContext {
                     server_channel: self.config.server_channel.clone(),
                     blob_store: self.config.blob_store.clone(),
-                    watcher_registry: self.watcher_registry.clone(),
                     metrics: metrics.clone(),
                     driver: self.config.driver.clone(),
                     process_handle: process_handle.clone(),
+                    executor_id: self.config.executor_id.clone(),
+                    stream_tx: self.config.activity_tx.clone(),
+                    allocation_result_dispatcher: self.allocation_result_dispatcher.clone(),
                 };
 
                 let allocation = alloc.allocation.clone();
                 let request_id = allocation.request_id.clone().unwrap_or_default();
                 let client_clone = (*client).clone();
+                let exec_lctx = AllocLogCtx::from_allocation(&allocation);
+                let exec_container_id = fe_id.clone();
 
                 tokio::spawn(
                     async move {
@@ -478,6 +519,10 @@ impl AllocationController {
                         "allocation_exec",
                         allocation_id = %alloc_id_span,
                         request_id = %request_id,
+                        namespace = %exec_lctx.namespace,
+                        app = %exec_lctx.app,
+                        "fn" = %exec_lctx.fn_name,
+                        container_id = %exec_container_id,
                     )),
                 );
             }
@@ -519,10 +564,12 @@ impl AllocationController {
             namespace = %lctx.namespace,
             app = %lctx.app,
             version = %lctx.version,
-            fn_name = %lctx.fn_name,
+            "fn" = %lctx.fn_name,
             allocation_id = %allocation_id,
             request_id = %lctx.request_id,
             container_id = %fe_id,
+            executor_id = %self.config.executor_id,
+            function_call_id = %lctx.function_call_id,
             outcome = outcome_label,
             elapsed_ms = %alloc.created_at.elapsed().as_millis(),
             "Allocation execution finished: Running -> Finalizing"
@@ -539,7 +586,7 @@ impl AllocationController {
         let mut ctx = finalization_ctx;
         let mut trigger_fe_termination = false;
         let mut fe_termination_reason =
-            proto_api::executor_api_pb::FunctionExecutorTerminationReason::Unhealthy;
+            proto_api::executor_api_pb::ContainerTerminationReason::Unhealthy;
 
         let server_result = match outcome {
             AllocationOutcome::Completed {
@@ -586,7 +633,7 @@ impl AllocationController {
                     );
                     trigger_fe_termination = true;
                     fe_termination_reason = termination_reason.unwrap_or(
-                        proto_api::executor_api_pb::FunctionExecutorTerminationReason::Unhealthy,
+                        proto_api::executor_api_pb::ContainerTerminationReason::Unhealthy,
                     );
                 }
                 ctx.output_blob_handles = output_blob_handles;
@@ -594,7 +641,7 @@ impl AllocationController {
             }
         };
 
-        self.start_finalization(&allocation_id, server_result, ctx);
+        self.start_finalization(&allocation_id, server_result, ctx, None);
 
         if trigger_fe_termination {
             let _ = self.event_tx.send(ACEvent::ContainerTerminated {
@@ -619,13 +666,17 @@ impl AllocationController {
         };
 
         // Only handle if in Finalizing state
-        let server_result = match std::mem::replace(&mut alloc.state, AllocationState::Done) {
-            AllocationState::Finalizing { result } => result,
-            other => {
-                alloc.state = other;
-                return;
-            }
-        };
+        let (server_result, terminated_container_id) =
+            match std::mem::replace(&mut alloc.state, AllocationState::Done) {
+                AllocationState::Finalizing {
+                    result,
+                    terminated_container_id,
+                } => (result, terminated_container_id),
+                other => {
+                    alloc.state = other;
+                    return;
+                }
+            };
 
         let result = if !is_success {
             let mut err_result = proto_convert::make_failure_result(
@@ -644,19 +695,23 @@ impl AllocationController {
                 namespace = %lctx.namespace,
                 app = %lctx.app,
                 version = %lctx.version,
-                fn_name = %lctx.fn_name,
+                "fn" = %lctx.fn_name,
                 allocation_id = %allocation_id,
                 request_id = %lctx.request_id,
                 container_id = %alloc.fe_id,
+                executor_id = %self.config.executor_id,
+                function_call_id = %lctx.function_call_id,
                 success = is_success,
                 total_elapsed_ms = %alloc.created_at.elapsed().as_millis(),
                 "Allocation finalized: Finalizing -> Done (result sent)"
             );
         }
 
-        // Record metrics and send result
-        record_allocation_metrics(&result, &self.config.metrics.counters);
-        let _ = self.config.result_tx.send(result);
+        // Record metrics and send result as AllocationActivity
+        let activity =
+            proto_convert::allocation_result_to_stream_request(&result, terminated_container_id);
+        proto_convert::record_activity_metrics(&activity, &self.config.metrics.counters);
+        let _ = self.config.activity_tx.send(activity);
 
         // Keep the allocation in Done state — do NOT remove it.
         // The server may re-send this allocation before it processes the
@@ -667,11 +722,16 @@ impl AllocationController {
     }
 
     /// Start finalization for an allocation.
+    ///
+    /// `terminated_container_id` should be `Some(fe_id)` when the container is
+    /// dead (startup failure, runtime crash). It will be included in the
+    /// `AllocationFailed` message so the scheduler skips this container.
     pub(super) fn start_finalization(
         &mut self,
         allocation_id: &str,
         server_result: ServerAllocationResult,
         ctx: FinalizationContext,
+        terminated_container_id: Option<String>,
     ) {
         let Some(alloc) = self.allocations.get_mut(allocation_id) else {
             return;
@@ -690,6 +750,7 @@ impl AllocationController {
 
         alloc.state = AllocationState::Finalizing {
             result: server_result,
+            terminated_container_id,
         };
 
         self.spawn_finalization_task(allocation_id, ctx);
@@ -703,11 +764,21 @@ impl AllocationController {
         let blob_store = self.config.blob_store.clone();
         let alloc_id = allocation_id.to_string();
         let alloc_id_span = allocation_id.to_string();
-        let request_id = self
-            .allocations
-            .get(allocation_id)
+        let alloc_for_ctx = self.allocations.get(allocation_id);
+        let request_id = alloc_for_ctx
             .and_then(|a| a.allocation.request_id.clone())
             .unwrap_or_default();
+        let fin_lctx = alloc_for_ctx
+            .map(|a| AllocLogCtx::from_allocation(&a.allocation))
+            .unwrap_or(AllocLogCtx {
+                namespace: String::new(),
+                app: String::new(),
+                version: String::new(),
+                fn_name: String::new(),
+                request_id: String::new(),
+                function_call_id: String::new(),
+            });
+        let fin_container_id = alloc_for_ctx.map(|a| a.fe_id.clone()).unwrap_or_default();
         let metrics = self.config.metrics.clone();
 
         tokio::spawn(
@@ -740,6 +811,10 @@ impl AllocationController {
                 "allocation_finalize",
                 allocation_id = %alloc_id_span,
                 request_id = %request_id,
+                namespace = %fin_lctx.namespace,
+                app = %fin_lctx.app,
+                "fn" = %fin_lctx.fn_name,
+                container_id = %fin_container_id,
             )),
         );
     }
@@ -801,7 +876,7 @@ impl AllocationController {
                 &alloc.allocation,
                 AllocationFailureReason::AllocationCancelled,
             );
-            self.start_finalization(&alloc_id, result, ctx);
+            self.start_finalization(&alloc_id, result, ctx, None);
         }
 
         // Kill all running containers and return GPUs
@@ -837,18 +912,27 @@ impl AllocationController {
             }
         }
 
-        // Send any remaining results
+        // Send any remaining results as AllocationActivities
         for (_alloc_id, alloc) in self.allocations.drain() {
-            if let AllocationState::Finalizing { result } = alloc.state {
-                record_allocation_metrics(&result, &self.config.metrics.counters);
-                let _ = self.config.result_tx.send(result);
+            if let AllocationState::Finalizing {
+                result,
+                terminated_container_id,
+            } = alloc.state
+            {
+                // During shutdown all containers are dying, so include
+                // container_id if it wasn't already set.
+                let container_id = terminated_container_id.or_else(|| Some(alloc.fe_id.clone()));
+                let activity =
+                    proto_convert::allocation_result_to_stream_request(&result, container_id);
+                proto_convert::record_activity_metrics(&activity, &self.config.metrics.counters);
+                let _ = self.config.activity_tx.send(activity);
             }
         }
 
         self.config
             .metrics
             .up_down_counters
-            .function_executors_count
+            .containers_count
             .add(-(self.containers.len() as i64), &[]);
     }
 }

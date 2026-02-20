@@ -774,7 +774,7 @@ pub(crate) async fn handle_scheduler_update(
             "fn" = %alloc.function,
             fn_call_id = %alloc.function_call_id,
             allocation_id = %alloc.id,
-            fn_executor_id = %alloc.target.function_executor_id,
+            fn_executor_id = %alloc.target.container_id,
             executor_id = %alloc.target.executor_id,
             "add_allocation",
         );

@@ -26,7 +26,7 @@ pub struct MonitoringState {
     pub heartbeat_healthy: Arc<AtomicBool>,
     /// Debug text of the last ReportExecutorStateRequest sent to server.
     pub last_reported_state: Mutex<Option<String>>,
-    /// Debug text of the last DesiredExecutorState received from server.
+    /// Debug text of the last desired state received from server.
     pub last_desired_state: Mutex<Option<String>>,
 }
 

@@ -20,8 +20,8 @@ use std::{
 
 use proto_api::executor_api_pb::{
     AllocationFailureReason,
-    FunctionExecutorState,
-    FunctionExecutorStatus,
+    ContainerState as ProtoContainerState,
+    ContainerStatus,
 };
 use tokio::sync::{Notify, mpsc, watch};
 use tokio_util::sync::CancellationToken;
@@ -31,19 +31,16 @@ use self::{
     events::{ACCommand, ACEvent},
     types::{AllocLogCtx, AllocationState, ContainerState, ManagedAllocation, ManagedFE},
 };
-use crate::function_executor::{
-    controller::FESpawnConfig,
-    events::FinalizationContext,
-    proto_convert,
-    watcher_registry::WatcherRegistry,
+use crate::{
+    allocation_result_dispatcher::AllocationResultDispatcher,
+    function_executor::{controller::FESpawnConfig, events::FinalizationContext, proto_convert},
 };
 
 /// Handle returned to service.rs / StateReconciler for communicating with the
 /// controller.
 pub struct AllocationControllerHandle {
     pub command_tx: mpsc::UnboundedSender<ACCommand>,
-    pub state_rx: watch::Receiver<Vec<FunctionExecutorState>>,
-    pub watcher_registry: WatcherRegistry,
+    pub state_rx: watch::Receiver<Vec<ProtoContainerState>>,
 }
 
 /// Unified controller managing all function executor containers and
@@ -74,9 +71,9 @@ pub struct AllocationController {
 
     // -- Shared dependencies --
     config: FESpawnConfig,
-    watcher_registry: WatcherRegistry,
-    state_tx: watch::Sender<Vec<FunctionExecutorState>>,
+    state_tx: watch::Sender<Vec<ProtoContainerState>>,
     state_change_notify: Arc<Notify>,
+    allocation_result_dispatcher: Arc<AllocationResultDispatcher>,
 
     // -- Shutdown --
     cancel_token: CancellationToken,
@@ -89,12 +86,11 @@ impl AllocationController {
         config: FESpawnConfig,
         cancel_token: CancellationToken,
         state_change_notify: Arc<Notify>,
+        allocation_result_dispatcher: Arc<AllocationResultDispatcher>,
     ) -> AllocationControllerHandle {
         let (command_tx, command_rx) = mpsc::unbounded_channel();
         let (event_tx, event_rx) = mpsc::unbounded_channel();
         let (state_tx, state_rx) = watch::channel(Vec::new());
-        let watcher_registry = WatcherRegistry::new();
-
         let controller = Self {
             containers: HashMap::new(),
             allocations: HashMap::new(),
@@ -105,9 +101,9 @@ impl AllocationController {
             event_tx,
             event_rx,
             config,
-            watcher_registry: watcher_registry.clone(),
             state_tx,
             state_change_notify,
+            allocation_result_dispatcher,
             cancel_token,
         };
 
@@ -125,7 +121,6 @@ impl AllocationController {
         AllocationControllerHandle {
             command_tx,
             state_rx,
-            watcher_registry,
         }
     }
 
@@ -141,15 +136,20 @@ impl AllocationController {
                 }
                 Some(cmd) = self.command_rx.recv() => {
                     match cmd {
-                        ACCommand::Reconcile { desired_fes, new_allocations } => {
+                        ACCommand::Reconcile { added_or_updated_fes, removed_fe_ids, new_allocations } => {
                             // Garbage-collect Done allocations the server no longer sends.
-                            let current_ids: std::collections::HashSet<String> = new_allocations
-                                .iter()
-                                .map(|(_, a)| a.allocation_id.clone().unwrap_or_default())
-                                .collect();
-                            self.cleanup_done_allocations(&current_ids);
+                            // Only run when we have allocation data — without
+                            // it the set would be empty and we'd incorrectly
+                            // remove ALL Done allocations.
+                            if !new_allocations.is_empty() {
+                                let current_ids: std::collections::HashSet<String> = new_allocations
+                                    .iter()
+                                    .map(|(_, a, _)| a.allocation_id.clone().unwrap_or_default())
+                                    .collect();
+                                self.cleanup_done_allocations(&current_ids);
+                            }
 
-                            self.reconcile_containers(desired_fes).await;
+                            self.reconcile_containers(added_or_updated_fes, removed_fe_ids).await;
                             self.add_allocations(new_allocations);
                             self.try_schedule();
                         }
@@ -204,29 +204,21 @@ impl AllocationController {
 
     /// Broadcast container states via state_tx for heartbeat reporting.
     fn broadcast_state(&self) {
-        let states: Vec<FunctionExecutorState> = self
+        let states: Vec<ProtoContainerState> = self
             .containers
             .values()
             .map(|fe| {
-                let (status, termination_reason, blamed_alloc_ids) = match &fe.state {
-                    ContainerState::Starting => (FunctionExecutorStatus::Pending, None, vec![]),
-                    ContainerState::Running { .. } => {
-                        (FunctionExecutorStatus::Running, None, vec![])
+                let (status, termination_reason) = match &fe.state {
+                    ContainerState::Starting => (ContainerStatus::Pending, None),
+                    ContainerState::Running { .. } => (ContainerStatus::Running, None),
+                    ContainerState::Terminated { reason } => {
+                        (ContainerStatus::Terminated, Some(*reason))
                     }
-                    ContainerState::Terminated {
-                        reason,
-                        blamed_alloc_ids,
-                    } => (
-                        FunctionExecutorStatus::Terminated,
-                        Some(*reason),
-                        blamed_alloc_ids.clone(),
-                    ),
                 };
-                FunctionExecutorState {
+                ProtoContainerState {
                     description: Some(fe.description.clone()),
                     status: Some(status.into()),
                     termination_reason: termination_reason.map(|r| r.into()),
-                    allocation_ids_caused_termination: blamed_alloc_ids,
                 }
             })
             .collect();
@@ -254,16 +246,17 @@ impl AllocationController {
 
     /// Fail all non-terminal allocations for a given FE.
     ///
-    /// `blamed_alloc_ids` identifies allocations that caused the container
-    /// termination (e.g. a Running allocation that OOM'd). Blamed allocations
-    /// get the specific `reason`; non-blamed allocations get
-    /// `FunctionExecutorTerminated` so the server gives them a free retry.
-    fn fail_allocations_for_fe(
-        &mut self,
-        fe_id: &str,
-        reason: AllocationFailureReason,
-        blamed_alloc_ids: &[String],
-    ) {
+    /// For startup failures (constructor crash/timeout/error/bad image), all
+    /// non-running allocations get the startup failure reason so the server
+    /// charges them a retry attempt — the constructor bug is systematic.
+    ///
+    /// For runtime failures (OOM, crash, unhealthy, etc.), non-running
+    /// allocations get `FunctionExecutorTerminated` so the server gives them
+    /// a free retry — they're innocent victims of the container dying.
+    ///
+    /// Running allocations are skipped — their runners detect the gRPC stream
+    /// break and report the accurate failure reason themselves.
+    fn fail_allocations_for_fe(&mut self, fe_id: &str, reason: AllocationFailureReason) {
         // Collect allocation IDs for this FE
         let alloc_ids: Vec<String> = self
             .allocations
@@ -281,11 +274,28 @@ impl AllocationController {
         // Remove from waiting queue
         self.waiting_queue.remove(fe_id);
 
+        // For startup failures, the bug is systematic (every allocation would
+        // hit the same constructor failure), so all get charged.
+        // For runtime failures, only running allocations (handled by their
+        // runners) get the real reason; non-running ones are innocent.
+        let is_startup = matches!(
+            reason,
+            AllocationFailureReason::StartupFailedInternalError |
+                AllocationFailureReason::StartupFailedFunctionError |
+                AllocationFailureReason::StartupFailedFunctionTimeout |
+                AllocationFailureReason::StartupFailedBadImage
+        );
+        let non_running_reason = if is_startup {
+            reason
+        } else {
+            AllocationFailureReason::ContainerTerminated
+        };
+
         if !alloc_ids.is_empty() {
             warn!(
                 container_id = %fe_id,
                 reason = ?reason,
-                blamed = ?blamed_alloc_ids,
+                non_running_reason = ?non_running_reason,
                 count = alloc_ids.len(),
                 "Failing {} allocations for terminated container", alloc_ids.len()
             );
@@ -295,32 +305,6 @@ impl AllocationController {
             let Some(alloc) = self.allocations.get_mut(&alloc_id) else {
                 continue;
             };
-
-            // Blamed allocations get the specific failure reason (e.g. OOM);
-            // non-blamed get FunctionExecutorTerminated (free retry on server).
-            let alloc_reason =
-                if blamed_alloc_ids.is_empty() || blamed_alloc_ids.contains(&alloc_id) {
-                    reason
-                } else {
-                    AllocationFailureReason::FunctionExecutorTerminated
-                };
-
-            {
-                let lctx = AllocLogCtx::from_allocation(&alloc.allocation);
-                warn!(
-                    namespace = %lctx.namespace,
-                    app = %lctx.app,
-                    version = %lctx.version,
-                    fn_name = %lctx.fn_name,
-                    allocation_id = %alloc_id,
-                    request_id = %lctx.request_id,
-                    container_id = %fe_id,
-                    from_state = %alloc.state,
-                    reason = ?alloc_reason,
-                    blamed = blamed_alloc_ids.contains(&alloc_id),
-                    "Failing allocation: {} -> Finalizing(failure)", alloc.state
-                );
-            }
 
             // Cancel any running tasks.
             // Running allocations are NOT failed here — their allocation
@@ -340,15 +324,28 @@ impl AllocationController {
                 _ => {}
             }
 
+            {
+                let lctx = AllocLogCtx::from_allocation(&alloc.allocation);
+                warn!(
+                    namespace = %lctx.namespace,
+                    app = %lctx.app,
+                    version = %lctx.version,
+                    fn_name = %lctx.fn_name,
+                    allocation_id = %alloc_id,
+                    request_id = %lctx.request_id,
+                    container_id = %fe_id,
+                    from_state = %alloc.state,
+                    reason = ?non_running_reason,
+                    "Failing allocation: {} -> Finalizing(failure)", alloc.state
+                );
+            }
+
             // Take finalization context: first check prepared_data side map,
             // then fall back to the state itself.
             let ctx = if let Some((_, finalization_ctx)) = self.prepared_data.remove(&alloc_id) {
                 finalization_ctx
             } else {
                 match std::mem::replace(&mut alloc.state, AllocationState::Done) {
-                    AllocationState::Running {
-                        finalization_ctx, ..
-                    } => finalization_ctx,
                     AllocationState::Preparing { .. } |
                     AllocationState::WaitingForContainer |
                     AllocationState::WaitingForSlot => FinalizationContext::default(),
@@ -359,22 +356,26 @@ impl AllocationController {
                 }
             };
 
-            let result = proto_convert::make_failure_result(&alloc.allocation, alloc_reason);
-
             // If finalization context has no blobs to clean up, send result
             // directly to avoid the latency of spawning a finalization task.
             if ctx.request_error_blob_handle.is_none() &&
                 ctx.output_blob_handles.is_empty() &&
                 ctx.fe_result.is_none()
             {
-                crate::function_executor::controller::record_allocation_metrics(
-                    &result,
-                    &self.config.metrics.counters,
+                let activity = proto_convert::make_allocation_failed_stream_request(
+                    &alloc.allocation,
+                    non_running_reason,
+                    None,
+                    None,
+                    Some(fe_id.to_string()),
                 );
-                let _ = self.config.result_tx.send(result);
+                proto_convert::record_activity_metrics(&activity, &self.config.metrics.counters);
+                let _ = self.config.activity_tx.send(activity);
                 alloc.state = AllocationState::Done;
             } else {
-                self.start_finalization(&alloc_id, result, ctx);
+                let result =
+                    proto_convert::make_failure_result(&alloc.allocation, non_running_reason);
+                self.start_finalization(&alloc_id, result, ctx, Some(fe_id.to_string()));
             }
         }
     }

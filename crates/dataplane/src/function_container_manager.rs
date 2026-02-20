@@ -11,11 +11,12 @@ use std::{
 
 pub use image_resolver::{DefaultImageResolver, ImageResolver};
 use proto_api::executor_api_pb::{
-    FunctionExecutorDescription,
-    FunctionExecutorState,
-    FunctionExecutorTerminationReason,
+    CommandResponse,
+    ContainerDescription,
+    ContainerState as ProtoContainerState,
+    ContainerTerminationReason,
 };
-use tokio::sync::RwLock;
+use tokio::sync::{RwLock, mpsc};
 use tracing::Instrument;
 use types::container_type_str;
 
@@ -46,6 +47,10 @@ pub struct FunctionContainerManager {
     metrics: Arc<DataplaneMetrics>,
     state_file: Arc<StateFile>,
     executor_id: String,
+    /// Channel for container state change notifications (ContainerTerminated).
+    /// Feeds into the same `report_command_responses` pipeline as allocation
+    /// results.
+    container_state_tx: mpsc::UnboundedSender<CommandResponse>,
 }
 
 impl FunctionContainerManager {
@@ -56,6 +61,7 @@ impl FunctionContainerManager {
         metrics: Arc<DataplaneMetrics>,
         state_file: Arc<StateFile>,
         executor_id: String,
+        container_state_tx: mpsc::UnboundedSender<CommandResponse>,
     ) -> Self {
         Self {
             driver,
@@ -65,6 +71,7 @@ impl FunctionContainerManager {
             metrics,
             state_file,
             executor_id,
+            container_state_tx,
         }
     }
 
@@ -247,82 +254,10 @@ impl FunctionContainerManager {
         cleaned
     }
 
-    /// Sync the containers with the desired state from the server.
-    /// Creates new containers, and marks removed ones for termination.
-    pub async fn sync(&self, desired: Vec<FunctionExecutorDescription>) {
-        let desired_ids: HashSet<String> = desired.iter().filter_map(|d| d.id.clone()).collect();
-
-        let mut containers = self.containers.write().await;
-
-        self.stop_timed_out_containers(&mut containers).await;
-        self.remove_undesired_containers(&mut containers, &desired_ids)
-            .await;
-
-        for desc in desired {
-            let Some(id) = desc.id.clone() else { continue };
-            if !containers.contains_key(&id) {
-                self.create_container(&mut containers, desc).await;
-            } else {
-                self.update_existing_container(&mut containers, &id, desc)
-                    .await;
-            }
-        }
-
-        update_container_counts(&containers, &self.metrics).await;
-    }
-
-    /// Remove containers that are no longer in the desired state.
-    /// Terminated containers are removed from memory and state file.
-    /// Running/pending containers are signaled to stop.
-    async fn remove_undesired_containers(
-        &self,
-        containers: &mut ContainerStore,
-        desired_ids: &HashSet<String>,
-    ) {
-        let current_ids: Vec<String> = containers.keys().cloned().collect();
-        for id in current_ids {
-            if !desired_ids.contains(&id) &&
-                let Some(container) = containers.get_mut(&id)
-            {
-                let info = container.info();
-                match &container.state {
-                    ContainerState::Terminated { .. } => {
-                        tracing::info!(
-                            parent: &info.tracing_span(),
-                            "Removed terminated container from memory"
-                        );
-                        if let Err(e) = self.state_file.remove(&id).await {
-                            tracing::warn!(
-                                container_id = %info.container_id,
-                                error = %e,
-                                "Failed to remove container from state file"
-                            );
-                        }
-                        containers.remove(&id);
-                    }
-                    ContainerState::Stopping { .. } => {
-                        // Already stopping, let it continue
-                    }
-                    ContainerState::Pending | ContainerState::Running { .. } => {
-                        self.initiate_stop(
-                            container,
-                            FunctionExecutorTerminationReason::FunctionCancelled,
-                        )
-                        .await;
-                    }
-                }
-            }
-        }
-    }
-
     /// Create a new container from a desired description.
     /// Inserts a Pending container, indexes sandbox, and spawns the lifecycle
     /// task.
-    async fn create_container(
-        &self,
-        containers: &mut ContainerStore,
-        desc: FunctionExecutorDescription,
-    ) {
+    async fn create_container(&self, containers: &mut ContainerStore, desc: ContainerDescription) {
         let id = match &desc.id {
             Some(id) => id.clone(),
             None => return,
@@ -373,6 +308,7 @@ impl FunctionContainerManager {
         let state_file = self.state_file.clone();
         let executor_id = self.executor_id.clone();
         let executor_id_span = executor_id.clone();
+        let container_state_tx = self.container_state_tx.clone();
 
         tokio::spawn(
             async move {
@@ -391,6 +327,7 @@ impl FunctionContainerManager {
                     containers_ref,
                     metrics,
                     state_file,
+                    container_state_tx,
                 )
                 .await;
             }
@@ -400,13 +337,176 @@ impl FunctionContainerManager {
         );
     }
 
+    /// Add or update a single container (delta operation).
+    ///
+    /// Unlike `sync()`, this does NOT remove other containers. Safe to call
+    /// for individual `AddContainer` commands from the command stream without
+    /// disturbing existing containers.
+    ///
+    /// If the container already exists and is Terminated, it is removed and
+    /// recreated. If it exists in any other state, only its description is
+    /// updated.
+    pub async fn add_or_update_container(&self, desc: ContainerDescription) {
+        let Some(id) = desc.id.clone() else { return };
+        let mut containers = self.containers.write().await;
+
+        if let Some(existing) = containers.get(&id) {
+            if matches!(existing.state, ContainerState::Terminated { .. }) {
+                // Remove terminated container so we can recreate it below.
+                let info = existing.info();
+                tracing::info!(
+                    parent: &info.tracing_span(),
+                    "Removing terminated container to recreate"
+                );
+                if let Err(e) = self.state_file.remove(&id).await {
+                    tracing::warn!(
+                        container_id = %info.container_id,
+                        error = %e,
+                        "Failed to remove container from state file"
+                    );
+                }
+                containers.remove(&id);
+                // Fall through to create_container below.
+            } else {
+                self.update_existing_container(&mut containers, &id, desc)
+                    .await;
+                update_container_counts(&containers, &self.metrics).await;
+                return;
+            }
+        }
+
+        self.create_container(&mut containers, desc).await;
+        update_container_counts(&containers, &self.metrics).await;
+    }
+
+    /// Apply a targeted description update to an existing container.
+    ///
+    /// Merges changed fields from the update into the container's current
+    /// description. Does NOT create or remove containers.
+    /// Handles warm→claimed sandbox transitions (sets `sandbox_claimed_at`,
+    /// sends `ContainerStarted`).
+    pub async fn update_container_description(
+        &self,
+        update: proto_api::executor_api_pb::UpdateContainerDescription,
+    ) {
+        let id = &update.container_id;
+        let mut containers = self.containers.write().await;
+
+        let Some(container) = containers.get_mut(id) else {
+            tracing::warn!(
+                container_id = %id,
+                "UpdateContainerDescription: container not found, ignoring"
+            );
+            return;
+        };
+
+        // Merge sandbox_metadata if present
+        if let Some(new_meta) = &update.sandbox_metadata {
+            let old_sandbox_id = container
+                .description
+                .sandbox_metadata
+                .as_ref()
+                .and_then(|m| m.sandbox_id.clone());
+            let new_sandbox_id = new_meta.sandbox_id.clone();
+
+            self.apply_sandbox_claim(&mut containers, id, old_sandbox_id, new_sandbox_id);
+
+            // Apply the metadata update. Re-borrow after index operations.
+            if let Some(container) = containers.get_mut(id) {
+                container.description.sandbox_metadata = Some(new_meta.clone());
+            }
+        }
+    }
+
+    /// Detect and apply a warm→claimed sandbox transition.
+    ///
+    /// If `sandbox_id` changed from None to Some, sets `sandbox_claimed_at`
+    /// and sends `ContainerStarted` (if container is already Running).
+    /// Updates the sandbox index for any sandbox_id change.
+    fn apply_sandbox_claim(
+        &self,
+        containers: &mut ContainerStore,
+        id: &str,
+        old_sandbox_id: Option<String>,
+        new_sandbox_id: Option<String>,
+    ) {
+        if old_sandbox_id.is_none() &&
+            new_sandbox_id.is_some() &&
+            let Some(container) = containers.get_mut(id)
+        {
+            tracing::info!(
+                container_id = %id,
+                sandbox_id = ?new_sandbox_id,
+                executor_id = %self.executor_id,
+                "Warm container claimed by sandbox"
+            );
+            container.sandbox_claimed_at = Some(Instant::now());
+            if matches!(container.state, ContainerState::Running { .. }) {
+                Self::send_container_started(&self.container_state_tx, id);
+            }
+        }
+
+        // Update sandbox index
+        if old_sandbox_id != new_sandbox_id {
+            if let Some(ref old_sid) = old_sandbox_id {
+                containers.unindex_sandbox(old_sid);
+            }
+            if let Some(ref new_sid) = new_sandbox_id {
+                containers.index_sandbox(new_sid.clone(), id.to_string());
+            }
+        }
+    }
+
+    /// Send a container started notification via the v2 command response
+    /// channel.
+    fn send_container_started(tx: &mpsc::UnboundedSender<CommandResponse>, container_id: &str) {
+        let response =
+            crate::function_executor::proto_convert::make_container_started_response(container_id);
+        let _ = tx.send(response);
+    }
+
+    /// Remove a single container by ID (delta operation).
+    ///
+    /// Unlike `sync()`, this only affects the specified container. Safe to
+    /// call for individual `RemoveContainer` commands from the command stream.
+    pub async fn remove_container_by_id(&self, id: &str) {
+        let mut containers = self.containers.write().await;
+        if let Some(container) = containers.get_mut(id) {
+            let info = container.info();
+            match &container.state {
+                ContainerState::Terminated { .. } => {
+                    tracing::info!(
+                        parent: &info.tracing_span(),
+                        "Removed terminated container from memory"
+                    );
+                    if let Err(e) = self.state_file.remove(id).await {
+                        tracing::warn!(
+                            container_id = %info.container_id,
+                            error = %e,
+                            "Failed to remove container from state file"
+                        );
+                    }
+                    containers.remove(id);
+                }
+                ContainerState::Stopping { .. } => {
+                    // Already stopping, let it continue
+                }
+                ContainerState::Pending | ContainerState::Running { .. } => {
+                    self.initiate_stop(container, ContainerTerminationReason::FunctionCancelled)
+                        .await;
+                }
+            }
+        }
+        update_container_counts(&containers, &self.metrics).await;
+    }
+
     /// Update an existing container's description.
     /// Handles warm→claimed sandbox transitions and description updates.
     async fn update_existing_container(
         &self,
         containers: &mut ContainerStore,
         id: &str,
-        desc: FunctionExecutorDescription,
+        desc: ContainerDescription,
     ) {
         let old_sandbox_id = containers
             .get(id)
@@ -417,29 +517,11 @@ impl FunctionContainerManager {
             .as_ref()
             .and_then(|m| m.sandbox_id.clone());
 
-        if let Some(container) = containers.get_mut(id) {
-            if old_sandbox_id.is_none() && new_sandbox_id.is_some() {
-                let info = ContainerInfo::from_description(&desc, &self.executor_id);
-                tracing::info!(
-                    container_id = %info.container_id,
-                    sandbox_id = ?new_sandbox_id,
-                    executor_id = %self.executor_id,
-                    "Warm container claimed by sandbox, starting timeout"
-                );
-                container.sandbox_claimed_at = Some(Instant::now());
-            }
-            // Always update the description to reflect server's desired state
-            container.description = desc;
-        }
+        self.apply_sandbox_claim(containers, id, old_sandbox_id, new_sandbox_id);
 
-        // Update sandbox index
-        if old_sandbox_id != new_sandbox_id {
-            if let Some(ref old_sid) = old_sandbox_id {
-                containers.unindex_sandbox(old_sid);
-            }
-            if let Some(new_sid) = new_sandbox_id {
-                containers.index_sandbox(new_sid, id.to_string());
-            }
+        // Always update the description to reflect server's desired state
+        if let Some(container) = containers.get_mut(id) {
+            container.description = desc;
         }
     }
 
@@ -448,7 +530,7 @@ impl FunctionContainerManager {
     async fn initiate_stop(
         &self,
         container: &mut ManagedContainer,
-        reason: FunctionExecutorTerminationReason,
+        reason: ContainerTerminationReason,
     ) {
         let id = container.description.id.clone().unwrap_or_default();
         let container_type = container_type_str(&container.description);
@@ -458,8 +540,8 @@ impl FunctionContainerManager {
             self.metrics
                 .counters
                 .record_container_terminated(container_type, "cancelled_pending");
-            if let Err(e) = container.transition_to_terminated(reason) {
-                tracing::warn!(container_id = %id, error = %e, "Invalid state transition");
+            if container.transition_to_terminated(reason).is_ok() {
+                Self::send_container_terminated(&self.container_state_tx, &id, reason);
             }
             return;
         }
@@ -496,12 +578,27 @@ impl FunctionContainerManager {
             self.containers.clone(),
             self.driver.clone(),
             self.metrics.clone(),
+            self.container_state_tx.clone(),
             span,
         );
     }
 
+    /// Send a container terminated notification via the v2 command response
+    /// channel.
+    fn send_container_terminated(
+        tx: &mpsc::UnboundedSender<CommandResponse>,
+        container_id: &str,
+        reason: ContainerTerminationReason,
+    ) {
+        let response = crate::function_executor::proto_convert::make_container_terminated_response(
+            container_id,
+            reason,
+        );
+        let _ = tx.send(response);
+    }
+
     /// Get the current state of all containers for reporting to the server.
-    pub async fn get_states(&self) -> Vec<FunctionExecutorState> {
+    pub async fn get_states(&self) -> Vec<ProtoContainerState> {
         let containers = self.containers.read().await;
         containers.values().map(|c| c.to_proto_state()).collect()
     }
@@ -579,6 +676,7 @@ fn spawn_grace_period_kill(
     containers_ref: Arc<RwLock<ContainerStore>>,
     driver: Arc<dyn ProcessDriver>,
     metrics: Arc<DataplaneMetrics>,
+    container_state_tx: mpsc::UnboundedSender<CommandResponse>,
     span: tracing::Span,
 ) {
     tokio::spawn(
@@ -622,9 +720,20 @@ fn spawn_grace_period_kill(
                     "Container terminated"
                 );
 
-                if let Err(e) = container.transition_to_terminated(termination_reason) {
-                    tracing::warn!(error = %e, "Invalid state transition in grace period kill");
+                if container
+                    .transition_to_terminated(termination_reason)
+                    .is_ok()
+                {
+                    FunctionContainerManager::send_container_terminated(
+                        &container_state_tx,
+                        &container_id,
+                        termination_reason,
+                    );
                 }
+
+                // Remove terminated container from the store — it's fully
+                // dead and the termination event has been sent.
+                containers.remove(&container_id);
 
                 update_container_counts(&containers, &metrics).await;
             }
@@ -649,7 +758,7 @@ mod tests {
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     use async_trait::async_trait;
-    use proto_api::executor_api_pb::{FunctionExecutorStatus, FunctionRef, SandboxMetadata};
+    use proto_api::executor_api_pb::{ContainerStatus, FunctionRef, SandboxMetadata};
     use tempfile::tempdir;
 
     use super::*;
@@ -731,8 +840,8 @@ mod tests {
         }
     }
 
-    fn create_test_fe_description(id: &str) -> FunctionExecutorDescription {
-        FunctionExecutorDescription {
+    fn create_test_fe_description(id: &str) -> ContainerDescription {
+        ContainerDescription {
             id: Some(id.to_string()),
             function: Some(FunctionRef {
                 namespace: Some("test-ns".to_string()),
@@ -766,7 +875,7 @@ mod tests {
 
     #[test]
     fn test_function_info_empty_description() {
-        let desc = FunctionExecutorDescription {
+        let desc = ContainerDescription {
             id: None,
             function: None,
             secret_names: vec![],
@@ -831,10 +940,7 @@ mod tests {
         };
 
         let proto_state = container.to_proto_state();
-        assert_eq!(
-            proto_state.status,
-            Some(FunctionExecutorStatus::Pending.into())
-        );
+        assert_eq!(proto_state.status, Some(ContainerStatus::Pending.into()));
         assert!(proto_state.termination_reason.is_none());
     }
 
@@ -844,7 +950,7 @@ mod tests {
             description: create_test_fe_description("fe-123"),
             executor_id: "test-executor".to_string(),
             state: ContainerState::Terminated {
-                reason: FunctionExecutorTerminationReason::StartupFailedInternalError,
+                reason: ContainerTerminationReason::StartupFailedInternalError,
             },
             created_at: Instant::now(),
             started_at: None,
@@ -852,13 +958,10 @@ mod tests {
         };
 
         let proto_state = container.to_proto_state();
-        assert_eq!(
-            proto_state.status,
-            Some(FunctionExecutorStatus::Terminated.into())
-        );
+        assert_eq!(proto_state.status, Some(ContainerStatus::Terminated.into()));
         assert_eq!(
             proto_state.termination_reason,
-            Some(FunctionExecutorTerminationReason::StartupFailedInternalError.into())
+            Some(ContainerTerminationReason::StartupFailedInternalError.into())
         );
     }
 
@@ -880,6 +983,8 @@ mod tests {
         let secrets = Arc::new(crate::secrets::NoopSecretsProvider::new());
         let metrics = create_test_metrics();
         let state_file = create_test_state_file().await;
+        let (container_state_tx, _container_state_rx) =
+            tokio::sync::mpsc::unbounded_channel::<CommandResponse>();
         let manager = FunctionContainerManager::new(
             driver.clone(),
             resolver,
@@ -887,6 +992,7 @@ mod tests {
             metrics,
             state_file,
             "test-executor".to_string(),
+            container_state_tx,
         );
         (driver, manager)
     }
@@ -900,20 +1006,18 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_sync_creates_containers() {
+    async fn test_add_creates_containers() {
         let (_driver, manager) = create_test_manager().await;
 
-        // Sync with one desired FE
-        let desired = vec![create_test_fe_description("fe-123")];
-        manager.sync(desired).await;
+        // Add one container
+        manager
+            .add_or_update_container(create_test_fe_description("fe-123"))
+            .await;
 
         // Should have one container in pending state
         let states = manager.get_states().await;
         assert_eq!(states.len(), 1);
-        assert_eq!(
-            states[0].status,
-            Some(FunctionExecutorStatus::Pending.into())
-        );
+        assert_eq!(states[0].status, Some(ContainerStatus::Pending.into()));
 
         // Wait a bit for the spawn task to run
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
@@ -922,25 +1026,23 @@ mod tests {
         // so it should transition to Terminated
         let states = manager.get_states().await;
         assert_eq!(states.len(), 1);
-        assert_eq!(
-            states[0].status,
-            Some(FunctionExecutorStatus::Terminated.into())
-        );
+        assert_eq!(states[0].status, Some(ContainerStatus::Terminated.into()));
     }
 
     #[tokio::test]
-    async fn test_sync_removes_containers_not_in_desired() {
+    async fn test_remove_cleans_up_terminated() {
         let (_driver, manager) = create_test_manager().await;
 
-        // First sync with one FE
-        let desired = vec![create_test_fe_description("fe-123")];
-        manager.sync(desired).await;
+        // Add one container
+        manager
+            .add_or_update_container(create_test_fe_description("fe-123"))
+            .await;
 
         // Wait for container creation to complete (will fail and terminate)
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
-        // Now sync with empty desired state
-        manager.sync(vec![]).await;
+        // Remove it by ID — terminated containers are cleaned up
+        manager.remove_container_by_id("fe-123").await;
 
         // Container should be removed since it was terminated
         let states = manager.get_states().await;
@@ -948,30 +1050,30 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_sync_ignores_already_tracked_containers() {
+    async fn test_add_ignores_already_tracked_containers() {
         let (driver, manager) = create_test_manager().await;
 
-        // Sync with one FE
-        let desired = vec![create_test_fe_description("fe-123")];
-        manager.sync(desired.clone()).await;
+        // Add one container
+        let desc = create_test_fe_description("fe-123");
+        manager.add_or_update_container(desc.clone()).await;
 
         let start_count_1 = driver.start_count();
 
-        // Sync again with same FE
-        manager.sync(desired).await;
+        // Add again with same description
+        manager.add_or_update_container(desc).await;
 
         // Should not start another container
         assert_eq!(driver.start_count(), start_count_1);
     }
 
     #[tokio::test]
-    async fn test_sync_skips_fe_without_id() {
+    async fn test_add_skips_fe_without_id() {
         let (driver, manager) = create_test_manager().await;
 
-        // Sync with FE that has no ID
+        // Add FE that has no ID
         let mut desc = create_test_fe_description("fe-123");
         desc.id = None;
-        manager.sync(vec![desc]).await;
+        manager.add_or_update_container(desc).await;
 
         // Should not create any containers
         let states = manager.get_states().await;
@@ -982,7 +1084,7 @@ mod tests {
     fn create_test_fe_description_with_timeout(
         id: &str,
         timeout_secs: u64,
-    ) -> FunctionExecutorDescription {
+    ) -> ContainerDescription {
         let mut desc = create_test_fe_description(id);
         desc.sandbox_metadata = Some(SandboxMetadata {
             image: None,
@@ -1046,7 +1148,7 @@ mod tests {
             description: create_test_fe_description_with_timeout("fe-123", 10),
             executor_id: "test-executor".to_string(),
             state: ContainerState::Terminated {
-                reason: FunctionExecutorTerminationReason::Unknown,
+                reason: ContainerTerminationReason::Unknown,
             },
             created_at: Instant::now(),
             started_at: None,
@@ -1290,10 +1392,10 @@ mod tests {
             );
         }
 
-        // Sync with a description that has sandbox_id set (simulates server claiming)
+        // Update with a description that has sandbox_id set (simulates server claiming)
         let mut desc = create_test_fe_description_with_timeout("fe-warm-claim", 60);
         desc.sandbox_metadata.as_mut().unwrap().sandbox_id = Some("sandbox-abc".to_string());
-        manager.sync(vec![desc]).await;
+        manager.add_or_update_container(desc).await;
 
         // Verify sandbox_claimed_at is now set
         {

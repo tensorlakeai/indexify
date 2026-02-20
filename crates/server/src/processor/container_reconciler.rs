@@ -10,12 +10,11 @@ use crate::{
         ContainerId,
         ContainerServerMetadata,
         ContainerState,
+        ContainerTerminationReason,
         ContainerType,
         ExecutorId,
         ExecutorMetadata,
         ExecutorServerMetadata,
-        FunctionExecutorTerminationReason,
-        FunctionRunFailureReason,
         FunctionRunOutcome,
         FunctionRunStatus,
         RunningFunctionRunStatus,
@@ -153,8 +152,7 @@ impl ContainerReconciler {
                     executor.id.clone(),
                     fe.clone(),
                     ContainerState::Terminated {
-                        reason: FunctionExecutorTerminationReason::DesiredStateRemoved,
-                        failed_alloc_ids: vec![],
+                        reason: ContainerTerminationReason::DesiredStateRemoved,
                     },
                 );
                 executor_server_metadata.force_add_container(&fe);
@@ -262,13 +260,12 @@ impl ContainerReconciler {
         container_id = %container_id.get(),
         reason = %termination_reason
     ))]
-    fn handle_allocations_for_container_termination(
+    pub fn handle_allocations_for_container_termination(
         &self,
         in_memory_state: &InMemoryState,
         executor_id: &ExecutorId,
         container_id: &ContainerId,
-        termination_reason: FunctionExecutorTerminationReason,
-        blamed_alloc_ids: &[String],
+        termination_reason: ContainerTerminationReason,
     ) -> Result<SchedulerUpdateRequest> {
         let mut update = SchedulerUpdateRequest::default();
 
@@ -292,7 +289,7 @@ impl ContainerReconciler {
                     request_id = %alloc.request_id,
                     namespace = %alloc.namespace,
                     app = %alloc.application,
-                    fn_name = %alloc.function,
+                    "fn" = %alloc.function,
                     "function run not found, cancelling allocation"
                 );
                 update.cancel_allocation(&mut updated_alloc);
@@ -309,7 +306,7 @@ impl ContainerReconciler {
                     request_id = %alloc.request_id,
                     namespace = %alloc.namespace,
                     app = %alloc.application,
-                    fn_name = %alloc.function,
+                    "fn" = %alloc.function,
                     "request context not found, cancelling allocation"
                 );
                 update.cancel_allocation(&mut updated_alloc);
@@ -336,7 +333,7 @@ impl ContainerReconciler {
                     request_id = %alloc.request_id,
                     namespace = %alloc.namespace,
                     app = %alloc.application,
-                    fn_name = %alloc.function,
+                    "fn" = %alloc.function,
                     "application version not found, cancelling allocation"
                 );
                 update.cancel_allocation(&mut updated_alloc);
@@ -345,20 +342,7 @@ impl ContainerReconciler {
 
             let mut function_run = *function_run;
 
-            // Determine allocation outcome based on whether this allocation was blamed
-            // for the termination or if the executor was removed
-            if blamed_alloc_ids.contains(&updated_alloc.id.to_string()) ||
-                termination_reason == FunctionExecutorTerminationReason::ExecutorRemoved
-            {
-                updated_alloc.outcome = FunctionRunOutcome::Failure((&termination_reason).into());
-            } else {
-                // This allocation wasn't blamed for the FE termination,
-                // retry without involving the function run retry policy but still fail the
-                // alloc
-                updated_alloc.outcome = FunctionRunOutcome::Failure(
-                    FunctionRunFailureReason::FunctionExecutorTerminated,
-                );
-            }
+            updated_alloc.outcome = FunctionRunOutcome::Failure((&termination_reason).into());
 
             FunctionRunRetryPolicy::handle_allocation_outcome(
                 &mut function_run,
@@ -371,7 +355,7 @@ impl ContainerReconciler {
                 request_id = %updated_alloc.request_id,
                 namespace = %updated_alloc.namespace,
                 app = %updated_alloc.application,
-                fn_name = %updated_alloc.function,
+                "fn" = %updated_alloc.function,
                 allocation_outcome = %updated_alloc.outcome,
                 fn_run_status = %function_run.status,
                 fn_run_outcome = ?function_run.outcome.as_ref(),
@@ -432,9 +416,8 @@ impl ContainerReconciler {
             let container_update = self.handle_allocations_for_container_termination(
                 in_memory_state,
                 &alloc.target.executor_id,
-                &alloc.target.function_executor_id,
-                FunctionExecutorTerminationReason::Unknown,
-                &[],
+                &alloc.target.container_id,
+                ContainerTerminationReason::Unknown,
             )?;
 
             let payload = RequestPayload::SchedulerUpdate(SchedulerUpdatePayload::new(
@@ -477,9 +460,7 @@ impl ContainerReconciler {
             let mut updated_sandbox = sandbox.as_ref().clone();
             updated_sandbox.status = SandboxStatus::Terminated;
             updated_sandbox.outcome = Some(SandboxOutcome::Failure(
-                SandboxFailureReason::ContainerTerminated(
-                    FunctionExecutorTerminationReason::Unknown,
-                ),
+                SandboxFailureReason::ContainerTerminated(ContainerTerminationReason::Unknown),
             ));
 
             let mut sandbox_update = SchedulerUpdateRequest::default();
@@ -527,25 +508,20 @@ impl ContainerReconciler {
             info!(
                 namespace = fe.namespace,
                 app = fe.application_name,
-                fn_name = fe.function_name,
-                fn_executor_id = fe.id.get(),
+                "fn" = fe.function_name,
+                container_id = fe.id.get(),
                 sandbox_id = ?fe.sandbox_id,
-                fe_state = ?fe.state,
+                container_state = ?fe.state,
                 "removing function container from executor",
             );
 
-            if let ContainerState::Terminated {
-                reason,
-                failed_alloc_ids,
-            } = &fe.state
-            {
+            if let ContainerState::Terminated { reason } = &fe.state {
                 // Container is terminated - use the allocation termination handler
                 let container_update = self.handle_allocations_for_container_termination(
                     in_memory_state,
                     &executor_server_metadata.executor_id,
                     &fe.id,
                     *reason,
-                    failed_alloc_ids,
                 )?;
 
                 // Apply incremental updates to both stores
@@ -587,8 +563,7 @@ impl ContainerReconciler {
             let desired_state = match &fc.state {
                 ContainerState::Terminated { .. } => fc.state.clone(),
                 _ => ContainerState::Terminated {
-                    reason: FunctionExecutorTerminationReason::DesiredStateRemoved,
-                    failed_alloc_ids: vec![],
+                    reason: ContainerTerminationReason::DesiredStateRemoved,
                 },
             };
             let terminated_meta = ContainerServerMetadata::new(
@@ -656,9 +631,27 @@ impl ContainerReconciler {
         Ok(update)
     }
 
+    /// Promotes a sandbox from Pending to Running when the dataplane reports
+    /// ContainerStarted for the container backing it.
+    pub fn promote_sandbox_for_started_container(
+        &self,
+        in_memory_state: &InMemoryState,
+        container_scheduler: &ContainerScheduler,
+        container_id: &ContainerId,
+    ) -> Result<SchedulerUpdateRequest> {
+        let Some(server_meta) = container_scheduler.function_containers.get(container_id) else {
+            return Ok(SchedulerUpdateRequest::default());
+        };
+        self.promote_sandbox_if_container_running(
+            in_memory_state,
+            &server_meta.function_container,
+            &ContainerState::Running,
+        )
+    }
+
     /// Terminates sandbox associated with a container when the container
     /// terminates. Uses container.sandbox_id to find the associated sandbox.
-    fn terminate_sandbox_for_container(
+    pub fn terminate_sandbox_for_container(
         &self,
         in_memory_state: &InMemoryState,
         container: &Container,
@@ -697,7 +690,7 @@ impl ContainerReconciler {
         // this is normal/expected, not a failure.
         terminated_sandbox.outcome = match &container.state {
             ContainerState::Terminated { reason, .. }
-                if *reason == FunctionExecutorTerminationReason::FunctionTimeout =>
+                if *reason == ContainerTerminationReason::FunctionTimeout =>
             {
                 Some(SandboxOutcome::Success(SandboxSuccessReason::Timeout))
             }
@@ -756,8 +749,7 @@ impl ContainerReconciler {
                 in_memory_state,
                 executor_id,
                 container_id,
-                FunctionExecutorTerminationReason::ExecutorRemoved,
-                &[],
+                ContainerTerminationReason::ExecutorRemoved,
             )?;
 
             let payload = RequestPayload::SchedulerUpdate(SchedulerUpdatePayload::new(
@@ -773,8 +765,7 @@ impl ContainerReconciler {
             scheduler_update.extend(container_update);
 
             let terminated_state = ContainerState::Terminated {
-                reason: FunctionExecutorTerminationReason::ExecutorRemoved,
-                failed_alloc_ids: vec![],
+                reason: ContainerTerminationReason::ExecutorRemoved,
             };
             if let Some(fc) = container_scheduler.function_containers.get(container_id) {
                 let mut terminated_fc = *fc.clone();

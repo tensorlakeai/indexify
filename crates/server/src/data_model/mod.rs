@@ -115,14 +115,14 @@ impl From<String> for ExecutorId {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct AllocationTarget {
     pub executor_id: ExecutorId,
-    pub function_executor_id: ContainerId,
+    pub container_id: ContainerId,
 }
 
 impl AllocationTarget {
-    pub fn new(executor_id: ExecutorId, function_executor_id: ContainerId) -> Self {
+    pub fn new(executor_id: ExecutorId, container_id: ContainerId) -> Self {
         Self {
             executor_id,
-            function_executor_id,
+            container_id,
         }
     }
 }
@@ -1015,6 +1015,9 @@ impl From<&FunctionRunFailureReason> for RequestFailureReason {
                 RequestFailureReason::ConstraintUnsatisfiable
             }
             FunctionRunFailureReason::OutOfMemory => RequestFailureReason::OutOfMemory,
+            FunctionRunFailureReason::ContainerStartupBadImage => {
+                RequestFailureReason::InternalError
+            }
         }
     }
 }
@@ -1330,6 +1333,9 @@ pub enum FunctionRunFailureReason {
     // Container startup internal error.
     ContainerStartupInternalError,
 
+    // Container startup failed due to bad/missing image.
+    ContainerStartupBadImage,
+
     OutOfMemory,
 }
 
@@ -1355,6 +1361,7 @@ impl Display for FunctionRunFailureReason {
             FunctionRunFailureReason::ContainerStartupInternalError => {
                 "ContainerStartupInternalError"
             }
+            FunctionRunFailureReason::ContainerStartupBadImage => "ContainerStartupBadImage",
         };
         write!(f, "{str_val}")
     }
@@ -1379,18 +1386,17 @@ impl FunctionRunFailureReason {
     }
 
     pub fn should_count_against_function_run_retry_attempts(&self) -> bool {
-        // Platform/infrastructure failures that are not the user's fault
-        // don't count against retry attempts. This ensures transient
-        // issues (port collisions, executor crashes, slow CI machines)
-        // get retried even when max_retries is 0.
+        // Most retriable failures count against retry attempts. This
+        // prevents infinite retry loops when containers keep crashing.
         //
-        // Reasons that DON'T count (free retries):
-        //   FunctionExecutorTerminated, ExecutorRemoved,
-        //   ContainerStartupInternalError
+        // Reasons that DON'T count (free retries — pure infrastructure):
+        //   ExecutorRemoved, FunctionExecutorTerminated
+        //   (container killed externally, allocation was an innocent victim)
         //
-        // Reasons that DO count (user-attributable):
+        // Reasons that DO count (user-attributable or startup failures):
         //   InternalError, FunctionError, FunctionTimeout, OutOfMemory,
-        //   ContainerStartupFunctionError, ContainerStartupFunctionTimeout
+        //   ContainerStartupFunctionError, ContainerStartupFunctionTimeout,
+        //   ContainerStartupInternalError
         matches!(
             self,
             FunctionRunFailureReason::InternalError |
@@ -1398,7 +1404,8 @@ impl FunctionRunFailureReason {
                 FunctionRunFailureReason::FunctionTimeout |
                 FunctionRunFailureReason::OutOfMemory |
                 FunctionRunFailureReason::ContainerStartupFunctionError |
-                FunctionRunFailureReason::ContainerStartupFunctionTimeout
+                FunctionRunFailureReason::ContainerStartupFunctionTimeout |
+                FunctionRunFailureReason::ContainerStartupInternalError
         )
     }
 }
@@ -1777,8 +1784,7 @@ pub enum ContainerState {
     Running,
     // Function Executor is terminated, all resources are freed.
     Terminated {
-        reason: FunctionExecutorTerminationReason,
-        failed_alloc_ids: Vec<String>,
+        reason: ContainerTerminationReason,
     },
 }
 
@@ -1795,12 +1801,13 @@ pub enum ContainerState {
     Eq,
     Hash,
 )]
-pub enum FunctionExecutorTerminationReason {
+pub enum ContainerTerminationReason {
     #[default]
     Unknown,
     StartupFailedInternalError,
     StartupFailedFunctionError,
     StartupFailedFunctionTimeout,
+    StartupFailedBadImage,
     Unhealthy,
     InternalError,
     FunctionError,
@@ -1812,46 +1819,41 @@ pub enum FunctionExecutorTerminationReason {
     ProcessCrash,
 }
 
-impl From<&FunctionExecutorTerminationReason> for FunctionRunFailureReason {
-    fn from(reason: &FunctionExecutorTerminationReason) -> Self {
+impl From<&ContainerTerminationReason> for FunctionRunFailureReason {
+    fn from(reason: &ContainerTerminationReason) -> Self {
         match reason {
-            FunctionExecutorTerminationReason::Unknown => {
+            ContainerTerminationReason::Unknown => {
                 FunctionRunFailureReason::FunctionExecutorTerminated
             }
-            FunctionExecutorTerminationReason::StartupFailedInternalError => {
+            ContainerTerminationReason::StartupFailedInternalError => {
                 FunctionRunFailureReason::ContainerStartupInternalError
             }
-            FunctionExecutorTerminationReason::StartupFailedFunctionError => {
+            ContainerTerminationReason::StartupFailedFunctionError => {
                 FunctionRunFailureReason::ContainerStartupFunctionError
             }
-            FunctionExecutorTerminationReason::StartupFailedFunctionTimeout => {
+            ContainerTerminationReason::StartupFailedFunctionTimeout => {
                 FunctionRunFailureReason::ContainerStartupFunctionTimeout
             }
-            FunctionExecutorTerminationReason::Unhealthy => {
+            ContainerTerminationReason::StartupFailedBadImage => {
+                FunctionRunFailureReason::ContainerStartupBadImage
+            }
+            ContainerTerminationReason::Unhealthy => FunctionRunFailureReason::FunctionTimeout,
+            ContainerTerminationReason::InternalError => FunctionRunFailureReason::InternalError,
+            ContainerTerminationReason::FunctionError => FunctionRunFailureReason::FunctionError,
+            ContainerTerminationReason::FunctionTimeout => {
                 FunctionRunFailureReason::FunctionTimeout
             }
-            FunctionExecutorTerminationReason::InternalError => {
-                FunctionRunFailureReason::InternalError
-            }
-            FunctionExecutorTerminationReason::FunctionError => {
-                FunctionRunFailureReason::FunctionError
-            }
-            FunctionExecutorTerminationReason::FunctionTimeout => {
-                FunctionRunFailureReason::FunctionTimeout
-            }
-            FunctionExecutorTerminationReason::FunctionCancelled => {
+            ContainerTerminationReason::FunctionCancelled => {
                 FunctionRunFailureReason::FunctionRunCancelled
             }
-            FunctionExecutorTerminationReason::DesiredStateRemoved => {
+            ContainerTerminationReason::DesiredStateRemoved => {
                 FunctionRunFailureReason::FunctionExecutorTerminated
             }
-            FunctionExecutorTerminationReason::ExecutorRemoved => {
+            ContainerTerminationReason::ExecutorRemoved => {
                 FunctionRunFailureReason::ExecutorRemoved
             }
-            FunctionExecutorTerminationReason::Oom => FunctionRunFailureReason::OutOfMemory,
-            FunctionExecutorTerminationReason::ProcessCrash => {
-                FunctionRunFailureReason::FunctionError
-            }
+            ContainerTerminationReason::Oom => FunctionRunFailureReason::OutOfMemory,
+            ContainerTerminationReason::ProcessCrash => FunctionRunFailureReason::FunctionError,
         }
     }
 }
@@ -1886,17 +1888,6 @@ impl FunctionAllowlist {
             self.function
                 .as_ref()
                 .is_none_or(|function_name| function_name == &function.name)
-    }
-
-    /// Check if allowlist permits a namespace/application (ignoring function).
-    /// Used for sandboxes which don't have a specific function.
-    pub fn matches_app(&self, ns: &str, app: &str) -> bool {
-        self.namespace
-            .as_ref()
-            .is_none_or(|namespace| namespace == ns) &&
-            self.application
-                .as_ref()
-                .is_none_or(|application| application == app)
     }
 }
 
@@ -2204,18 +2195,21 @@ impl ExecutorMetadata {
         }
     }
 
-    /// Check if executor's allowlist permits a namespace/application.
-    /// Used for sandboxes which don't have a specific function.
-    pub fn is_app_allowed(&self, namespace: &str, application: &str) -> bool {
-        if let Some(function_allowlist) = &self.function_allowlist {
-            function_allowlist
-                .iter()
-                .any(|allowlist| allowlist.matches_app(namespace, application))
-        } else {
-            true
-        }
+    pub fn is_namespace_allowed(&self, namespace: &str) -> bool {
+        self.function_allowlist
+            .as_ref()
+            .map(|allowlist| {
+                allowlist.iter().any(|allowlist| {
+                    allowlist
+                        .namespace
+                        .as_ref()
+                        .is_some_and(|ns| ns == namespace)
+                })
+            })
+            .unwrap_or(true)
     }
 
+    #[allow(dead_code)]
     pub fn update(&mut self, update: ExecutorMetadata) {
         self.function_allowlist = update.function_allowlist;
         self.containers = update.containers;
@@ -2289,6 +2283,25 @@ pub struct ExecutorUpsertedEvent {
     pub executor_id: ExecutorId,
 }
 
+/// Info about a container state change reported by the dataplane.
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct ContainerStateUpdateInfo {
+    pub container_id: ContainerId,
+    pub termination_reason: Option<ContainerTerminationReason>,
+}
+
+/// Event triggered when a v2 dataplane reports allocation results
+/// and container state changes together for atomic processing.
+/// Carries all data needed by the ApplicationProcessor handler so
+/// container terminations and allocation results are processed atomically.
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct DataplaneResultsIngestedEvent {
+    pub executor_id: ExecutorId,
+    pub allocation_events: Vec<AllocationOutputIngestedEvent>,
+    pub container_state_updates: Vec<ContainerStateUpdateInfo>,
+    pub container_started_ids: Vec<ContainerId>,
+}
+
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub enum ChangeType {
     InvokeApplication(InvokeApplicationEvent),
@@ -2303,6 +2316,7 @@ pub enum ChangeType {
     CreateContainerPool(CreateContainerPoolEvent),
     UpdateContainerPool(UpdateContainerPoolEvent),
     DeleteContainerPool(DeleteContainerPoolEvent),
+    DataplaneResultsIngested(DataplaneResultsIngestedEvent),
 }
 
 impl fmt::Display for ChangeType {
@@ -2367,6 +2381,11 @@ impl fmt::Display for ChangeType {
                 f,
                 "DeleteContainerPool, namespace: {}, pool_id: {}",
                 ev.namespace, ev.pool_id
+            ),
+            ChangeType::DataplaneResultsIngested(ev) => write!(
+                f,
+                "DataplaneResultsIngested, executor_id: {}",
+                ev.executor_id
             ),
         }
     }
@@ -2707,7 +2726,7 @@ pub enum SandboxFailureReason {
     /// Container startup failed
     ContainerStartupFailed,
     /// Container terminated (with reason from executor)
-    ContainerTerminated(FunctionExecutorTerminationReason),
+    ContainerTerminated(ContainerTerminationReason),
     /// Pool was deleted while sandbox was using it
     PoolDeleted,
 }
@@ -3444,7 +3463,7 @@ mod tests {
 
         let target = AllocationTarget {
             executor_id: "executor-1".into(),
-            function_executor_id: "fe-1".into(),
+            container_id: "fe-1".into(),
         };
         let allocation = AllocationBuilder::default()
             .namespace("test-ns".to_string())
@@ -3477,10 +3496,7 @@ mod tests {
         assert_eq!(allocation.request_id, "invoc-1");
         assert_eq!(allocation.function_call_id, "task-1".into());
         assert_eq!(allocation.target.executor_id, target.executor_id);
-        assert_eq!(
-            allocation.target.function_executor_id,
-            target.function_executor_id
-        );
+        assert_eq!(allocation.target.container_id, target.container_id);
         assert_eq!(allocation.attempt_number, 1);
         assert_eq!(allocation.outcome, FunctionRunOutcome::Success);
         assert!(!allocation.id.is_empty());
@@ -3500,9 +3516,9 @@ mod tests {
             allocation.function_call_id
         )));
         assert!(json.contains(&format!(
-            "\"target\":{{\"executor_id\":\"{}\",\"function_executor_id\":\"{}\"}}",
+            "\"target\":{{\"executor_id\":\"{}\",\"container_id\":\"{}\"}}",
             allocation.target.executor_id.get(),
-            allocation.target.function_executor_id.get()
+            allocation.target.container_id.get()
         )));
         assert!(json.contains(&format!("\"attempt_number\":{}", allocation.attempt_number)));
         assert!(json.contains(&"\"outcome\":\"Success\"".to_string()));

@@ -2,8 +2,8 @@
 
 use proto_api::executor_api_pb::{
     Allocation as ServerAllocation,
-    FunctionExecutorDescription,
-    FunctionExecutorTerminationReason,
+    ContainerDescription,
+    ContainerTerminationReason,
 };
 
 use crate::{
@@ -17,11 +17,16 @@ use crate::{
 /// Commands sent TO the controller (from service.rs / state_reconciler).
 #[allow(clippy::large_enum_variant)]
 pub enum ACCommand {
-    /// Atomic reconciliation: desired FEs + new allocations together.
+    /// Delta reconciliation: add/update containers, remove containers, route
+    /// new allocations. Unlike the old full-set Reconcile, containers not
+    /// mentioned are left untouched.
     Reconcile {
-        desired_fes: Vec<FunctionExecutorDescription>,
-        /// (fe_id, allocation) pairs.
-        new_allocations: Vec<(String, ServerAllocation)>,
+        /// Containers to create or update.
+        added_or_updated_fes: Vec<ContainerDescription>,
+        /// Container IDs to destroy.
+        removed_fe_ids: Vec<String>,
+        /// (fe_id, allocation, command_seq) tuples to route.
+        new_allocations: Vec<(String, ServerAllocation, u64)>,
     },
     /// Graceful shutdown of the entire controller.
     Shutdown,
@@ -37,7 +42,7 @@ pub(super) enum ACEvent {
     },
     ContainerTerminated {
         fe_id: String,
-        reason: FunctionExecutorTerminationReason,
+        reason: ContainerTerminationReason,
         /// Allocation ID that triggered the termination (e.g. the allocation
         /// whose gRPC stream broke, signalling a process crash). Ensures this
         /// allocation is blamed even if it already transitioned out of Running.

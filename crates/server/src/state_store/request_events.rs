@@ -34,7 +34,7 @@ pub trait RequestEventMetadata {
     fn application_version(&self) -> &str;
     fn request_id(&self) -> &str;
 
-    fn function_executor_id(&self) -> Option<&str>;
+    fn container_id(&self) -> Option<&str>;
     fn function_run_id(&self) -> Option<&str>;
     fn allocation_id(&self) -> Option<&str>;
 }
@@ -144,15 +144,15 @@ impl RequestStateChangeEvent {
         }
     }
 
-    pub fn function_executor_id(&self) -> Option<&str> {
+    pub fn container_id(&self) -> Option<&str> {
         match self {
-            RequestStateChangeEvent::RequestStarted(event) => event.function_executor_id(),
-            RequestStateChangeEvent::RequestFinished(event) => event.function_executor_id(),
-            RequestStateChangeEvent::FunctionRunCreated(event) => event.function_executor_id(),
-            RequestStateChangeEvent::FunctionRunCompleted(event) => event.function_executor_id(),
-            RequestStateChangeEvent::FunctionRunMatchedCache(event) => event.function_executor_id(),
-            RequestStateChangeEvent::AllocationCreated(event) => event.function_executor_id(),
-            RequestStateChangeEvent::AllocationCompleted(event) => event.function_executor_id(),
+            RequestStateChangeEvent::RequestStarted(event) => event.container_id(),
+            RequestStateChangeEvent::RequestFinished(event) => event.container_id(),
+            RequestStateChangeEvent::FunctionRunCreated(event) => event.container_id(),
+            RequestStateChangeEvent::FunctionRunCompleted(event) => event.container_id(),
+            RequestStateChangeEvent::FunctionRunMatchedCache(event) => event.container_id(),
+            RequestStateChangeEvent::AllocationCreated(event) => event.container_id(),
+            RequestStateChangeEvent::AllocationCompleted(event) => event.container_id(),
         }
     }
 
@@ -210,7 +210,7 @@ impl RequestEventMetadata for RequestFinishedEvent {
         &self.request_id
     }
 
-    fn function_executor_id(&self) -> Option<&str> {
+    fn container_id(&self) -> Option<&str> {
         None
     }
 
@@ -250,7 +250,7 @@ impl RequestEventMetadata for RequestStartedEvent {
         &self.request_id
     }
 
-    fn function_executor_id(&self) -> Option<&str> {
+    fn container_id(&self) -> Option<&str> {
         None
     }
 
@@ -291,7 +291,7 @@ impl RequestEventMetadata for FunctionRunCreated {
         &self.request_id
     }
 
-    fn function_executor_id(&self) -> Option<&str> {
+    fn container_id(&self) -> Option<&str> {
         None
     }
 
@@ -336,7 +336,7 @@ impl RequestEventMetadata for FunctionRunCompleted {
         &self.request_id
     }
 
-    fn function_executor_id(&self) -> Option<&str> {
+    fn container_id(&self) -> Option<&str> {
         None
     }
 
@@ -384,7 +384,7 @@ impl RequestEventMetadata for AllocationCreated {
         &self.request_id
     }
 
-    fn function_executor_id(&self) -> Option<&str> {
+    fn container_id(&self) -> Option<&str> {
         Some(&self.container_id)
     }
 
@@ -432,7 +432,7 @@ impl RequestEventMetadata for AllocationCompleted {
         &self.request_id
     }
 
-    fn function_executor_id(&self) -> Option<&str> {
+    fn container_id(&self) -> Option<&str> {
         Some(&self.container_id)
     }
 
@@ -474,7 +474,7 @@ impl RequestEventMetadata for FunctionRunMatchedCache {
         &self.request_id
     }
 
-    fn function_executor_id(&self) -> Option<&str> {
+    fn container_id(&self) -> Option<&str> {
         None
     }
 
@@ -578,7 +578,7 @@ pub fn build_request_state_change_events(
                         function_name: allocation.function.clone(),
                         function_run_id: allocation.function_call_id.to_string(),
                         executor_id: allocation.target.executor_id.get().to_string(),
-                        container_id: allocation.target.function_executor_id.get().to_string(),
+                        container_id: allocation.target.container_id.get().to_string(),
                         allocation_id: allocation.id.to_string(),
                         created_at: Utc::now(),
                     },
@@ -597,7 +597,7 @@ pub fn build_request_state_change_events(
                             function_run_id: allocation.function_call_id.to_string(),
                             allocation_id: allocation.id.to_string(),
                             outcome: (&allocation.outcome).into(),
-                            container_id: allocation.target.function_executor_id.get().to_string(),
+                            container_id: allocation.target.container_id.get().to_string(),
                             created_at: Utc::now(),
                         },
                     ));

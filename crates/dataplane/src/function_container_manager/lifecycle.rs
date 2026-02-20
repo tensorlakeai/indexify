@@ -5,8 +5,12 @@
 
 use std::{sync::Arc, time::Duration};
 
-use proto_api::executor_api_pb::{FunctionExecutorDescription, FunctionExecutorTerminationReason};
-use tokio::sync::RwLock;
+use proto_api::executor_api_pb::{
+    CommandResponse,
+    ContainerDescription,
+    ContainerTerminationReason,
+};
+use tokio::sync::{RwLock, mpsc};
 
 use super::{
     image_resolver::ImageResolver,
@@ -28,7 +32,7 @@ pub(super) async fn start_container_with_daemon(
     image_resolver: &Arc<dyn ImageResolver>,
     secrets_provider: &Arc<dyn SecretsProvider>,
     executor_id: &str,
-    desc: &FunctionExecutorDescription,
+    desc: &ContainerDescription,
 ) -> anyhow::Result<(ProcessHandle, DaemonClient)> {
     let info = ContainerInfo::from_description(desc, executor_id);
 
@@ -46,6 +50,15 @@ pub(super) async fn start_container_with_daemon(
     } else {
         anyhow::bail!("Cannot determine image: no sandbox_metadata.image, pool_id, or sandbox_id")
     };
+
+    tracing::info!(
+        container_id = %info.container_id,
+        namespace = %info.namespace,
+        image = %image,
+        sandbox_id = ?info.sandbox_id,
+        pool_id = ?desc.pool_id,
+        "Image resolved for container"
+    );
 
     // Extract resource limits from the function executor description.
     // Note: sandbox containers don't currently support GPU passthrough.
@@ -207,11 +220,12 @@ pub(super) async fn start_container_with_daemon(
 /// completes.
 pub(super) async fn handle_container_startup_result(
     id: String,
-    desc: FunctionExecutorDescription,
+    desc: ContainerDescription,
     result: anyhow::Result<(ProcessHandle, DaemonClient)>,
     containers_ref: Arc<RwLock<ContainerStore>>,
     metrics: Arc<DataplaneMetrics>,
     state_file: Arc<StateFile>,
+    container_state_tx: mpsc::UnboundedSender<CommandResponse>,
 ) {
     let mut containers = containers_ref.write().await;
     let Some(container) = containers.get_mut(&id) else {
@@ -261,6 +275,10 @@ pub(super) async fn handle_container_startup_result(
 
             if let Err(e) = container.transition_to_running(handle, daemon_client) {
                 tracing::warn!(parent: &span, error = %e, "Invalid state transition on startup");
+            } else {
+                // Notify the server so it can promote sandbox status from
+                // Pending to Running.
+                super::FunctionContainerManager::send_container_started(&container_state_tx, &id);
             }
 
             update_container_counts(&containers, &metrics).await;
@@ -278,13 +296,16 @@ pub(super) async fn handle_container_startup_result(
                 event = "container_startup_failed",
                 "Failed to start container"
             );
-            if let Err(e) = container.transition_to_terminated(
-                FunctionExecutorTerminationReason::StartupFailedInternalError,
-            ) {
-                tracing::warn!(
-                    parent: &span,
-                    error = %e,
-                    "Invalid state transition on startup failure"
+            let reason = if e.downcast_ref::<crate::driver::ImageError>().is_some() {
+                ContainerTerminationReason::StartupFailedBadImage
+            } else {
+                ContainerTerminationReason::StartupFailedInternalError
+            };
+            if container.transition_to_terminated(reason).is_ok() {
+                super::FunctionContainerManager::send_container_terminated(
+                    &container_state_tx,
+                    &id,
+                    reason,
                 );
             }
 

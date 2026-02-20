@@ -215,7 +215,7 @@ mod tests {
     fn test_data_model_load_regression() {
         let target = AllocationTarget {
             executor_id: "executor-1".into(),
-            function_executor_id: "fe-1".into(),
+            container_id: "fe-1".into(),
         };
         let allocation = AllocationBuilder::default()
             .namespace("test-ns".to_string())

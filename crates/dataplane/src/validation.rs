@@ -1,19 +1,19 @@
 //! Message validation for incoming server protos.
 //!
-//! Validates required fields on FunctionExecutorDescription, Allocation,
+//! Validates required fields on ContainerDescription, Allocation,
 //! DataPayload, and FunctionRef before processing. Matches Python executor's
 //! message_validators.py.
 
 use proto_api::executor_api_pb::{
     Allocation,
+    ContainerDescription,
+    ContainerType,
     DataPayload,
-    FunctionExecutorDescription,
-    FunctionExecutorType,
     FunctionRef,
 };
 
-/// Validate a FunctionExecutorDescription. Returns an error message if invalid.
-pub fn validate_fe_description(desc: &FunctionExecutorDescription) -> Result<(), String> {
+/// Validate a ContainerDescription. Returns an error message if invalid.
+pub fn validate_fe_description(desc: &ContainerDescription) -> Result<(), String> {
     if desc.id.is_none() {
         return Err("missing id".into());
     }
@@ -21,7 +21,7 @@ pub fn validate_fe_description(desc: &FunctionExecutorDescription) -> Result<(),
     // Sandbox containers don't require function, application, or allocation fields
     let is_sandbox = desc
         .container_type
-        .map(|t| FunctionExecutorType::try_from(t) == Ok(FunctionExecutorType::Sandbox))
+        .map(|t| ContainerType::try_from(t) == Ok(ContainerType::Sandbox))
         .unwrap_or(false);
 
     if is_sandbox {
@@ -70,8 +70,8 @@ pub fn validate_allocation(alloc: &Allocation) -> Result<(), String> {
     if alloc.request_id.is_none() {
         return Err("missing request_id".into());
     }
-    if alloc.function_executor_id.is_none() {
-        return Err("missing function_executor_id".into());
+    if alloc.container_id.is_none() {
+        return Err("missing container_id".into());
     }
     if alloc.request_data_payload_uri_prefix.is_none() {
         return Err("missing request_data_payload_uri_prefix".into());
@@ -144,8 +144,8 @@ mod tests {
         }
     }
 
-    fn valid_fe_description() -> FunctionExecutorDescription {
-        FunctionExecutorDescription {
+    fn valid_fe_description() -> ContainerDescription {
+        ContainerDescription {
             id: Some("fe-1".into()),
             function: Some(valid_function_ref()),
             initialization_timeout_ms: Some(30000),
@@ -162,7 +162,7 @@ mod tests {
             allocation_id: Some("alloc-1".into()),
             function_call_id: Some("fc-1".into()),
             request_id: Some("req-1".into()),
-            function_executor_id: Some("fe-1".into()),
+            container_id: Some("fe-1".into()),
             request_data_payload_uri_prefix: Some("file:///tmp".into()),
             request_error_payload_uri_prefix: Some("file:///tmp".into()),
             args: vec![valid_data_payload()],
@@ -218,9 +218,9 @@ mod tests {
     #[test]
     fn test_sandbox_fe_description_valid_without_application() {
         // Sandbox containers don't have application code payloads
-        let desc = FunctionExecutorDescription {
+        let desc = ContainerDescription {
             id: Some("sandbox-1".into()),
-            container_type: Some(FunctionExecutorType::Sandbox.into()),
+            container_type: Some(ContainerType::Sandbox.into()),
             ..Default::default()
         };
         assert!(validate_fe_description(&desc).is_ok());
@@ -228,8 +228,8 @@ mod tests {
 
     #[test]
     fn test_sandbox_fe_description_requires_id() {
-        let desc = FunctionExecutorDescription {
-            container_type: Some(FunctionExecutorType::Sandbox.into()),
+        let desc = ContainerDescription {
+            container_type: Some(ContainerType::Sandbox.into()),
             ..Default::default()
         };
         assert!(validate_fe_description(&desc).is_err());

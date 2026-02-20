@@ -12,7 +12,7 @@ use std::{
 use anyhow::{Context, Result};
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use prost::Message;
-use proto_api::executor_api_pb::FunctionExecutorDescription;
+use proto_api::executor_api_pb::ContainerDescription;
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 use tracing::{info, warn};
@@ -33,22 +33,22 @@ pub struct PersistedContainer {
     pub container_ip: String,
     /// Timestamp when the container was started (epoch ms).
     pub started_at: u64,
-    /// Base64-encoded protobuf of FunctionExecutorDescription.
+    /// Base64-encoded protobuf of ContainerDescription.
     /// Contains the full container description including function ref.
     #[serde(default)]
     pub description_proto: Option<String>,
 }
 
 impl PersistedContainer {
-    /// Decode the FunctionExecutorDescription from the stored protobuf.
-    pub fn decode_description(&self) -> Option<FunctionExecutorDescription> {
+    /// Decode the ContainerDescription from the stored protobuf.
+    pub fn decode_description(&self) -> Option<ContainerDescription> {
         let proto_b64 = self.description_proto.as_ref()?;
         let proto_bytes = BASE64.decode(proto_b64).ok()?;
-        FunctionExecutorDescription::decode(proto_bytes.as_slice()).ok()
+        ContainerDescription::decode(proto_bytes.as_slice()).ok()
     }
 
-    /// Encode a FunctionExecutorDescription to base64 protobuf.
-    pub fn encode_description(desc: &FunctionExecutorDescription) -> String {
+    /// Encode a ContainerDescription to base64 protobuf.
+    pub fn encode_description(desc: &ContainerDescription) -> String {
         BASE64.encode(desc.encode_to_vec())
     }
 }
@@ -227,7 +227,7 @@ mod tests {
     fn test_description_encode_decode() {
         use proto_api::executor_api_pb::FunctionRef;
 
-        let desc = FunctionExecutorDescription {
+        let desc = ContainerDescription {
             id: Some("test-container".to_string()),
             function: Some(FunctionRef {
                 namespace: Some("test-ns".to_string()),

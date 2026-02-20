@@ -9,5 +9,3 @@ mod function_call_reconciler;
 pub mod health_checker;
 pub mod proto_convert;
 mod state_ops;
-mod watcher_reconciler;
-pub mod watcher_registry;

@@ -460,6 +460,7 @@ pub enum FunctionRunFailureReason {
     ContainerStartupFunctionError,
     ContainerStartupFunctionTimeout,
     ContainerStartupInternalError,
+    ContainerStartupBadImage,
 }
 
 impl From<&data_model::FunctionRunFailureReason> for FunctionRunFailureReason {
@@ -501,6 +502,9 @@ impl From<&data_model::FunctionRunFailureReason> for FunctionRunFailureReason {
             }
             data_model::FunctionRunFailureReason::ContainerStartupInternalError => {
                 FunctionRunFailureReason::ContainerStartupInternalError
+            }
+            data_model::FunctionRunFailureReason::ContainerStartupBadImage => {
+                FunctionRunFailureReason::ContainerStartupBadImage
             }
         }
     }
@@ -581,7 +585,7 @@ impl From<data_model::HostResources> for HostResources {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct FunctionExecutorMetadata {
+pub struct ContainerMetadata {
     pub id: String,
     pub namespace: String,
     pub application_name: String,
@@ -593,12 +597,12 @@ pub struct FunctionExecutorMetadata {
     pub num_allocations: u32,
 }
 
-pub fn from_data_model_function_executor(
+pub fn from_data_model_container(
     fe: data_model::Container,
     desired_state: ContainerState,
     num_allocations: u32,
-) -> FunctionExecutorMetadata {
-    FunctionExecutorMetadata {
+) -> ContainerMetadata {
+    ContainerMetadata {
         id: fe.id.get().to_string(),
         namespace: fe.namespace,
         application_name: fe.application_name,
@@ -618,8 +622,8 @@ pub struct ExecutorMetadata {
     pub function_allowlist: Option<Vec<FunctionAllowlist>>,
     pub addr: String,
     pub labels: HashMap<String, String>,
-    pub function_executors: Vec<FunctionExecutorMetadata>,
-    pub server_only_function_executors: Vec<FunctionExecutorMetadata>,
+    pub containers: Vec<ContainerMetadata>,
+    pub server_only_containers: Vec<ContainerMetadata>,
     pub host_resources: HostResources,
     pub free_resources: HostResources,
     pub state: String,
@@ -646,33 +650,26 @@ pub fn from_data_model_executor_metadata(
             })
             .collect()
     });
-    let mut function_executors = Vec::new();
-    for (fe_id, fe) in executor.containers.iter() {
-        if let Some(fe_server_metadata) = function_container_server_metadata.get(fe_id) {
-            let desired_state = fe_server_metadata.desired_state.clone();
-            function_executors.push(from_data_model_function_executor(
-                fe.clone(),
-                desired_state,
-                fe_server_metadata.allocations.len() as u32,
-            ));
-        } else {
-            function_executors.push(from_data_model_function_executor(
-                fe.clone(),
-                ContainerState::Unknown,
-                0,
-            ));
-        }
+    // In v2, the server owns the container lifecycle (AddContainer/RemoveContainer
+    // commands), so function_container_server_metadata is the authoritative source
+    // for which containers exist on the executor. Use it as the primary list.
+    // Containers only in executor.containers (from heartbeat) are included as
+    // fallback for v1 compatibility.
+    let mut containers_list = Vec::new();
+    for (_fe_id, fe) in function_container_server_metadata.iter() {
+        containers_list.push(from_data_model_container(
+            fe.function_container.clone(),
+            fe.desired_state.clone(),
+            fe.allocations.len() as u32,
+        ));
     }
-    let server_only_function_executors = function_container_server_metadata
+    // Include any executor-reported containers not tracked by the server
+    // (shouldn't happen in v2, but preserves v1 compatibility).
+    let server_only_containers: Vec<ContainerMetadata> = executor
+        .containers
         .iter()
-        .filter(|(fe_id, _fe)| !executor.containers.contains_key(fe_id))
-        .map(|(_fe_id, fe)| {
-            from_data_model_function_executor(
-                fe.function_container.clone(),
-                fe.desired_state.clone(),
-                fe.allocations.len() as u32,
-            )
-        })
+        .filter(|(fe_id, _)| !function_container_server_metadata.contains_key(fe_id))
+        .map(|(_fe_id, fe)| from_data_model_container(fe.clone(), ContainerState::Unknown, 0))
         .collect();
     ExecutorMetadata {
         id: executor.id.to_string(),
@@ -680,8 +677,8 @@ pub fn from_data_model_executor_metadata(
         addr: executor.addr,
         function_allowlist,
         labels: executor.labels,
-        function_executors,
-        server_only_function_executors,
+        containers: containers_list,
+        server_only_containers,
         host_resources: executor.host_resources.into(),
         free_resources: free_resources.into(),
         state: executor.state.as_ref().to_string(),
@@ -753,7 +750,7 @@ pub struct Allocation {
     pub application: String,
     pub function: String,
     pub executor_id: String,
-    pub function_executor_id: String,
+    pub container_id: String,
     pub function_call_id: String,
     pub request_id: String,
     pub created_at: u128,
@@ -776,7 +773,7 @@ impl From<data_model::Allocation> for Allocation {
             application: allocation.application,
             function: allocation.function,
             executor_id: allocation.target.executor_id.to_string(),
-            function_executor_id: allocation.target.function_executor_id.get().to_string(),
+            container_id: allocation.target.container_id.get().to_string(),
             function_call_id: allocation.function_call_id.to_string(),
             request_id: allocation.request_id.to_string(),
             created_at: allocation.created_at,
@@ -826,7 +823,7 @@ pub struct UnallocatedFunctionRuns {
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct FnExecutor {
     pub count: usize,
-    pub function_executor_id: String,
+    pub container_id: String,
     pub fn_uri: Option<String>,
     pub state: String,
     pub desired_state: String,
@@ -837,7 +834,7 @@ pub struct FnExecutor {
 pub struct ExecutorAllocations {
     pub count: usize,
     pub executor_id: String,
-    pub function_executors: Vec<FnExecutor>,
+    pub containers: Vec<FnExecutor>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]

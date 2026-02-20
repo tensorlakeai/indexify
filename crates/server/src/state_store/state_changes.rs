@@ -30,6 +30,7 @@ use crate::{
         CreateContainerPoolRequest,
         CreateOrUpdateApplicationRequest,
         CreateSandboxRequest,
+        DataplaneResultsRequest,
         DeleteApplicationRequest,
         DeleteContainerPoolRequest,
         DeleteRequestRequest,
@@ -316,4 +317,21 @@ pub fn create_or_update_application_pools(
         changes.push(state_change);
     }
     Ok(changes)
+}
+
+pub fn dataplane_results_ingested(
+    last_change_id: &AtomicU64,
+    request: &DataplaneResultsRequest,
+) -> Result<Vec<StateChange>> {
+    let last_change_id = last_change_id.fetch_add(1, atomic::Ordering::Relaxed);
+    let state_change = StateChangeBuilder::default()
+        .namespace(None)
+        .application(None)
+        .change_type(ChangeType::DataplaneResultsIngested(request.event.clone()))
+        .created_at(get_epoch_time_in_ms())
+        .object_id(request.event.executor_id.to_string())
+        .id(StateChangeId::new(last_change_id))
+        .processed_at(None)
+        .build()?;
+    Ok(vec![state_change])
 }

@@ -1,10 +1,6 @@
 use tracing::error;
 
-use crate::{
-    data_model::{FunctionRunFailureReason, FunctionRunOutcome},
-    executor_api::executor_api_pb,
-    state_store::in_memory_state::FunctionCallOutcome,
-};
+use crate::executor_api::executor_api_pb;
 
 pub fn string_to_data_payload_encoding(value: &str) -> executor_api_pb::DataPayloadEncoding {
     match value {
@@ -14,115 +10,6 @@ pub fn string_to_data_payload_encoding(value: &str) -> executor_api_pb::DataPayl
         "text/plain" => executor_api_pb::DataPayloadEncoding::Utf8Text,
         // User supplied content type for tensorlake.File.
         _ => executor_api_pb::DataPayloadEncoding::Raw,
-    }
-}
-
-pub fn fn_call_outcome_to_pb(
-    function_call_outcome: &FunctionCallOutcome,
-    blob_store_url_scheme: &str,
-    blob_store_url: &str,
-) -> executor_api_pb::FunctionCallResult {
-    let outcome_code = match function_call_outcome.outcome {
-        FunctionRunOutcome::Success => executor_api_pb::AllocationOutcomeCode::Success,
-        FunctionRunOutcome::Failure(_) => executor_api_pb::AllocationOutcomeCode::Failure,
-        FunctionRunOutcome::Unknown => executor_api_pb::AllocationOutcomeCode::Unknown,
-    };
-    let failure_reason = function_call_outcome
-        .failure_reason
-        .as_ref()
-        .map(|failure_reason| match failure_reason {
-            FunctionRunFailureReason::Unknown => executor_api_pb::AllocationFailureReason::Unknown,
-            FunctionRunFailureReason::InternalError => {
-                executor_api_pb::AllocationFailureReason::InternalError
-            }
-            FunctionRunFailureReason::FunctionError => {
-                executor_api_pb::AllocationFailureReason::FunctionError
-            }
-            FunctionRunFailureReason::FunctionTimeout => {
-                executor_api_pb::AllocationFailureReason::FunctionTimeout
-            }
-            FunctionRunFailureReason::RequestError => {
-                executor_api_pb::AllocationFailureReason::RequestError
-            }
-            FunctionRunFailureReason::FunctionRunCancelled => {
-                executor_api_pb::AllocationFailureReason::AllocationCancelled
-            }
-            FunctionRunFailureReason::FunctionExecutorTerminated => {
-                executor_api_pb::AllocationFailureReason::FunctionExecutorTerminated
-            }
-            FunctionRunFailureReason::ConstraintUnsatisfiable => {
-                executor_api_pb::AllocationFailureReason::ConstraintUnsatisfiable
-            }
-            FunctionRunFailureReason::OutOfMemory => executor_api_pb::AllocationFailureReason::Oom,
-            FunctionRunFailureReason::ExecutorRemoved => {
-                executor_api_pb::AllocationFailureReason::ExecutorRemoved
-            }
-            FunctionRunFailureReason::ContainerStartupFunctionError => {
-                executor_api_pb::AllocationFailureReason::StartupFailedFunctionError
-            }
-            FunctionRunFailureReason::ContainerStartupFunctionTimeout => {
-                executor_api_pb::AllocationFailureReason::StartupFailedFunctionTimeout
-            }
-            FunctionRunFailureReason::ContainerStartupInternalError => {
-                executor_api_pb::AllocationFailureReason::StartupFailedInternalError
-            }
-        });
-
-    let return_value = function_call_outcome
-        .return_value
-        .as_ref()
-        .map(|return_value| {
-            // TODO Eugene - Can you check this conversion is correct?
-            let encoding = string_to_data_payload_encoding(&return_value.encoding);
-            executor_api_pb::DataPayload {
-                uri: Some(blob_store_path_to_url(
-                    &return_value.path,
-                    blob_store_url_scheme,
-                    blob_store_url,
-                )),
-                encoding: Some(encoding.into()),
-                encoding_version: Some(0),
-                content_type: None,
-                metadata_size: Some(return_value.metadata_size),
-                offset: Some(return_value.offset),
-                size: Some(return_value.size),
-                sha256_hash: Some(return_value.sha256_hash.clone()),
-                source_function_call_id: None,
-                id: Some(return_value.id.clone()),
-            }
-        });
-
-    let request_error = function_call_outcome
-        .request_error
-        .as_ref()
-        .map(|request_error| {
-            let encoding = string_to_data_payload_encoding(&request_error.encoding);
-            executor_api_pb::DataPayload {
-                uri: Some(blob_store_path_to_url(
-                    &request_error.path,
-                    blob_store_url_scheme,
-                    blob_store_url,
-                )),
-                encoding: Some(encoding.into()),
-                encoding_version: Some(0),
-                content_type: None,
-                metadata_size: Some(request_error.metadata_size),
-                offset: Some(request_error.offset),
-                size: Some(request_error.size),
-                sha256_hash: Some(request_error.sha256_hash.clone()),
-                source_function_call_id: None,
-                id: Some(request_error.id.clone()),
-            }
-        });
-
-    executor_api_pb::FunctionCallResult {
-        namespace: Some(function_call_outcome.namespace.clone()),
-        request_id: Some(function_call_outcome.request_id.clone()),
-        function_call_id: Some(function_call_outcome.function_call_id.to_string()),
-        outcome_code: Some(outcome_code.into()),
-        failure_reason: failure_reason.map(|failure_reason| failure_reason.into()),
-        return_value,
-        request_error,
     }
 }
 

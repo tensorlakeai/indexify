@@ -38,7 +38,7 @@ mod tests {
             state_machine::IndexifyObjectsColumns,
             test_state_store::{self, invoke_application, invoke_application_with_request_id},
         },
-        testing::{self, FinalizeFunctionRunArgs, allocation_key_from_proto},
+        testing::{self, TestExecutor, allocation_key_from_proto},
     };
 
     const TEST_FN_MAX_RETRIES: u32 = 3;
@@ -119,6 +119,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_add_executor_allocates_tasks() -> Result<()> {
+        use crate::executor_api::executor_api_pb;
+
         let test_srv = testing::TestService::new().await?;
         let indexify_state = test_srv.service.indexify_state.clone();
 
@@ -130,13 +132,38 @@ mod tests {
         assert_function_run_counts!(test_srv, total: 1, allocated: 0, pending: 1, completed_success: 0);
 
         // Add an executor...
-        test_srv
+        let mut executor = test_srv
             .create_executor(mock_executor_metadata(TEST_EXECUTOR_ID.into()))
             .await?;
         test_srv.process_all_state_changes().await?;
 
         // And now the task should be allocated
         assert_function_run_counts!(test_srv, total: 1, allocated: 1, pending: 0, completed_success: 0);
+
+        // Verify command emission: first call should produce AddContainer +
+        // RunAllocation
+        let commands = executor.pending_commands().await;
+        assert!(
+            commands.iter().any(|c| matches!(
+                &c.command,
+                Some(executor_api_pb::command::Command::AddContainer(_))
+            )),
+            "expected AddContainer command in: {commands:?}"
+        );
+        assert!(
+            commands.iter().any(|c| matches!(
+                &c.command,
+                Some(executor_api_pb::command::Command::RunAllocation(_))
+            )),
+            "expected RunAllocation command in: {commands:?}"
+        );
+
+        // Second call with same state should produce no commands
+        let commands = executor.pending_commands().await;
+        assert!(
+            commands.is_empty(),
+            "expected no commands on second call: {commands:?}"
+        );
 
         Ok(())
     }
@@ -151,69 +178,62 @@ mod tests {
         test_srv.process_all_state_changes().await?;
 
         // register executor
-        let executor = test_srv
+        let mut executor = test_srv
             .create_executor(mock_executor_metadata(TEST_EXECUTOR_ID.into()))
             .await?;
         test_srv.process_all_state_changes().await?;
 
-        // finalize the starting node task
+        // finalize the starting node task — via report_command_responses path
         {
-            let desired_state = executor.desired_state().await;
-            assert_eq!(desired_state.allocations.len(), 1,);
-            let allocation = desired_state.allocations.first().unwrap();
-            executor
-                .finalize_allocation(
-                    allocation,
-                    FinalizeFunctionRunArgs::new(
-                        allocation_key_from_proto(allocation),
-                        Some(mock_updates()),
-                        None,
-                    )
-                    .function_run_outcome(FunctionRunOutcome::Success),
-                )
-                .await?;
+            let cmds = executor.recv_commands().await;
+            assert_eq!(cmds.run_allocations.len(), 1);
+            let allocation = &cmds.run_allocations[0];
+            let cmd = TestExecutor::make_allocation_completed(
+                allocation,
+                Some(mock_updates()),
+                None,
+                Some(1000),
+            );
+            executor.report_allocation_activities(vec![cmd]).await?;
 
             test_srv.process_all_state_changes().await?;
 
             assert_function_run_counts!(test_srv, total: 3, allocated: 2, pending: 0, completed_success: 0);
         }
 
-        // finalize tasks for fn_b and fn_c
+        // finalize tasks for fn_b and fn_c — via report_command_responses path
         {
-            let desired_state = executor.desired_state().await;
-            assert_eq!(desired_state.allocations.len(), 2,);
+            let cmds = executor.recv_commands().await;
+            assert_eq!(cmds.run_allocations.len(), 2);
 
-            for allocation in desired_state.allocations {
-                executor
-                    .finalize_allocation(
-                        &allocation,
-                        FinalizeFunctionRunArgs::new(
-                            allocation_key_from_proto(&allocation),
-                            None,
-                            Some(mock_data_payload()),
-                        )
-                        .function_run_outcome(FunctionRunOutcome::Success),
+            let responses: Vec<_> = cmds
+                .run_allocations
+                .iter()
+                .map(|allocation| {
+                    TestExecutor::make_allocation_completed(
+                        allocation,
+                        None,
+                        Some(mock_data_payload()),
+                        Some(1000),
                     )
-                    .await?;
-            }
+                })
+                .collect();
+            executor.report_allocation_activities(responses).await?;
 
             test_srv.process_all_state_changes().await?;
         }
-        // finalize task for fn_d
+        // finalize task for fn_d — via report_command_responses path
         {
-            let desired_state = executor.desired_state().await;
-            let task_allocation = desired_state.allocations.first().unwrap();
-            executor
-                .finalize_allocation(
-                    task_allocation,
-                    FinalizeFunctionRunArgs::new(
-                        allocation_key_from_proto(task_allocation),
-                        None,
-                        Some(mock_data_payload()),
-                    )
-                    .function_run_outcome(FunctionRunOutcome::Success),
-                )
-                .await?;
+            let cmds = executor.recv_commands().await;
+            assert_eq!(cmds.run_allocations.len(), 1);
+            let allocation = &cmds.run_allocations[0];
+            let cmd = TestExecutor::make_allocation_completed(
+                allocation,
+                None,
+                Some(mock_data_payload()),
+                Some(1000),
+            );
+            executor.report_allocation_activities(vec![cmd]).await?;
 
             test_srv.process_all_state_changes().await?;
         }
@@ -236,11 +256,12 @@ mod tests {
                 .collect::<Vec<_>>();
             assert_eq!(successful_tasks.len(), 4, "{successful_tasks:#?}");
 
-            let desired_state = executor.desired_state().await;
+            // Verify command stream has nothing new to send
+            let cmds = executor.recv_commands().await;
             assert!(
-                desired_state.allocations.is_empty(),
-                "expected all allocations to be finalized: {:#?}",
-                desired_state.allocations
+                cmds.run_allocations.is_empty(),
+                "expected no more RunAllocation commands: {:#?}",
+                cmds.run_allocations
             );
 
             let request_ctx = indexify_state
@@ -397,19 +418,16 @@ mod tests {
         test_srv.process_all_state_changes().await?;
 
         {
-            let desired_state = executor.desired_state().await;
-            assert_eq!(desired_state.allocations.len(), 1,);
-            let task_allocation = desired_state.allocations.first().unwrap();
+            let cmds = executor.recv_commands().await;
+            assert_eq!(cmds.run_allocations.len(), 1);
+            let task_allocation = &cmds.run_allocations[0];
             executor
-                .finalize_allocation(
+                .report_allocation_activities(vec![TestExecutor::make_allocation_completed(
                     task_allocation,
-                    FinalizeFunctionRunArgs::new(
-                        allocation_key_from_proto(task_allocation),
-                        None,
-                        Some(mock_data_payload()),
-                    )
-                    .function_run_outcome(FunctionRunOutcome::Success),
-                )
+                    None,
+                    Some(mock_data_payload()),
+                    Some(1000),
+                )])
                 .await?;
 
             test_srv.process_all_state_changes().await?;
@@ -475,13 +493,13 @@ mod tests {
 
         // Check what the server wants the executor to do (desired state)
         {
-            let desired_state = executor.desired_state().await;
+            let desired_state = executor.srv_executor_state().await;
             tracing::info!(
                 "Executor desired_state after app deletion: {} function_executors, {} allocations",
-                desired_state.function_executors.len(),
+                desired_state.containers.len(),
                 desired_state.allocations.len()
             );
-            for fe in &desired_state.function_executors {
+            for fe in &desired_state.containers {
                 tracing::info!(
                     "  Desired FE: id={}, fn={}",
                     fe.id.as_ref().unwrap_or(&"?".to_string()),
@@ -506,9 +524,7 @@ mod tests {
             // Mark all function executors as terminated (mimicking executor response)
             for (_, fe) in executor_state.containers.iter_mut() {
                 fe.state = crate::data_model::ContainerState::Terminated {
-                    reason:
-                        crate::data_model::FunctionExecutorTerminationReason::DesiredStateRemoved,
-                    failed_alloc_ids: vec![],
+                    reason: crate::data_model::ContainerTerminationReason::DesiredStateRemoved,
                 };
             }
 
@@ -516,7 +532,7 @@ mod tests {
             executor_state.state_hash = nanoid::nanoid!();
 
             // Send heartbeat with updated state
-            executor.heartbeat(executor_state).await?;
+            executor.sync_executor_state(executor_state).await?;
             test_srv.process_all_state_changes().await?;
         }
 
@@ -580,31 +596,28 @@ mod tests {
         test_srv.process_all_state_changes().await?;
 
         // register executor
-        let executor = test_srv
+        let mut executor = test_srv
             .create_executor(mock_executor_metadata(TEST_EXECUTOR_ID.into()))
             .await?;
         test_srv.process_all_state_changes().await?;
 
         // finalize the starting node task
         {
-            let desired_state = executor.desired_state().await;
+            let cmds = executor.recv_commands().await;
             assert_eq!(
-                desired_state.allocations.len(),
+                cmds.run_allocations.len(),
                 1,
                 "Executor tasks: {:#?}",
-                desired_state.allocations
+                cmds.run_allocations
             );
-            let task_allocation = desired_state.allocations.first().unwrap();
+            let task_allocation = &cmds.run_allocations[0];
             executor
-                .finalize_allocation(
+                .report_allocation_activities(vec![TestExecutor::make_allocation_completed(
                     task_allocation,
-                    FinalizeFunctionRunArgs::new(
-                        allocation_key_from_proto(task_allocation),
-                        Some(mock_updates()),
-                        None,
-                    )
-                    .function_run_outcome(FunctionRunOutcome::Success),
-                )
+                    Some(mock_updates()),
+                    None,
+                    Some(1000),
+                )])
                 .await?;
 
             test_srv.process_all_state_changes().await?;
@@ -614,43 +627,37 @@ mod tests {
 
         // finalize the remaining allocs
         {
-            let desired_state = executor.desired_state().await;
+            let cmds = executor.recv_commands().await;
             assert_eq!(
-                desired_state.allocations.len(),
+                cmds.run_allocations.len(),
                 2,
                 "fn_b and fn_c allocations: {:#?}",
-                desired_state.allocations
+                cmds.run_allocations
             );
 
-            for allocation in desired_state.allocations {
+            for allocation in &cmds.run_allocations {
                 executor
-                    .finalize_allocation(
-                        &allocation,
-                        FinalizeFunctionRunArgs::new(
-                            allocation_key_from_proto(&allocation),
-                            None,
-                            Some(mock_data_payload()),
-                        )
-                        .function_run_outcome(FunctionRunOutcome::Success),
-                    )
+                    .report_allocation_activities(vec![TestExecutor::make_allocation_completed(
+                        allocation,
+                        None,
+                        Some(mock_data_payload()),
+                        Some(1000),
+                    )])
                     .await?;
             }
 
             test_srv.process_all_state_changes().await?;
         }
         {
-            let desired_state = executor.desired_state().await;
-            let task_allocation = desired_state.allocations.first().unwrap();
+            let cmds = executor.recv_commands().await;
+            let task_allocation = &cmds.run_allocations[0];
             executor
-                .finalize_allocation(
+                .report_allocation_activities(vec![TestExecutor::make_allocation_completed(
                     task_allocation,
-                    FinalizeFunctionRunArgs::new(
-                        allocation_key_from_proto(task_allocation),
-                        None,
-                        Some(mock_data_payload()),
-                    )
-                    .function_run_outcome(FunctionRunOutcome::Success),
-                )
+                    None,
+                    Some(mock_data_payload()),
+                    Some(1000),
+                )])
                 .await?;
             test_srv.process_all_state_changes().await?;
         }
@@ -673,7 +680,7 @@ mod tests {
                 .collect::<Vec<_>>();
             assert_eq!(successful_tasks.len(), 4, "{successful_tasks:#?}");
 
-            let desired_state = executor.desired_state().await;
+            let desired_state = executor.srv_executor_state().await;
             assert!(
                 desired_state.allocations.is_empty(),
                 "expected all tasks to be finalized: {:#?}",
@@ -733,7 +740,7 @@ mod tests {
         test_srv.process_all_state_changes().await?;
 
         // register executor
-        let executor = test_srv
+        let mut executor = test_srv
             .create_executor(mock_executor_metadata(TEST_EXECUTOR_ID.into()))
             .await?;
         test_srv.process_all_state_changes().await?;
@@ -741,32 +748,21 @@ mod tests {
         // finalize the starting node task with failure
         {
             // first, verify the executor state and task states
-            let desired_state = executor.desired_state().await;
-            assert_eq!(
-                desired_state.allocations.len(),
-                1,
-                "{:#?}",
-                desired_state.allocations
-            );
+            let cmds = executor.recv_commands().await;
+            assert_eq!(cmds.run_allocations.len(), 1, "{:#?}", cmds.run_allocations);
 
             assert_function_run_counts!(test_srv, total: 1, allocated: 1, pending: 0, completed_success: 0);
 
-            let allocation = desired_state.allocations.first().unwrap();
+            let allocation = &cmds.run_allocations[0];
 
             // NB RequestError is a user request for a permanent failure.
             executor
-                .finalize_allocation(
+                .report_allocation_activities(vec![TestExecutor::make_allocation_failed(
                     allocation,
-                    FinalizeFunctionRunArgs::new(
-                        allocation_key_from_proto(allocation),
-                        None,
-                        None,
-                        //"fn_b".to_string(),
-                    )
-                    .function_run_outcome(FunctionRunOutcome::Failure(
-                        FunctionRunFailureReason::RequestError,
-                    )),
-                )
+                    FunctionRunFailureReason::RequestError,
+                    None,
+                    Some(1000),
+                )])
                 .await?;
 
             test_srv.process_all_state_changes().await?;
@@ -776,7 +772,7 @@ mod tests {
         {
             assert_function_run_counts!(test_srv, total: 1, allocated: 0, pending: 0, completed_success: 0);
 
-            let desired_state = executor.desired_state().await;
+            let desired_state = executor.srv_executor_state().await;
             assert!(
                 desired_state.allocations.is_empty(),
                 "expected all tasks to be finalized: {:#?}",
@@ -810,7 +806,7 @@ mod tests {
         test_srv.process_all_state_changes().await?;
 
         // register executor
-        let executor = test_srv
+        let mut executor = test_srv
             .create_executor(mock_executor_metadata(TEST_EXECUTOR_ID.into()))
             .await?;
         test_srv.process_all_state_changes().await?;
@@ -832,19 +828,16 @@ mod tests {
         while attempt_number <= max_retries {
             // finalize the starting node task with our retryable failure (using an attempt)
             {
-                let desired_state = executor.desired_state().await;
-                let task_allocation = desired_state.allocations.first().unwrap();
+                let cmds = executor.recv_commands().await;
+                let task_allocation = &cmds.run_allocations[0];
 
                 executor
-                    .finalize_allocation(
+                    .report_allocation_activities(vec![TestExecutor::make_allocation_failed(
                         task_allocation,
-                        FinalizeFunctionRunArgs::new(
-                            allocation_key_from_proto(task_allocation),
-                            None,
-                            None,
-                        )
-                        .function_run_outcome(FunctionRunOutcome::Failure(reason.clone())),
-                    )
+                        reason.clone(),
+                        None,
+                        Some(1000),
+                    )])
                     .await?;
 
                 test_srv.process_all_state_changes().await?;
@@ -869,7 +862,7 @@ mod tests {
         {
             assert_function_run_counts!(test_srv, total: 1, allocated: 0, pending: 0, completed_success: 0);
 
-            let desired_state = executor.desired_state().await;
+            let desired_state = executor.srv_executor_state().await;
             assert!(
                 desired_state.allocations.is_empty(),
                 "expected all allocations to be finalized: {:#?}",
@@ -884,6 +877,50 @@ mod tests {
 
             assert!(request_ctx.outcome.is_some());
         }
+
+        Ok(())
+    }
+
+    /// Test that a free-retry failure reason re-queues the function run
+    /// without incrementing attempt_number.
+    async fn test_function_run_free_retry(
+        reason: FunctionRunFailureReason,
+        max_retries: u32,
+    ) -> Result<()> {
+        assert!(reason.is_retriable());
+        assert!(!reason.should_count_against_function_run_retry_attempts());
+
+        let test_srv = testing::TestService::new().await?;
+        let indexify_state = test_srv.service.indexify_state.clone();
+
+        test_state_store::with_simple_retry_application(&indexify_state, max_retries).await;
+        test_srv.process_all_state_changes().await?;
+
+        let mut executor = test_srv
+            .create_executor(mock_executor_metadata(TEST_EXECUTOR_ID.into()))
+            .await?;
+        test_srv.process_all_state_changes().await?;
+
+        assert_function_run_counts!(test_srv, total: 1, allocated: 1, pending: 0, completed_success: 0);
+
+        // Receive and fail the allocation with a free-retry reason.
+        let cmds = executor.recv_commands().await;
+        let allocation = &cmds.run_allocations[0];
+        executor
+            .report_allocation_activities(vec![TestExecutor::make_allocation_failed(
+                allocation,
+                reason.clone(),
+                None,
+                None,
+            )])
+            .await?;
+        test_srv.process_all_state_changes().await?;
+
+        // Free retry: attempt stays at 0, function run re-allocated.
+        let function_runs = test_srv.get_all_function_runs().await?;
+        assert_eq!(1, function_runs.len());
+        assert_eq!(0, function_runs.first().unwrap().attempt_number);
+        assert_function_run_counts!(test_srv, total: 1, allocated: 1, pending: 0, completed_success: 0);
 
         Ok(())
     }
@@ -930,80 +967,9 @@ mod tests {
         test_function_run_retry_attempt_used(FunctionRunFailureReason::FunctionTimeout, 0).await
     }
 
-    async fn test_function_run_retry_attempt_not_used(
-        reason: FunctionRunFailureReason,
-        max_retries: u32,
-    ) -> Result<()> {
-        assert!(!reason.should_count_against_function_run_retry_attempts());
-
-        let test_srv = testing::TestService::new().await?;
-        let indexify_state = test_srv.service.indexify_state.clone();
-
-        // invoke the application
-        test_state_store::with_simple_retry_application(&indexify_state, max_retries).await;
-        test_srv.process_all_state_changes().await?;
-
-        // register executor
-        let executor = test_srv
-            .create_executor(mock_executor_metadata(TEST_EXECUTOR_ID.into()))
-            .await?;
-        test_srv.process_all_state_changes().await?;
-
-        // make sure the task is allocated
-        assert_function_run_counts!(test_srv, total: 1, allocated: 1, pending: 0, completed_success: 0);
-
-        // track the attempt number
-        let attempt_number: u32 = 0;
-
-        // validate the initial task retry attempt number
-        {
-            let tasks = test_srv.get_all_function_runs().await?;
-            assert_eq!(1, tasks.len());
-            assert_eq!(attempt_number, tasks.first().unwrap().attempt_number);
-        }
-
-        // finalize the starting node task with our retryable failure (not using an
-        // attempt)
-        {
-            let desired_state = executor.desired_state().await;
-            let task_allocation = desired_state.allocations.first().unwrap();
-
-            executor
-                .finalize_allocation(
-                    task_allocation,
-                    FinalizeFunctionRunArgs::new(
-                        allocation_key_from_proto(task_allocation),
-                        None,
-                        None,
-                    )
-                    .function_run_outcome(FunctionRunOutcome::Failure(reason.clone())),
-                )
-                .await?;
-
-            test_srv.process_all_state_changes().await?;
-        }
-
-        // validate the task retry attempt number was not changed
-        {
-            let tasks = test_srv.get_all_function_runs().await?;
-            assert_eq!(1, tasks.len());
-            assert_eq!(attempt_number, tasks.first().unwrap().attempt_number);
-        }
-
-        // make sure the task is still allocated iff the reason is retriable.
-        if reason.is_retriable() {
-            assert_function_run_counts!(test_srv, total: 1, allocated: 1, pending: 0, completed_success: 0);
-        } else {
-            assert_function_run_counts!(test_srv, total: 1, allocated: 0, pending: 0, completed_success: 0);
-        }
-
-        Ok(())
-    }
-
     #[tokio::test]
-    async fn test_function_run_retry_attempt_not_used_on_function_executor_terminated() -> Result<()>
-    {
-        test_function_run_retry_attempt_not_used(
+    async fn test_function_run_free_retry_on_function_executor_terminated() -> Result<()> {
+        test_function_run_free_retry(
             FunctionRunFailureReason::FunctionExecutorTerminated,
             TEST_FN_MAX_RETRIES,
         )
@@ -1011,13 +977,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_function_run_retry_attempt_not_used_on_function_executor_terminated_no_retries()
-    -> Result<()> {
-        test_function_run_retry_attempt_not_used(
-            FunctionRunFailureReason::FunctionExecutorTerminated,
-            0,
-        )
-        .await
+    async fn test_function_run_free_retry_on_function_executor_terminated_no_retries() -> Result<()>
+    {
+        test_function_run_free_retry(FunctionRunFailureReason::FunctionExecutorTerminated, 0).await
     }
 
     #[tokio::test]
@@ -1036,7 +998,7 @@ mod tests {
                 .await?;
             test_srv.process_all_state_changes().await?;
 
-            let desired_state = executor1.desired_state().await;
+            let desired_state = executor1.srv_executor_state().await;
             assert_eq!(
                 desired_state.allocations.len(),
                 1,
@@ -1054,7 +1016,7 @@ mod tests {
                 .await?;
             test_srv.process_all_state_changes().await?;
 
-            let desired_state = executor2.desired_state().await;
+            let desired_state = executor2.srv_executor_state().await;
             assert!(
                 desired_state.allocations.is_empty(),
                 "expected all tasks to be finalized: {:#?}",
@@ -1073,21 +1035,19 @@ mod tests {
             tokio::time::advance(EXECUTOR_TIMEOUT - std::time::Duration::from_secs(1)).await;
 
             // heartbeat executor2 to ensure it's still considered alive
-            executor2
-                .heartbeat(executor2.executor_metadata.clone())
-                .await?;
+            executor2.heartbeat().await?;
             test_srv.process_all_state_changes().await?;
 
             // verify that both executors are still alive and tasks are still on executor1
             assert_function_run_counts!(test_srv, total: 1, allocated: 1, pending: 0, completed_success: 0);
-            let desired_state = executor1.desired_state().await;
+            let desired_state = executor1.srv_executor_state().await;
             assert_eq!(
                 desired_state.allocations.len(),
                 1,
                 "Executor1 tasks: {:#?}",
                 desired_state.allocations
             );
-            let desired_state = executor2.desired_state().await;
+            let desired_state = executor2.srv_executor_state().await;
             assert!(
                 desired_state.allocations.is_empty(),
                 "Executor2 tasks: {:#?}",
@@ -1109,7 +1069,7 @@ mod tests {
             assert_function_run_counts!(test_srv, total: 1, allocated: 1, pending: 0, completed_success: 0);
 
             // verify that the tasks are reassigned to executor2
-            let desired_state = executor2.desired_state().await;
+            let desired_state = executor2.srv_executor_state().await;
             assert_eq!(
                 desired_state.allocations.len(),
                 1,
@@ -1332,27 +1292,22 @@ mod tests {
         test_srv.process_all_state_changes().await?;
 
         // register executor
-        let executor = test_srv
+        let mut executor = test_srv
             .create_executor(mock_executor_metadata(TEST_EXECUTOR_ID.into()))
             .await?;
         test_srv.process_all_state_changes().await?;
 
         // finalize the starting node task with OutOfMemory failure
-        let desired_state = executor.desired_state().await;
-        assert_eq!(desired_state.allocations.len(), 1);
-        let allocation = desired_state.allocations.first().unwrap();
+        let cmds = executor.recv_commands().await;
+        assert_eq!(cmds.run_allocations.len(), 1);
+        let allocation = &cmds.run_allocations[0];
         executor
-            .finalize_allocation(
+            .report_allocation_activities(vec![TestExecutor::make_allocation_failed(
                 allocation,
-                FinalizeFunctionRunArgs::new(
-                    allocation_key_from_proto(allocation),
-                    Some(mock_updates()),
-                    None,
-                )
-                .function_run_outcome(FunctionRunOutcome::Failure(
-                    FunctionRunFailureReason::OutOfMemory,
-                )),
-            )
+                FunctionRunFailureReason::OutOfMemory,
+                None,
+                Some(1000),
+            )])
             .await?;
         test_srv.process_all_state_changes().await?;
 
@@ -1457,7 +1412,7 @@ mod tests {
         let mut all_events = events;
 
         // Register executor and process - this should generate AllocationCreated
-        let executor = test_srv
+        let mut executor = test_srv
             .create_executor(mock_executor_metadata(TEST_EXECUTOR_ID.into()))
             .await?;
         test_srv.process_all_state_changes().await?;
@@ -1476,19 +1431,16 @@ mod tests {
 
         // Finalize the first allocation
         {
-            let desired_state = executor.desired_state().await;
-            assert_eq!(desired_state.allocations.len(), 1);
-            let allocation = desired_state.allocations.first().unwrap();
+            let cmds = executor.recv_commands().await;
+            assert_eq!(cmds.run_allocations.len(), 1);
+            let allocation = &cmds.run_allocations[0];
             executor
-                .finalize_allocation(
+                .report_allocation_activities(vec![TestExecutor::make_allocation_completed(
                     allocation,
-                    FinalizeFunctionRunArgs::new(
-                        allocation_key_from_proto(allocation),
-                        Some(mock_updates()),
-                        None,
-                    )
-                    .function_run_outcome(FunctionRunOutcome::Success),
-                )
+                    Some(mock_updates()),
+                    None,
+                    Some(1000),
+                )])
                 .await?;
             test_srv.process_all_state_changes().await?;
         }
@@ -1507,20 +1459,17 @@ mod tests {
 
         // Finalize remaining allocations (fn_b and fn_c)
         {
-            let desired_state = executor.desired_state().await;
-            assert_eq!(desired_state.allocations.len(), 2);
+            let cmds = executor.recv_commands().await;
+            assert_eq!(cmds.run_allocations.len(), 2);
 
-            for allocation in desired_state.allocations {
+            for allocation in &cmds.run_allocations {
                 executor
-                    .finalize_allocation(
-                        &allocation,
-                        FinalizeFunctionRunArgs::new(
-                            allocation_key_from_proto(&allocation),
-                            None,
-                            Some(mock_data_payload()),
-                        )
-                        .function_run_outcome(FunctionRunOutcome::Success),
-                    )
+                    .report_allocation_activities(vec![TestExecutor::make_allocation_completed(
+                        allocation,
+                        None,
+                        Some(mock_data_payload()),
+                        Some(1000),
+                    )])
                     .await?;
             }
             test_srv.process_all_state_changes().await?;
@@ -1528,18 +1477,15 @@ mod tests {
 
         // Finalize fn_d
         {
-            let desired_state = executor.desired_state().await;
-            let allocation = desired_state.allocations.first().unwrap();
+            let cmds = executor.recv_commands().await;
+            let allocation = &cmds.run_allocations[0];
             executor
-                .finalize_allocation(
+                .report_allocation_activities(vec![TestExecutor::make_allocation_completed(
                     allocation,
-                    FinalizeFunctionRunArgs::new(
-                        allocation_key_from_proto(allocation),
-                        None,
-                        Some(mock_data_payload()),
-                    )
-                    .function_run_outcome(FunctionRunOutcome::Success),
-                )
+                    None,
+                    Some(mock_data_payload()),
+                    Some(1000),
+                )])
                 .await?;
             test_srv.process_all_state_changes().await?;
         }
@@ -1596,7 +1542,7 @@ mod tests {
         test_srv.process_all_state_changes().await?;
 
         // Register an executor - this should allocate the function run
-        let executor = test_srv
+        let mut executor = test_srv
             .create_executor(mock_executor_metadata(TEST_EXECUTOR_ID.into()))
             .await?;
         test_srv.process_all_state_changes().await?;
@@ -1605,9 +1551,9 @@ mod tests {
         assert_function_run_counts!(test_srv, total: 1, allocated: 1, pending: 0, completed_success: 0);
 
         // Get the allocation details before deregistering
-        let desired_state = executor.desired_state().await;
-        assert_eq!(desired_state.allocations.len(), 1);
-        let allocation = desired_state.allocations.first().unwrap();
+        let cmds = executor.recv_commands().await;
+        assert_eq!(cmds.run_allocations.len(), 1);
+        let allocation = &cmds.run_allocations[0];
         let allocation_key = allocation_key_from_proto(allocation);
 
         // Get the function run status - should be Running
@@ -1665,7 +1611,7 @@ mod tests {
         );
 
         // Verify the request can eventually complete with a new executor
-        let executor2 = test_srv
+        let mut executor2 = test_srv
             .create_executor(mock_executor_metadata("executor_2".into()))
             .await?;
         test_srv.process_all_state_changes().await?;
@@ -1673,24 +1619,26 @@ mod tests {
         // The pending function run should be reallocated to the new executor
         assert_function_run_counts!(test_srv, total: 1, allocated: 1, pending: 0, completed_success: 0);
 
-        // Complete the function run
-        let desired_state = executor2.desired_state().await;
+        // Complete the function run — recv_commands categorizes the raw
+        // commands into add_containers / run_allocations / etc.
+        let cmds = executor2.recv_commands().await;
+        assert!(
+            !cmds.add_containers.is_empty(),
+            "executor2 should receive AddContainer for retried work"
+        );
         assert_eq!(
-            desired_state.allocations.len(),
+            cmds.run_allocations.len(),
             1,
             "New executor should have the retried allocation"
         );
-        let new_allocation = desired_state.allocations.first().unwrap();
+        let new_allocation = &cmds.run_allocations[0];
         executor2
-            .finalize_allocation(
+            .report_allocation_activities(vec![TestExecutor::make_allocation_completed(
                 new_allocation,
-                FinalizeFunctionRunArgs::new(
-                    allocation_key_from_proto(new_allocation),
-                    Some(mock_updates()),
-                    None,
-                )
-                .function_run_outcome(FunctionRunOutcome::Success),
-            )
+                Some(mock_updates()),
+                None,
+                Some(1000),
+            )])
             .await?;
         test_srv.process_all_state_changes().await?;
 
@@ -1710,7 +1658,7 @@ mod tests {
         test_srv.process_all_state_changes().await?;
 
         // Register an executor - this should allocate the function run
-        let executor = test_srv
+        let mut executor = test_srv
             .create_executor(mock_executor_metadata(TEST_EXECUTOR_ID.into()))
             .await?;
         test_srv.process_all_state_changes().await?;
@@ -1719,9 +1667,9 @@ mod tests {
         assert_function_run_counts!(test_srv, total: 1, allocated: 1, pending: 0, completed_success: 0);
 
         // Get the allocation details
-        let desired_state = executor.desired_state().await;
-        assert_eq!(desired_state.allocations.len(), 1);
-        let allocation = desired_state.allocations.first().unwrap();
+        let cmds = executor.recv_commands().await;
+        assert_eq!(cmds.run_allocations.len(), 1);
+        let allocation = &cmds.run_allocations[0];
         let allocation_key = allocation_key_from_proto(allocation);
 
         // Get the function run status - should be Running

@@ -17,6 +17,7 @@ use crate::{
         ContainerPoolKey,
         ContainerServerMetadata,
         DataPayload,
+        DataplaneResultsIngestedEvent,
         ExecutorId,
         ExecutorMetadata,
         ExecutorServerMetadata,
@@ -32,7 +33,7 @@ use crate::{
         SandboxKey,
         StateChange,
     },
-    state_store::{IndexifyState, executor_watches::ExecutorWatch, state_changes},
+    state_store::{IndexifyState, state_changes},
 };
 
 #[derive(Debug)]
@@ -101,6 +102,9 @@ impl StateMachineUpdateRequest {
             RequestPayload::CreateOrUpdateApplication(request) => {
                 state_changes::create_or_update_application_pools(state_change_id_seq, request)
             }
+            RequestPayload::DataplaneResults(request) => {
+                state_changes::dataplane_results_ingested(state_change_id_seq, request)
+            }
             _ => Ok(Vec::new()), // Handle other request types as needed
         }
     }
@@ -120,6 +124,10 @@ pub enum RequestPayload {
     TerminateSandbox(TerminateSandboxRequest),
     CreateContainerPool(CreateContainerPoolRequest),
     UpdateContainerPool(UpdateContainerPoolRequest),
+
+    /// Dataplane reports allocation results + container state changes
+    /// atomically.
+    DataplaneResults(DataplaneResultsRequest),
 
     // App Processor -> State Machine requests
     SchedulerUpdate(SchedulerUpdatePayload),
@@ -222,7 +230,7 @@ impl SchedulerUpdateRequest {
             namespace = %allocation.namespace,
             app = %allocation.application,
             fn = %allocation.function,
-            fn_executor_id = %allocation.target.function_executor_id,
+            fn_executor_id = %allocation.target.container_id,
             "cancelling allocation",
         );
         allocation.outcome =
@@ -356,7 +364,6 @@ pub struct UpsertExecutorRequest {
     pub executor: ExecutorMetadata,
     pub allocation_outputs: Vec<AllocationOutput>,
     pub update_executor_state: bool,
-    pub watch_function_calls: HashSet<ExecutorWatch>,
     state_changes: Vec<StateChange>,
 }
 
@@ -372,7 +379,6 @@ impl UpsertExecutorRequest {
         executor: ExecutorMetadata,
         allocation_outputs: Vec<AllocationOutput>,
         update_executor_state: bool,
-        watch_function_calls: HashSet<ExecutorWatch>,
         indexify_state: Arc<IndexifyState>,
     ) -> Result<Self> {
         let mut state_changes = Vec::new();
@@ -388,7 +394,6 @@ impl UpsertExecutorRequest {
             allocation_outputs,
             state_changes,
             update_executor_state,
-            watch_function_calls,
         })
     }
 }
@@ -424,4 +429,9 @@ pub struct UpdateContainerPoolRequest {
 pub struct DeleteContainerPoolRequest {
     pub namespace: String,
     pub pool_id: ContainerPoolId,
+}
+
+#[derive(Debug, Clone)]
+pub struct DataplaneResultsRequest {
+    pub event: DataplaneResultsIngestedEvent,
 }
