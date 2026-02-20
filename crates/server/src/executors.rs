@@ -38,8 +38,8 @@ use crate::{
         Allocation,
         DataPayloadEncoding,
         DesiredExecutorState,
-        FunctionExecutorDescription,
-        FunctionExecutorType as FunctionExecutorTypePb,
+        ContainerDescription,
+        ContainerType as ContainerTypePb,
         FunctionRef,
         SandboxMetadata,
     },
@@ -487,7 +487,7 @@ impl ExecutorManager {
         }
 
         Some(in_memory_state::DesiredExecutorState {
-            function_executors,
+            containers: function_executors,
             function_run_allocations: task_allocations,
             clock: indexes.clock,
         })
@@ -503,9 +503,9 @@ impl ExecutorManager {
         // function_call_results removed from DesiredExecutorState proto (reserved 4).
         // Results are now delivered via the allocation_stream RPC.
 
-        let mut function_executors_pb = vec![];
+        let mut containers_pb = vec![];
         let mut allocations_pb = vec![];
-        for desired_state_fe in desired_executor_state.function_executors.iter() {
+        for desired_state_fe in desired_executor_state.containers.iter() {
             let fe = &desired_state_fe.function_executor.function_container;
 
             // Build code_payload_pb only if code_payload exists (not for sandboxes)
@@ -538,8 +538,8 @@ impl ExecutorManager {
 
             // Convert container type to proto enum
             let fe_type_pb = match fe.container_type {
-                data_model::ContainerType::Function => FunctionExecutorTypePb::Function,
-                data_model::ContainerType::Sandbox => FunctionExecutorTypePb::Sandbox,
+                data_model::ContainerType::Function => ContainerTypePb::Function,
+                data_model::ContainerType::Sandbox => ContainerTypePb::Sandbox,
             };
 
             // Convert network policy to proto format (for sandboxes only)
@@ -578,7 +578,7 @@ impl ExecutorManager {
                 }
             };
 
-            let fe_description_pb = FunctionExecutorDescription {
+            let fe_description_pb = ContainerDescription {
                 id: Some(fe.id.get().to_string()),
                 function: Some(FunctionRef {
                     namespace: Some(fe.namespace.clone()),
@@ -596,7 +596,7 @@ impl ExecutorManager {
                 container_type: Some(fe_type_pb.into()),
                 pool_id: fe.pool_id.as_ref().map(|p| p.get().to_string()),
             };
-            function_executors_pb.push(fe_description_pb);
+            containers_pb.push(fe_description_pb);
         }
 
         for (fe_id, allocations) in desired_executor_state.function_run_allocations.iter() {
@@ -650,7 +650,7 @@ impl ExecutorManager {
                         function_name: Some(allocation.function.clone()),
                         application_version: None,
                     }),
-                    function_executor_id: Some(fe_id.get().to_string()),
+                    container_id: Some(fe_id.get().to_string()),
                     allocation_id: Some(allocation.id.to_string()),
                     function_call_id: Some(allocation.function_call_id.to_string()),
                     request_id: Some(allocation.request_id.to_string()),
@@ -667,7 +667,7 @@ impl ExecutorManager {
 
         Some(ExecutorStateSnapshot {
             desired_state: DesiredExecutorState {
-                function_executors: function_executors_pb,
+                containers: containers_pb,
                 allocations: allocations_pb,
                 clock: Some(desired_executor_state.clock),
             },
@@ -699,7 +699,7 @@ impl ExecutorManager {
             .iter()
             .map(|(executor_id, function_executor_metas)| {
                 // Create a HashMap to collect and merge allocations by function URI
-                let mut function_executors: Vec<FnExecutor> = vec![];
+                let mut containers: Vec<FnExecutor> = vec![];
 
                 // Process each function executor
                 for container_id in function_executor_metas.function_container_ids.iter() {
@@ -727,9 +727,9 @@ impl ExecutorManager {
                     // TODO: We won't have function uri for sandboxes. So we need to update
                     // the data model to support having function uri as optional.
                     let fn_uri = FunctionURI::from(function_container_server_meta);
-                    function_executors.push(FnExecutor {
+                    containers.push(FnExecutor {
                         count: allocations.len(),
-                        function_executor_id: container_id.to_string(),
+                        container_id: container_id.to_string(),
                         fn_uri: Some(fn_uri.to_string()),
                         state: function_container_server_meta
                             .function_container
@@ -746,8 +746,8 @@ impl ExecutorManager {
 
                 ExecutorAllocations {
                     executor_id: executor_id.get().to_string(),
-                    count: function_executors.len(),
-                    function_executors,
+                    count: containers.len(),
+                    containers,
                 }
             })
             .collect();

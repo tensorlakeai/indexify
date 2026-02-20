@@ -3,13 +3,13 @@
 //!
 //! The dataplane supports two distinct APIs:
 //!
-//! **Functions** (`FunctionExecutorType::Function`)
+//! **Functions** (`ContainerType::Function`)
 //!   Users invoke functions; the dataplane runs them inside subprocess-based
 //!   function executors. All Function FEs are managed by a single
 //!   [`AllocationController`] that handles container lifecycle, allocation
 //!   scheduling, execution, and result reporting.
 //!
-//! **Sandboxes** (`FunctionExecutorType::Sandbox`)
+//! **Sandboxes** (`ContainerType::Sandbox`)
 //!   Users interact with containers directly (e.g. for interactive sessions).
 //!   The dataplane makes Docker containers available and routes HTTP traffic
 //!   to them. Containers are managed by [`FunctionContainerManager`], which
@@ -36,9 +36,9 @@ use std::sync::Arc;
 
 use proto_api::executor_api_pb::{
     Allocation,
-    FunctionExecutorDescription,
-    FunctionExecutorState,
-    FunctionExecutorType,
+    ContainerDescription,
+    ContainerState,
+    ContainerType,
 };
 use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
@@ -96,15 +96,15 @@ impl StateReconciler {
     /// AllocationController and to `FunctionContainerManager`.
     pub async fn reconcile_containers(
         &mut self,
-        added_or_updated: Vec<FunctionExecutorDescription>,
+        added_or_updated: Vec<ContainerDescription>,
         removed_container_ids: Vec<String>,
     ) {
         let mut function_fes = Vec::new();
 
         for fe in added_or_updated {
             match fe.container_type() {
-                FunctionExecutorType::Function => function_fes.push(fe),
-                FunctionExecutorType::Sandbox | FunctionExecutorType::Unknown => {
+                ContainerType::Function => function_fes.push(fe),
+                ContainerType::Sandbox | ContainerType::Unknown => {
                     self.container_manager.add_or_update_container(fe).await;
                 }
             }
@@ -183,7 +183,7 @@ impl StateReconciler {
     /// Get all FE states for heartbeat reporting.
     ///
     /// Returns states from both the AllocationController and Docker containers.
-    pub async fn get_all_fe_states(&self) -> Vec<FunctionExecutorState> {
+    pub async fn get_all_fe_states(&self) -> Vec<ContainerState> {
         let mut states = self.container_manager.get_states().await;
         states.extend(self.allocation_controller.state_rx.borrow().clone());
         states

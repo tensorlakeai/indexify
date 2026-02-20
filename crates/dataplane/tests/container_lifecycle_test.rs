@@ -28,8 +28,8 @@ use indexify_dataplane::{
 };
 use proto_api::executor_api_pb::{
     CommandResponse,
-    FunctionExecutorDescription,
-    FunctionExecutorStatus,
+    ContainerDescription,
+    ContainerStatus,
     FunctionRef,
     SandboxMetadata,
 };
@@ -281,8 +281,8 @@ impl ProcessDriver for DaemonTestDriver {
     }
 }
 
-fn create_test_fe_description(id: &str) -> FunctionExecutorDescription {
-    FunctionExecutorDescription {
+fn create_test_fe_description(id: &str) -> ContainerDescription {
+    ContainerDescription {
         id: Some(id.to_string()),
         function: Some(FunctionRef {
             namespace: Some("test-ns".to_string()),
@@ -388,7 +388,7 @@ async fn test_add_creates_container_with_daemon() {
     assert_eq!(states.len(), 1, "Expected one container after add");
     assert_eq!(
         states[0].status,
-        Some(FunctionExecutorStatus::Pending.into()),
+        Some(ContainerStatus::Pending.into()),
         "Container should be in pending state"
     );
 
@@ -402,8 +402,8 @@ async fn test_add_creates_container_with_daemon() {
     // Container should either be Running (success) or Terminated (daemon/process
     // failure)
     let status = states[0].status.unwrap();
-    let running: i32 = FunctionExecutorStatus::Running.into();
-    let terminated: i32 = FunctionExecutorStatus::Terminated.into();
+    let running: i32 = ContainerStatus::Running.into();
+    let terminated: i32 = ContainerStatus::Terminated.into();
     assert!(
         status == running || status == terminated,
         "Container should be Running or Terminated, got: {:?}",
@@ -544,7 +544,7 @@ async fn test_health_check_detects_container_death() {
         let states = manager.get_states().await;
         if !states.is_empty() {
             let status = states[0].status.unwrap();
-            let terminated: i32 = FunctionExecutorStatus::Terminated.into();
+            let terminated: i32 = ContainerStatus::Terminated.into();
             if status == terminated {
                 // Health check detected the death
                 cancel_token.cancel();
@@ -562,7 +562,7 @@ async fn test_health_check_detects_container_death() {
     let states = manager.get_states().await;
     if !states.is_empty() {
         let status = states[0].status.unwrap();
-        let terminated: i32 = FunctionExecutorStatus::Terminated.into();
+        let terminated: i32 = ContainerStatus::Terminated.into();
         assert_eq!(
             status, terminated,
             "Container should be terminated after daemon death"

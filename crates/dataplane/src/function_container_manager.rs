@@ -12,9 +12,9 @@ use std::{
 pub use image_resolver::{DefaultImageResolver, ImageResolver};
 use proto_api::executor_api_pb::{
     CommandResponse,
-    FunctionExecutorDescription,
-    FunctionExecutorState,
-    FunctionExecutorTerminationReason,
+    ContainerDescription,
+    ContainerState as ProtoContainerState,
+    ContainerTerminationReason,
 };
 use tokio::sync::{RwLock, mpsc};
 use tracing::Instrument;
@@ -260,7 +260,7 @@ impl FunctionContainerManager {
     async fn create_container(
         &self,
         containers: &mut ContainerStore,
-        desc: FunctionExecutorDescription,
+        desc: ContainerDescription,
     ) {
         let id = match &desc.id {
             Some(id) => id.clone(),
@@ -350,7 +350,7 @@ impl FunctionContainerManager {
     /// If the container already exists and is Terminated, it is removed and
     /// recreated. If it exists in any other state, only its description is
     /// updated.
-    pub async fn add_or_update_container(&self, desc: FunctionExecutorDescription) {
+    pub async fn add_or_update_container(&self, desc: ContainerDescription) {
         let Some(id) = desc.id.clone() else { return };
         let mut containers = self.containers.write().await;
 
@@ -498,7 +498,7 @@ impl FunctionContainerManager {
                 ContainerState::Pending | ContainerState::Running { .. } => {
                     self.initiate_stop(
                         container,
-                        FunctionExecutorTerminationReason::FunctionCancelled,
+                        ContainerTerminationReason::FunctionCancelled,
                     )
                     .await;
                 }
@@ -513,7 +513,7 @@ impl FunctionContainerManager {
         &self,
         containers: &mut ContainerStore,
         id: &str,
-        desc: FunctionExecutorDescription,
+        desc: ContainerDescription,
     ) {
         let old_sandbox_id = containers
             .get(id)
@@ -537,7 +537,7 @@ impl FunctionContainerManager {
     async fn initiate_stop(
         &self,
         container: &mut ManagedContainer,
-        reason: FunctionExecutorTerminationReason,
+        reason: ContainerTerminationReason,
     ) {
         let id = container.description.id.clone().unwrap_or_default();
         let container_type = container_type_str(&container.description);
@@ -595,7 +595,7 @@ impl FunctionContainerManager {
     fn send_container_terminated(
         tx: &mpsc::UnboundedSender<CommandResponse>,
         container_id: &str,
-        reason: FunctionExecutorTerminationReason,
+        reason: ContainerTerminationReason,
     ) {
         let response = crate::function_executor::proto_convert::make_container_terminated_response(
             container_id,
@@ -605,7 +605,7 @@ impl FunctionContainerManager {
     }
 
     /// Get the current state of all containers for reporting to the server.
-    pub async fn get_states(&self) -> Vec<FunctionExecutorState> {
+    pub async fn get_states(&self) -> Vec<ProtoContainerState> {
         let containers = self.containers.read().await;
         containers.values().map(|c| c.to_proto_state()).collect()
     }
@@ -765,7 +765,7 @@ mod tests {
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     use async_trait::async_trait;
-    use proto_api::executor_api_pb::{FunctionExecutorStatus, FunctionRef, SandboxMetadata};
+    use proto_api::executor_api_pb::{ContainerStatus, FunctionRef, SandboxMetadata};
     use tempfile::tempdir;
 
     use super::*;
@@ -847,8 +847,8 @@ mod tests {
         }
     }
 
-    fn create_test_fe_description(id: &str) -> FunctionExecutorDescription {
-        FunctionExecutorDescription {
+    fn create_test_fe_description(id: &str) -> ContainerDescription {
+        ContainerDescription {
             id: Some(id.to_string()),
             function: Some(FunctionRef {
                 namespace: Some("test-ns".to_string()),
@@ -882,7 +882,7 @@ mod tests {
 
     #[test]
     fn test_function_info_empty_description() {
-        let desc = FunctionExecutorDescription {
+        let desc = ContainerDescription {
             id: None,
             function: None,
             secret_names: vec![],
@@ -949,7 +949,7 @@ mod tests {
         let proto_state = container.to_proto_state();
         assert_eq!(
             proto_state.status,
-            Some(FunctionExecutorStatus::Pending.into())
+            Some(ContainerStatus::Pending.into())
         );
         assert!(proto_state.termination_reason.is_none());
     }
@@ -960,7 +960,7 @@ mod tests {
             description: create_test_fe_description("fe-123"),
             executor_id: "test-executor".to_string(),
             state: ContainerState::Terminated {
-                reason: FunctionExecutorTerminationReason::StartupFailedInternalError,
+                reason: ContainerTerminationReason::StartupFailedInternalError,
             },
             created_at: Instant::now(),
             started_at: None,
@@ -970,11 +970,11 @@ mod tests {
         let proto_state = container.to_proto_state();
         assert_eq!(
             proto_state.status,
-            Some(FunctionExecutorStatus::Terminated.into())
+            Some(ContainerStatus::Terminated.into())
         );
         assert_eq!(
             proto_state.termination_reason,
-            Some(FunctionExecutorTerminationReason::StartupFailedInternalError.into())
+            Some(ContainerTerminationReason::StartupFailedInternalError.into())
         );
     }
 
@@ -1032,7 +1032,7 @@ mod tests {
         assert_eq!(states.len(), 1);
         assert_eq!(
             states[0].status,
-            Some(FunctionExecutorStatus::Pending.into())
+            Some(ContainerStatus::Pending.into())
         );
 
         // Wait a bit for the spawn task to run
@@ -1044,7 +1044,7 @@ mod tests {
         assert_eq!(states.len(), 1);
         assert_eq!(
             states[0].status,
-            Some(FunctionExecutorStatus::Terminated.into())
+            Some(ContainerStatus::Terminated.into())
         );
     }
 
@@ -1103,7 +1103,7 @@ mod tests {
     fn create_test_fe_description_with_timeout(
         id: &str,
         timeout_secs: u64,
-    ) -> FunctionExecutorDescription {
+    ) -> ContainerDescription {
         let mut desc = create_test_fe_description(id);
         desc.sandbox_metadata = Some(SandboxMetadata {
             image: None,
@@ -1167,7 +1167,7 @@ mod tests {
             description: create_test_fe_description_with_timeout("fe-123", 10),
             executor_id: "test-executor".to_string(),
             state: ContainerState::Terminated {
-                reason: FunctionExecutorTerminationReason::Unknown,
+                reason: ContainerTerminationReason::Unknown,
             },
             created_at: Instant::now(),
             started_at: None,

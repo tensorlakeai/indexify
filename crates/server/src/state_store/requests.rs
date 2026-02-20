@@ -230,7 +230,7 @@ impl SchedulerUpdateRequest {
             namespace = %allocation.namespace,
             app = %allocation.application,
             fn = %allocation.function,
-            fn_executor_id = %allocation.target.function_executor_id,
+            fn_executor_id = %allocation.target.container_id,
             "cancelling allocation",
         );
         allocation.outcome =

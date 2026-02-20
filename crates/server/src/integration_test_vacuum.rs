@@ -947,7 +947,7 @@ mod tests {
                 // Mark all as terminated to simulate executor response
                 fe.state = crate::data_model::ContainerState::Terminated {
                     reason:
-                        crate::data_model::FunctionExecutorTerminationReason::DesiredStateRemoved,
+                        crate::data_model::ContainerTerminationReason::DesiredStateRemoved,
                 };
             }
             executor_state.state_hash = nanoid::nanoid!();
@@ -1502,7 +1502,7 @@ mod tests {
                         .map_or(false, |id| *id == status.allocation_id.to_string())
                     {
                         let alloc_container_id =
-                            alloc.function_executor_id.clone().unwrap_or_default();
+                            alloc.container_id.clone().unwrap_or_default();
                         tracing::info!(
                             "app_a second allocation went to container: {}",
                             alloc_container_id

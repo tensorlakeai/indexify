@@ -149,13 +149,13 @@ impl FunctionRunCreator {
         let mut scheduler_update = SchedulerUpdateRequest::default();
         if let Some(fc) = container_scheduler
             .function_containers
-            .get_mut(&alloc_finished_event.allocation_target.function_executor_id)
+            .get_mut(&alloc_finished_event.allocation_target.container_id)
         {
             fc.allocations.remove(&alloc_finished_event.allocation_id);
             scheduler_update.containers.insert(
                 alloc_finished_event
                     .allocation_target
-                    .function_executor_id
+                    .container_id
                     .clone(),
                 fc.clone(),
             );

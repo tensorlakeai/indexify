@@ -92,7 +92,7 @@ impl AllocationController {
                         }
                         _ => None,
                     })
-                    .unwrap_or(AllocationFailureReason::FunctionExecutorTerminated);
+                    .unwrap_or(AllocationFailureReason::ContainerTerminated);
                 let activity = proto_convert::make_allocation_failed_stream_request(
                     &allocation,
                     failure_reason,
@@ -321,7 +321,7 @@ impl AllocationController {
                         );
                         let result = proto_convert::make_failure_result(
                             &alloc.allocation,
-                            AllocationFailureReason::FunctionExecutorTerminated,
+                            AllocationFailureReason::ContainerTerminated,
                         );
                         let ctx = FinalizationContext {
                             request_error_blob_handle: prepared.request_error_blob_handle,
@@ -586,7 +586,7 @@ impl AllocationController {
         let mut ctx = finalization_ctx;
         let mut trigger_fe_termination = false;
         let mut fe_termination_reason =
-            proto_api::executor_api_pb::FunctionExecutorTerminationReason::Unhealthy;
+            proto_api::executor_api_pb::ContainerTerminationReason::Unhealthy;
 
         let server_result = match outcome {
             AllocationOutcome::Completed {
@@ -633,7 +633,7 @@ impl AllocationController {
                     );
                     trigger_fe_termination = true;
                     fe_termination_reason = termination_reason.unwrap_or(
-                        proto_api::executor_api_pb::FunctionExecutorTerminationReason::Unhealthy,
+                        proto_api::executor_api_pb::ContainerTerminationReason::Unhealthy,
                     );
                 }
                 ctx.output_blob_handles = output_blob_handles;
@@ -932,7 +932,7 @@ impl AllocationController {
         self.config
             .metrics
             .up_down_counters
-            .function_executors_count
+            .containers_count
             .add(-(self.containers.len() as i64), &[]);
     }
 }

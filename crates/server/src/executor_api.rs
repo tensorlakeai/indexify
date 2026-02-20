@@ -12,9 +12,9 @@ use executor_api_pb::{
     DataPayloadEncoding,
     ExecutorState,
     ExecutorStatus,
-    FunctionExecutorResources,
-    FunctionExecutorStatus,
-    FunctionExecutorType as FunctionExecutorTypePb,
+    ContainerResources,
+    ContainerStatus,
+    ContainerType as ContainerTypePb,
     HostResources,
     executor_api_server::ExecutorApi,
 };
@@ -40,7 +40,7 @@ use crate::{
         FunctionCallId,
         GPUResources,
     },
-    executor_api::executor_api_pb::{FunctionExecutorState, FunctionExecutorTerminationReason},
+    executor_api::executor_api_pb::{ContainerState, ContainerTerminationReason},
     executors::ExecutorManager,
     pb_helpers::{blob_store_path_to_url, blob_store_url_to_path},
     state_store::{
@@ -160,10 +160,10 @@ impl TryFrom<executor_api_pb::GpuResources> for data_model::GPUResources {
     }
 }
 
-impl TryFrom<FunctionExecutorResources> for data_model::ContainerResources {
+impl TryFrom<ContainerResources> for data_model::ContainerResources {
     type Error = anyhow::Error;
 
-    fn try_from(from: FunctionExecutorResources) -> Result<Self, Self::Error> {
+    fn try_from(from: ContainerResources) -> Result<Self, Self::Error> {
         let cpu_ms_per_sec = from
             .cpu_ms_per_sec
             .ok_or(anyhow::anyhow!("cpu_ms_per_sec is required"))?;
@@ -183,11 +183,11 @@ impl TryFrom<FunctionExecutorResources> for data_model::ContainerResources {
     }
 }
 
-impl TryFrom<data_model::ContainerResources> for FunctionExecutorResources {
+impl TryFrom<data_model::ContainerResources> for ContainerResources {
     type Error = anyhow::Error;
 
     fn try_from(from: data_model::ContainerResources) -> Result<Self, Self::Error> {
-        Ok(FunctionExecutorResources {
+        Ok(ContainerResources {
             cpu_ms_per_sec: Some(from.cpu_ms_per_sec),
             memory_bytes: Some(from.memory_mb * 1024 * 1024),
             disk_bytes: Some(from.ephemeral_disk_mb * 1024 * 1024),
@@ -235,12 +235,12 @@ impl TryFrom<ExecutorState> for ExecutorMetadata {
         }
         executor_metadata.labels(executor_state.labels);
         let mut function_executors = HashMap::new();
-        for function_executor_state in executor_state.function_executor_states {
+        for function_executor_state in executor_state.container_states {
             let function_executor = data_model::Container::try_from(function_executor_state)?;
             function_executors.insert(function_executor.id.clone(), function_executor);
         }
         executor_metadata.containers(function_executors);
-        if let Some(host_resources) = executor_state.total_function_executor_resources {
+        if let Some(host_resources) = executor_state.total_container_resources {
             let cpu = host_resources
                 .cpu_count
                 .ok_or(anyhow::anyhow!("cpu_count is required"))?;
@@ -274,55 +274,55 @@ impl TryFrom<ExecutorState> for ExecutorMetadata {
     }
 }
 
-impl TryFrom<FunctionExecutorTerminationReason> for data_model::FunctionExecutorTerminationReason {
+impl TryFrom<ContainerTerminationReason> for data_model::ContainerTerminationReason {
     type Error = anyhow::Error;
 
     fn try_from(
-        termination_reason: FunctionExecutorTerminationReason,
+        termination_reason: ContainerTerminationReason,
     ) -> Result<Self, Self::Error> {
         match termination_reason {
-            FunctionExecutorTerminationReason::Unknown => {
-                Ok(data_model::FunctionExecutorTerminationReason::Unknown)
+            ContainerTerminationReason::Unknown => {
+                Ok(data_model::ContainerTerminationReason::Unknown)
             }
-            FunctionExecutorTerminationReason::StartupFailedInternalError => {
-                Ok(data_model::FunctionExecutorTerminationReason::StartupFailedInternalError)
+            ContainerTerminationReason::StartupFailedInternalError => {
+                Ok(data_model::ContainerTerminationReason::StartupFailedInternalError)
             }
-            FunctionExecutorTerminationReason::StartupFailedFunctionError => {
-                Ok(data_model::FunctionExecutorTerminationReason::StartupFailedFunctionError)
+            ContainerTerminationReason::StartupFailedFunctionError => {
+                Ok(data_model::ContainerTerminationReason::StartupFailedFunctionError)
             }
-            FunctionExecutorTerminationReason::StartupFailedFunctionTimeout => {
-                Ok(data_model::FunctionExecutorTerminationReason::StartupFailedFunctionTimeout)
+            ContainerTerminationReason::StartupFailedFunctionTimeout => {
+                Ok(data_model::ContainerTerminationReason::StartupFailedFunctionTimeout)
             }
-            FunctionExecutorTerminationReason::Unhealthy => {
-                Ok(data_model::FunctionExecutorTerminationReason::Unhealthy)
+            ContainerTerminationReason::Unhealthy => {
+                Ok(data_model::ContainerTerminationReason::Unhealthy)
             }
-            FunctionExecutorTerminationReason::InternalError => {
-                Ok(data_model::FunctionExecutorTerminationReason::InternalError)
+            ContainerTerminationReason::InternalError => {
+                Ok(data_model::ContainerTerminationReason::InternalError)
             }
-            FunctionExecutorTerminationReason::FunctionTimeout => {
-                Ok(data_model::FunctionExecutorTerminationReason::FunctionTimeout)
+            ContainerTerminationReason::FunctionTimeout => {
+                Ok(data_model::ContainerTerminationReason::FunctionTimeout)
             }
-            FunctionExecutorTerminationReason::FunctionCancelled => {
-                Ok(data_model::FunctionExecutorTerminationReason::FunctionCancelled)
+            ContainerTerminationReason::FunctionCancelled => {
+                Ok(data_model::ContainerTerminationReason::FunctionCancelled)
             }
-            FunctionExecutorTerminationReason::Oom => {
-                Ok(data_model::FunctionExecutorTerminationReason::Oom)
+            ContainerTerminationReason::Oom => {
+                Ok(data_model::ContainerTerminationReason::Oom)
             }
-            FunctionExecutorTerminationReason::ProcessCrash => {
-                Ok(data_model::FunctionExecutorTerminationReason::ProcessCrash)
+            ContainerTerminationReason::ProcessCrash => {
+                Ok(data_model::ContainerTerminationReason::ProcessCrash)
             }
-            FunctionExecutorTerminationReason::StartupFailedBadImage => {
-                Ok(data_model::FunctionExecutorTerminationReason::StartupFailedBadImage)
+            ContainerTerminationReason::StartupFailedBadImage => {
+                Ok(data_model::ContainerTerminationReason::StartupFailedBadImage)
             }
         }
     }
 }
 
-impl TryFrom<FunctionExecutorState> for data_model::Container {
+impl TryFrom<ContainerState> for data_model::Container {
     type Error = anyhow::Error;
 
-    fn try_from(function_executor_state: FunctionExecutorState) -> Result<Self, Self::Error> {
-        let termination_reason = data_model::FunctionExecutorTerminationReason::try_from(
+    fn try_from(function_executor_state: ContainerState) -> Result<Self, Self::Error> {
+        let termination_reason = data_model::ContainerTerminationReason::try_from(
             function_executor_state.termination_reason(),
         )?;
         let id = function_executor_state
@@ -367,12 +367,12 @@ impl TryFrom<FunctionExecutorState> for data_model::Container {
 
         let description = function_executor_state.description.as_ref();
 
-        // Get container_type from description (moved from FunctionExecutorState)
+        // Get container_type from description (moved from ContainerState)
         let container_type = description
             .map(|d| match d.container_type() {
-                FunctionExecutorTypePb::Unknown => ContainerType::Function, // Default for backwards compat
-                FunctionExecutorTypePb::Function => ContainerType::Function,
-                FunctionExecutorTypePb::Sandbox => ContainerType::Sandbox,
+                ContainerTypePb::Unknown => ContainerType::Function, // Default for backwards compat
+                ContainerTypePb::Function => ContainerType::Function,
+                ContainerTypePb::Sandbox => ContainerType::Sandbox,
             })
             .unwrap_or(ContainerType::Function);
 
@@ -392,10 +392,10 @@ impl TryFrom<FunctionExecutorState> for data_model::Container {
             .map(data_model::SandboxId::new);
 
         let state = match function_executor_state.status() {
-            FunctionExecutorStatus::Unknown => data_model::ContainerState::Unknown,
-            FunctionExecutorStatus::Pending => data_model::ContainerState::Pending,
-            FunctionExecutorStatus::Running => data_model::ContainerState::Running,
-            FunctionExecutorStatus::Terminated => data_model::ContainerState::Terminated {
+            ContainerStatus::Unknown => data_model::ContainerState::Unknown,
+            ContainerStatus::Pending => data_model::ContainerState::Pending,
+            ContainerStatus::Running => data_model::ContainerState::Running,
+            ContainerStatus::Terminated => data_model::ContainerState::Terminated {
                 reason: termination_reason,
             },
         };
@@ -563,7 +563,7 @@ pub struct CommandEmitter {
     /// Container descriptions sent via AddContainer, keyed by container ID.
     /// Tracked as full descriptions so we can detect changes and emit
     /// `UpdateContainerDescription` commands.
-    pub(crate) known_containers: HashMap<String, executor_api_pb::FunctionExecutorDescription>,
+    pub(crate) known_containers: HashMap<String, executor_api_pb::ContainerDescription>,
     /// Allocation IDs sent via RunAllocation.
     pub(crate) known_allocations: HashSet<String>,
 }
@@ -586,7 +586,7 @@ impl CommandEmitter {
     pub fn track_container(
         &mut self,
         id: String,
-        description: executor_api_pb::FunctionExecutorDescription,
+        description: executor_api_pb::ContainerDescription,
     ) {
         self.known_containers.insert(id, description);
     }
@@ -611,14 +611,14 @@ impl CommandEmitter {
         let mut commands = Vec::new();
 
         // --- Containers ---
-        let current_containers: HashMap<String, executor_api_pb::FunctionExecutorDescription> =
+        let current_containers: HashMap<String, executor_api_pb::ContainerDescription> =
             desired_state
-                .function_executors
+                .containers
                 .iter()
                 .filter_map(|fe| fe.id.clone().map(|id| (id, fe.clone())))
                 .collect();
 
-        for fe in &desired_state.function_executors {
+        for fe in &desired_state.containers {
             if let Some(id) = &fe.id {
                 if let Some(known) = self.known_containers.get(id) {
                     // Known container — check if description changed
@@ -773,7 +773,7 @@ fn proto_failure_reason_to_internal(
         executor_api_pb::AllocationFailureReason::AllocationCancelled => {
             data_model::FunctionRunFailureReason::FunctionRunCancelled
         }
-        executor_api_pb::AllocationFailureReason::FunctionExecutorTerminated => {
+        executor_api_pb::AllocationFailureReason::ContainerTerminated => {
             data_model::FunctionRunFailureReason::FunctionExecutorTerminated
         }
         executor_api_pb::AllocationFailureReason::Oom => {
@@ -800,7 +800,7 @@ fn proto_failure_reason_to_internal(
     }
 }
 
-/// Derive a `FunctionExecutorTerminationReason` from an
+/// Derive a `ContainerTerminationReason` from an
 /// `AllocationFailureReason`.
 ///
 /// Used when the dataplane includes `container_id` in AllocationFailed to
@@ -809,72 +809,72 @@ fn proto_failure_reason_to_internal(
 /// scheduler marks the container as terminated immediately.
 fn proto_failure_reason_to_termination_reason(
     reason: executor_api_pb::AllocationFailureReason,
-) -> data_model::FunctionExecutorTerminationReason {
+) -> data_model::ContainerTerminationReason {
     match reason {
         executor_api_pb::AllocationFailureReason::StartupFailedInternalError => {
-            data_model::FunctionExecutorTerminationReason::StartupFailedInternalError
+            data_model::ContainerTerminationReason::StartupFailedInternalError
         }
         executor_api_pb::AllocationFailureReason::StartupFailedFunctionError => {
-            data_model::FunctionExecutorTerminationReason::StartupFailedFunctionError
+            data_model::ContainerTerminationReason::StartupFailedFunctionError
         }
         executor_api_pb::AllocationFailureReason::StartupFailedFunctionTimeout => {
-            data_model::FunctionExecutorTerminationReason::StartupFailedFunctionTimeout
+            data_model::ContainerTerminationReason::StartupFailedFunctionTimeout
         }
         executor_api_pb::AllocationFailureReason::StartupFailedBadImage => {
-            data_model::FunctionExecutorTerminationReason::StartupFailedBadImage
+            data_model::ContainerTerminationReason::StartupFailedBadImage
         }
         executor_api_pb::AllocationFailureReason::Oom => {
-            data_model::FunctionExecutorTerminationReason::Oom
+            data_model::ContainerTerminationReason::Oom
         }
         executor_api_pb::AllocationFailureReason::FunctionTimeout => {
-            data_model::FunctionExecutorTerminationReason::FunctionTimeout
+            data_model::ContainerTerminationReason::FunctionTimeout
         }
         executor_api_pb::AllocationFailureReason::FunctionError |
-        executor_api_pb::AllocationFailureReason::FunctionExecutorTerminated => {
-            data_model::FunctionExecutorTerminationReason::Unhealthy
+        executor_api_pb::AllocationFailureReason::ContainerTerminated => {
+            data_model::ContainerTerminationReason::Unhealthy
         }
-        _ => data_model::FunctionExecutorTerminationReason::Unknown,
+        _ => data_model::ContainerTerminationReason::Unknown,
     }
 }
 
 /// Convert a proto `ContainerTerminationReason` to the internal
-/// `FunctionExecutorTerminationReason`.
+/// `ContainerTerminationReason`.
 fn proto_container_termination_to_internal(
     reason: executor_api_pb::ContainerTerminationReason,
-) -> data_model::FunctionExecutorTerminationReason {
+) -> data_model::ContainerTerminationReason {
     match reason {
         executor_api_pb::ContainerTerminationReason::Unknown => {
-            data_model::FunctionExecutorTerminationReason::Unknown
+            data_model::ContainerTerminationReason::Unknown
         }
         executor_api_pb::ContainerTerminationReason::StartupFailedInternalError => {
-            data_model::FunctionExecutorTerminationReason::StartupFailedInternalError
+            data_model::ContainerTerminationReason::StartupFailedInternalError
         }
         executor_api_pb::ContainerTerminationReason::StartupFailedFunctionError => {
-            data_model::FunctionExecutorTerminationReason::StartupFailedFunctionError
+            data_model::ContainerTerminationReason::StartupFailedFunctionError
         }
         executor_api_pb::ContainerTerminationReason::StartupFailedFunctionTimeout => {
-            data_model::FunctionExecutorTerminationReason::StartupFailedFunctionTimeout
+            data_model::ContainerTerminationReason::StartupFailedFunctionTimeout
         }
         executor_api_pb::ContainerTerminationReason::Unhealthy => {
-            data_model::FunctionExecutorTerminationReason::Unhealthy
+            data_model::ContainerTerminationReason::Unhealthy
         }
         executor_api_pb::ContainerTerminationReason::InternalError => {
-            data_model::FunctionExecutorTerminationReason::InternalError
+            data_model::ContainerTerminationReason::InternalError
         }
         executor_api_pb::ContainerTerminationReason::FunctionTimeout => {
-            data_model::FunctionExecutorTerminationReason::FunctionTimeout
+            data_model::ContainerTerminationReason::FunctionTimeout
         }
         executor_api_pb::ContainerTerminationReason::FunctionCancelled => {
-            data_model::FunctionExecutorTerminationReason::FunctionCancelled
+            data_model::ContainerTerminationReason::FunctionCancelled
         }
         executor_api_pb::ContainerTerminationReason::Oom => {
-            data_model::FunctionExecutorTerminationReason::Oom
+            data_model::ContainerTerminationReason::Oom
         }
         executor_api_pb::ContainerTerminationReason::ProcessCrash => {
-            data_model::FunctionExecutorTerminationReason::ProcessCrash
+            data_model::ContainerTerminationReason::ProcessCrash
         }
         executor_api_pb::ContainerTerminationReason::StartupFailedBadImage => {
-            data_model::FunctionExecutorTerminationReason::StartupFailedBadImage
+            data_model::ContainerTerminationReason::StartupFailedBadImage
         }
     }
 }
@@ -1318,7 +1318,7 @@ impl ExecutorAPIService {
         }
 
         let host_resources = full_state
-            .total_function_executor_resources
+            .total_container_resources
             .map(data_model::HostResources::try_from)
             .transpose()
             .map_err(|e: anyhow::Error| Status::internal(e.to_string()))?
@@ -1340,7 +1340,7 @@ impl ExecutorAPIService {
         executor_metadata.state_hash(String::new());
 
         let mut containers = HashMap::new();
-        for fe_state in full_state.function_executor_states {
+        for fe_state in full_state.container_states {
             match data_model::Container::try_from(fe_state) {
                 Ok(container) => {
                     containers.insert(container.id.clone(), container);
@@ -1428,7 +1428,7 @@ fn build_run_allocation_command(
             function_name: Some(allocation.function.clone()),
             application_version: None,
         }),
-        function_executor_id: Some(allocation.target.function_executor_id.get().to_string()),
+        container_id: Some(allocation.target.container_id.get().to_string()),
         allocation_id: Some(allocation.id.to_string()),
         function_call_id: Some(allocation.function_call_id.to_string()),
         request_id: Some(allocation.request_id.to_string()),
@@ -1511,13 +1511,13 @@ async fn build_add_container_command(
     });
 
     let fe_type_pb = match fe.container_type {
-        data_model::ContainerType::Function => executor_api_pb::FunctionExecutorType::Function,
-        data_model::ContainerType::Sandbox => executor_api_pb::FunctionExecutorType::Sandbox,
+        data_model::ContainerType::Function => executor_api_pb::ContainerType::Function,
+        data_model::ContainerType::Sandbox => executor_api_pb::ContainerType::Sandbox,
     };
 
     let sandbox_metadata = sandbox_metadata_to_pb(fe);
 
-    let resources_pb: Option<executor_api_pb::FunctionExecutorResources> =
+    let resources_pb: Option<executor_api_pb::ContainerResources> =
         fe.resources.clone().try_into().ok();
 
     let initialization_timeout_ms = cg_node
@@ -1537,7 +1537,7 @@ async fn build_add_container_command(
             .unwrap_or(u32::MAX)
     });
 
-    let fe_description_pb = executor_api_pb::FunctionExecutorDescription {
+    let fe_description_pb = executor_api_pb::ContainerDescription {
         id: Some(fe.id.get().to_string()),
         function: Some(executor_api_pb::FunctionRef {
             namespace: Some(fe.namespace.clone()),
@@ -2498,30 +2498,30 @@ fn prepare_data_payload(
 #[cfg(test)]
 mod tests {
     use executor_api_pb::{
-        FunctionExecutorDescription,
-        FunctionExecutorResources,
-        FunctionExecutorState,
-        FunctionExecutorStatus,
-        FunctionExecutorTerminationReason as TerminationReasonPb,
-        FunctionExecutorType as FunctionExecutorTypePb,
+        ContainerDescription,
+        ContainerResources,
+        ContainerState,
+        ContainerStatus,
+        ContainerTerminationReason as TerminationReasonPb,
+        ContainerType as ContainerTypePb,
         FunctionRef,
         SandboxMetadata,
     };
     use proto_api::executor_api_pb;
 
-    use crate::data_model::{self, ContainerType, FunctionExecutorTerminationReason};
+    use crate::data_model::{self, ContainerType, ContainerTerminationReason};
 
-    /// Build a minimal sandbox FunctionExecutorState proto with the given
+    /// Build a minimal sandbox ContainerState proto with the given
     /// sandbox_id and termination status, simulating what the dataplane reports
     /// when a sandbox container fails to start (e.g. image pull failure).
     fn sandbox_fe_state_proto(
         container_id: &str,
         sandbox_id: &str,
-        status: FunctionExecutorStatus,
+        status: ContainerStatus,
         termination_reason: Option<TerminationReasonPb>,
-    ) -> FunctionExecutorState {
-        FunctionExecutorState {
-            description: Some(FunctionExecutorDescription {
+    ) -> ContainerState {
+        ContainerState {
+            description: Some(ContainerDescription {
                 id: Some(container_id.to_string()),
                 function: Some(FunctionRef {
                     namespace: Some("test-ns".to_string()),
@@ -2529,14 +2529,14 @@ mod tests {
                     function_name: Some(container_id.to_string()),
                     application_version: Some("".to_string()),
                 }),
-                resources: Some(FunctionExecutorResources {
+                resources: Some(ContainerResources {
                     cpu_ms_per_sec: Some(100),
                     memory_bytes: Some(256 * 1024 * 1024),
                     disk_bytes: Some(1024 * 1024 * 1024),
                     gpu: None,
                 }),
                 max_concurrency: Some(1),
-                container_type: Some(FunctionExecutorTypePb::Sandbox.into()),
+                container_type: Some(ContainerTypePb::Sandbox.into()),
                 sandbox_metadata: Some(SandboxMetadata {
                     image: Some("ubuntu".to_string()),
                     timeout_secs: Some(600),
@@ -2564,7 +2564,7 @@ mod tests {
         let fe_state = sandbox_fe_state_proto(
             "sb-container-123",
             "sb-container-123",
-            FunctionExecutorStatus::Terminated,
+            ContainerStatus::Terminated,
             Some(TerminationReasonPb::StartupFailedInternalError),
         );
 
@@ -2575,7 +2575,7 @@ mod tests {
             matches!(
                 container.state,
                 data_model::ContainerState::Terminated {
-                    reason: FunctionExecutorTerminationReason::StartupFailedInternalError,
+                    reason: ContainerTerminationReason::StartupFailedInternalError,
                     ..
                 }
             ),
@@ -2594,7 +2594,7 @@ mod tests {
         let fe_state = sandbox_fe_state_proto(
             "sb-container-456",
             "sb-container-456",
-            FunctionExecutorStatus::Running,
+            ContainerStatus::Running,
             None,
         );
 
@@ -2611,8 +2611,8 @@ mod tests {
     fn test_function_container_has_no_sandbox_id() {
         // Function containers don't have sandbox_metadata, so sandbox_id should
         // be None.
-        let fe_state = FunctionExecutorState {
-            description: Some(FunctionExecutorDescription {
+        let fe_state = ContainerState {
+            description: Some(ContainerDescription {
                 id: Some("fn-container-1".to_string()),
                 function: Some(FunctionRef {
                     namespace: Some("test-ns".to_string()),
@@ -2620,14 +2620,14 @@ mod tests {
                     function_name: Some("process".to_string()),
                     application_version: Some("v1".to_string()),
                 }),
-                resources: Some(FunctionExecutorResources {
+                resources: Some(ContainerResources {
                     cpu_ms_per_sec: Some(100),
                     memory_bytes: Some(256 * 1024 * 1024),
                     disk_bytes: Some(1024 * 1024 * 1024),
                     gpu: None,
                 }),
                 max_concurrency: Some(1),
-                container_type: Some(FunctionExecutorTypePb::Function.into()),
+                container_type: Some(ContainerTypePb::Function.into()),
                 sandbox_metadata: None,
                 secret_names: vec![],
                 initialization_timeout_ms: None,
@@ -2635,7 +2635,7 @@ mod tests {
                 allocation_timeout_ms: None,
                 pool_id: None,
             }),
-            status: Some(FunctionExecutorStatus::Running.into()),
+            status: Some(ContainerStatus::Running.into()),
             termination_reason: None,
         };
 
@@ -2648,8 +2648,8 @@ mod tests {
         );
     }
 
-    fn make_fe_description(id: &str) -> executor_api_pb::FunctionExecutorDescription {
-        FunctionExecutorDescription {
+    fn make_fe_description(id: &str) -> executor_api_pb::ContainerDescription {
+        ContainerDescription {
             id: Some(id.to_string()),
             function: Some(FunctionRef {
                 namespace: Some("ns".to_string()),
@@ -2657,14 +2657,14 @@ mod tests {
                 function_name: Some("fn".to_string()),
                 application_version: Some("v1".to_string()),
             }),
-            resources: Some(FunctionExecutorResources {
+            resources: Some(ContainerResources {
                 cpu_ms_per_sec: Some(100),
                 memory_bytes: Some(256 * 1024 * 1024),
                 disk_bytes: Some(1024 * 1024 * 1024),
                 gpu: None,
             }),
             max_concurrency: Some(1),
-            container_type: Some(FunctionExecutorTypePb::Function.into()),
+            container_type: Some(ContainerTypePb::Function.into()),
             sandbox_metadata: None,
             secret_names: vec![],
             initialization_timeout_ms: None,
@@ -2688,7 +2688,7 @@ mod tests {
             args: vec![],
             request_data_payload_uri_prefix: None,
             request_error_payload_uri_prefix: None,
-            function_executor_id: Some("c1".to_string()),
+            container_id: Some("c1".to_string()),
             function_call_metadata: None,
             replay_mode: None,
             last_event_clock: None,
@@ -2700,7 +2700,7 @@ mod tests {
         let mut emitter = super::CommandEmitter::new();
 
         let desired = executor_api_pb::DesiredExecutorState {
-            function_executors: vec![make_fe_description("c1")],
+            containers: vec![make_fe_description("c1")],
             allocations: vec![make_allocation("a1")],
             // function_call_results removed (reserved 4)
             clock: Some(1),
@@ -2738,7 +2738,7 @@ mod tests {
         let mut emitter = super::CommandEmitter::new();
 
         let desired = executor_api_pb::DesiredExecutorState {
-            function_executors: vec![make_fe_description("c1")],
+            containers: vec![make_fe_description("c1")],
             allocations: vec![make_allocation("a1")],
             // function_call_results removed (reserved 4)
             clock: Some(1),
@@ -2759,7 +2759,7 @@ mod tests {
 
         // First: one container
         let desired1 = executor_api_pb::DesiredExecutorState {
-            function_executors: vec![make_fe_description("c1")],
+            containers: vec![make_fe_description("c1")],
             allocations: vec![],
             // function_call_results removed (reserved 4)
             clock: Some(1),
@@ -2768,7 +2768,7 @@ mod tests {
 
         // Second: container removed
         let desired2 = executor_api_pb::DesiredExecutorState {
-            function_executors: vec![],
+            containers: vec![],
             allocations: vec![],
             // function_call_results removed (reserved 4)
             clock: Some(2),
@@ -2788,7 +2788,7 @@ mod tests {
 
         // First: one container, one allocation
         let desired1 = executor_api_pb::DesiredExecutorState {
-            function_executors: vec![make_fe_description("c1")],
+            containers: vec![make_fe_description("c1")],
             allocations: vec![make_allocation("a1")],
             // function_call_results removed (reserved 4)
             clock: Some(1),
@@ -2797,7 +2797,7 @@ mod tests {
 
         // Second: same container, new allocation added
         let desired2 = executor_api_pb::DesiredExecutorState {
-            function_executors: vec![make_fe_description("c1")],
+            containers: vec![make_fe_description("c1")],
             allocations: vec![make_allocation("a1"), make_allocation("a2")],
             // function_call_results removed (reserved 4)
             clock: Some(2),
@@ -2817,7 +2817,7 @@ mod tests {
 
         // First: one allocation
         let desired1 = executor_api_pb::DesiredExecutorState {
-            function_executors: vec![make_fe_description("c1")],
+            containers: vec![make_fe_description("c1")],
             allocations: vec![make_allocation("a1")],
             // function_call_results removed (reserved 4)
             clock: Some(1),
@@ -2826,7 +2826,7 @@ mod tests {
 
         // Second: allocation completed (removed from desired state)
         let desired2 = executor_api_pb::DesiredExecutorState {
-            function_executors: vec![make_fe_description("c1")],
+            containers: vec![make_fe_description("c1")],
             allocations: vec![],
             // function_call_results removed (reserved 4)
             clock: Some(2),
@@ -2842,7 +2842,7 @@ mod tests {
 
         // First batch: 2 commands (seq 1, 2)
         let desired1 = executor_api_pb::DesiredExecutorState {
-            function_executors: vec![make_fe_description("c1")],
+            containers: vec![make_fe_description("c1")],
             allocations: vec![make_allocation("a1")],
             // function_call_results removed (reserved 4)
             clock: Some(1),
@@ -2852,7 +2852,7 @@ mod tests {
 
         // Second batch: 1 command (seq 3)
         let desired2 = executor_api_pb::DesiredExecutorState {
-            function_executors: vec![make_fe_description("c1")],
+            containers: vec![make_fe_description("c1")],
             allocations: vec![make_allocation("a1"), make_allocation("a2")],
             // function_call_results removed (reserved 4)
             clock: Some(2),

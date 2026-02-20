@@ -81,60 +81,24 @@ message AllowedFunction {
     optional string application_version = 4;
 }
 
-enum FunctionExecutorStatus {
-    FUNCTION_EXECUTOR_STATUS_UNKNOWN = 0;
-    // FE is being created.
-    FUNCTION_EXECUTOR_STATUS_PENDING = 1;
-    // FE is running and ready to accept allocations.
-    FUNCTION_EXECUTOR_STATUS_RUNNING = 2;
-    // FE is terminated, all resources are freed.
-    FUNCTION_EXECUTOR_STATUS_TERMINATED = 3;
+enum ContainerStatus {
+    CONTAINER_STATUS_UNKNOWN = 0;
+    // Container is being created.
+    CONTAINER_STATUS_PENDING = 1;
+    // Container is running and ready to accept allocations.
+    CONTAINER_STATUS_RUNNING = 2;
+    // Container is terminated, all resources are freed.
+    CONTAINER_STATUS_TERMINATED = 3;
 }
 
-enum FunctionExecutorType {
-    FUNCTION_EXECUTOR_TYPE_UNKNOWN = 0;
-    FUNCTION_EXECUTOR_TYPE_FUNCTION = 1;
-    FUNCTION_EXECUTOR_TYPE_SANDBOX = 2;
+enum ContainerType {
+    CONTAINER_TYPE_UNKNOWN = 0;
+    CONTAINER_TYPE_FUNCTION = 1;
+    CONTAINER_TYPE_SANDBOX = 2;
 }
 
-// The reasons why an Executor decided to terminate a Function Executor.
-enum FunctionExecutorTerminationReason {
-    FUNCTION_EXECUTOR_TERMINATION_REASON_UNKNOWN = 0;
-    // Internal error aka platform error on FE startup.
-    FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_INTERNAL_ERROR = 1;
-    // A clear function constructor code error on FE startup.
-    // Typically an exception raised from the constructor.
-    FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_FUNCTION_ERROR = 2;
-    // Timeout on FE startup while running the function constructor.
-    FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_FUNCTION_TIMEOUT = 3;
-
-    // FE was terminated because it failed a health check.
-    FUNCTION_EXECUTOR_TERMINATION_REASON_UNHEALTHY = 12;
-    // FE was terminated due to an unrecoverable internal error on Executor.
-    FUNCTION_EXECUTOR_TERMINATION_REASON_INTERNAL_ERROR = 13;
-    // FE was terminated because Function code exceeded its configured timeout.
-    // FE termination is the only way to reliably stop the function code execution.
-    FUNCTION_EXECUTOR_TERMINATION_REASON_FUNCTION_TIMEOUT = 14;
-    // FE was terminated because function allocation currently running on it was removed
-    // from Executor desired state.
-    // FE termination is the only way to reliably stop the function code execution.
-    FUNCTION_EXECUTOR_TERMINATION_REASON_FUNCTION_CANCELLED = 15;
-
-    // FE was terminated because it ran out of memory.
-    FUNCTION_EXECUTOR_TERMINATION_REASON_OOM = 16;
-
-    // FE process died unexpectedly (crash, signal, etc.) but not due to OOM.
-    // Distinguished from UNHEALTHY which means gRPC health checks failed while
-    // the process was still alive.
-    FUNCTION_EXECUTOR_TERMINATION_REASON_PROCESS_CRASH = 17;
-
-    // Image-related failure on FE startup (missing image, bad image name, pull failure).
-    // Not retriable — the image configuration must be fixed.
-    FUNCTION_EXECUTOR_TERMINATION_REASON_STARTUP_FAILED_BAD_IMAGE = 18;
-}
-
-// Immutable information that identifies and describes a Function Executor.
-message FunctionExecutorResources {
+// Resources allocated to a container.
+message ContainerResources {
     // 1000 CPU ms per sec is one full CPU core.
     // 2000 CPU ms per sec is two full CPU cores.
     optional uint32 cpu_ms_per_sec = 1;
@@ -181,49 +145,46 @@ message SandboxMetadata {
     optional string sandbox_id = 14;
 }
 
-// This will be container description
-// and we will extract Function related metadata
-// in a FunctionMetadata object
-// secret, application name, ns, would be shared
-// metadata across sandbox and function containers
-message FunctionExecutorDescription {
+// Describes a container managed by the dataplane.
+// Covers both function containers and sandbox containers.
+message ContainerDescription {
     optional string id = 1;
     optional FunctionRef function = 2;
     repeated string secret_names = 3;
-    // Timeout for customer code duration during FE creation.
+    // Timeout for customer code duration during container creation.
     optional uint32 initialization_timeout_ms = 4;
     optional DataPayload application = 5;
-    optional FunctionExecutorResources resources = 6;
+    optional ContainerResources resources = 6;
     optional uint32 max_concurrency = 8;
-    // Timeout for running allocations on FE.
+    // Timeout for running allocations on this container.
     optional uint32 allocation_timeout_ms = 9;
 
     // Sandbox related metadata, only set when container_type
     // is set to sandbox
     optional SandboxMetadata sandbox_metadata = 10;
-    // Type of this function executor (function or sandbox).
-    optional FunctionExecutorType container_type = 13;
+    // Type of this container (function or sandbox).
+    optional ContainerType container_type = 13;
     // Pool this container belongs to. Every container belongs to a pool.
     optional string pool_id = 14;
 }
 
-message FunctionExecutorState {
-    optional FunctionExecutorDescription description = 1;
-    optional FunctionExecutorStatus status = 2;
-    optional FunctionExecutorTerminationReason termination_reason = 3;
+message ContainerState {
+    optional ContainerDescription description = 1;
+    optional ContainerStatus status = 2;
+    optional ContainerTerminationReason termination_reason = 3;
     // Field 4 (allocation_ids_caused_termination) removed — blame tracking is
     // now handled by the dataplane via per-allocation AllocationFailed messages.
 }
 
 enum ExecutorStatus {
     EXECUTOR_STATUS_UNKNOWN = 0;
-    // Executor is starting up, not ready to accept allocations and FEs.
+    // Executor is starting up, not ready to accept allocations and containers.
     EXECUTOR_STATUS_STARTING_UP = 1;
-    // Executor is ready to accept allocations and FEs.
+    // Executor is ready to accept allocations and containers.
     EXECUTOR_STATUS_RUNNING = 2;
-    // No new allocations or FEs should be places on the Executor.
+    // No new allocations or containers should be placed on the Executor.
     EXECUTOR_STATUS_DRAINED = 3;
-    // Executor is stopped, all resources are freed, all FEs are terminated.
+    // Executor is stopped, all resources are freed, all containers are terminated.
     EXECUTOR_STATUS_STOPPED = 4;
 }
 
@@ -234,11 +195,11 @@ message ExecutorState {
     optional ExecutorStatus status = 6;
     // Total resources at the Executor.
     optional HostResources total_resources = 13;
-    // Total resources usable by Function Executors.
-    optional HostResources total_function_executor_resources = 7;
+    // Total resources usable by containers.
+    optional HostResources total_container_resources = 7;
     // Empty allowed_functions list means that any function can run on the Executor.
     repeated AllowedFunction allowed_functions = 8;
-    repeated FunctionExecutorState function_executor_states = 9;
+    repeated ContainerState container_states = 9;
     map<string, string> labels = 10;
     optional string state_hash = 11;
     // Server supplied clock value of the latest desired executor state that was
@@ -283,7 +244,7 @@ message Allocation {
     optional string request_data_payload_uri_prefix = 6;
     // BLOB URI prefix for the request error payloads.
     optional string request_error_payload_uri_prefix = 7;
-    optional string function_executor_id = 8;
+    optional string container_id = 8;
 
     // Always set. An empty bytes array if no metadata, e.g. for API function call.
     optional bytes function_call_metadata = 9;
@@ -313,7 +274,7 @@ message FunctionCallResult {
 
 // Used internally by get_executor_state() and tests.
 message DesiredExecutorState {
-    repeated FunctionExecutorDescription function_executors = 1;
+    repeated ContainerDescription containers = 1;
     repeated Allocation allocations = 2;
     // Server supplied clock value used to deduplicate messages. Executor records max clock value
     // it observed and ignores all the messages with clock value <= the max observed value.
@@ -343,9 +304,9 @@ enum AllocationFailureReason {
     // The allocation was either running or didn't start before the removal.
     // If it started running then its execution duration is set.
     ALLOCATION_FAILURE_REASON_ALLOCATION_CANCELLED = 5;
-    // Function Executor terminated can't run the allocation on it anymore.
-    // The allocation didn't run on FE.
-    ALLOCATION_FAILURE_REASON_FUNCTION_EXECUTOR_TERMINATED = 6;
+    // Container terminated, can't run the allocation on it anymore.
+    // The allocation didn't run on the container.
+    ALLOCATION_FAILURE_REASON_CONTAINER_TERMINATED = 6;
     // Out of memory error.
     ALLOCATION_FAILURE_REASON_OOM = 7;
     // The below failure reasons are only set by Server when reporting function call results
@@ -359,15 +320,15 @@ enum AllocationFailureReason {
     // but this is one of the function run reasons - again shouldn't happen in practice,
     ALLOCATION_FAILURE_REASON_EXECUTOR_REMOVED = 9;
 
-    // Internal error aka platform error on FE startup.
+    // Internal error aka platform error on container startup.
     ALLOCATION_FAILURE_REASON_STARTUP_FAILED_INTERNAL_ERROR = 10;
-    // A clear function constructor code error on FE startup.
+    // A clear function constructor code error on container startup.
     // Typically an exception raised from the constructor.
     ALLOCATION_FAILURE_REASON_STARTUP_FAILED_FUNCTION_ERROR = 11;
-    // Timeout on FE startup while running the function constructor.
+    // Timeout on container startup while running the function constructor.
     ALLOCATION_FAILURE_REASON_STARTUP_FAILED_FUNCTION_TIMEOUT = 12;
 
-    // Image-related failure on FE startup (missing image, bad image name, pull failure).
+    // Image-related failure on container startup (missing image, bad image name, pull failure).
     ALLOCATION_FAILURE_REASON_STARTUP_FAILED_BAD_IMAGE = 13;
 }
 
@@ -490,12 +451,12 @@ message DataplaneStateFullSync {
     optional string hostname = 1;
     optional string version = 2;
     optional HostResources total_resources = 3;
-    optional HostResources total_function_executor_resources = 4;
+    optional HostResources total_container_resources = 4;
     repeated AllowedFunction allowed_functions = 5;
     map<string, string> labels = 6;
     optional string catalog_entry_name = 7;
     optional string proxy_address = 8;
-    repeated FunctionExecutorState function_executor_states = 9;
+    repeated ContainerState container_states = 9;
     reserved 10; // was function_call_watches — watchers eliminated by allocation_stream
 }
 
@@ -507,9 +468,9 @@ message DataplaneStateFullSync {
 // Allows atomic processing of container state + allocation results.
 message ContainerStateUpdate {
     optional string container_id = 1;
-    optional FunctionExecutorStatus status = 2;
+    optional ContainerStatus status = 2;
     // Only set when status is TERMINATED.
-    optional FunctionExecutorTerminationReason termination_reason = 3;
+    optional ContainerTerminationReason termination_reason = 3;
 }
 
 // ════════════════════════════════════════════
@@ -543,7 +504,7 @@ message UpdateContainerDescription {
 }
 
 message AddContainer {
-    FunctionExecutorDescription container = 1;
+    ContainerDescription container = 1;
 }
 
 message RemoveContainer {

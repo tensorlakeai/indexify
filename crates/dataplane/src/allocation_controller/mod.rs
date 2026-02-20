@@ -20,8 +20,8 @@ use std::{
 
 use proto_api::executor_api_pb::{
     AllocationFailureReason,
-    FunctionExecutorState,
-    FunctionExecutorStatus,
+    ContainerState as ProtoContainerState,
+    ContainerStatus,
 };
 use tokio::sync::{Notify, mpsc, watch};
 use tokio_util::sync::CancellationToken;
@@ -40,7 +40,7 @@ use crate::{
 /// controller.
 pub struct AllocationControllerHandle {
     pub command_tx: mpsc::UnboundedSender<ACCommand>,
-    pub state_rx: watch::Receiver<Vec<FunctionExecutorState>>,
+    pub state_rx: watch::Receiver<Vec<ProtoContainerState>>,
 }
 
 /// Unified controller managing all function executor containers and
@@ -71,7 +71,7 @@ pub struct AllocationController {
 
     // -- Shared dependencies --
     config: FESpawnConfig,
-    state_tx: watch::Sender<Vec<FunctionExecutorState>>,
+    state_tx: watch::Sender<Vec<ProtoContainerState>>,
     state_change_notify: Arc<Notify>,
     allocation_result_dispatcher: Arc<AllocationResultDispatcher>,
 
@@ -204,18 +204,18 @@ impl AllocationController {
 
     /// Broadcast container states via state_tx for heartbeat reporting.
     fn broadcast_state(&self) {
-        let states: Vec<FunctionExecutorState> = self
+        let states: Vec<ProtoContainerState> = self
             .containers
             .values()
             .map(|fe| {
                 let (status, termination_reason) = match &fe.state {
-                    ContainerState::Starting => (FunctionExecutorStatus::Pending, None),
-                    ContainerState::Running { .. } => (FunctionExecutorStatus::Running, None),
+                    ContainerState::Starting => (ContainerStatus::Pending, None),
+                    ContainerState::Running { .. } => (ContainerStatus::Running, None),
                     ContainerState::Terminated { reason } => {
-                        (FunctionExecutorStatus::Terminated, Some(*reason))
+                        (ContainerStatus::Terminated, Some(*reason))
                     }
                 };
-                FunctionExecutorState {
+                ProtoContainerState {
                     description: Some(fe.description.clone()),
                     status: Some(status.into()),
                     termination_reason: termination_reason.map(|r| r.into()),
@@ -288,7 +288,7 @@ impl AllocationController {
         let non_running_reason = if is_startup {
             reason
         } else {
-            AllocationFailureReason::FunctionExecutorTerminated
+            AllocationFailureReason::ContainerTerminated
         };
 
         if !alloc_ids.is_empty() {

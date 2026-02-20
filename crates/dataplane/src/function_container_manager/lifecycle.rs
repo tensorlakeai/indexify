@@ -7,8 +7,8 @@ use std::{sync::Arc, time::Duration};
 
 use proto_api::executor_api_pb::{
     CommandResponse,
-    FunctionExecutorDescription,
-    FunctionExecutorTerminationReason,
+    ContainerDescription,
+    ContainerTerminationReason,
 };
 use tokio::sync::{RwLock, mpsc};
 
@@ -32,7 +32,7 @@ pub(super) async fn start_container_with_daemon(
     image_resolver: &Arc<dyn ImageResolver>,
     secrets_provider: &Arc<dyn SecretsProvider>,
     executor_id: &str,
-    desc: &FunctionExecutorDescription,
+    desc: &ContainerDescription,
 ) -> anyhow::Result<(ProcessHandle, DaemonClient)> {
     let info = ContainerInfo::from_description(desc, executor_id);
 
@@ -220,7 +220,7 @@ pub(super) async fn start_container_with_daemon(
 /// completes.
 pub(super) async fn handle_container_startup_result(
     id: String,
-    desc: FunctionExecutorDescription,
+    desc: ContainerDescription,
     result: anyhow::Result<(ProcessHandle, DaemonClient)>,
     containers_ref: Arc<RwLock<ContainerStore>>,
     metrics: Arc<DataplaneMetrics>,
@@ -297,9 +297,9 @@ pub(super) async fn handle_container_startup_result(
                 "Failed to start container"
             );
             let reason = if e.downcast_ref::<crate::driver::ImageError>().is_some() {
-                FunctionExecutorTerminationReason::StartupFailedBadImage
+                ContainerTerminationReason::StartupFailedBadImage
             } else {
-                FunctionExecutorTerminationReason::StartupFailedInternalError
+                ContainerTerminationReason::StartupFailedInternalError
             };
             if container.transition_to_terminated(reason).is_ok() {
                 super::FunctionContainerManager::send_container_terminated(

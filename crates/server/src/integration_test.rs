@@ -496,10 +496,10 @@ mod tests {
             let desired_state = executor.srv_executor_state().await;
             tracing::info!(
                 "Executor desired_state after app deletion: {} function_executors, {} allocations",
-                desired_state.function_executors.len(),
+                desired_state.containers.len(),
                 desired_state.allocations.len()
             );
-            for fe in &desired_state.function_executors {
+            for fe in &desired_state.containers {
                 tracing::info!(
                     "  Desired FE: id={}, fn={}",
                     fe.id.as_ref().unwrap_or(&"?".to_string()),
@@ -525,7 +525,7 @@ mod tests {
             for (_, fe) in executor_state.containers.iter_mut() {
                 fe.state = crate::data_model::ContainerState::Terminated {
                     reason:
-                        crate::data_model::FunctionExecutorTerminationReason::DesiredStateRemoved,
+                        crate::data_model::ContainerTerminationReason::DesiredStateRemoved,
                 };
             }
 

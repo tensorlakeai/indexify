@@ -1187,7 +1187,7 @@ mod tests {
             executor_id.clone(),
             container2,
             ContainerState::Terminated {
-                reason: crate::data_model::FunctionExecutorTerminationReason::Unknown,
+                reason: crate::data_model::ContainerTerminationReason::Unknown,
             },
         );
         let mut update2 = requests::SchedulerUpdateRequest::default();

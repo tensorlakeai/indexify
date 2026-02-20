@@ -14,7 +14,7 @@ use crate::{
         ExecutorId,
         ExecutorMetadata,
         ExecutorServerMetadata,
-        FunctionExecutorTerminationReason,
+        ContainerTerminationReason,
         FunctionRunOutcome,
         FunctionRunStatus,
         RunningFunctionRunStatus,
@@ -152,7 +152,7 @@ impl ContainerReconciler {
                     executor.id.clone(),
                     fe.clone(),
                     ContainerState::Terminated {
-                        reason: FunctionExecutorTerminationReason::DesiredStateRemoved,
+                        reason: ContainerTerminationReason::DesiredStateRemoved,
                     },
                 );
                 executor_server_metadata.force_add_container(&fe);
@@ -265,7 +265,7 @@ impl ContainerReconciler {
         in_memory_state: &InMemoryState,
         executor_id: &ExecutorId,
         container_id: &ContainerId,
-        termination_reason: FunctionExecutorTerminationReason,
+        termination_reason: ContainerTerminationReason,
     ) -> Result<SchedulerUpdateRequest> {
         let mut update = SchedulerUpdateRequest::default();
 
@@ -416,8 +416,8 @@ impl ContainerReconciler {
             let container_update = self.handle_allocations_for_container_termination(
                 in_memory_state,
                 &alloc.target.executor_id,
-                &alloc.target.function_executor_id,
-                FunctionExecutorTerminationReason::Unknown,
+                &alloc.target.container_id,
+                ContainerTerminationReason::Unknown,
             )?;
 
             let payload = RequestPayload::SchedulerUpdate(SchedulerUpdatePayload::new(
@@ -461,7 +461,7 @@ impl ContainerReconciler {
             updated_sandbox.status = SandboxStatus::Terminated;
             updated_sandbox.outcome = Some(SandboxOutcome::Failure(
                 SandboxFailureReason::ContainerTerminated(
-                    FunctionExecutorTerminationReason::Unknown,
+                    ContainerTerminationReason::Unknown,
                 ),
             ));
 
@@ -565,7 +565,7 @@ impl ContainerReconciler {
             let desired_state = match &fc.state {
                 ContainerState::Terminated { .. } => fc.state.clone(),
                 _ => ContainerState::Terminated {
-                    reason: FunctionExecutorTerminationReason::DesiredStateRemoved,
+                    reason: ContainerTerminationReason::DesiredStateRemoved,
                 },
             };
             let terminated_meta = ContainerServerMetadata::new(
@@ -692,7 +692,7 @@ impl ContainerReconciler {
         // this is normal/expected, not a failure.
         terminated_sandbox.outcome = match &container.state {
             ContainerState::Terminated { reason, .. }
-                if *reason == FunctionExecutorTerminationReason::FunctionTimeout =>
+                if *reason == ContainerTerminationReason::FunctionTimeout =>
             {
                 Some(SandboxOutcome::Success(SandboxSuccessReason::Timeout))
             }
@@ -751,7 +751,7 @@ impl ContainerReconciler {
                 in_memory_state,
                 executor_id,
                 container_id,
-                FunctionExecutorTerminationReason::ExecutorRemoved,
+                ContainerTerminationReason::ExecutorRemoved,
             )?;
 
             let payload = RequestPayload::SchedulerUpdate(SchedulerUpdatePayload::new(
@@ -767,7 +767,7 @@ impl ContainerReconciler {
             scheduler_update.extend(container_update);
 
             let terminated_state = ContainerState::Terminated {
-                reason: FunctionExecutorTerminationReason::ExecutorRemoved,
+                reason: ContainerTerminationReason::ExecutorRemoved,
             };
             if let Some(fc) = container_scheduler.function_containers.get(container_id) {
                 let mut terminated_fc = *fc.clone();

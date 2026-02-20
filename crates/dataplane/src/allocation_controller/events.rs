@@ -2,8 +2,8 @@
 
 use proto_api::executor_api_pb::{
     Allocation as ServerAllocation,
-    FunctionExecutorDescription,
-    FunctionExecutorTerminationReason,
+    ContainerDescription,
+    ContainerTerminationReason,
 };
 
 use crate::{
@@ -22,7 +22,7 @@ pub enum ACCommand {
     /// mentioned are left untouched.
     Reconcile {
         /// Containers to create or update.
-        added_or_updated_fes: Vec<FunctionExecutorDescription>,
+        added_or_updated_fes: Vec<ContainerDescription>,
         /// Container IDs to destroy.
         removed_fe_ids: Vec<String>,
         /// (fe_id, allocation, command_seq) tuples to route.
@@ -42,7 +42,7 @@ pub(super) enum ACEvent {
     },
     ContainerTerminated {
         fe_id: String,
-        reason: FunctionExecutorTerminationReason,
+        reason: ContainerTerminationReason,
         /// Allocation ID that triggered the termination (e.g. the allocation
         /// whose gRPC stream broke, signalling a process crash). Ensures this
         /// allocation is blamed even if it already transitioned out of Running.

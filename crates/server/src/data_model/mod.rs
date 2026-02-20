@@ -115,14 +115,14 @@ impl From<String> for ExecutorId {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct AllocationTarget {
     pub executor_id: ExecutorId,
-    pub function_executor_id: ContainerId,
+    pub container_id: ContainerId,
 }
 
 impl AllocationTarget {
-    pub fn new(executor_id: ExecutorId, function_executor_id: ContainerId) -> Self {
+    pub fn new(executor_id: ExecutorId, container_id: ContainerId) -> Self {
         Self {
             executor_id,
-            function_executor_id,
+            container_id,
         }
     }
 }
@@ -1784,7 +1784,7 @@ pub enum ContainerState {
     Running,
     // Function Executor is terminated, all resources are freed.
     Terminated {
-        reason: FunctionExecutorTerminationReason,
+        reason: ContainerTerminationReason,
     },
 }
 
@@ -1801,7 +1801,7 @@ pub enum ContainerState {
     Eq,
     Hash,
 )]
-pub enum FunctionExecutorTerminationReason {
+pub enum ContainerTerminationReason {
     #[default]
     Unknown,
     StartupFailedInternalError,
@@ -1819,47 +1819,47 @@ pub enum FunctionExecutorTerminationReason {
     ProcessCrash,
 }
 
-impl From<&FunctionExecutorTerminationReason> for FunctionRunFailureReason {
-    fn from(reason: &FunctionExecutorTerminationReason) -> Self {
+impl From<&ContainerTerminationReason> for FunctionRunFailureReason {
+    fn from(reason: &ContainerTerminationReason) -> Self {
         match reason {
-            FunctionExecutorTerminationReason::Unknown => {
+            ContainerTerminationReason::Unknown => {
                 FunctionRunFailureReason::FunctionExecutorTerminated
             }
-            FunctionExecutorTerminationReason::StartupFailedInternalError => {
+            ContainerTerminationReason::StartupFailedInternalError => {
                 FunctionRunFailureReason::ContainerStartupInternalError
             }
-            FunctionExecutorTerminationReason::StartupFailedFunctionError => {
+            ContainerTerminationReason::StartupFailedFunctionError => {
                 FunctionRunFailureReason::ContainerStartupFunctionError
             }
-            FunctionExecutorTerminationReason::StartupFailedFunctionTimeout => {
+            ContainerTerminationReason::StartupFailedFunctionTimeout => {
                 FunctionRunFailureReason::ContainerStartupFunctionTimeout
             }
-            FunctionExecutorTerminationReason::StartupFailedBadImage => {
+            ContainerTerminationReason::StartupFailedBadImage => {
                 FunctionRunFailureReason::ContainerStartupBadImage
             }
-            FunctionExecutorTerminationReason::Unhealthy => {
+            ContainerTerminationReason::Unhealthy => {
                 FunctionRunFailureReason::FunctionTimeout
             }
-            FunctionExecutorTerminationReason::InternalError => {
+            ContainerTerminationReason::InternalError => {
                 FunctionRunFailureReason::InternalError
             }
-            FunctionExecutorTerminationReason::FunctionError => {
+            ContainerTerminationReason::FunctionError => {
                 FunctionRunFailureReason::FunctionError
             }
-            FunctionExecutorTerminationReason::FunctionTimeout => {
+            ContainerTerminationReason::FunctionTimeout => {
                 FunctionRunFailureReason::FunctionTimeout
             }
-            FunctionExecutorTerminationReason::FunctionCancelled => {
+            ContainerTerminationReason::FunctionCancelled => {
                 FunctionRunFailureReason::FunctionRunCancelled
             }
-            FunctionExecutorTerminationReason::DesiredStateRemoved => {
+            ContainerTerminationReason::DesiredStateRemoved => {
                 FunctionRunFailureReason::FunctionExecutorTerminated
             }
-            FunctionExecutorTerminationReason::ExecutorRemoved => {
+            ContainerTerminationReason::ExecutorRemoved => {
                 FunctionRunFailureReason::ExecutorRemoved
             }
-            FunctionExecutorTerminationReason::Oom => FunctionRunFailureReason::OutOfMemory,
-            FunctionExecutorTerminationReason::ProcessCrash => {
+            ContainerTerminationReason::Oom => FunctionRunFailureReason::OutOfMemory,
+            ContainerTerminationReason::ProcessCrash => {
                 FunctionRunFailureReason::FunctionError
             }
         }
@@ -2295,7 +2295,7 @@ pub struct ExecutorUpsertedEvent {
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct ContainerStateUpdateInfo {
     pub container_id: ContainerId,
-    pub termination_reason: Option<FunctionExecutorTerminationReason>,
+    pub termination_reason: Option<ContainerTerminationReason>,
 }
 
 /// Event triggered when a v2 dataplane reports allocation results
@@ -2734,7 +2734,7 @@ pub enum SandboxFailureReason {
     /// Container startup failed
     ContainerStartupFailed,
     /// Container terminated (with reason from executor)
-    ContainerTerminated(FunctionExecutorTerminationReason),
+    ContainerTerminated(ContainerTerminationReason),
     /// Pool was deleted while sandbox was using it
     PoolDeleted,
 }
@@ -3471,7 +3471,7 @@ mod tests {
 
         let target = AllocationTarget {
             executor_id: "executor-1".into(),
-            function_executor_id: "fe-1".into(),
+            container_id: "fe-1".into(),
         };
         let allocation = AllocationBuilder::default()
             .namespace("test-ns".to_string())
@@ -3505,8 +3505,8 @@ mod tests {
         assert_eq!(allocation.function_call_id, "task-1".into());
         assert_eq!(allocation.target.executor_id, target.executor_id);
         assert_eq!(
-            allocation.target.function_executor_id,
-            target.function_executor_id
+            allocation.target.container_id,
+            target.container_id
         );
         assert_eq!(allocation.attempt_number, 1);
         assert_eq!(allocation.outcome, FunctionRunOutcome::Success);
@@ -3527,9 +3527,9 @@ mod tests {
             allocation.function_call_id
         )));
         assert!(json.contains(&format!(
-            "\"target\":{{\"executor_id\":\"{}\",\"function_executor_id\":\"{}\"}}",
+            "\"target\":{{\"executor_id\":\"{}\",\"container_id\":\"{}\"}}",
             allocation.target.executor_id.get(),
-            allocation.target.function_executor_id.get()
+            allocation.target.container_id.get()
         )));
         assert!(json.contains(&format!("\"attempt_number\":{}", allocation.attempt_number)));
         assert!(json.contains(&"\"outcome\":\"Success\"".to_string()));

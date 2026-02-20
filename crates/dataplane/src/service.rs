@@ -392,7 +392,7 @@ impl ServiceRuntime {
     /// Build a full state sync message (identity + all containers).
     fn build_full_state(
         &self,
-        fe_states: &[proto_api::executor_api_pb::FunctionExecutorState],
+        fe_states: &[proto_api::executor_api_pb::ContainerState],
     ) -> proto_api::executor_api_pb::DataplaneStateFullSync {
         let hostname = hostname::get()
             .map(|h| h.to_string_lossy().to_string())
@@ -401,12 +401,12 @@ impl ServiceRuntime {
             hostname: Some(hostname),
             version: Some(env!("CARGO_PKG_VERSION").to_string()),
             total_resources: Some(self.identity.host_resources),
-            total_function_executor_resources: Some(self.identity.host_resources),
+            total_container_resources: Some(self.identity.host_resources),
             allowed_functions: self.identity.allowed_functions.clone(),
             labels: self.identity.labels.clone(),
             catalog_entry_name: None,
             proxy_address: Some(self.identity.proxy_address.clone()),
-            function_executor_states: fe_states.to_vec(),
+            container_states: fe_states.to_vec(),
         }
     }
 
@@ -978,13 +978,13 @@ impl ServiceRuntime {
                             seq,
                             allocation_id = ?allocation.allocation_id,
                             request_id = ?allocation.request_id,
-                            container_id = ?allocation.function_executor_id,
+                            container_id = ?allocation.container_id,
                             namespace = ?allocation.function.as_ref().and_then(|f| f.namespace.as_deref()),
                             "fn" = ?allocation.function.as_ref().and_then(|f| f.function_name.as_deref()),
                             error = %e,
                             "Skipping invalid RunAllocation command"
                         );
-                    } else if let Some(fe_id) = allocation.function_executor_id.clone() {
+                    } else if let Some(fe_id) = allocation.container_id.clone() {
                         tracing::info!(
                             seq,
                             allocation_id = ?allocation.allocation_id,
@@ -1005,7 +1005,7 @@ impl ServiceRuntime {
                             request_id = ?allocation.request_id,
                             namespace = ?allocation.function.as_ref().and_then(|f| f.namespace.as_deref()),
                             "fn" = ?allocation.function.as_ref().and_then(|f| f.function_name.as_deref()),
-                            "RunAllocation missing function_executor_id"
+                            "RunAllocation missing container_id"
                         );
                     }
                 }

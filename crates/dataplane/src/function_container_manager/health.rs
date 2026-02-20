@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use proto_api::executor_api_pb::FunctionExecutorTerminationReason;
+use proto_api::executor_api_pb::ContainerTerminationReason;
 use tokio_util::sync::CancellationToken;
 
 use super::{
@@ -77,7 +77,7 @@ impl FunctionContainerManager {
         &self,
         container: &mut super::types::ManagedContainer,
         handle: &ProcessHandle,
-        reason: FunctionExecutorTerminationReason,
+        reason: ContainerTerminationReason,
         span: &tracing::Span,
     ) {
         if let Ok(false) = self.driver.alive(handle).await {
@@ -112,7 +112,7 @@ impl FunctionContainerManager {
                             );
                             let _ = network_rules::remove_rules(&handle.id, &handle.container_ip);
                             let _ = self.driver.kill(handle).await;
-                            let reason = FunctionExecutorTerminationReason::Unhealthy;
+                            let reason = ContainerTerminationReason::Unhealthy;
                             if container.transition_to_terminated(reason).is_ok() {
                                 let id = container.description.id.as_deref().unwrap_or("");
                                 Self::send_container_terminated(
@@ -191,7 +191,7 @@ impl FunctionContainerManager {
             );
             self.initiate_stop(
                 container,
-                FunctionExecutorTerminationReason::FunctionTimeout,
+                ContainerTerminationReason::FunctionTimeout,
             )
             .await;
         }

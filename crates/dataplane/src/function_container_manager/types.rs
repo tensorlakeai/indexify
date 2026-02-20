@@ -3,11 +3,11 @@
 use std::{collections::HashMap, time::Instant};
 
 use proto_api::executor_api_pb::{
-    FunctionExecutorDescription,
-    FunctionExecutorState,
-    FunctionExecutorStatus,
-    FunctionExecutorTerminationReason,
-    FunctionExecutorType,
+    ContainerDescription,
+    ContainerState as ProtoContainerState,
+    ContainerStatus,
+    ContainerTerminationReason,
+    ContainerType,
 };
 
 use crate::{
@@ -34,11 +34,11 @@ pub(super) enum ContainerState {
         #[allow(dead_code)] // Reserved for future graceful shutdown via daemon
         daemon_client: Option<DaemonClient>,
         /// The reason for stopping (used when container terminates)
-        reason: FunctionExecutorTerminationReason,
+        reason: ContainerTerminationReason,
     },
     /// Container has terminated.
     Terminated {
-        reason: FunctionExecutorTerminationReason,
+        reason: ContainerTerminationReason,
     },
 }
 
@@ -59,7 +59,7 @@ pub(super) struct ContainerInfo<'a> {
 }
 
 impl<'a> ContainerInfo<'a> {
-    pub fn from_description(desc: &'a FunctionExecutorDescription, executor_id: &'a str) -> Self {
+    pub fn from_description(desc: &'a ContainerDescription, executor_id: &'a str) -> Self {
         let container_id = desc.id.as_deref().unwrap_or("");
         let (namespace, app, fn_name, app_version) = desc
             .function
@@ -116,7 +116,7 @@ impl<'a> ContainerInfo<'a> {
 
 /// A managed function executor container.
 pub(super) struct ManagedContainer {
-    pub description: FunctionExecutorDescription,
+    pub description: ContainerDescription,
     pub executor_id: String,
     pub state: ContainerState,
     /// When the container was created (for latency tracking)
@@ -128,17 +128,17 @@ pub(super) struct ManagedContainer {
 }
 
 impl ManagedContainer {
-    pub fn to_proto_state(&self) -> FunctionExecutorState {
+    pub fn to_proto_state(&self) -> ProtoContainerState {
         let (status, termination_reason) = match &self.state {
-            ContainerState::Pending => (FunctionExecutorStatus::Pending, None),
-            ContainerState::Running { .. } => (FunctionExecutorStatus::Running, None),
-            ContainerState::Stopping { .. } => (FunctionExecutorStatus::Running, None),
+            ContainerState::Pending => (ContainerStatus::Pending, None),
+            ContainerState::Running { .. } => (ContainerStatus::Running, None),
+            ContainerState::Stopping { .. } => (ContainerStatus::Running, None),
             ContainerState::Terminated { reason } => {
-                (FunctionExecutorStatus::Terminated, Some(*reason))
+                (ContainerStatus::Terminated, Some(*reason))
             }
         };
 
-        FunctionExecutorState {
+        ProtoContainerState {
             description: Some(self.description.clone()),
             status: Some(status.into()),
             termination_reason: termination_reason.map(|r| r.into()),
@@ -180,7 +180,7 @@ impl ManagedContainer {
     /// Returns `Err` if the current state is not Running.
     pub fn transition_to_stopping(
         &mut self,
-        reason: FunctionExecutorTerminationReason,
+        reason: ContainerTerminationReason,
     ) -> Result<(ProcessHandle, Option<DaemonClient>), String> {
         if !matches!(self.state, ContainerState::Running { .. }) {
             return Err(format!(
@@ -208,7 +208,7 @@ impl ManagedContainer {
     /// Returns `Err` if already Terminated.
     pub fn transition_to_terminated(
         &mut self,
-        reason: FunctionExecutorTerminationReason,
+        reason: ContainerTerminationReason,
     ) -> Result<(), String> {
         match &self.state {
             ContainerState::Terminated { .. } => Err("Already in Terminated state".to_string()),
@@ -351,26 +351,26 @@ impl ContainerStore {
 /// Map an exit status to a termination reason.
 pub(super) fn termination_reason_from_exit_status(
     exit_status: Option<crate::driver::ExitStatus>,
-) -> FunctionExecutorTerminationReason {
+) -> ContainerTerminationReason {
     match exit_status {
-        Some(status) if status.oom_killed => FunctionExecutorTerminationReason::Oom,
+        Some(status) if status.oom_killed => ContainerTerminationReason::Oom,
         Some(status) => match status.exit_code {
             // The daemon exits with code 0 when its configured timeout elapses.
-            Some(0) => FunctionExecutorTerminationReason::FunctionTimeout,
-            Some(137) => FunctionExecutorTerminationReason::Oom,
-            Some(143) => FunctionExecutorTerminationReason::FunctionCancelled,
-            _ => FunctionExecutorTerminationReason::Unknown,
+            Some(0) => ContainerTerminationReason::FunctionTimeout,
+            Some(137) => ContainerTerminationReason::Oom,
+            Some(143) => ContainerTerminationReason::FunctionCancelled,
+            _ => ContainerTerminationReason::Unknown,
         },
-        None => FunctionExecutorTerminationReason::Unknown,
+        None => ContainerTerminationReason::Unknown,
     }
 }
 
 /// Get the container type as a string for metrics/logging.
-pub(super) fn container_type_str(desc: &FunctionExecutorDescription) -> &'static str {
+pub(super) fn container_type_str(desc: &ContainerDescription) -> &'static str {
     match desc.container_type() {
-        FunctionExecutorType::Unknown => "unknown",
-        FunctionExecutorType::Function => "function",
-        FunctionExecutorType::Sandbox => "sandbox",
+        ContainerType::Unknown => "unknown",
+        ContainerType::Function => "function",
+        ContainerType::Sandbox => "sandbox",
     }
 }
 
@@ -384,7 +384,7 @@ pub(super) async fn update_container_counts(
     for container in containers.values() {
         let is_sandbox = matches!(
             container.description.container_type(),
-            FunctionExecutorType::Sandbox
+            ContainerType::Sandbox
         );
 
         match &container.state {

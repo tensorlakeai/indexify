@@ -44,7 +44,7 @@ pub enum AllocationOutcome {
         /// by checking the process exit status (OOM vs crash). The controller
         /// uses this for the `ContainerTerminated` event so the health checker
         /// doesn't need to race.
-        termination_reason: Option<proto_api::executor_api_pb::FunctionExecutorTerminationReason>,
+        termination_reason: Option<proto_api::executor_api_pb::ContainerTerminationReason>,
     },
 }
 

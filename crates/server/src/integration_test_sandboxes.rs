@@ -9,7 +9,7 @@ mod tests {
             ContainerPoolId,
             ContainerResources,
             ContainerState,
-            FunctionExecutorTerminationReason,
+            ContainerTerminationReason,
             Sandbox,
             SandboxBuilder,
             SandboxFailureReason,
@@ -493,7 +493,7 @@ mod tests {
         // Verify executor has no function_executors initially
         let desired_state = executor.srv_executor_state().await;
         assert!(
-            desired_state.function_executors.is_empty(),
+            desired_state.containers.is_empty(),
             "Executor should have no function_executors before sandbox creation"
         );
 
@@ -505,7 +505,7 @@ mod tests {
         // Pending
         let desired_state = executor.srv_executor_state().await;
         assert_eq!(
-            desired_state.function_executors.len(),
+            desired_state.containers.len(),
             1,
             "Executor should have 1 function_executor for the sandbox"
         );
@@ -521,7 +521,7 @@ mod tests {
         assert_eq!(sandbox.status, SandboxStatus::Running);
 
         // Verify the function executor has the right properties
-        let fe = &desired_state.function_executors[0];
+        let fe = &desired_state.containers[0];
         assert!(fe.id.is_some(), "Function executor should have an ID");
 
         // Verify the function executor ID matches the sandbox ID (sandbox ID ==
@@ -553,7 +553,7 @@ mod tests {
         // Verify sandbox is in desired state
         let desired_state = executor.srv_executor_state().await;
         assert_eq!(
-            desired_state.function_executors.len(),
+            desired_state.containers.len(),
             1,
             "Sandbox should be in executor's desired state"
         );
@@ -580,9 +580,9 @@ mod tests {
 
         // The function executor may still be present but should be marked for
         // termination OR it may be removed entirely depending on implementation
-        if !desired_state.function_executors.is_empty() {
+        if !desired_state.containers.is_empty() {
             // If still present, verify it's marked for termination
-            let fe = &desired_state.function_executors[0];
+            let fe = &desired_state.containers[0];
             tracing::info!("Function executor still in desired state: id={:?}", fe.id);
         }
 
@@ -671,7 +671,7 @@ mod tests {
         // Mark all function executors as terminated with StartupFailedInternalError
         for (_, fe) in executor_state.containers.iter_mut() {
             fe.state = ContainerState::Terminated {
-                reason: FunctionExecutorTerminationReason::StartupFailedInternalError,
+                reason: ContainerTerminationReason::StartupFailedInternalError,
             };
         }
 
@@ -694,7 +694,7 @@ mod tests {
             sandbox.outcome,
             Some(SandboxOutcome::Failure(
                 SandboxFailureReason::ContainerTerminated(
-                    FunctionExecutorTerminationReason::StartupFailedInternalError,
+                    ContainerTerminationReason::StartupFailedInternalError,
                 )
             )),
             "Sandbox should have ContainerTerminated(StartupFailedInternalError) failure reason"
@@ -724,7 +724,7 @@ mod tests {
         // Verify both sandboxes are in executor's desired state
         let desired_state = executor.srv_executor_state().await;
         assert_eq!(
-            desired_state.function_executors.len(),
+            desired_state.containers.len(),
             2,
             "Executor should have 2 function_executors for the sandboxes"
         );

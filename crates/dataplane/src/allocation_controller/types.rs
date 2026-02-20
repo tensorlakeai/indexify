@@ -8,8 +8,8 @@ use std::{fmt, time::Instant};
 use proto_api::executor_api_pb::{
     Allocation as ServerAllocation,
     AllocationResult as ServerAllocationResult,
-    FunctionExecutorDescription,
-    FunctionExecutorTerminationReason,
+    ContainerDescription,
+    ContainerTerminationReason,
 };
 use tokio_util::sync::CancellationToken;
 
@@ -35,14 +35,14 @@ pub(super) enum ContainerState {
     },
     /// Container has terminated (crash, shutdown, OOM, etc.)
     Terminated {
-        reason: FunctionExecutorTerminationReason,
+        reason: ContainerTerminationReason,
     },
 }
 
 /// A function executor managed by the AllocationController.
 #[allow(dead_code)]
 pub(super) struct ManagedFE {
-    pub description: FunctionExecutorDescription,
+    pub description: ContainerDescription,
     pub state: ContainerState,
     pub max_concurrency: u32,
     pub allocated_gpu_uuids: Vec<String>,
@@ -120,7 +120,7 @@ impl fmt::Display for AllocationState {
 // Helper to extract logging context from FE descriptions and allocations
 // ---------------------------------------------------------------------------
 
-/// Logging context extracted from a FunctionExecutorDescription.
+/// Logging context extracted from a ContainerDescription.
 pub(super) struct FELogCtx {
     pub namespace: String,
     pub app: String,
@@ -132,7 +132,7 @@ pub(super) struct FELogCtx {
 }
 
 impl FELogCtx {
-    pub fn from_description(desc: &FunctionExecutorDescription) -> Self {
+    pub fn from_description(desc: &ContainerDescription) -> Self {
         let func_ref = desc.function.as_ref();
         Self {
             namespace: func_ref

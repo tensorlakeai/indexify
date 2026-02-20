@@ -9,7 +9,7 @@ mod tests {
         data_model::{
             ContainerState,
             FunctionAllowlist,
-            FunctionExecutorTerminationReason,
+            ContainerTerminationReason,
             FunctionRunFailureReason,
             test_objects::tests::{
                 TEST_EXECUTOR_ID,
@@ -214,7 +214,7 @@ mod tests {
             for fe in fes.iter_mut() {
                 if fe.function_name == "fn_a" {
                     fe.state = ContainerState::Terminated {
-                        reason: FunctionExecutorTerminationReason::FunctionCancelled,
+                        reason: ContainerTerminationReason::FunctionCancelled,
                     };
                 }
             }
@@ -242,7 +242,7 @@ mod tests {
     /// attempts. Each failure increments attempt_number, and after
     /// exhausting max_retries the function run completes with failure.
     async fn test_cmd_retry_attempt_used(
-        reason: FunctionExecutorTerminationReason,
+        reason: ContainerTerminationReason,
         max_retries: u32,
     ) -> Result<()> {
         let task_failure_reason = FunctionRunFailureReason::from(&reason);
@@ -343,7 +343,7 @@ mod tests {
     #[tokio::test]
     async fn test_cmd_retry_counted_on_startup_failed_internal_error() -> Result<()> {
         test_cmd_retry_attempt_used(
-            FunctionExecutorTerminationReason::StartupFailedInternalError,
+            ContainerTerminationReason::StartupFailedInternalError,
             TEST_FN_MAX_RETRIES,
         )
         .await
@@ -352,7 +352,7 @@ mod tests {
     #[tokio::test]
     async fn test_cmd_retry_counted_on_startup_failed_internal_error_no_retries() -> Result<()> {
         test_cmd_retry_attempt_used(
-            FunctionExecutorTerminationReason::StartupFailedInternalError,
+            ContainerTerminationReason::StartupFailedInternalError,
             0,
         )
         .await
@@ -362,7 +362,7 @@ mod tests {
     #[tokio::test]
     async fn test_cmd_retry_counted_on_startup_failed_function_error() -> Result<()> {
         test_cmd_retry_attempt_used(
-            FunctionExecutorTerminationReason::StartupFailedFunctionError,
+            ContainerTerminationReason::StartupFailedFunctionError,
             TEST_FN_MAX_RETRIES,
         )
         .await
@@ -371,7 +371,7 @@ mod tests {
     #[tokio::test]
     async fn test_cmd_retry_counted_on_startup_failed_function_error_no_retries() -> Result<()> {
         test_cmd_retry_attempt_used(
-            FunctionExecutorTerminationReason::StartupFailedFunctionError,
+            ContainerTerminationReason::StartupFailedFunctionError,
             0,
         )
         .await
@@ -381,7 +381,7 @@ mod tests {
     #[tokio::test]
     async fn test_cmd_retry_counted_on_startup_failed_function_timeout() -> Result<()> {
         test_cmd_retry_attempt_used(
-            FunctionExecutorTerminationReason::StartupFailedFunctionTimeout,
+            ContainerTerminationReason::StartupFailedFunctionTimeout,
             TEST_FN_MAX_RETRIES,
         )
         .await
@@ -390,7 +390,7 @@ mod tests {
     #[tokio::test]
     async fn test_cmd_retry_counted_on_startup_failed_function_timeout_no_retries() -> Result<()> {
         test_cmd_retry_attempt_used(
-            FunctionExecutorTerminationReason::StartupFailedFunctionTimeout,
+            ContainerTerminationReason::StartupFailedFunctionTimeout,
             0,
         )
         .await
@@ -400,7 +400,7 @@ mod tests {
     #[tokio::test]
     async fn test_cmd_retry_counted_on_unhealthy() -> Result<()> {
         test_cmd_retry_attempt_used(
-            FunctionExecutorTerminationReason::Unhealthy,
+            ContainerTerminationReason::Unhealthy,
             TEST_FN_MAX_RETRIES,
         )
         .await
@@ -408,14 +408,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_cmd_retry_counted_on_unhealthy_no_retries() -> Result<()> {
-        test_cmd_retry_attempt_used(FunctionExecutorTerminationReason::Unhealthy, 0).await
+        test_cmd_retry_attempt_used(ContainerTerminationReason::Unhealthy, 0).await
     }
 
     // Command-based: InternalError counts against retries.
     #[tokio::test]
     async fn test_cmd_retry_counted_on_internal_error() -> Result<()> {
         test_cmd_retry_attempt_used(
-            FunctionExecutorTerminationReason::InternalError,
+            ContainerTerminationReason::InternalError,
             TEST_FN_MAX_RETRIES,
         )
         .await
@@ -423,14 +423,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_cmd_retry_counted_on_internal_error_no_retries() -> Result<()> {
-        test_cmd_retry_attempt_used(FunctionExecutorTerminationReason::InternalError, 0).await
+        test_cmd_retry_attempt_used(ContainerTerminationReason::InternalError, 0).await
     }
 
     // Command-based: FunctionError counts against retries.
     #[tokio::test]
     async fn test_cmd_retry_counted_on_function_error() -> Result<()> {
         test_cmd_retry_attempt_used(
-            FunctionExecutorTerminationReason::FunctionError,
+            ContainerTerminationReason::FunctionError,
             TEST_FN_MAX_RETRIES,
         )
         .await
@@ -438,14 +438,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_cmd_retry_counted_on_function_error_no_retries() -> Result<()> {
-        test_cmd_retry_attempt_used(FunctionExecutorTerminationReason::FunctionError, 0).await
+        test_cmd_retry_attempt_used(ContainerTerminationReason::FunctionError, 0).await
     }
 
     // Command-based: FunctionTimeout counts against retries.
     #[tokio::test]
     async fn test_cmd_retry_counted_on_function_timeout() -> Result<()> {
         test_cmd_retry_attempt_used(
-            FunctionExecutorTerminationReason::FunctionTimeout,
+            ContainerTerminationReason::FunctionTimeout,
             TEST_FN_MAX_RETRIES,
         )
         .await
@@ -453,7 +453,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_cmd_retry_counted_on_function_timeout_no_retries() -> Result<()> {
-        test_cmd_retry_attempt_used(FunctionExecutorTerminationReason::FunctionTimeout, 0).await
+        test_cmd_retry_attempt_used(ContainerTerminationReason::FunctionTimeout, 0).await
     }
 
     /// Test the heartbeat reconciliation path for reasons that give free
@@ -461,7 +461,7 @@ mod tests {
     /// function run is always re-queued without incrementing
     /// attempt_number, regardless of max_retries.
     async fn test_heartbeat_free_retry(
-        reason: FunctionExecutorTerminationReason,
+        reason: ContainerTerminationReason,
         max_retries: u32,
     ) -> Result<()> {
         let task_failure_reason = FunctionRunFailureReason::from(&reason);
@@ -491,7 +491,7 @@ mod tests {
         // Since the reason doesn't count against retries, this is a free retry:
         // the function run is re-queued without incrementing attempt_number.
         executor
-            .set_function_executor_states(ContainerState::Terminated { reason })
+            .set_container_states(ContainerState::Terminated { reason })
             .await?;
 
         // Free retry: attempt stays at 0, function run still allocated
@@ -507,7 +507,7 @@ mod tests {
     /// termination reasons. The allocation should fail immediately without
     /// retry.
     async fn test_heartbeat_no_retry(
-        reason: FunctionExecutorTerminationReason,
+        reason: ContainerTerminationReason,
         max_retries: u32,
     ) -> Result<()> {
         let task_failure_reason = FunctionRunFailureReason::from(&reason);
@@ -527,7 +527,7 @@ mod tests {
         assert_function_run_counts!(test_srv, total: 1, allocated: 1, pending: 0, completed_success: 0);
 
         executor
-            .set_function_executor_states(ContainerState::Terminated { reason })
+            .set_container_states(ContainerState::Terminated { reason })
             .await?;
 
         let tasks = test_srv.get_all_function_runs().await?;
@@ -542,7 +542,7 @@ mod tests {
     #[tokio::test]
     async fn test_heartbeat_no_retry_on_function_cancelled() -> Result<()> {
         test_heartbeat_no_retry(
-            FunctionExecutorTerminationReason::FunctionCancelled,
+            ContainerTerminationReason::FunctionCancelled,
             TEST_FN_MAX_RETRIES,
         )
         .await
@@ -550,14 +550,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_heartbeat_no_retry_on_function_cancelled_no_retries() -> Result<()> {
-        test_heartbeat_no_retry(FunctionExecutorTerminationReason::FunctionCancelled, 0).await
+        test_heartbeat_no_retry(ContainerTerminationReason::FunctionCancelled, 0).await
     }
 
     // Command-based: Unknown → FunctionExecutorTerminated is a free-retry reason.
     #[tokio::test]
     async fn test_cmd_free_retry_on_unknown() -> Result<()> {
         test_cmd_free_retry_from_termination(
-            FunctionExecutorTerminationReason::Unknown,
+            ContainerTerminationReason::Unknown,
             TEST_FN_MAX_RETRIES,
         )
         .await
@@ -565,7 +565,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_cmd_free_retry_on_unknown_no_retries() -> Result<()> {
-        test_cmd_free_retry_from_termination(FunctionExecutorTerminationReason::Unknown, 0).await
+        test_cmd_free_retry_from_termination(ContainerTerminationReason::Unknown, 0).await
     }
 
     // Command-based: DesiredStateRemoved → FunctionExecutorTerminated is a
@@ -573,7 +573,7 @@ mod tests {
     #[tokio::test]
     async fn test_cmd_free_retry_on_desired_state_removed() -> Result<()> {
         test_cmd_free_retry_from_termination(
-            FunctionExecutorTerminationReason::DesiredStateRemoved,
+            ContainerTerminationReason::DesiredStateRemoved,
             TEST_FN_MAX_RETRIES,
         )
         .await
@@ -582,7 +582,7 @@ mod tests {
     #[tokio::test]
     async fn test_cmd_free_retry_on_desired_state_removed_no_retries() -> Result<()> {
         test_cmd_free_retry_from_termination(
-            FunctionExecutorTerminationReason::DesiredStateRemoved,
+            ContainerTerminationReason::DesiredStateRemoved,
             0,
         )
         .await
@@ -634,12 +634,12 @@ mod tests {
         Ok(())
     }
 
-    /// Test the command-based path for `FunctionExecutorTerminationReason`s
+    /// Test the command-based path for `ContainerTerminationReason`s
     /// that map to free-retry failure reasons. Verifies both the
     /// termination → failure reason conversion AND the free retry behavior
     /// (re-queued without incrementing attempt_number).
     async fn test_cmd_free_retry_from_termination(
-        reason: FunctionExecutorTerminationReason,
+        reason: ContainerTerminationReason,
         max_retries: u32,
     ) -> Result<()> {
         let task_failure_reason = FunctionRunFailureReason::from(&reason);
@@ -690,7 +690,7 @@ mod tests {
     /// attempt_number incremented, and after exhausting max_retries the
     /// function run completes with failure.
     async fn test_heartbeat_retry_attempt_used(
-        reason: FunctionExecutorTerminationReason,
+        reason: ContainerTerminationReason,
         max_retries: u32,
     ) -> Result<()> {
         let task_failure_reason = FunctionRunFailureReason::from(&reason);
@@ -729,7 +729,7 @@ mod tests {
 
             // Terminate the container via heartbeat reconciliation.
             executor
-                .set_function_executor_states(ContainerState::Terminated {
+                .set_container_states(ContainerState::Terminated {
                     reason: reason.clone(),
                 })
                 .await?;
@@ -869,7 +869,7 @@ mod tests {
     #[tokio::test]
     async fn test_heartbeat_retry_counted_on_function_error() -> Result<()> {
         test_heartbeat_retry_attempt_used(
-            FunctionExecutorTerminationReason::FunctionError,
+            ContainerTerminationReason::FunctionError,
             TEST_FN_MAX_RETRIES,
         )
         .await
@@ -877,14 +877,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_heartbeat_retry_counted_on_function_error_no_retries() -> Result<()> {
-        test_heartbeat_retry_attempt_used(FunctionExecutorTerminationReason::FunctionError, 0).await
+        test_heartbeat_retry_attempt_used(ContainerTerminationReason::FunctionError, 0).await
     }
 
     // Heartbeat: ExecutorRemoved is a free-retry reason.
     #[tokio::test]
     async fn test_heartbeat_free_retry_on_executor_removed() -> Result<()> {
         test_heartbeat_free_retry(
-            FunctionExecutorTerminationReason::ExecutorRemoved,
+            ContainerTerminationReason::ExecutorRemoved,
             TEST_FN_MAX_RETRIES,
         )
         .await
@@ -892,6 +892,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_heartbeat_free_retry_on_executor_removed_no_retries() -> Result<()> {
-        test_heartbeat_free_retry(FunctionExecutorTerminationReason::ExecutorRemoved, 0).await
+        test_heartbeat_free_retry(ContainerTerminationReason::ExecutorRemoved, 0).await
     }
 }

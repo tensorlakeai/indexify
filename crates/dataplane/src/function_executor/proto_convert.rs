@@ -114,45 +114,45 @@ pub fn convert_failure_reason_fe_to_server(
     }
 }
 
-/// Map a `FunctionExecutorTerminationReason` to an `AllocationFailureReason`.
+/// Map a `ContainerTerminationReason` to an `AllocationFailureReason`.
 ///
 /// Handles both startup reasons (used when rejecting allocations on a
 /// terminated FE) and runtime reasons (used when cancelling running
 /// allocations after the FE dies).
 pub fn termination_to_failure_reason(
-    reason: executor_api_pb::FunctionExecutorTerminationReason,
+    reason: executor_api_pb::ContainerTerminationReason,
 ) -> executor_api_pb::AllocationFailureReason {
     match reason {
         // Startup reasons
-        executor_api_pb::FunctionExecutorTerminationReason::StartupFailedFunctionTimeout => {
+        executor_api_pb::ContainerTerminationReason::StartupFailedFunctionTimeout => {
             executor_api_pb::AllocationFailureReason::StartupFailedFunctionTimeout
         }
-        executor_api_pb::FunctionExecutorTerminationReason::StartupFailedInternalError => {
+        executor_api_pb::ContainerTerminationReason::StartupFailedInternalError => {
             executor_api_pb::AllocationFailureReason::StartupFailedInternalError
         }
-        executor_api_pb::FunctionExecutorTerminationReason::StartupFailedFunctionError => {
+        executor_api_pb::ContainerTerminationReason::StartupFailedFunctionError => {
             executor_api_pb::AllocationFailureReason::StartupFailedFunctionError
         }
-        executor_api_pb::FunctionExecutorTerminationReason::StartupFailedBadImage => {
+        executor_api_pb::ContainerTerminationReason::StartupFailedBadImage => {
             executor_api_pb::AllocationFailureReason::StartupFailedBadImage
         }
         // Runtime reasons
-        executor_api_pb::FunctionExecutorTerminationReason::Unhealthy => {
+        executor_api_pb::ContainerTerminationReason::Unhealthy => {
             executor_api_pb::AllocationFailureReason::FunctionError
         }
-        executor_api_pb::FunctionExecutorTerminationReason::InternalError => {
+        executor_api_pb::ContainerTerminationReason::InternalError => {
             executor_api_pb::AllocationFailureReason::InternalError
         }
-        executor_api_pb::FunctionExecutorTerminationReason::FunctionTimeout => {
+        executor_api_pb::ContainerTerminationReason::FunctionTimeout => {
             executor_api_pb::AllocationFailureReason::FunctionTimeout
         }
-        executor_api_pb::FunctionExecutorTerminationReason::Oom => {
+        executor_api_pb::ContainerTerminationReason::Oom => {
             executor_api_pb::AllocationFailureReason::Oom
         }
-        executor_api_pb::FunctionExecutorTerminationReason::ProcessCrash => {
+        executor_api_pb::ContainerTerminationReason::ProcessCrash => {
             executor_api_pb::AllocationFailureReason::FunctionError
         }
-        _ => executor_api_pb::AllocationFailureReason::FunctionExecutorTerminated,
+        _ => executor_api_pb::AllocationFailureReason::ContainerTerminated,
     }
 }
 
@@ -198,7 +198,7 @@ pub fn make_container_started_response(container_id: &str) -> CommandResponse {
 /// Build a `CommandResponse` wrapping a `ContainerTerminated`.
 pub fn make_container_terminated_response(
     container_id: &str,
-    reason: executor_api_pb::FunctionExecutorTerminationReason,
+    reason: executor_api_pb::ContainerTerminationReason,
 ) -> CommandResponse {
     CommandResponse {
         command_seq: None, // unsolicited
@@ -213,39 +213,39 @@ pub fn make_container_terminated_response(
     }
 }
 
-/// Map a `FunctionExecutorTerminationReason` to a `ContainerTerminationReason`.
+/// Map a `ContainerTerminationReason` to a `ContainerTerminationReason`.
 pub fn termination_reason_to_container_termination_reason(
-    reason: executor_api_pb::FunctionExecutorTerminationReason,
+    reason: executor_api_pb::ContainerTerminationReason,
 ) -> executor_api_pb::ContainerTerminationReason {
     match reason {
-        executor_api_pb::FunctionExecutorTerminationReason::StartupFailedInternalError => {
+        executor_api_pb::ContainerTerminationReason::StartupFailedInternalError => {
             executor_api_pb::ContainerTerminationReason::StartupFailedInternalError
         }
-        executor_api_pb::FunctionExecutorTerminationReason::StartupFailedFunctionError => {
+        executor_api_pb::ContainerTerminationReason::StartupFailedFunctionError => {
             executor_api_pb::ContainerTerminationReason::StartupFailedFunctionError
         }
-        executor_api_pb::FunctionExecutorTerminationReason::StartupFailedFunctionTimeout => {
+        executor_api_pb::ContainerTerminationReason::StartupFailedFunctionTimeout => {
             executor_api_pb::ContainerTerminationReason::StartupFailedFunctionTimeout
         }
-        executor_api_pb::FunctionExecutorTerminationReason::Unhealthy => {
+        executor_api_pb::ContainerTerminationReason::Unhealthy => {
             executor_api_pb::ContainerTerminationReason::Unhealthy
         }
-        executor_api_pb::FunctionExecutorTerminationReason::InternalError => {
+        executor_api_pb::ContainerTerminationReason::InternalError => {
             executor_api_pb::ContainerTerminationReason::InternalError
         }
-        executor_api_pb::FunctionExecutorTerminationReason::FunctionTimeout => {
+        executor_api_pb::ContainerTerminationReason::FunctionTimeout => {
             executor_api_pb::ContainerTerminationReason::FunctionTimeout
         }
-        executor_api_pb::FunctionExecutorTerminationReason::FunctionCancelled => {
+        executor_api_pb::ContainerTerminationReason::FunctionCancelled => {
             executor_api_pb::ContainerTerminationReason::FunctionCancelled
         }
-        executor_api_pb::FunctionExecutorTerminationReason::Oom => {
+        executor_api_pb::ContainerTerminationReason::Oom => {
             executor_api_pb::ContainerTerminationReason::Oom
         }
-        executor_api_pb::FunctionExecutorTerminationReason::ProcessCrash => {
+        executor_api_pb::ContainerTerminationReason::ProcessCrash => {
             executor_api_pb::ContainerTerminationReason::ProcessCrash
         }
-        executor_api_pb::FunctionExecutorTerminationReason::StartupFailedBadImage => {
+        executor_api_pb::ContainerTerminationReason::StartupFailedBadImage => {
             executor_api_pb::ContainerTerminationReason::StartupFailedBadImage
         }
         _ => executor_api_pb::ContainerTerminationReason::Unknown,

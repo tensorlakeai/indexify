@@ -493,7 +493,7 @@ impl ApplicationProcessor {
                 for csu in &ev.container_state_updates {
                     let termination_reason = csu
                         .termination_reason
-                        .unwrap_or(data_model::FunctionExecutorTerminationReason::Unknown);
+                        .unwrap_or(data_model::ContainerTerminationReason::Unknown);
                     let mut container_update = SchedulerUpdateRequest::default();
 
                     // Mark the container itself as terminated in the scheduler

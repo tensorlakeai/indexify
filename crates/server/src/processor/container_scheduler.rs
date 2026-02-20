@@ -24,7 +24,7 @@ use crate::{
         ExecutorMetadata,
         ExecutorServerMetadata,
         Function,
-        FunctionExecutorTerminationReason,
+        ContainerTerminationReason,
         FunctionResources,
         FunctionURI,
         Sandbox,
@@ -319,7 +319,7 @@ impl ContainerScheduler {
                 }
 
                 fc.desired_state = ContainerState::Terminated {
-                    reason: FunctionExecutorTerminationReason::DesiredStateRemoved,
+                    reason: ContainerTerminationReason::DesiredStateRemoved,
                 };
             }
         }
@@ -412,7 +412,7 @@ impl ContainerScheduler {
         for (container_id, _) in &fn_uris {
             if let Some(fc) = self.function_containers.get_mut(container_id) {
                 fc.desired_state = ContainerState::Terminated {
-                    reason: FunctionExecutorTerminationReason::DesiredStateRemoved,
+                    reason: ContainerTerminationReason::DesiredStateRemoved,
                 };
             }
         }
@@ -753,7 +753,7 @@ impl ContainerScheduler {
             for fe in function_executors_to_remove {
                 let mut update_fe = fe.clone();
                 update_fe.desired_state = ContainerState::Terminated {
-                    reason: FunctionExecutorTerminationReason::DesiredStateRemoved,
+                    reason: ContainerTerminationReason::DesiredStateRemoved,
                 };
                 info!(
                     executor_id = %fe.executor_id,
@@ -1157,7 +1157,7 @@ impl ContainerScheduler {
         // Mark for termination
         let fc = self.function_containers.get_mut(container_id).unwrap();
         fc.desired_state = ContainerState::Terminated {
-            reason: FunctionExecutorTerminationReason::DesiredStateRemoved,
+            reason: ContainerTerminationReason::DesiredStateRemoved,
         };
 
         let mut update = SchedulerUpdateRequest::default();

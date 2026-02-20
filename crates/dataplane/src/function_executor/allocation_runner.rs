@@ -194,7 +194,7 @@ impl AllocationRunner {
         default_reason: proto_api::executor_api_pb::AllocationFailureReason,
     ) -> (
         proto_api::executor_api_pb::AllocationFailureReason,
-        Option<proto_api::executor_api_pb::FunctionExecutorTerminationReason>,
+        Option<proto_api::executor_api_pb::ContainerTerminationReason>,
     ) {
         let exit_status = self
             .ctx
@@ -206,12 +206,12 @@ impl AllocationRunner {
         if exit_status.as_ref().is_some_and(|s| s.oom_killed) {
             (
                 proto_api::executor_api_pb::AllocationFailureReason::Oom,
-                Some(proto_api::executor_api_pb::FunctionExecutorTerminationReason::Oom),
+                Some(proto_api::executor_api_pb::ContainerTerminationReason::Oom),
             )
         } else {
             (
                 default_reason,
-                Some(proto_api::executor_api_pb::FunctionExecutorTerminationReason::ProcessCrash),
+                Some(proto_api::executor_api_pb::ContainerTerminationReason::ProcessCrash),
             )
         }
     }

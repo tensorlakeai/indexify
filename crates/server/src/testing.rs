@@ -278,7 +278,7 @@ macro_rules! assert_executor_state {
         let desired_state = &snapshot.desired_state;
 
         // Check function executor count
-        let func_executors_count = desired_state.function_executors.len();
+        let func_executors_count = desired_state.containers.len();
         assert_eq!(
             $num_func_executors, func_executors_count,
             "function executors: expected {}, got {}",
@@ -318,7 +318,7 @@ pub fn allocation_key_from_proto(allocation: &AllocationPb) -> String {
 
 #[derive(Default, Debug)]
 pub struct ReceivedCommands {
-    pub add_containers: Vec<executor_api_pb::FunctionExecutorDescription>,
+    pub add_containers: Vec<executor_api_pb::ContainerDescription>,
     pub remove_containers: Vec<String>,
     pub run_allocations: Vec<AllocationPb>,
 }
@@ -423,7 +423,7 @@ impl TestExecutor<'_> {
         Ok(())
     }
 
-    pub async fn set_function_executor_states(&mut self, state: ContainerState) -> Result<()> {
+    pub async fn set_container_states(&mut self, state: ContainerState) -> Result<()> {
         let fes = self
             .get_executor_server_state()
             .await?
@@ -444,7 +444,7 @@ impl TestExecutor<'_> {
     }
 
     pub async fn mark_function_executors_as_running(&mut self) -> Result<()> {
-        self.set_function_executor_states(ContainerState::Running)
+        self.set_container_states(ContainerState::Running)
             .await
     }
 
@@ -779,7 +779,7 @@ fn internal_failure_reason_to_proto(
             executor_api_pb::AllocationFailureReason::AllocationCancelled
         }
         FunctionRunFailureReason::FunctionExecutorTerminated => {
-            executor_api_pb::AllocationFailureReason::FunctionExecutorTerminated
+            executor_api_pb::AllocationFailureReason::ContainerTerminated
         }
         FunctionRunFailureReason::ConstraintUnsatisfiable => {
             executor_api_pb::AllocationFailureReason::ConstraintUnsatisfiable

@@ -7,8 +7,8 @@ use std::time::{Duration, Instant};
 use anyhow::Result;
 use proto_api::executor_api_pb::{
     AllocationFailureReason,
-    FunctionExecutorDescription,
-    FunctionExecutorTerminationReason,
+    ContainerDescription,
+    ContainerTerminationReason,
 };
 use tokio_util::sync::CancellationToken;
 use tracing::{Instrument, error, info, warn};
@@ -51,7 +51,7 @@ impl AllocationController {
     /// RemoveContainer at a time — there is no full-state orphan removal.
     pub(super) async fn reconcile_containers(
         &mut self,
-        added_or_updated_fes: Vec<FunctionExecutorDescription>,
+        added_or_updated_fes: Vec<ContainerDescription>,
         removed_fe_ids: Vec<String>,
     ) {
         let mut changed = false;
@@ -144,13 +144,13 @@ impl AllocationController {
         }
 
         // Transition to Terminated
-        let reason = FunctionExecutorTerminationReason::FunctionCancelled;
+        let reason = ContainerTerminationReason::FunctionCancelled;
         let fe = self.containers.get_mut(fe_id).unwrap();
         fe.state = ContainerState::Terminated { reason };
 
         // Fail all allocations for this FE (no blame — container removed from desired
         // set)
-        self.fail_allocations_for_fe(fe_id, AllocationFailureReason::FunctionExecutorTerminated);
+        self.fail_allocations_for_fe(fe_id, AllocationFailureReason::ContainerTerminated);
 
         // Return GPUs
         let gpu_allocator = self.config.gpu_allocator.clone();
@@ -160,7 +160,7 @@ impl AllocationController {
         self.config
             .metrics
             .up_down_counters
-            .function_executors_count
+            .containers_count
             .add(-1, &[]);
 
         // Notify the server so it can free resources and schedule new containers.
@@ -170,7 +170,7 @@ impl AllocationController {
     }
 
     /// Create a new container by spawning the startup task.
-    fn create_container(&mut self, description: FunctionExecutorDescription) {
+    fn create_container(&mut self, description: ContainerDescription) {
         let fe_id = description.id.clone().unwrap_or_default();
         let max_concurrency = description.max_concurrency.unwrap_or(1);
 
@@ -204,7 +204,7 @@ impl AllocationController {
         self.config
             .metrics
             .up_down_counters
-            .function_executors_count
+            .containers_count
             .add(1, &[]);
 
         let managed = ManagedFE {
@@ -373,7 +373,7 @@ impl AllocationController {
                         error!(container_id = %panic_fe_id, error = %join_err, "Health checker panicked");
                         let _ = panic_event_tx.send(ACEvent::ContainerTerminated {
                             fe_id: panic_fe_id,
-                            reason: FunctionExecutorTerminationReason::Unknown,
+                            reason: ContainerTerminationReason::Unknown,
                             blamed_allocation_id: None,
                         });
                     }
@@ -423,16 +423,16 @@ impl AllocationController {
                 self.config
                     .metrics
                     .up_down_counters
-                    .function_executors_count
+                    .containers_count
                     .add(-1, &[]);
 
                 // Determine termination reason from error
                 let reason = if e.downcast_ref::<crate::driver::ImageError>().is_some() {
-                    FunctionExecutorTerminationReason::StartupFailedBadImage
+                    ContainerTerminationReason::StartupFailedBadImage
                 } else if e.is::<InitTimedOut>() {
-                    FunctionExecutorTerminationReason::StartupFailedFunctionTimeout
+                    ContainerTerminationReason::StartupFailedFunctionTimeout
                 } else {
-                    FunctionExecutorTerminationReason::StartupFailedInternalError
+                    ContainerTerminationReason::StartupFailedInternalError
                 };
 
                 let fe = self.containers.get_mut(&fe_id).unwrap();
@@ -461,7 +461,7 @@ impl AllocationController {
     pub(super) fn handle_container_terminated(
         &mut self,
         fe_id: String,
-        reason: FunctionExecutorTerminationReason,
+        reason: ContainerTerminationReason,
         blamed_allocation_id: Option<String>,
     ) {
         let Some(fe) = self.containers.get_mut(&fe_id) else {
@@ -521,7 +521,7 @@ impl AllocationController {
         self.config
             .metrics
             .up_down_counters
-            .function_executors_count
+            .containers_count
             .add(-1, &[]);
 
         // Notify result pipeline so container termination is merged with
@@ -537,7 +537,7 @@ impl AllocationController {
     fn send_container_terminated(
         &self,
         container_id: &str,
-        reason: FunctionExecutorTerminationReason,
+        reason: ContainerTerminationReason,
     ) {
         let response = crate::function_executor::proto_convert::make_container_terminated_response(
             container_id,
@@ -557,7 +557,7 @@ impl AllocationController {
 /// separate tokio task and sends the result back via ACEvent.
 async fn start_fe_process_and_initialize(
     config: FESpawnConfig,
-    description: FunctionExecutorDescription,
+    description: ContainerDescription,
     gpu_uuids: Vec<String>,
 ) -> Result<(ProcessHandle, FunctionExecutorGrpcClient)> {
     let fe_id = description.id.clone().unwrap_or_default();
@@ -586,7 +586,7 @@ async fn start_fe_process_and_initialize(
 /// Start the FE subprocess using the driver.
 async fn start_fe_process(
     config: &FESpawnConfig,
-    description: &FunctionExecutorDescription,
+    description: &ContainerDescription,
     gpu_uuids: &[String],
 ) -> Result<ProcessHandle> {
     let fe_id = description.id.clone().unwrap_or_default();
@@ -669,7 +669,7 @@ async fn start_fe_process(
 /// Connect to the FE gRPC server and initialize it.
 async fn connect_and_initialize(
     config: &FESpawnConfig,
-    description: &FunctionExecutorDescription,
+    description: &ContainerDescription,
     handle: &ProcessHandle,
 ) -> Result<FunctionExecutorGrpcClient> {
     let mut client = connect_to_fe(config, handle).await?;
@@ -732,7 +732,7 @@ async fn connect_to_fe(
 /// Download application code and send initialization RPC.
 async fn initialize_fe(
     config: &FESpawnConfig,
-    description: &FunctionExecutorDescription,
+    description: &ContainerDescription,
     client: &mut FunctionExecutorGrpcClient,
 ) -> Result<()> {
     let application_code = download_app_code(config, description).await?;
@@ -789,7 +789,7 @@ async fn initialize_fe(
 /// Download application code using the code cache.
 async fn download_app_code(
     config: &FESpawnConfig,
-    description: &FunctionExecutorDescription,
+    description: &ContainerDescription,
 ) -> Result<Option<proto_api::function_executor_pb::SerializedObject>> {
     let func_ref = description
         .function

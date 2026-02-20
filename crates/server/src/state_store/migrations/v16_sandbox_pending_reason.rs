@@ -10,7 +10,7 @@ use crate::{
         ContainerPoolId,
         ContainerResources,
         ExecutorId,
-        FunctionExecutorTerminationReason,
+        ContainerTerminationReason,
         NetworkPolicy,
         SandboxBuilder,
         SandboxFailureReason,
@@ -56,7 +56,7 @@ enum LegacySandboxFailureReason {
     ExecutorRemoved,
     OutOfMemory,
     ContainerStartupFailed,
-    ContainerTerminated(FunctionExecutorTerminationReason),
+    ContainerTerminated(ContainerTerminationReason),
     PoolDeleted,
 }
 

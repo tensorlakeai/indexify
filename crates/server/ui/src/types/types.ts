@@ -6,7 +6,7 @@ export type Allocation = {
   execution_duration_ms?: number | null
   executor_id: string
   failure_reason?: null | FunctionRunFailureReason
-  function_executor_id: string
+  container_id: string
   function_name: string
   id: string
   outcome: FunctionRunOutcome
@@ -84,13 +84,13 @@ export type ExecutorMetadata = {
   executor_version: string
   free_resources: HostResources
   function_allowlist?: Array<FunctionAllowlist> | null
-  function_executors: Array<FunctionExecutorMetadata>
+  function_executors: Array<ContainerMetadata>
   host_resources: HostResources
   id: string
   labels: {
     [key: string]: string
   }
-  server_only_function_executors: Array<FunctionExecutorMetadata>
+  server_only_function_executors: Array<ContainerMetadata>
   state: string
   state_hash: string
   tombstoned: boolean
@@ -105,7 +105,7 @@ export type FnExecutor = {
   count: number
   desired_state: string
   fn_uri: string
-  function_executor_id: string
+  container_id: string
   state: string
 }
 
@@ -134,7 +134,7 @@ export type FunctionAllowlist = {
   version?: string | null
 }
 
-export type FunctionExecutorMetadata = {
+export type ContainerMetadata = {
   application_name: string
   desired_state: string
   function_name: string

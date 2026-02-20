@@ -164,7 +164,7 @@ pub struct DesiredStateFunctionExecutor {
 
 pub struct DesiredExecutorState {
     #[allow(clippy::vec_box)]
-    pub function_executors: Vec<Box<DesiredStateFunctionExecutor>>,
+    pub containers: Vec<Box<DesiredStateFunctionExecutor>>,
     #[allow(clippy::box_collection)]
     pub function_run_allocations: std::collections::HashMap<ContainerId, Vec<Allocation>>,
     pub clock: u64,
@@ -344,7 +344,7 @@ impl InMemoryState {
             .map(|allocation| {
                 (
                     allocation.target.executor_id.clone(),
-                    allocation.target.function_executor_id.clone(),
+                    allocation.target.container_id.clone(),
                     allocation.id.clone(),
                     allocation.clone(),
                 )
@@ -723,7 +723,7 @@ impl InMemoryState {
                             self.allocations_by_executor
                                 .entry(allocation.target.executor_id.clone())
                                 .or_default()
-                                .entry(allocation.target.function_executor_id.clone())
+                                .entry(allocation.target.container_id.clone())
                                 .or_default()
                                 .insert(allocation.id.clone(), Box::new(allocation.clone()));
 
@@ -886,7 +886,7 @@ impl InMemoryState {
                             .entry(allocation_output.executor_id.clone())
                             .and_modify(|fe_allocations| {
                                 if let Some(allocations) = fe_allocations.get_mut(
-                                    &allocation_output.allocation.target.function_executor_id,
+                                    &allocation_output.allocation.target.container_id,
                                 ) && let Some(existing_allocation) =
                                     allocations.remove(&allocation_output.allocation.id)
                                 {
@@ -932,7 +932,7 @@ impl InMemoryState {
                         .entry(executor_id.clone())
                         .and_modify(|fe_allocations| {
                             if let Some(allocations) = fe_allocations
-                                .get_mut(&alloc_event.allocation_target.function_executor_id) &&
+                                .get_mut(&alloc_event.allocation_target.container_id) &&
                                 let Some(existing_allocation) =
                                     allocations.remove(&alloc_event.allocation_id)
                             {
@@ -1127,7 +1127,7 @@ impl InMemoryState {
     pub fn simulate_server_restart_clear_executor_state(&mut self) {
         //self.executors.clear();
         //self.executor_states.clear();
-        //self.function_executors_by_fn_uri.clear();
+        //self.containers_by_fn_uri.clear();
         // Note: allocations_by_executor is intentionally NOT cleared
         // as allocations are persisted and loaded from DB on restart
     }
