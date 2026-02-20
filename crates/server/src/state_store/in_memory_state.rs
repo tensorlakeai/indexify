@@ -27,8 +27,6 @@ use crate::{
         FunctionCall,
         FunctionCallId,
         FunctionRun,
-        FunctionRunFailureReason,
-        FunctionRunOutcome,
         FunctionRunStatus,
         Namespace,
         NamespaceBuilder,
@@ -42,7 +40,6 @@ use crate::{
     },
     state_store::{
         ExecutorCatalog,
-        executor_watches::ExecutorWatch,
         in_memory_metrics::InMemoryStoreMetrics,
         requests::RequestPayload,
         scanner::StateReader,
@@ -165,39 +162,16 @@ pub struct DesiredStateFunctionExecutor {
     pub network_policy: Option<NetworkPolicy>,
 }
 
-pub struct FunctionCallOutcome {
-    pub namespace: String,
-    pub request_id: String,
-    pub function_call_id: FunctionCallId,
-    pub outcome: FunctionRunOutcome,
-    pub failure_reason: Option<FunctionRunFailureReason>,
-    pub return_value: Option<DataPayload>,
-    pub request_error: Option<DataPayload>,
-}
-
 pub struct DesiredExecutorState {
     #[allow(clippy::vec_box)]
-    pub function_executors: Vec<Box<DesiredStateFunctionExecutor>>,
+    pub containers: Vec<Box<DesiredStateFunctionExecutor>>,
     #[allow(clippy::box_collection)]
     pub function_run_allocations: std::collections::HashMap<ContainerId, Vec<Allocation>>,
-    pub function_call_outcomes: Vec<FunctionCallOutcome>,
     pub clock: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct FunctionRunKey(String);
-
-impl From<&ExecutorWatch> for FunctionRunKey {
-    fn from(executor_watch: &ExecutorWatch) -> Self {
-        FunctionRunKey(format!(
-            "{}|{}|{}|{}",
-            executor_watch.namespace,
-            executor_watch.application,
-            executor_watch.request_id,
-            executor_watch.function_call_id
-        ))
-    }
-}
 
 impl From<&FunctionRun> for FunctionRunKey {
     fn from(function_run: &FunctionRun) -> Self {
@@ -370,7 +344,7 @@ impl InMemoryState {
             .map(|allocation| {
                 (
                     allocation.target.executor_id.clone(),
-                    allocation.target.function_executor_id.clone(),
+                    allocation.target.container_id.clone(),
                     allocation.id.clone(),
                     allocation.clone(),
                 )
@@ -749,7 +723,7 @@ impl InMemoryState {
                             self.allocations_by_executor
                                 .entry(allocation.target.executor_id.clone())
                                 .or_default()
-                                .entry(allocation.target.function_executor_id.clone())
+                                .entry(allocation.target.container_id.clone())
                                 .or_default()
                                 .insert(allocation.id.clone(), Box::new(allocation.clone()));
 
@@ -911,10 +885,10 @@ impl InMemoryState {
                             .allocations_by_executor
                             .entry(allocation_output.executor_id.clone())
                             .and_modify(|fe_allocations| {
-                                if let Some(allocations) = fe_allocations.get_mut(
-                                    &allocation_output.allocation.target.function_executor_id,
-                                ) && let Some(existing_allocation) =
-                                    allocations.remove(&allocation_output.allocation.id)
+                                if let Some(allocations) = fe_allocations
+                                    .get_mut(&allocation_output.allocation.target.container_id) &&
+                                    let Some(existing_allocation) =
+                                        allocations.remove(&allocation_output.allocation.id)
                                 {
                                     // Record metrics
                                     self.metrics.allocation_running_latency.record(
@@ -948,6 +922,34 @@ impl InMemoryState {
                             allocation_output.allocation.outcome.to_string(),
                         )],
                     );
+                }
+            }
+            RequestPayload::DataplaneResults(req) => {
+                let executor_id = &req.event.executor_id;
+                for alloc_event in &req.event.allocation_events {
+                    let _ =
+                        self.allocations_by_executor
+                            .entry(executor_id.clone())
+                            .and_modify(|fe_allocations| {
+                                if let Some(allocations) = fe_allocations
+                                    .get_mut(&alloc_event.allocation_target.container_id) &&
+                                    let Some(existing_allocation) =
+                                        allocations.remove(&alloc_event.allocation_id)
+                                {
+                                    self.metrics.allocation_running_latency.record(
+                                        get_elapsed_time(
+                                            existing_allocation.created_at,
+                                            TimeUnit::Milliseconds,
+                                        ),
+                                        &[KeyValue::new(
+                                            "outcome",
+                                            alloc_event.allocation_outcome.to_string(),
+                                        )],
+                                    );
+                                }
+                                fe_allocations.retain(|_, f| !f.is_empty());
+                            });
+                    changed_executors.insert(executor_id.clone());
                 }
             }
             RequestPayload::CreateSandbox(req) => {
@@ -1125,7 +1127,7 @@ impl InMemoryState {
     pub fn simulate_server_restart_clear_executor_state(&mut self) {
         //self.executors.clear();
         //self.executor_states.clear();
-        //self.function_executors_by_fn_uri.clear();
+        //self.containers_by_fn_uri.clear();
         // Note: allocations_by_executor is intentionally NOT cleared
         // as allocations are persisted and loaded from DB on restart
     }

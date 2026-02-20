@@ -1,3 +1,5 @@
+use std::io::IsTerminal;
+
 use anyhow::Result;
 use opentelemetry::trace::TracerProvider;
 use opentelemetry_otlp::{SpanExporter as OtlpSpanExporter, WithExportConfig, WithTonicConfig};
@@ -49,7 +51,11 @@ where
         );
     }
 
-    Box::new(tracing_subscriber::fmt::layer().compact())
+    Box::new(
+        tracing_subscriber::fmt::layer()
+            .with_ansi(std::io::stderr().is_terminal())
+            .compact(),
+    )
 }
 
 pub fn setup_tracing(config: &DataplaneConfig) -> Result<()> {

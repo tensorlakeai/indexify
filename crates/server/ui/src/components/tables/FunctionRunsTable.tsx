@@ -169,8 +169,8 @@ function FunctionRunRow({
                             flexDirection="row"
                             alignItems="center"
                           >
-                            {allocation.function_executor_id}
-                            <CopyText text={allocation.function_executor_id} />
+                            {allocation.container_id}
+                            <CopyText text={allocation.container_id} />
                           </Box>
                         </TableCell>
                         <TableCell>

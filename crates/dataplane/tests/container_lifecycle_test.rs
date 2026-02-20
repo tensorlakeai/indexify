@@ -1,7 +1,7 @@
 //! Integration tests for FunctionContainerManager lifecycle.
 //!
 //! These tests exercise the code paths invoked by:
-//! - Desired state updates (container creation/deletion via sync())
+//! - Delta operations (add_or_update_container / remove_container_by_id)
 //! - Heartbeats (health checks via run_health_checks())
 //!
 //! The tests use the actual container-daemon binary started as a subprocess,
@@ -12,7 +12,7 @@ use std::{
     process::Stdio,
     sync::{
         Arc,
-        atomic::{AtomicU16, AtomicUsize, Ordering},
+        atomic::{AtomicUsize, Ordering},
     },
     time::Duration,
 };
@@ -27,8 +27,9 @@ use indexify_dataplane::{
     state_file::StateFile,
 };
 use proto_api::executor_api_pb::{
-    FunctionExecutorDescription,
-    FunctionExecutorStatus,
+    CommandResponse,
+    ContainerDescription,
+    ContainerStatus,
     FunctionRef,
     SandboxMetadata,
 };
@@ -90,8 +91,6 @@ struct DaemonTestDriver {
     daemons: Arc<Mutex<Vec<(String, Child, u16)>>>,
     /// Counter for unique IDs
     counter: AtomicUsize,
-    /// Port counter for unique ports
-    port_counter: AtomicU16,
 }
 
 impl DaemonTestDriver {
@@ -101,7 +100,6 @@ impl DaemonTestDriver {
             log_dir,
             daemons: Arc::new(Mutex::new(Vec::new())),
             counter: AtomicUsize::new(0),
-            port_counter: AtomicU16::new(19500), // Start from a high port
         }
     }
 
@@ -127,6 +125,13 @@ impl DaemonTestDriver {
         }
         false
     }
+
+    /// Pick an available ephemeral localhost port.
+    fn pick_ephemeral_port() -> Result<u16> {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
+        let port = listener.local_addr()?.port();
+        Ok(port)
+    }
 }
 
 #[async_trait]
@@ -136,50 +141,59 @@ impl ProcessDriver for DaemonTestDriver {
             "test-container-{}",
             self.counter.fetch_add(1, Ordering::SeqCst)
         );
-        let port = self.port_counter.fetch_add(1, Ordering::SeqCst);
-        let daemon_addr = format!("127.0.0.1:{}", port);
+        let max_attempts = 8;
+        for attempt in 1..=max_attempts {
+            let port = Self::pick_ephemeral_port()?;
+            let daemon_addr = format!("127.0.0.1:{}", port);
 
-        tracing::info!(
-            id = %id,
-            daemon_addr = %daemon_addr,
-            command = %config.command,
-            "Starting daemon subprocess"
-        );
+            tracing::info!(
+                id = %id,
+                daemon_addr = %daemon_addr,
+                attempt,
+                max_attempts,
+                command = %config.command,
+                "Starting daemon subprocess"
+            );
 
-        // Start the daemon binary
-        let child = Command::new(&self.daemon_binary)
-            .arg("--port")
-            .arg(port.to_string())
-            .arg("--log-dir")
-            .arg(&self.log_dir)
-            .arg("--")
-            .arg(&config.command)
-            .args(&config.args)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()?;
+            let mut child = Command::new(&self.daemon_binary)
+                .arg("--port")
+                .arg(port.to_string())
+                .arg("--log-dir")
+                .arg(&self.log_dir)
+                .arg("--")
+                .arg(&config.command)
+                .args(&config.args)
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()?;
 
-        // Store the daemon process
-        self.daemons.lock().await.push((id.clone(), child, port));
+            if self.wait_for_daemon(port, Duration::from_secs(5)).await {
+                self.daemons.lock().await.push((id.clone(), child, port));
+                tracing::info!(
+                    id = %id,
+                    daemon_addr = %daemon_addr,
+                    "Daemon is ready"
+                );
+                return Ok(ProcessHandle {
+                    id,
+                    daemon_addr: Some(daemon_addr),
+                    http_addr: None,
+                    container_ip: "127.0.0.1".to_string(),
+                });
+            }
 
-        // Wait for daemon to be ready (port to be listening)
-        if !self.wait_for_daemon(port, Duration::from_secs(5)).await {
-            anyhow::bail!("Daemon failed to start on port {}", port);
+            tracing::warn!(
+                id = %id,
+                daemon_addr = %daemon_addr,
+                attempt,
+                "Daemon failed to start, retrying on a new port"
+            );
+            let _ = child.kill().await;
+            let _ = child.wait().await;
         }
 
-        tracing::info!(
-            id = %id,
-            daemon_addr = %daemon_addr,
-            "Daemon is ready"
-        );
-
-        Ok(ProcessHandle {
-            id,
-            daemon_addr: Some(daemon_addr),
-            http_addr: None,
-            container_ip: "127.0.0.1".to_string(),
-        })
+        anyhow::bail!("Daemon failed to start after {} attempts", max_attempts);
     }
 
     async fn send_sig(&self, handle: &ProcessHandle, signal: i32) -> Result<()> {
@@ -267,8 +281,8 @@ impl ProcessDriver for DaemonTestDriver {
     }
 }
 
-fn create_test_fe_description(id: &str) -> FunctionExecutorDescription {
-    FunctionExecutorDescription {
+fn create_test_fe_description(id: &str) -> ContainerDescription {
+    ContainerDescription {
         id: Some(id.to_string()),
         function: Some(FunctionRef {
             namespace: Some("test-ns".to_string()),
@@ -323,12 +337,12 @@ fn find_daemon_binary() -> Option<PathBuf> {
     None
 }
 
-/// Test: Container creation via sync() with desired state
+/// Test: Container creation via add_or_update_container()
 ///
-/// This tests the code path: sync() -> start_container_with_daemon() -> daemon
-/// connection
+/// This tests the code path: add_or_update_container() ->
+/// start_container_with_daemon() -> daemon connection
 #[tokio::test]
-async fn test_sync_creates_container_with_daemon() {
+async fn test_add_creates_container_with_daemon() {
     let _ = tracing_subscriber::fmt::try_init();
 
     let daemon_binary = match find_daemon_binary() {
@@ -348,6 +362,8 @@ async fn test_sync_creates_container_with_daemon() {
     let driver = Arc::new(DaemonTestDriver::new(daemon_binary, log_dir));
     let resolver = Arc::new(TestImageResolver);
     let state_file = create_test_state_file().await;
+    let (container_state_tx, _container_state_rx) =
+        tokio::sync::mpsc::unbounded_channel::<CommandResponse>();
     let manager = FunctionContainerManager::new(
         driver.clone(),
         resolver,
@@ -355,22 +371,24 @@ async fn test_sync_creates_container_with_daemon() {
         create_test_metrics(),
         state_file,
         "test-executor".to_string(),
+        container_state_tx,
     );
 
     // Initially no containers
     let states = manager.get_states().await;
     assert!(states.is_empty(), "Expected no containers initially");
 
-    // Sync with desired state containing one FE
-    let desired = vec![create_test_fe_description("fe-integration-1")];
-    manager.sync(desired).await;
+    // Add a container
+    manager
+        .add_or_update_container(create_test_fe_description("fe-integration-1"))
+        .await;
 
     // Should have one container in pending state immediately
     let states = manager.get_states().await;
-    assert_eq!(states.len(), 1, "Expected one container after sync");
+    assert_eq!(states.len(), 1, "Expected one container after add");
     assert_eq!(
         states[0].status,
-        Some(FunctionExecutorStatus::Pending.into()),
+        Some(ContainerStatus::Pending.into()),
         "Container should be in pending state"
     );
 
@@ -384,8 +402,8 @@ async fn test_sync_creates_container_with_daemon() {
     // Container should either be Running (success) or Terminated (daemon/process
     // failure)
     let status = states[0].status.unwrap();
-    let running: i32 = FunctionExecutorStatus::Running.into();
-    let terminated: i32 = FunctionExecutorStatus::Terminated.into();
+    let running: i32 = ContainerStatus::Running.into();
+    let terminated: i32 = ContainerStatus::Terminated.into();
     assert!(
         status == running || status == terminated,
         "Container should be Running or Terminated, got: {:?}",
@@ -396,11 +414,12 @@ async fn test_sync_creates_container_with_daemon() {
     driver.cleanup().await;
 }
 
-/// Test: Container deletion via sync() when removed from desired state
+/// Test: Container deletion via remove_container_by_id()
 ///
-/// This tests the code path: sync() -> initiate_stop() -> graceful shutdown
+/// This tests the code path: remove_container_by_id() -> initiate_stop() ->
+/// graceful shutdown
 #[tokio::test]
-async fn test_sync_deletes_container_when_removed_from_desired() {
+async fn test_remove_deletes_container() {
     let _ = tracing_subscriber::fmt::try_init();
 
     let daemon_binary = match find_daemon_binary() {
@@ -418,6 +437,8 @@ async fn test_sync_deletes_container_when_removed_from_desired() {
     let driver = Arc::new(DaemonTestDriver::new(daemon_binary, log_dir));
     let resolver = Arc::new(TestImageResolver);
     let state_file = create_test_state_file().await;
+    let (container_state_tx, _container_state_rx) =
+        tokio::sync::mpsc::unbounded_channel::<CommandResponse>();
     let manager = FunctionContainerManager::new(
         driver.clone(),
         resolver,
@@ -425,11 +446,13 @@ async fn test_sync_deletes_container_when_removed_from_desired() {
         create_test_metrics(),
         state_file,
         "test-executor".to_string(),
+        container_state_tx,
     );
 
     // Create a container
-    let desired = vec![create_test_fe_description("fe-to-delete")];
-    manager.sync(desired).await;
+    manager
+        .add_or_update_container(create_test_fe_description("fe-to-delete"))
+        .await;
 
     // Wait for container creation attempt
     tokio::time::sleep(Duration::from_secs(2)).await;
@@ -437,21 +460,11 @@ async fn test_sync_deletes_container_when_removed_from_desired() {
     let states = manager.get_states().await;
     assert_eq!(states.len(), 1, "Should have one container");
 
-    // Now sync with empty desired state - this should trigger deletion
-    manager.sync(vec![]).await;
-
-    // The container should be marked for stopping or already terminated
-    let _states = manager.get_states().await;
-
-    // If container was running, it will be in Stopping state
-    // If it was already terminated, it will be removed
-    // Either way, after grace period (10 seconds) it should be gone
+    // Remove the container by ID
+    manager.remove_container_by_id("fe-to-delete").await;
 
     // Wait for grace period + cleanup (KILL_GRACE_PERIOD is 10 seconds)
     tokio::time::sleep(Duration::from_secs(12)).await;
-
-    // Sync again to remove terminated containers
-    manager.sync(vec![]).await;
 
     let states = manager.get_states().await;
     assert!(
@@ -487,6 +500,8 @@ async fn test_health_check_detects_container_death() {
     let driver = Arc::new(DaemonTestDriver::new(daemon_binary, log_dir));
     let resolver = Arc::new(TestImageResolver);
     let state_file = create_test_state_file().await;
+    let (container_state_tx, _container_state_rx) =
+        tokio::sync::mpsc::unbounded_channel::<CommandResponse>();
     let manager = FunctionContainerManager::new(
         driver.clone(),
         resolver,
@@ -494,11 +509,13 @@ async fn test_health_check_detects_container_death() {
         create_test_metrics(),
         state_file,
         "test-executor".to_string(),
+        container_state_tx,
     );
 
     // Create a container
-    let desired = vec![create_test_fe_description("fe-health-check")];
-    manager.sync(desired.clone()).await;
+    manager
+        .add_or_update_container(create_test_fe_description("fe-health-check"))
+        .await;
 
     // Wait for container creation
     tokio::time::sleep(Duration::from_secs(2)).await;
@@ -527,7 +544,7 @@ async fn test_health_check_detects_container_death() {
         let states = manager.get_states().await;
         if !states.is_empty() {
             let status = states[0].status.unwrap();
-            let terminated: i32 = FunctionExecutorStatus::Terminated.into();
+            let terminated: i32 = ContainerStatus::Terminated.into();
             if status == terminated {
                 // Health check detected the death
                 cancel_token.cancel();
@@ -545,7 +562,7 @@ async fn test_health_check_detects_container_death() {
     let states = manager.get_states().await;
     if !states.is_empty() {
         let status = states[0].status.unwrap();
-        let terminated: i32 = FunctionExecutorStatus::Terminated.into();
+        let terminated: i32 = ContainerStatus::Terminated.into();
         assert_eq!(
             status, terminated,
             "Container should be terminated after daemon death"
@@ -573,6 +590,8 @@ async fn test_multiple_containers_lifecycle() {
     let driver = Arc::new(DaemonTestDriver::new(daemon_binary, log_dir));
     let resolver = Arc::new(TestImageResolver);
     let state_file = create_test_state_file().await;
+    let (container_state_tx, _container_state_rx) =
+        tokio::sync::mpsc::unbounded_channel::<CommandResponse>();
     let manager = FunctionContainerManager::new(
         driver.clone(),
         resolver,
@@ -580,15 +599,19 @@ async fn test_multiple_containers_lifecycle() {
         create_test_metrics(),
         state_file,
         "test-executor".to_string(),
+        container_state_tx,
     );
 
-    // Create multiple containers
-    let desired = vec![
-        create_test_fe_description("fe-multi-1"),
-        create_test_fe_description("fe-multi-2"),
-        create_test_fe_description("fe-multi-3"),
-    ];
-    manager.sync(desired.clone()).await;
+    // Create multiple containers using delta operations
+    manager
+        .add_or_update_container(create_test_fe_description("fe-multi-1"))
+        .await;
+    manager
+        .add_or_update_container(create_test_fe_description("fe-multi-2"))
+        .await;
+    manager
+        .add_or_update_container(create_test_fe_description("fe-multi-3"))
+        .await;
 
     // Should have 3 containers
     let states = manager.get_states().await;
@@ -597,40 +620,28 @@ async fn test_multiple_containers_lifecycle() {
     // Wait for creation attempts
     tokio::time::sleep(Duration::from_secs(2)).await;
 
-    // Remove one container from desired state
-    let desired = vec![
-        create_test_fe_description("fe-multi-1"),
-        create_test_fe_description("fe-multi-3"),
-    ];
-    manager.sync(desired).await;
+    // Remove one container by ID
+    manager.remove_container_by_id("fe-multi-2").await;
 
     // Wait for deletion
     tokio::time::sleep(Duration::from_secs(2)).await;
-
-    // Sync again to clean up
-    manager
-        .sync(vec![
-            create_test_fe_description("fe-multi-1"),
-            create_test_fe_description("fe-multi-3"),
-        ])
-        .await;
 
     // Should have 2 containers (or fewer if they terminated)
     let states = manager.get_states().await;
     assert!(states.len() <= 3, "Should have at most 3 containers");
 
-    // Cleanup all
-    manager.sync(vec![]).await;
+    // Cleanup all by removing remaining containers
+    manager.remove_container_by_id("fe-multi-1").await;
+    manager.remove_container_by_id("fe-multi-3").await;
     tokio::time::sleep(Duration::from_secs(2)).await;
-    manager.sync(vec![]).await;
 
     driver.cleanup().await;
 }
 
-/// Test: Sync is idempotent - calling with same desired state doesn't create
-/// duplicates
+/// Test: add_or_update_container is idempotent - calling with same description
+/// doesn't create duplicates
 #[tokio::test]
-async fn test_sync_idempotent() {
+async fn test_add_or_update_idempotent() {
     let _ = tracing_subscriber::fmt::try_init();
 
     let daemon_binary = match find_daemon_binary() {
@@ -648,6 +659,8 @@ async fn test_sync_idempotent() {
     let driver = Arc::new(DaemonTestDriver::new(daemon_binary, log_dir));
     let resolver = Arc::new(TestImageResolver);
     let state_file = create_test_state_file().await;
+    let (container_state_tx, _container_state_rx) =
+        tokio::sync::mpsc::unbounded_channel::<CommandResponse>();
     let manager = FunctionContainerManager::new(
         driver.clone(),
         resolver,
@@ -655,21 +668,22 @@ async fn test_sync_idempotent() {
         create_test_metrics(),
         state_file,
         "test-executor".to_string(),
+        container_state_tx,
     );
 
-    let desired = vec![create_test_fe_description("fe-idempotent")];
+    let desc = create_test_fe_description("fe-idempotent");
 
-    // Call sync multiple times with same state
-    manager.sync(desired.clone()).await;
-    manager.sync(desired.clone()).await;
-    manager.sync(desired.clone()).await;
+    // Call add_or_update_container multiple times with same description
+    manager.add_or_update_container(desc.clone()).await;
+    manager.add_or_update_container(desc.clone()).await;
+    manager.add_or_update_container(desc.clone()).await;
 
     // Should still have only one container
     let states = manager.get_states().await;
     assert_eq!(
         states.len(),
         1,
-        "Should have exactly one container after multiple syncs"
+        "Should have exactly one container after multiple adds"
     );
 
     // Cleanup

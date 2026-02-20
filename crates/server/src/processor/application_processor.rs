@@ -9,7 +9,7 @@ use tokio::sync::Notify;
 use tracing::{debug, error, info, instrument, trace, warn};
 
 use crate::{
-    data_model::{Application, ApplicationState, ChangeType, StateChange},
+    data_model::{self, Application, ApplicationState, ChangeType, StateChange},
     metrics::{Timer, low_latency_boundaries},
     processor::{
         buffer_reconciler::BufferReconciler,
@@ -472,6 +472,164 @@ impl ApplicationProcessor {
                         vec![state_change.clone()],
                     )),
                 });
+            }
+            ChangeType::DataplaneResultsIngested(ev) => {
+                info!(
+                    executor_id = %ev.executor_id,
+                    num_allocations = ev.allocation_events.len(),
+                    num_container_updates = ev.container_state_updates.len(),
+                    "processing DataplaneResultsIngested event"
+                );
+                let mut scheduler_update = SchedulerUpdateRequest::default();
+
+                // Step 1: Terminate containers (lifecycle only).
+                // Marks containers as terminated and removes them from the
+                // scheduler so Step 3 won't schedule to dead containers.
+                //
+                // Allocation failure is NOT handled here — the dataplane
+                // sends individual AllocationFailed messages with the correct
+                // blame-resolved failure reasons, and those are processed in
+                // Step 2 via handle_allocation_ingestion.
+                for csu in &ev.container_state_updates {
+                    let termination_reason = csu
+                        .termination_reason
+                        .unwrap_or(data_model::ContainerTerminationReason::Unknown);
+                    let mut container_update = SchedulerUpdateRequest::default();
+
+                    // Mark the container itself as terminated in the scheduler
+                    // so it is excluded from the executor's desired state. This
+                    // wakes up the sandbox/allocation stream loops to send a
+                    // removal notification to the dataplane.
+                    let term_info = container_scheduler_guard
+                        .function_containers
+                        .get(&csu.container_id)
+                        .map(|existing_meta| {
+                            let mut fc = existing_meta.function_container.clone();
+                            let terminated_state = data_model::ContainerState::Terminated {
+                                reason: termination_reason,
+                            };
+                            // Set terminated state on the container so
+                            // terminate_sandbox_for_container reads the correct
+                            // termination reason for the sandbox outcome.
+                            fc.state = terminated_state.clone();
+                            (
+                                fc.clone(),
+                                data_model::ContainerServerMetadata::new(
+                                    ev.executor_id.clone(),
+                                    fc,
+                                    terminated_state,
+                                ),
+                            )
+                        });
+                    if let Some((fc, terminated_meta)) = term_info {
+                        container_update
+                            .containers
+                            .insert(csu.container_id.clone(), Box::new(terminated_meta));
+
+                        // Remove container from executor metadata so
+                        // free_resources are updated correctly.
+                        if let Some(exec_state) = container_scheduler_guard
+                            .executor_states
+                            .get(&ev.executor_id)
+                        {
+                            let mut updated_exec = (**exec_state).clone();
+                            if updated_exec.remove_container(&fc).is_ok() {
+                                container_update
+                                    .updated_executor_states
+                                    .insert(ev.executor_id.clone(), Box::new(updated_exec));
+                            }
+                        }
+
+                        // Terminate the associated sandbox (if any) so it
+                        // transitions to Terminated in the state store.
+                        let sandbox_update = container_reconciler
+                            .terminate_sandbox_for_container(&indexes_guard, &fc)?;
+                        container_update.extend(sandbox_update);
+                    }
+
+                    // Apply incremental updates so subsequent containers/allocations
+                    // see the updated state.
+                    let payload = RequestPayload::SchedulerUpdate(SchedulerUpdatePayload::new(
+                        container_update.clone(),
+                    ));
+                    container_scheduler_guard.update(&payload)?;
+                    indexes_guard.update_state(
+                        clock,
+                        &payload,
+                        "dataplane_results_container_term",
+                    )?;
+                    scheduler_update.extend(container_update);
+                }
+
+                // Step 1b: Promote sandboxes for started containers.
+                // When the dataplane reports ContainerStarted, check if the
+                // container is backing a sandbox and promote it from Pending
+                // to Running.
+                for container_id in &ev.container_started_ids {
+                    let promote_update = container_reconciler
+                        .promote_sandbox_for_started_container(
+                            &indexes_guard,
+                            &container_scheduler_guard,
+                            container_id,
+                        )?;
+                    if !promote_update.updated_sandboxes.is_empty() {
+                        let payload = RequestPayload::SchedulerUpdate(SchedulerUpdatePayload::new(
+                            promote_update.clone(),
+                        ));
+                        container_scheduler_guard.update(&payload)?;
+                        indexes_guard.update_state(
+                            clock,
+                            &payload,
+                            "dataplane_results_container_started",
+                        )?;
+                        scheduler_update.extend(promote_update);
+                    }
+                }
+
+                // Step 2: Process allocation results.
+                for alloc_event in &ev.allocation_events {
+                    let alloc_update = task_creator
+                        .handle_allocation_ingestion(
+                            &mut indexes_guard,
+                            &mut container_scheduler_guard,
+                            alloc_event,
+                        )
+                        .await?;
+
+                    // handle_allocation_ingestion already applies its updates to
+                    // in_memory_state and container_scheduler internally, so we
+                    // only need to accumulate the result for the final
+                    // scheduler_update.  (Calling update_state again here would
+                    // be safe — it is idempotent — but redundant.)
+                    scheduler_update.extend(alloc_update);
+                }
+
+                // Step 3: Schedule pending function runs.
+                // Dead containers are already removed from the scheduler,
+                // so no rescheduling to dead containers (fixes the hot retry loop).
+                let unallocated_function_runs = indexes_guard.unallocated_function_runs();
+                info!(
+                    num_unallocated = unallocated_function_runs.len(),
+                    unallocated_fns = ?unallocated_function_runs.iter().map(|r| format!("{}:{}", r.name, r.id)).collect::<Vec<_>>(),
+                    num_executors = container_scheduler_guard.executors.len(),
+                    num_containers = container_scheduler_guard.function_containers.len(),
+                    "DataplaneResultsIngested Step 3: scheduling pending function runs"
+                );
+                let alloc_result = task_allocator.allocate_function_runs(
+                    &mut indexes_guard,
+                    &mut container_scheduler_guard,
+                    unallocated_function_runs,
+                    &self.allocate_function_runs_latency,
+                )?;
+                info!(
+                    new_allocations = alloc_result.new_allocations.len(),
+                    updated_runs = alloc_result.updated_function_runs.len(),
+                    new_containers = alloc_result.containers.len(),
+                    "DataplaneResultsIngested Step 3: allocation results"
+                );
+                scheduler_update.extend(alloc_result);
+
+                scheduler_update
             }
         };
 

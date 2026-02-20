@@ -19,12 +19,12 @@ use crate::{
         ContainerResources,
         ContainerServerMetadata,
         ContainerState,
+        ContainerTerminationReason,
         ContainerType,
         ExecutorId,
         ExecutorMetadata,
         ExecutorServerMetadata,
         Function,
-        FunctionExecutorTerminationReason,
         FunctionResources,
         FunctionURI,
         Sandbox,
@@ -36,17 +36,6 @@ use crate::{
         state_machine::IndexifyObjectsColumns,
     },
 };
-
-const SANDBOX_ENABLED_DATAPLANE_VERSION: &str = "0.2.0";
-
-fn dataplane_functions_enabled() -> bool {
-    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ENABLED.get_or_init(|| {
-        std::env::var("DATAPLANE_FUNCTIONS_ENABLED")
-            .map(|v| v.eq_ignore_ascii_case("true") || v == "1")
-            .unwrap_or(false)
-    })
-}
 
 /// Gauges for monitoring the container scheduler state.
 /// Must be kept alive for callbacks to fire.
@@ -330,8 +319,7 @@ impl ContainerScheduler {
                 }
 
                 fc.desired_state = ContainerState::Terminated {
-                    reason: FunctionExecutorTerminationReason::DesiredStateRemoved,
-                    failed_alloc_ids: vec![],
+                    reason: ContainerTerminationReason::DesiredStateRemoved,
                 };
             }
         }
@@ -424,8 +412,7 @@ impl ContainerScheduler {
         for (container_id, _) in &fn_uris {
             if let Some(fc) = self.function_containers.get_mut(container_id) {
                 fc.desired_state = ContainerState::Terminated {
-                    reason: FunctionExecutorTerminationReason::DesiredStateRemoved,
-                    failed_alloc_ids: vec![],
+                    reason: ContainerTerminationReason::DesiredStateRemoved,
                 };
             }
         }
@@ -694,6 +681,14 @@ impl ContainerScheduler {
         // Use sandbox's pool_id directly — standalone sandboxes have None.
         let pool_id = sandbox.pool_id.clone();
 
+        info!(
+            namespace = %sandbox.namespace,
+            sandbox_id = %sandbox.id.get(),
+            container_id = %container_id.get(),
+            image = %sandbox.image,
+            "Creating container for sandbox"
+        );
+
         let function_container = ContainerBuilder::default()
             .id(container_id)
             .namespace(sandbox.namespace.clone())
@@ -758,8 +753,7 @@ impl ContainerScheduler {
             for fe in function_executors_to_remove {
                 let mut update_fe = fe.clone();
                 update_fe.desired_state = ContainerState::Terminated {
-                    reason: FunctionExecutorTerminationReason::DesiredStateRemoved,
-                    failed_alloc_ids: Vec::new(),
+                    reason: ContainerTerminationReason::DesiredStateRemoved,
                 };
                 info!(
                     executor_id = %fe.executor_id,
@@ -841,25 +835,8 @@ impl ContainerScheduler {
             if !func.placement_constraints.matches(&executor.labels) {
                 return false;
             }
-            // Functions can't run on sandbox-enabled dataplanes unless opted in.
-            if !dataplane_functions_enabled() &&
-                executor
-                    .executor_version
-                    .eq_ignore_ascii_case(SANDBOX_ENABLED_DATAPLANE_VERSION)
-            {
-                return false;
-            }
-        } else {
-            // Sandbox container constraints
-            if !executor
-                .executor_version
-                .eq_ignore_ascii_case(SANDBOX_ENABLED_DATAPLANE_VERSION)
-            {
-                return false;
-            }
-            if !executor.is_app_allowed(namespace, application) {
-                return false;
-            }
+        } else if !executor.is_namespace_allowed(namespace) {
+            return false;
         }
 
         true
@@ -1180,8 +1157,7 @@ impl ContainerScheduler {
         // Mark for termination
         let fc = self.function_containers.get_mut(container_id).unwrap();
         fc.desired_state = ContainerState::Terminated {
-            reason: FunctionExecutorTerminationReason::DesiredStateRemoved,
-            failed_alloc_ids: vec![],
+            reason: ContainerTerminationReason::DesiredStateRemoved,
         };
 
         let mut update = SchedulerUpdateRequest::default();
@@ -1490,6 +1466,14 @@ impl ContainerScheduler {
 
         // Pool's warm count changed
         self.mark_pool_dirty(pool_key.clone());
+
+        info!(
+            namespace = %pool_key.namespace,
+            pool_id = %pool_key.pool_id.get(),
+            sandbox_id = %sandbox_id.get(),
+            container_id = %container_id.get(),
+            "Warm pool container claimed for sandbox"
+        );
 
         Some((container_id, executor_id, update))
     }

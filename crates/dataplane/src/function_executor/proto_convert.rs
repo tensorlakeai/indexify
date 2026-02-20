@@ -4,7 +4,11 @@
 //! `function_executor_pb` (FE-side) and `executor_api_pb` (server-side)
 //! protobuf types.
 
-use proto_api::{executor_api_pb, function_executor_pb};
+use proto_api::{
+    executor_api_pb,
+    executor_api_pb::{AllocationStreamRequest, CommandResponse},
+    function_executor_pb,
+};
 
 /// Map enum variants between two protobuf types with identical variant names.
 macro_rules! convert_enum {
@@ -110,42 +114,45 @@ pub fn convert_failure_reason_fe_to_server(
     }
 }
 
-/// Map a `FunctionExecutorTerminationReason` to an `AllocationFailureReason`.
+/// Map a `ContainerTerminationReason` to an `AllocationFailureReason`.
 ///
 /// Handles both startup reasons (used when rejecting allocations on a
 /// terminated FE) and runtime reasons (used when cancelling running
 /// allocations after the FE dies).
 pub fn termination_to_failure_reason(
-    reason: executor_api_pb::FunctionExecutorTerminationReason,
+    reason: executor_api_pb::ContainerTerminationReason,
 ) -> executor_api_pb::AllocationFailureReason {
     match reason {
         // Startup reasons
-        executor_api_pb::FunctionExecutorTerminationReason::StartupFailedFunctionTimeout => {
+        executor_api_pb::ContainerTerminationReason::StartupFailedFunctionTimeout => {
             executor_api_pb::AllocationFailureReason::StartupFailedFunctionTimeout
         }
-        executor_api_pb::FunctionExecutorTerminationReason::StartupFailedInternalError => {
+        executor_api_pb::ContainerTerminationReason::StartupFailedInternalError => {
             executor_api_pb::AllocationFailureReason::StartupFailedInternalError
         }
-        executor_api_pb::FunctionExecutorTerminationReason::StartupFailedFunctionError => {
+        executor_api_pb::ContainerTerminationReason::StartupFailedFunctionError => {
             executor_api_pb::AllocationFailureReason::StartupFailedFunctionError
         }
+        executor_api_pb::ContainerTerminationReason::StartupFailedBadImage => {
+            executor_api_pb::AllocationFailureReason::StartupFailedBadImage
+        }
         // Runtime reasons
-        executor_api_pb::FunctionExecutorTerminationReason::Unhealthy => {
+        executor_api_pb::ContainerTerminationReason::Unhealthy => {
             executor_api_pb::AllocationFailureReason::FunctionError
         }
-        executor_api_pb::FunctionExecutorTerminationReason::InternalError => {
+        executor_api_pb::ContainerTerminationReason::InternalError => {
             executor_api_pb::AllocationFailureReason::InternalError
         }
-        executor_api_pb::FunctionExecutorTerminationReason::FunctionTimeout => {
+        executor_api_pb::ContainerTerminationReason::FunctionTimeout => {
             executor_api_pb::AllocationFailureReason::FunctionTimeout
         }
-        executor_api_pb::FunctionExecutorTerminationReason::Oom => {
+        executor_api_pb::ContainerTerminationReason::Oom => {
             executor_api_pb::AllocationFailureReason::Oom
         }
-        executor_api_pb::FunctionExecutorTerminationReason::ProcessCrash => {
+        executor_api_pb::ContainerTerminationReason::ProcessCrash => {
             executor_api_pb::AllocationFailureReason::FunctionError
         }
-        _ => executor_api_pb::AllocationFailureReason::FunctionExecutorTerminated,
+        _ => executor_api_pb::AllocationFailureReason::ContainerTerminated,
     }
 }
 
@@ -164,5 +171,225 @@ pub fn make_failure_result(
         return_value: None,
         request_error: None,
         execution_duration_ms: None,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// CommandResponse builders (v2 protocol)
+// ---------------------------------------------------------------------------
+
+/// Build a `CommandResponse` wrapping a `ContainerStarted`.
+///
+/// Sent as an unsolicited event (command_seq = 0) when a container
+/// transitions to Running state.
+pub fn make_container_started_response(container_id: &str) -> CommandResponse {
+    CommandResponse {
+        command_seq: None, // unsolicited
+        response: Some(
+            executor_api_pb::command_response::Response::ContainerStarted(
+                executor_api_pb::ContainerStarted {
+                    container_id: container_id.to_string(),
+                },
+            ),
+        ),
+    }
+}
+
+/// Build a `CommandResponse` wrapping a `ContainerTerminated`.
+pub fn make_container_terminated_response(
+    container_id: &str,
+    reason: executor_api_pb::ContainerTerminationReason,
+) -> CommandResponse {
+    CommandResponse {
+        command_seq: None, // unsolicited
+        response: Some(
+            executor_api_pb::command_response::Response::ContainerTerminated(
+                executor_api_pb::ContainerTerminated {
+                    container_id: container_id.to_string(),
+                    reason: termination_reason_to_container_termination_reason(reason).into(),
+                },
+            ),
+        ),
+    }
+}
+
+/// Map a `ContainerTerminationReason` to a `ContainerTerminationReason`.
+pub fn termination_reason_to_container_termination_reason(
+    reason: executor_api_pb::ContainerTerminationReason,
+) -> executor_api_pb::ContainerTerminationReason {
+    match reason {
+        executor_api_pb::ContainerTerminationReason::StartupFailedInternalError => {
+            executor_api_pb::ContainerTerminationReason::StartupFailedInternalError
+        }
+        executor_api_pb::ContainerTerminationReason::StartupFailedFunctionError => {
+            executor_api_pb::ContainerTerminationReason::StartupFailedFunctionError
+        }
+        executor_api_pb::ContainerTerminationReason::StartupFailedFunctionTimeout => {
+            executor_api_pb::ContainerTerminationReason::StartupFailedFunctionTimeout
+        }
+        executor_api_pb::ContainerTerminationReason::Unhealthy => {
+            executor_api_pb::ContainerTerminationReason::Unhealthy
+        }
+        executor_api_pb::ContainerTerminationReason::InternalError => {
+            executor_api_pb::ContainerTerminationReason::InternalError
+        }
+        executor_api_pb::ContainerTerminationReason::FunctionTimeout => {
+            executor_api_pb::ContainerTerminationReason::FunctionTimeout
+        }
+        executor_api_pb::ContainerTerminationReason::FunctionCancelled => {
+            executor_api_pb::ContainerTerminationReason::FunctionCancelled
+        }
+        executor_api_pb::ContainerTerminationReason::Oom => {
+            executor_api_pb::ContainerTerminationReason::Oom
+        }
+        executor_api_pb::ContainerTerminationReason::ProcessCrash => {
+            executor_api_pb::ContainerTerminationReason::ProcessCrash
+        }
+        executor_api_pb::ContainerTerminationReason::StartupFailedBadImage => {
+            executor_api_pb::ContainerTerminationReason::StartupFailedBadImage
+        }
+        _ => executor_api_pb::ContainerTerminationReason::Unknown,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// AllocationScheduled builder (v2 fast ack)
+// ---------------------------------------------------------------------------
+
+/// Build a `CommandResponse` wrapping an `AllocationScheduled` ack.
+///
+/// `command_seq` ties the ack back to the original `RunAllocation` command.
+pub fn make_allocation_scheduled_response(
+    allocation_id: &str,
+    command_seq: u64,
+) -> CommandResponse {
+    CommandResponse {
+        command_seq: Some(command_seq),
+        response: Some(
+            executor_api_pb::command_response::Response::AllocationScheduled(
+                executor_api_pb::AllocationScheduled {
+                    allocation_id: allocation_id.to_string(),
+                },
+            ),
+        ),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// AllocationStreamRequest builders (outcomes via allocation stream)
+// ---------------------------------------------------------------------------
+
+/// Build an `AllocationStreamRequest` wrapping an `AllocationFailed`.
+pub fn make_allocation_failed_stream_request(
+    allocation: &executor_api_pb::Allocation,
+    failure_reason: executor_api_pb::AllocationFailureReason,
+    request_error: Option<executor_api_pb::DataPayload>,
+    execution_duration_ms: Option<u64>,
+    container_id: Option<String>,
+) -> AllocationStreamRequest {
+    AllocationStreamRequest {
+        executor_id: String::new(),
+        message: Some(executor_api_pb::allocation_stream_request::Message::Failed(
+            executor_api_pb::AllocationFailed {
+                allocation_id: allocation.allocation_id.clone().unwrap_or_default(),
+                reason: failure_reason.into(),
+                function: allocation.function.clone(),
+                function_call_id: allocation.function_call_id.clone(),
+                request_id: allocation.request_id.clone(),
+                request_error,
+                execution_duration_ms,
+                container_id,
+            },
+        )),
+    }
+}
+
+/// Convert a server `AllocationResult` into an `AllocationStreamRequest`.
+///
+/// Success results become `AllocationCompleted`; failures become
+/// `AllocationFailed`.
+pub fn allocation_result_to_stream_request(
+    result: &executor_api_pb::AllocationResult,
+    container_id: Option<String>,
+) -> AllocationStreamRequest {
+    let outcome_code = result.outcome_code.unwrap_or(0);
+    if outcome_code == executor_api_pb::AllocationOutcomeCode::Success as i32 {
+        AllocationStreamRequest {
+            executor_id: String::new(),
+            message: Some(
+                executor_api_pb::allocation_stream_request::Message::Completed(
+                    executor_api_pb::AllocationCompleted {
+                        allocation_id: result.allocation_id.clone().unwrap_or_default(),
+                        function: result.function.clone(),
+                        function_call_id: result.function_call_id.clone(),
+                        request_id: result.request_id.clone(),
+                        return_value: result.return_value.as_ref().map(|rv| match rv {
+                            executor_api_pb::allocation_result::ReturnValue::Value(dp) => {
+                                executor_api_pb::allocation_completed::ReturnValue::Value(
+                                    dp.clone(),
+                                )
+                            }
+                            executor_api_pb::allocation_result::ReturnValue::Updates(u) => {
+                                executor_api_pb::allocation_completed::ReturnValue::Updates(
+                                    u.clone(),
+                                )
+                            }
+                        }),
+                        execution_duration_ms: result.execution_duration_ms,
+                    },
+                ),
+            ),
+        }
+    } else {
+        // Build a minimal Allocation to reuse make_allocation_failed_stream_request.
+        let alloc = executor_api_pb::Allocation {
+            allocation_id: result.allocation_id.clone(),
+            function: result.function.clone(),
+            function_call_id: result.function_call_id.clone(),
+            request_id: result.request_id.clone(),
+            ..Default::default()
+        };
+        let failure_reason = executor_api_pb::AllocationFailureReason::try_from(
+            result
+                .failure_reason
+                .unwrap_or(executor_api_pb::AllocationFailureReason::InternalError as i32),
+        )
+        .unwrap_or(executor_api_pb::AllocationFailureReason::InternalError);
+        make_allocation_failed_stream_request(
+            &alloc,
+            failure_reason,
+            result.request_error.clone(),
+            result.execution_duration_ms,
+            container_id,
+        )
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Metrics for AllocationStreamRequest
+// ---------------------------------------------------------------------------
+
+/// Record allocation outcome metrics from an `AllocationStreamRequest`.
+pub fn record_activity_metrics(
+    activity: &AllocationStreamRequest,
+    counters: &crate::metrics::DataplaneCounters,
+) {
+    use executor_api_pb::allocation_stream_request::Message;
+
+    match &activity.message {
+        Some(Message::Completed(c)) => {
+            counters.record_allocation_completed("success", None, c.execution_duration_ms);
+        }
+        Some(Message::Failed(f)) => {
+            let failure_reason = executor_api_pb::AllocationFailureReason::try_from(f.reason)
+                .ok()
+                .map(|reason| format!("{:?}", reason));
+            counters.record_allocation_completed(
+                "failure",
+                failure_reason.as_deref(),
+                f.execution_duration_ms,
+            );
+        }
+        _ => {}
     }
 }

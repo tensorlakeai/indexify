@@ -120,10 +120,10 @@ fn create_log_record(update: &RequestStateChangeEvent) -> Result<LogRecord, anyh
         meta_values.push(key_value_array("function_runs", vec![]));
     }
 
-    // Add function_executor_id to function_run_metadata so each event can have its
+    // Add container_id to function_run_metadata so each event can have its
     // own. This will be separated later by log writer.
-    if let Some(id) = update.function_executor_id() {
-        meta_values.push(key_value_string("function_executor_id", id));
+    if let Some(id) = update.container_id() {
+        meta_values.push(key_value_string("container_id", id));
     }
 
     attributes.push(KeyValue {

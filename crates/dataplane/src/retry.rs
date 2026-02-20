@@ -16,6 +16,7 @@ use tracing::{debug, warn};
 // ---------------------------------------------------------------------------
 
 /// Backoff strategy for [`retry_with_backoff`].
+#[allow(dead_code)]
 pub enum Backoff {
     /// Fixed delay between retries.
     Fixed(Duration),
@@ -49,6 +50,7 @@ impl Backoff {
 /// Total attempts = 1 + `max_retries`. On each failure, `is_retryable` is
 /// called: non-retryable errors are returned immediately without further
 /// attempts.
+#[allow(dead_code)]
 pub async fn retry_with_backoff<T, E, F, Fut, R>(
     max_retries: u32,
     backoff: Backoff,

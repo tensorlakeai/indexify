@@ -1,7 +1,4 @@
-use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-};
+use std::{collections::HashMap, sync::Arc};
 
 use anyhow::Result;
 use nanoid::nanoid;
@@ -20,24 +17,26 @@ use crate::{
         ExecutorMetadata,
         FunctionCallId,
         FunctionRun,
+        FunctionRunFailureReason,
         FunctionRunOutcome,
         FunctionRunStatus,
         test_objects::tests::mock_blocking_function_call,
     },
-    executor_api::executor_api_pb::Allocation as AllocationPb,
+    executor_api::{
+        executor_api_pb,
+        executor_api_pb::Allocation as AllocationPb,
+        sync_executor_full_state,
+    },
     executors,
     service::Service,
     state_store::{
         driver::rocksdb::RocksDBConfig,
-        executor_watches::ExecutorWatch,
         requests::{
-            AllocationOutput,
             DeregisterExecutorRequest,
             FunctionCallRequest,
             RequestPayload,
             RequestUpdates,
             StateMachineUpdateRequest,
-            UpsertExecutorRequest,
         },
         state_machine::IndexifyObjectsColumns,
     },
@@ -131,9 +130,12 @@ impl TestService {
             executor_id: executor.id.clone(),
             executor_metadata: executor.clone(),
             test_service: self,
+            command_emitter: crate::executor_api::CommandEmitter::new(),
         };
 
-        e.heartbeat(executor.clone()).await?;
+        // Initial registration — mirrors the production flow where an executor
+        // connects and sends its full state on the first heartbeat.
+        e.sync_executor_state(executor.clone()).await?;
 
         Ok(e)
     }
@@ -266,7 +268,7 @@ macro_rules! assert_function_run_counts {
 macro_rules! assert_executor_state {
     ($executor:expr, num_func_executors: $num_func_executors:expr, num_allocated_tasks: $num_allocated_tasks:expr) => {{
         // Get desired state from executor manager
-        let desired_state = $executor
+        let snapshot = $executor
             .test_service
             .service
             .executor_manager
@@ -275,7 +277,7 @@ macro_rules! assert_executor_state {
             .unwrap();
 
         // Check function executor count
-        let func_executors_count = desired_state.function_executors.len();
+        let func_executors_count = snapshot.containers.len();
         assert_eq!(
             $num_func_executors, func_executors_count,
             "function executors: expected {}, got {}",
@@ -283,21 +285,13 @@ macro_rules! assert_executor_state {
         );
 
         // Check task allocation count
-        let tasks_count = desired_state.allocations.len();
+        let tasks_count = snapshot.allocations.len();
         assert_eq!(
             $num_allocated_tasks, tasks_count,
             "tasks: expected {}, got {}",
             $num_allocated_tasks, tasks_count
         );
     }};
-}
-
-pub struct FinalizeFunctionRunArgs {
-    pub task_outcome: FunctionRunOutcome,
-    pub allocation_key: String,
-    pub graph_updates: Option<RequestUpdates>,
-    pub data_payload: Option<DataPayload>,
-    pub execution_duration_ms: Option<u64>,
 }
 
 pub fn allocation_key_from_proto(allocation: &AllocationPb) -> String {
@@ -321,62 +315,94 @@ pub fn allocation_key_from_proto(allocation: &AllocationPb) -> String {
     )
 }
 
-impl FinalizeFunctionRunArgs {
-    pub fn new(
-        allocation_key: String,
-        graph_updates: Option<RequestUpdates>,
-        data_payload: Option<DataPayload>,
-    ) -> FinalizeFunctionRunArgs {
-        FinalizeFunctionRunArgs {
-            task_outcome: FunctionRunOutcome::Success,
-            allocation_key,
-            graph_updates,
-            data_payload,
-            execution_duration_ms: None,
-        }
-    }
-
-    pub fn function_run_outcome(
-        mut self,
-        task_outcome: FunctionRunOutcome,
-    ) -> FinalizeFunctionRunArgs {
-        self.task_outcome = task_outcome;
-        self
-    }
+#[derive(Default, Debug)]
+pub struct ReceivedCommands {
+    pub add_containers: Vec<executor_api_pb::ContainerDescription>,
+    pub remove_containers: Vec<String>,
+    pub run_allocations: Vec<AllocationPb>,
 }
 
 pub struct TestExecutor<'a> {
     pub executor_id: ExecutorId,
     pub executor_metadata: ExecutorMetadata,
     pub test_service: &'a TestService,
+    pub command_emitter: crate::executor_api::CommandEmitter,
 }
 
 impl TestExecutor<'_> {
-    pub async fn heartbeat(&mut self, executor: ExecutorMetadata) -> Result<()> {
-        let update_executor_state = self
+    /// Get commands emitted since last call, based on current desired state.
+    pub async fn pending_commands(&mut self) -> Vec<crate::executor_api::executor_api_pb::Command> {
+        let snapshot = self
             .test_service
             .service
             .executor_manager
-            .heartbeat(&executor)
-            .await?;
-        self.executor_metadata = executor.clone();
+            .get_executor_state(&self.executor_id)
+            .await
+            .unwrap();
+        self.command_emitter.emit_commands(&snapshot)
+    }
 
-        let request = UpsertExecutorRequest::build(
-            executor,
-            vec![],
-            update_executor_state,
-            HashSet::new(),
-            self.test_service.service.indexify_state.clone(),
-        )?;
+    /// Receive pending commands from the CommandEmitter, categorized by type.
+    /// Mirrors production: executor receives commands and acts on them.
+    pub async fn recv_commands(&mut self) -> ReceivedCommands {
+        let commands = self.pending_commands().await;
+        let mut received = ReceivedCommands::default();
+        for cmd in commands {
+            match cmd.command {
+                Some(executor_api_pb::command::Command::AddContainer(c)) => {
+                    if let Some(container) = c.container {
+                        received.add_containers.push(container);
+                    }
+                }
+                Some(executor_api_pb::command::Command::RemoveContainer(r)) => {
+                    received.remove_containers.push(r.container_id);
+                }
+                Some(executor_api_pb::command::Command::RunAllocation(r)) => {
+                    if let Some(allocation) = r.allocation {
+                        received.run_allocations.push(allocation);
+                    }
+                }
+                _ => {}
+            }
+        }
+        received
+    }
 
-        let sm_req = StateMachineUpdateRequest {
-            payload: RequestPayload::UpsertExecutor(request),
-        };
+    /// Lightweight heartbeat — v2 liveness only.
+    /// Mirrors the production heartbeat RPC when no full_state is included.
+    /// Use this in tests that need to keep the executor alive without
+    /// changing its state (e.g., timeout/lapse tests).
+    pub async fn heartbeat(&mut self) -> Result<()> {
         self.test_service
             .service
-            .indexify_state
-            .write(sm_req)
+            .executor_manager
+            .heartbeat_v2(&self.executor_id)
             .await?;
+        Ok(())
+    }
+
+    /// Full state sync — mirrors the production heartbeat RPC when
+    /// full_state IS included (initial connect or state change).
+    /// Calls the same `sync_executor_full_state` that the production
+    /// RPC handler uses, plus `heartbeat_v2` for liveness.
+    pub async fn sync_executor_state(&mut self, executor: ExecutorMetadata) -> Result<()> {
+        // v2 liveness: update heartbeat deadline
+        self.test_service
+            .service
+            .executor_manager
+            .heartbeat_v2(&executor.id)
+            .await?;
+
+        self.executor_metadata = executor.clone();
+
+        // Same code path as production handle_v2_full_state
+        sync_executor_full_state(
+            &self.test_service.service.executor_manager,
+            self.test_service.service.indexify_state.clone(),
+            executor,
+        )
+        .await?;
+
         Ok(())
     }
 
@@ -388,14 +414,15 @@ impl TestExecutor<'_> {
         // function executor tests)
         executor.containers = functions.into_iter().map(|f| (f.id.clone(), f)).collect();
 
-        // Update state hash and send heartbeat
+        // State changed — do full state sync (like production executor
+        // reporting updated container states via heartbeat with full_state)
         executor.state_hash = nanoid!();
-        self.heartbeat(executor.clone()).await?;
+        self.sync_executor_state(executor.clone()).await?;
 
         Ok(())
     }
 
-    pub async fn set_function_executor_states(&mut self, state: ContainerState) -> Result<()> {
+    pub async fn set_container_states(&mut self, state: ContainerState) -> Result<()> {
         let fes = self
             .get_executor_server_state()
             .await?
@@ -416,8 +443,7 @@ impl TestExecutor<'_> {
     }
 
     pub async fn mark_function_executors_as_running(&mut self) -> Result<()> {
-        self.set_function_executor_states(ContainerState::Running)
-            .await
+        self.set_container_states(ContainerState::Running).await
     }
 
     pub async fn get_executor_server_state(&self) -> Result<ExecutorMetadata> {
@@ -459,9 +485,10 @@ impl TestExecutor<'_> {
         Ok(executor)
     }
 
-    pub async fn desired_state(
-        &self,
-    ) -> crate::executor_api::executor_api_pb::DesiredExecutorState {
+    /// Returns the server's desired executor state. Use only for assertions,
+    /// not for driving side effects. Use `recv_commands()` to get allocations
+    /// for responding with AllocationCompleted/AllocationFailed.
+    pub async fn srv_executor_state(&self) -> crate::executors::ExecutorStateSnapshot {
         self.test_service
             .service
             .executor_manager
@@ -525,74 +552,248 @@ impl TestExecutor<'_> {
         Ok(function_call_id)
     }
 
-    pub async fn update_watches(&self, executor_watches: HashSet<ExecutorWatch>) -> Result<()> {
-        let request = UpsertExecutorRequest::build(
-            self.executor_metadata.clone(),
-            vec![],
-            false,
-            executor_watches,
-            self.test_service.service.indexify_state.clone(),
-        )?;
-
-        self.test_service
-            .service
-            .indexify_state
-            .write(StateMachineUpdateRequest {
-                payload: RequestPayload::UpsertExecutor(request),
-            })
-            .await?;
+    /// Process allocation stream requests through the internal
+    /// `process_allocation_completed` / `process_allocation_failed` paths.
+    pub async fn report_allocation_activities(
+        &self,
+        messages: Vec<executor_api_pb::AllocationStreamRequest>,
+    ) -> Result<()> {
+        for msg in messages {
+            if let Some(message) = msg.message {
+                match message {
+                    executor_api_pb::allocation_stream_request::Message::Completed(c) => {
+                        crate::executor_api::process_allocation_completed(
+                            &self.test_service.service.indexify_state,
+                            &self.test_service.service.blob_storage_registry,
+                            &self.executor_id,
+                            c,
+                        )
+                        .await?;
+                    }
+                    executor_api_pb::allocation_stream_request::Message::Failed(f) => {
+                        crate::executor_api::process_allocation_failed(
+                            &self.test_service.service.indexify_state,
+                            &self.test_service.service.blob_storage_registry,
+                            &self.executor_id,
+                            f,
+                        )
+                        .await?;
+                    }
+                    _ => {}
+                }
+            }
+        }
         Ok(())
     }
 
-    pub async fn finalize_allocation(
-        &self,
-        allocation_pb: &AllocationPb,
-        args: FinalizeFunctionRunArgs,
-    ) -> Result<()> {
-        let mut allocation = self
-            .test_service
-            .service
-            .indexify_state
-            .reader()
-            .get_allocation(&args.allocation_key)
-            .await
-            .unwrap()
-            .unwrap();
-
-        allocation.outcome = args.task_outcome;
-
-        allocation.execution_duration_ms = args.execution_duration_ms;
-        if allocation.execution_duration_ms.is_none() {
-            allocation.execution_duration_ms = Some(1000);
-        }
-
-        let ingest_task_outputs_request = AllocationOutput {
-            request_exception: None,
-            graph_updates: args.graph_updates.clone().map(|g| RequestUpdates {
-                request_updates: g.request_updates,
-                output_function_call_id: g.output_function_call_id,
-            }),
-            executor_id: self.executor_id.clone(),
-            request_id: allocation_pb.request_id.clone().unwrap(),
-            data_payload: args.data_payload,
-            allocation,
+    /// Build an `AllocationCompleted` wrapped in `AllocationStreamRequest`
+    /// from test data.
+    pub fn make_allocation_completed(
+        allocation: &AllocationPb,
+        graph_updates: Option<RequestUpdates>,
+        data_payload: Option<DataPayload>,
+        execution_duration_ms: Option<u64>,
+    ) -> executor_api_pb::AllocationStreamRequest {
+        let function = allocation.function.clone();
+        // Extract namespace from the allocation's FunctionRef for child compute ops
+        let namespace = function
+            .as_ref()
+            .and_then(|f| f.namespace.clone())
+            .unwrap_or_default();
+        let return_value = if let Some(updates) = graph_updates {
+            let ns = namespace.clone();
+            Some(executor_api_pb::allocation_completed::ReturnValue::Updates(
+                executor_api_pb::ExecutionPlanUpdates {
+                    updates: updates
+                        .request_updates
+                        .into_iter()
+                        .map(|op| internal_compute_op_to_proto(op, &ns))
+                        .collect(),
+                    root_function_call_id: Some(updates.output_function_call_id.to_string()),
+                    start_at: None,
+                },
+            ))
+        } else if let Some(dp) = data_payload {
+            Some(executor_api_pb::allocation_completed::ReturnValue::Value(
+                internal_data_payload_to_proto(dp),
+            ))
+        } else {
+            None
         };
 
-        let request = UpsertExecutorRequest::build(
-            self.executor_metadata.clone(),
-            vec![ingest_task_outputs_request],
-            false,
-            HashSet::new(),
-            self.test_service.service.indexify_state.clone(),
-        )?;
+        let completed = executor_api_pb::AllocationCompleted {
+            allocation_id: allocation.allocation_id.clone().unwrap_or_default(),
+            function,
+            function_call_id: allocation.function_call_id.clone(),
+            request_id: allocation.request_id.clone(),
+            return_value,
+            execution_duration_ms,
+        };
 
-        self.test_service
-            .service
-            .indexify_state
-            .write(StateMachineUpdateRequest {
-                payload: RequestPayload::UpsertExecutor(request),
-            })
-            .await?;
-        Ok(())
+        executor_api_pb::AllocationStreamRequest {
+            executor_id: String::new(),
+            message: Some(
+                executor_api_pb::allocation_stream_request::Message::Completed(completed),
+            ),
+        }
+    }
+
+    /// Build an `AllocationFailed` wrapped in `AllocationStreamRequest`
+    /// from test data.
+    pub fn make_allocation_failed(
+        allocation: &AllocationPb,
+        reason: FunctionRunFailureReason,
+        request_error: Option<DataPayload>,
+        execution_duration_ms: Option<u64>,
+    ) -> executor_api_pb::AllocationStreamRequest {
+        let function = allocation.function.clone();
+        let proto_reason = internal_failure_reason_to_proto(&reason);
+
+        let failed = executor_api_pb::AllocationFailed {
+            allocation_id: allocation.allocation_id.clone().unwrap_or_default(),
+            reason: proto_reason.into(),
+            function,
+            function_call_id: allocation.function_call_id.clone(),
+            request_id: allocation.request_id.clone(),
+            request_error: request_error.map(internal_data_payload_to_proto),
+            execution_duration_ms,
+            container_id: None,
+        };
+
+        executor_api_pb::AllocationStreamRequest {
+            executor_id: String::new(),
+            message: Some(executor_api_pb::allocation_stream_request::Message::Failed(
+                failed,
+            )),
+        }
+    }
+}
+
+/// Convert an internal `DataPayload` to its proto representation.
+fn internal_data_payload_to_proto(dp: DataPayload) -> executor_api_pb::DataPayload {
+    let encoding = crate::pb_helpers::string_to_data_payload_encoding(&dp.encoding);
+    executor_api_pb::DataPayload {
+        uri: Some(dp.path),
+        encoding: Some(encoding.into()),
+        encoding_version: Some(0),
+        content_type: None,
+        metadata_size: Some(dp.metadata_size),
+        offset: Some(dp.offset),
+        size: Some(dp.size),
+        sha256_hash: Some(dp.sha256_hash),
+        source_function_call_id: None,
+        id: Some(dp.id),
+    }
+}
+
+/// Convert an internal `ComputeOp` to a proto `ExecutionPlanUpdate`.
+fn internal_compute_op_to_proto(
+    op: crate::data_model::ComputeOp,
+    namespace: &str,
+) -> executor_api_pb::ExecutionPlanUpdate {
+    match op {
+        crate::data_model::ComputeOp::FunctionCall(fc) => executor_api_pb::ExecutionPlanUpdate {
+            op: Some(executor_api_pb::execution_plan_update::Op::FunctionCall(
+                executor_api_pb::FunctionCall {
+                    id: Some(fc.function_call_id.to_string()),
+                    target: Some(executor_api_pb::FunctionRef {
+                        namespace: Some(namespace.to_string()),
+                        application_name: None,
+                        function_name: Some(fc.fn_name),
+                        application_version: None,
+                    }),
+                    args: fc
+                        .inputs
+                        .into_iter()
+                        .map(internal_function_arg_to_proto)
+                        .collect(),
+                    call_metadata: Some(fc.call_metadata.into()),
+                },
+            )),
+        },
+        crate::data_model::ComputeOp::Reduce(reduce) => executor_api_pb::ExecutionPlanUpdate {
+            op: Some(executor_api_pb::execution_plan_update::Op::Reduce(
+                executor_api_pb::ReduceOp {
+                    id: Some(reduce.function_call_id.to_string()),
+                    collection: reduce
+                        .collection
+                        .into_iter()
+                        .map(internal_function_arg_to_proto)
+                        .collect(),
+                    reducer: Some(executor_api_pb::FunctionRef {
+                        namespace: Some(namespace.to_string()),
+                        application_name: None,
+                        function_name: Some(reduce.fn_name),
+                        application_version: None,
+                    }),
+                    call_metadata: Some(reduce.call_metadata.into()),
+                },
+            )),
+        },
+    }
+}
+
+/// Convert an internal `FunctionArgs` to a proto `FunctionArg`.
+fn internal_function_arg_to_proto(
+    arg: crate::data_model::FunctionArgs,
+) -> executor_api_pb::FunctionArg {
+    match arg {
+        crate::data_model::FunctionArgs::FunctionRunOutput(fc_id) => executor_api_pb::FunctionArg {
+            source: Some(executor_api_pb::function_arg::Source::FunctionCallId(
+                fc_id.to_string(),
+            )),
+        },
+        crate::data_model::FunctionArgs::DataPayload(dp) => executor_api_pb::FunctionArg {
+            source: Some(executor_api_pb::function_arg::Source::InlineData(
+                internal_data_payload_to_proto(dp),
+            )),
+        },
+    }
+}
+
+/// Convert an internal `FunctionRunFailureReason` to a proto
+/// `AllocationFailureReason`.
+fn internal_failure_reason_to_proto(
+    reason: &FunctionRunFailureReason,
+) -> executor_api_pb::AllocationFailureReason {
+    match reason {
+        FunctionRunFailureReason::Unknown => executor_api_pb::AllocationFailureReason::Unknown,
+        FunctionRunFailureReason::InternalError => {
+            executor_api_pb::AllocationFailureReason::InternalError
+        }
+        FunctionRunFailureReason::FunctionError => {
+            executor_api_pb::AllocationFailureReason::FunctionError
+        }
+        FunctionRunFailureReason::FunctionTimeout => {
+            executor_api_pb::AllocationFailureReason::FunctionTimeout
+        }
+        FunctionRunFailureReason::RequestError => {
+            executor_api_pb::AllocationFailureReason::RequestError
+        }
+        FunctionRunFailureReason::FunctionRunCancelled => {
+            executor_api_pb::AllocationFailureReason::AllocationCancelled
+        }
+        FunctionRunFailureReason::FunctionExecutorTerminated => {
+            executor_api_pb::AllocationFailureReason::ContainerTerminated
+        }
+        FunctionRunFailureReason::ConstraintUnsatisfiable => {
+            executor_api_pb::AllocationFailureReason::ConstraintUnsatisfiable
+        }
+        FunctionRunFailureReason::ExecutorRemoved => {
+            executor_api_pb::AllocationFailureReason::ExecutorRemoved
+        }
+        FunctionRunFailureReason::ContainerStartupFunctionError => {
+            executor_api_pb::AllocationFailureReason::StartupFailedFunctionError
+        }
+        FunctionRunFailureReason::ContainerStartupFunctionTimeout => {
+            executor_api_pb::AllocationFailureReason::StartupFailedFunctionTimeout
+        }
+        FunctionRunFailureReason::ContainerStartupInternalError => {
+            executor_api_pb::AllocationFailureReason::StartupFailedInternalError
+        }
+        FunctionRunFailureReason::OutOfMemory => executor_api_pb::AllocationFailureReason::Oom,
+        FunctionRunFailureReason::ContainerStartupBadImage => {
+            executor_api_pb::AllocationFailureReason::StartupFailedBadImage
+        }
     }
 }

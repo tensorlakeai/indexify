@@ -38,6 +38,19 @@ use crate::daemon_binary;
 /// Container path for the daemon binary.
 const CONTAINER_DAEMON_PATH: &str = "/indexify-daemon";
 
+/// Sentinel error for image-related failures (missing image, pull failure, bad
+/// name). Used to classify startup failures as non-retriable.
+#[derive(Debug)]
+pub struct ImageError(pub String);
+
+impl std::fmt::Display for ImageError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Image error: {}", self.0)
+    }
+}
+
+impl std::error::Error for ImageError {}
+
 pub struct DockerDriver {
     docker: Docker,
     /// OCI runtime to use for containers (e.g., "runsc" for gVisor).
@@ -170,14 +183,28 @@ impl DockerDriver {
                 }
                 Err(e) => {
                     let duration_ms = start.elapsed().as_millis();
+                    // Distinguish image-not-found (not retriable) from other
+                    // pull errors like network/auth failures (retriable as
+                    // internal error).
+                    let is_not_found = matches!(
+                        &e,
+                        bollard::errors::Error::DockerResponseServerError {
+                            status_code: 404,
+                            ..
+                        }
+                    );
                     tracing::error!(
                         image = %image,
                         duration_ms = %duration_ms,
                         error = %e,
+                        is_not_found = is_not_found,
                         event = "image_pull_failed",
                         "Failed to pull Docker image"
                     );
-                    return Err(e).context(format!("Failed to pull image {}", image));
+                    if is_not_found {
+                        return Err(ImageError(format!("Image not found {}: {}", image, e)).into());
+                    }
+                    return Err(anyhow::anyhow!("Failed to pull image {}: {}", image, e));
                 }
             }
         }
@@ -503,7 +530,7 @@ impl ProcessDriver for DockerDriver {
         let image = config
             .image
             .as_ref()
-            .context("Docker driver requires an image")?;
+            .ok_or_else(|| ImageError("Docker driver requires an image".to_string()))?;
 
         self.ensure_image(image).await?;
 

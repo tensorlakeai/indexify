@@ -8,8 +8,8 @@ use std::{fmt, time::Instant};
 use proto_api::executor_api_pb::{
     Allocation as ServerAllocation,
     AllocationResult as ServerAllocationResult,
-    FunctionExecutorDescription,
-    FunctionExecutorTerminationReason,
+    ContainerDescription,
+    ContainerTerminationReason,
 };
 use tokio_util::sync::CancellationToken;
 
@@ -34,21 +34,13 @@ pub(super) enum ContainerState {
         health_checker_cancel: CancellationToken,
     },
     /// Container has terminated (crash, shutdown, OOM, etc.)
-    Terminated {
-        reason: FunctionExecutorTerminationReason,
-        /// Allocation IDs that caused or contributed to the termination.
-        /// - Container died while allocations were Running: blame them.
-        /// - Container startup failed: blame all (they can't run).
-        /// - OOM with no Running allocations: blame all (startup/overhead OOM).
-        /// - Other termination with no Running allocations: no blame.
-        blamed_alloc_ids: Vec<String>,
-    },
+    Terminated { reason: ContainerTerminationReason },
 }
 
 /// A function executor managed by the AllocationController.
 #[allow(dead_code)]
 pub(super) struct ManagedFE {
-    pub description: FunctionExecutorDescription,
+    pub description: ContainerDescription,
     pub state: ContainerState,
     pub max_concurrency: u32,
     pub allocated_gpu_uuids: Vec<String>,
@@ -74,7 +66,13 @@ pub(super) enum AllocationState {
         finalization_ctx: FinalizationContext,
     },
     /// Finalizing output blobs (tokio task running).
-    Finalizing { result: ServerAllocationResult },
+    Finalizing {
+        result: ServerAllocationResult,
+        /// When set, the container that ran this allocation is dead.
+        /// Included in the AllocationFailed message so the scheduler
+        /// skips this container during placement.
+        terminated_container_id: Option<String>,
+    },
     /// Terminal.
     Done,
 }
@@ -120,17 +118,19 @@ impl fmt::Display for AllocationState {
 // Helper to extract logging context from FE descriptions and allocations
 // ---------------------------------------------------------------------------
 
-/// Logging context extracted from a FunctionExecutorDescription.
+/// Logging context extracted from a ContainerDescription.
 pub(super) struct FELogCtx {
     pub namespace: String,
     pub app: String,
     pub version: String,
     pub fn_name: String,
     pub container_id: String,
+    pub sandbox_id: String,
+    pub pool_id: String,
 }
 
 impl FELogCtx {
-    pub fn from_description(desc: &FunctionExecutorDescription) -> Self {
+    pub fn from_description(desc: &ContainerDescription) -> Self {
         let func_ref = desc.function.as_ref();
         Self {
             namespace: func_ref
@@ -150,6 +150,13 @@ impl FELogCtx {
                 .unwrap_or("")
                 .to_string(),
             container_id: desc.id.clone().unwrap_or_default(),
+            sandbox_id: desc
+                .sandbox_metadata
+                .as_ref()
+                .and_then(|m| m.sandbox_id.as_deref())
+                .unwrap_or("")
+                .to_string(),
+            pool_id: desc.pool_id.as_deref().unwrap_or("").to_string(),
         }
     }
 }
@@ -161,6 +168,7 @@ pub(super) struct AllocLogCtx {
     pub version: String,
     pub fn_name: String,
     pub request_id: String,
+    pub function_call_id: String,
 }
 
 impl AllocLogCtx {
@@ -184,6 +192,7 @@ impl AllocLogCtx {
                 .unwrap_or("")
                 .to_string(),
             request_id: alloc.request_id.clone().unwrap_or_default(),
+            function_call_id: alloc.function_call_id.clone().unwrap_or_default(),
         }
     }
 }

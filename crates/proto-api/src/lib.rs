@@ -8,7 +8,7 @@
 //! - Function Executor API: Used for communication between dataplane and
 //!   function executor subprocesses
 
-#[allow(non_camel_case_types)]
+#[allow(non_camel_case_types, clippy::large_enum_variant)]
 pub mod executor_api_pb {
     tonic::include_proto!("executor_api_pb");
 }

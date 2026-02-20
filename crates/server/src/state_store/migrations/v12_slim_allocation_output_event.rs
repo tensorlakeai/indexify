@@ -132,7 +132,7 @@ mod tests {
                     "graph_updates": null,
                     "request_exception": null,
                     "allocation_id": "alloc_1",
-                    "allocation_target": {"executor_id": "ex_1", "function_executor_id": "fe_1"},
+                    "allocation_target": {"executor_id": "ex_1", "container_id": "fe_1"},
                     "allocation_outcome": "Success",
                     "execution_duration_ms": 100
                 }

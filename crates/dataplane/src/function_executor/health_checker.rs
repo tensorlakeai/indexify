@@ -7,7 +7,7 @@
 
 use std::{sync::Arc, time::Duration};
 
-use proto_api::executor_api_pb::FunctionExecutorTerminationReason;
+use proto_api::executor_api_pb::ContainerTerminationReason;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
@@ -25,7 +25,7 @@ pub async fn run_health_check_loop(
     process_handle: ProcessHandle,
     cancel_token: CancellationToken,
     fe_id: &str,
-) -> Option<FunctionExecutorTerminationReason> {
+) -> Option<ContainerTerminationReason> {
     // Apply gRPC-level timeout so health checks don't hang on half-open
     // TCP connections (e.g. after OOM kills).
     client.set_timeout(HEALTH_CHECK_TIMEOUT);
@@ -52,9 +52,9 @@ pub async fn run_health_check_loop(
                         let exit_status = driver.get_exit_status(&process_handle).await.ok().flatten();
                         let is_oom = exit_status.as_ref().is_some_and(|s| s.oom_killed);
                         let reason = if is_oom {
-                            FunctionExecutorTerminationReason::Oom
+                            ContainerTerminationReason::Oom
                         } else {
-                            FunctionExecutorTerminationReason::ProcessCrash
+                            ContainerTerminationReason::ProcessCrash
                         };
                         warn!(
                             fe_id = %fe_id,
@@ -109,7 +109,7 @@ pub async fn run_health_check_loop(
                         consecutive_failures = consecutive_failures,
                         "FE failed too many health checks, terminating"
                     );
-                    return Some(FunctionExecutorTerminationReason::Unhealthy);
+                    return Some(ContainerTerminationReason::Unhealthy);
                 }
             }
         }

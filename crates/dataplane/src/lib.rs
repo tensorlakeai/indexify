@@ -3,6 +3,7 @@
 //! This module exposes the dataplane components for testing and reuse.
 
 pub mod allocation_controller;
+pub mod allocation_result_dispatcher;
 pub mod blob_ops;
 pub mod code_cache;
 pub mod config;

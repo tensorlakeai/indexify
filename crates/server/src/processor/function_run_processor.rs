@@ -327,7 +327,7 @@ impl FunctionRunProcessor {
         // vacuum or allocation logic runs.
         if let Some(fc) = container_scheduler
             .function_containers
-            .get(&allocation.target.function_executor_id)
+            .get(&allocation.target.container_id)
         {
             let mut updated_fc = *fc.clone();
             updated_fc.allocations.insert(allocation.id.clone());
@@ -345,7 +345,7 @@ impl FunctionRunProcessor {
             app = %function_run.application,
             fn = %function_run.name,
             executor_id = %target.executor_id,
-            container_id = %target.function_executor_id,
+            container_id = %target.container_id,
             "created allocation"
         );
 
