@@ -183,14 +183,28 @@ impl DockerDriver {
                 }
                 Err(e) => {
                     let duration_ms = start.elapsed().as_millis();
+                    // Distinguish image-not-found (not retriable) from other
+                    // pull errors like network/auth failures (retriable as
+                    // internal error).
+                    let is_not_found = matches!(
+                        &e,
+                        bollard::errors::Error::DockerResponseServerError {
+                            status_code: 404,
+                            ..
+                        }
+                    );
                     tracing::error!(
                         image = %image,
                         duration_ms = %duration_ms,
                         error = %e,
+                        is_not_found = is_not_found,
                         event = "image_pull_failed",
                         "Failed to pull Docker image"
                     );
-                    return Err(ImageError(format!("Failed to pull image {}: {}", image, e)).into());
+                    if is_not_found {
+                        return Err(ImageError(format!("Image not found {}: {}", image, e)).into());
+                    }
+                    return Err(anyhow::anyhow!("Failed to pull image {}: {}", image, e));
                 }
             }
         }

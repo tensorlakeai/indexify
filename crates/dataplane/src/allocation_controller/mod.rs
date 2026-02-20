@@ -246,10 +246,16 @@ impl AllocationController {
 
     /// Fail all non-terminal allocations for a given FE.
     ///
-    /// `blamed_alloc_ids` identifies allocations that caused the container
-    /// termination (e.g. a Running allocation that OOM'd). Blamed allocations
-    /// get the specific `reason`; non-blamed allocations get
-    /// `FunctionExecutorTerminated` so the server gives them a free retry.
+    /// For startup failures (constructor crash/timeout/error/bad image), all
+    /// non-running allocations get the startup failure reason so the server
+    /// charges them a retry attempt — the constructor bug is systematic.
+    ///
+    /// For runtime failures (OOM, crash, unhealthy, etc.), non-running
+    /// allocations get `FunctionExecutorTerminated` so the server gives them
+    /// a free retry — they're innocent victims of the container dying.
+    ///
+    /// Running allocations are skipped — their runners detect the gRPC stream
+    /// break and report the accurate failure reason themselves.
     fn fail_allocations_for_fe(
         &mut self,
         fe_id: &str,
@@ -273,10 +279,28 @@ impl AllocationController {
         // Remove from waiting queue
         self.waiting_queue.remove(fe_id);
 
+        // For startup failures, the bug is systematic (every allocation would
+        // hit the same constructor failure), so all get charged.
+        // For runtime failures, only running allocations (handled by their
+        // runners) get the real reason; non-running ones are innocent.
+        let is_startup = matches!(
+            reason,
+            AllocationFailureReason::StartupFailedInternalError |
+                AllocationFailureReason::StartupFailedFunctionError |
+                AllocationFailureReason::StartupFailedFunctionTimeout |
+                AllocationFailureReason::StartupFailedBadImage
+        );
+        let non_running_reason = if is_startup {
+            reason
+        } else {
+            AllocationFailureReason::FunctionExecutorTerminated
+        };
+
         if !alloc_ids.is_empty() {
             warn!(
                 container_id = %fe_id,
                 reason = ?reason,
+                non_running_reason = ?non_running_reason,
                 blamed = ?blamed_alloc_ids,
                 count = alloc_ids.len(),
                 "Failing {} allocations for terminated container", alloc_ids.len()
@@ -288,14 +312,9 @@ impl AllocationController {
                 continue;
             };
 
-            // Blamed allocations get the specific failure reason (e.g. OOM);
-            // non-blamed get FunctionExecutorTerminated (free retry on server).
-            let alloc_reason =
-                if blamed_alloc_ids.is_empty() || blamed_alloc_ids.contains(&alloc_id) {
-                    reason
-                } else {
-                    AllocationFailureReason::FunctionExecutorTerminated
-                };
+            // Non-running allocations use the computed reason above.
+            // Running allocations are skipped (continue below).
+            let alloc_reason = non_running_reason;
 
             {
                 let lctx = AllocLogCtx::from_allocation(&alloc.allocation);
@@ -351,20 +370,25 @@ impl AllocationController {
                 }
             };
 
-            let result = proto_convert::make_failure_result(&alloc.allocation, alloc_reason);
-
             // If finalization context has no blobs to clean up, send result
             // directly to avoid the latency of spawning a finalization task.
             if ctx.request_error_blob_handle.is_none() &&
                 ctx.output_blob_handles.is_empty() &&
                 ctx.fe_result.is_none()
             {
-                let activity = proto_convert::allocation_result_to_stream_request(&result);
+                let activity = proto_convert::make_allocation_failed_stream_request(
+                    &alloc.allocation,
+                    alloc_reason,
+                    None,
+                    None,
+                    Some(fe_id.to_string()),
+                );
                 proto_convert::record_activity_metrics(&activity, &self.config.metrics.counters);
                 let _ = self.config.activity_tx.send(activity);
                 alloc.state = AllocationState::Done;
             } else {
-                self.start_finalization(&alloc_id, result, ctx);
+                let result = proto_convert::make_failure_result(&alloc.allocation, alloc_reason);
+                self.start_finalization(&alloc_id, result, ctx, Some(fe_id.to_string()));
             }
         }
     }

@@ -98,6 +98,7 @@ impl AllocationController {
                     failure_reason,
                     None,
                     None,
+                    Some(fe_id.clone()),
                 );
                 // Send failure via activity channel — no blobs to clean up.
                 proto_convert::record_activity_metrics(&activity, &self.config.metrics.counters);
@@ -305,7 +306,7 @@ impl AllocationController {
                             output_blob_handles: Vec::new(),
                             fe_result: None,
                         };
-                        self.start_finalization(&allocation_id, result, ctx);
+                        self.start_finalization(&allocation_id, result, ctx, Some(fe_id.clone()));
                     }
                     None => {
                         warn!(
@@ -327,7 +328,7 @@ impl AllocationController {
                             output_blob_handles: Vec::new(),
                             fe_result: None,
                         };
-                        self.start_finalization(&allocation_id, result, ctx);
+                        self.start_finalization(&allocation_id, result, ctx, Some(fe_id.clone()));
                     }
                 }
             }
@@ -348,7 +349,12 @@ impl AllocationController {
                     &alloc.allocation,
                     AllocationFailureReason::InternalError,
                 );
-                self.start_finalization(&allocation_id, result, FinalizationContext::default());
+                self.start_finalization(
+                    &allocation_id,
+                    result,
+                    FinalizationContext::default(),
+                    None,
+                );
             }
         }
     }
@@ -409,7 +415,10 @@ impl AllocationController {
                     );
                     // Can't call self.start_finalization here directly due to
                     // borrow, so collect for deferred finalization
-                    alloc.state = AllocationState::Finalizing { result };
+                    alloc.state = AllocationState::Finalizing {
+                        result,
+                        terminated_container_id: None,
+                    };
                     self.config
                         .metrics
                         .counters
@@ -632,7 +641,7 @@ impl AllocationController {
             }
         };
 
-        self.start_finalization(&allocation_id, server_result, ctx);
+        self.start_finalization(&allocation_id, server_result, ctx, None);
 
         if trigger_fe_termination {
             let _ = self.event_tx.send(ACEvent::ContainerTerminated {
@@ -657,13 +666,17 @@ impl AllocationController {
         };
 
         // Only handle if in Finalizing state
-        let server_result = match std::mem::replace(&mut alloc.state, AllocationState::Done) {
-            AllocationState::Finalizing { result } => result,
-            other => {
-                alloc.state = other;
-                return;
-            }
-        };
+        let (server_result, terminated_container_id) =
+            match std::mem::replace(&mut alloc.state, AllocationState::Done) {
+                AllocationState::Finalizing {
+                    result,
+                    terminated_container_id,
+                } => (result, terminated_container_id),
+                other => {
+                    alloc.state = other;
+                    return;
+                }
+            };
 
         let result = if !is_success {
             let mut err_result = proto_convert::make_failure_result(
@@ -695,7 +708,8 @@ impl AllocationController {
         }
 
         // Record metrics and send result as AllocationActivity
-        let activity = proto_convert::allocation_result_to_stream_request(&result);
+        let activity =
+            proto_convert::allocation_result_to_stream_request(&result, terminated_container_id);
         proto_convert::record_activity_metrics(&activity, &self.config.metrics.counters);
         let _ = self.config.activity_tx.send(activity);
 
@@ -708,11 +722,16 @@ impl AllocationController {
     }
 
     /// Start finalization for an allocation.
+    ///
+    /// `terminated_container_id` should be `Some(fe_id)` when the container is
+    /// dead (startup failure, runtime crash). It will be included in the
+    /// `AllocationFailed` message so the scheduler skips this container.
     pub(super) fn start_finalization(
         &mut self,
         allocation_id: &str,
         server_result: ServerAllocationResult,
         ctx: FinalizationContext,
+        terminated_container_id: Option<String>,
     ) {
         let Some(alloc) = self.allocations.get_mut(allocation_id) else {
             return;
@@ -731,6 +750,7 @@ impl AllocationController {
 
         alloc.state = AllocationState::Finalizing {
             result: server_result,
+            terminated_container_id,
         };
 
         self.spawn_finalization_task(allocation_id, ctx);
@@ -856,7 +876,7 @@ impl AllocationController {
                 &alloc.allocation,
                 AllocationFailureReason::AllocationCancelled,
             );
-            self.start_finalization(&alloc_id, result, ctx);
+            self.start_finalization(&alloc_id, result, ctx, None);
         }
 
         // Kill all running containers and return GPUs
@@ -894,8 +914,16 @@ impl AllocationController {
 
         // Send any remaining results as AllocationActivities
         for (_alloc_id, alloc) in self.allocations.drain() {
-            if let AllocationState::Finalizing { result } = alloc.state {
-                let activity = proto_convert::allocation_result_to_stream_request(&result);
+            if let AllocationState::Finalizing {
+                result,
+                terminated_container_id,
+            } = alloc.state
+            {
+                // During shutdown all containers are dying, so include
+                // container_id if it wasn't already set.
+                let container_id = terminated_container_id.or_else(|| Some(alloc.fe_id.clone()));
+                let activity =
+                    proto_convert::allocation_result_to_stream_request(&result, container_id);
                 proto_convert::record_activity_metrics(&activity, &self.config.metrics.counters);
                 let _ = self.config.activity_tx.send(activity);
             }

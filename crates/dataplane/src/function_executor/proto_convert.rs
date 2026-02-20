@@ -285,6 +285,7 @@ pub fn make_allocation_failed_stream_request(
     failure_reason: executor_api_pb::AllocationFailureReason,
     request_error: Option<executor_api_pb::DataPayload>,
     execution_duration_ms: Option<u64>,
+    container_id: Option<String>,
 ) -> AllocationStreamRequest {
     AllocationStreamRequest {
         executor_id: String::new(),
@@ -297,6 +298,7 @@ pub fn make_allocation_failed_stream_request(
                 request_id: allocation.request_id.clone(),
                 request_error,
                 execution_duration_ms,
+                container_id,
             },
         )),
     }
@@ -308,6 +310,7 @@ pub fn make_allocation_failed_stream_request(
 /// `AllocationFailed`.
 pub fn allocation_result_to_stream_request(
     result: &executor_api_pb::AllocationResult,
+    container_id: Option<String>,
 ) -> AllocationStreamRequest {
     let outcome_code = result.outcome_code.unwrap_or(0);
     if outcome_code == executor_api_pb::AllocationOutcomeCode::Success as i32 {
@@ -351,6 +354,7 @@ pub fn allocation_result_to_stream_request(
                     request_id: result.request_id.clone(),
                     request_error: result.request_error.clone(),
                     execution_duration_ms: result.execution_duration_ms,
+                    container_id,
                 },
             )),
         }

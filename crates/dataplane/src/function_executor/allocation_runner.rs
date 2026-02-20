@@ -333,16 +333,29 @@ impl AllocationRunner {
             }
 
             if Instant::now() > deadline {
-                warn!("Allocation timed out");
-                error_outcome = Some(
-                    self.fail_with_cleanup(
-                        proto_api::executor_api_pb::AllocationFailureReason::FunctionTimeout,
-                        "Allocation execution timed out",
-                        false,
-                    )
-                    .await,
-                );
-                break;
+                // Don't time out while waiting for child function calls.
+                // The children have their own timeouts; the parent should
+                // wait for them to complete.
+                if !self.watcher_map.is_empty() {
+                    deadline = Instant::now() + self.timeout;
+                } else {
+                    warn!(
+                        allocation_id = %self.allocation_id,
+                        request_id = ?self.allocation.request_id,
+                        function_call_id = ?self.allocation.function_call_id,
+                        timeout_secs = self.timeout.as_secs(),
+                        "Allocation timed out"
+                    );
+                    error_outcome = Some(
+                        self.fail_with_cleanup(
+                            proto_api::executor_api_pb::AllocationFailureReason::FunctionTimeout,
+                            "Allocation execution timed out",
+                            false,
+                        )
+                        .await,
+                    );
+                    break;
+                }
             }
 
             let remaining = deadline.saturating_duration_since(Instant::now());
@@ -428,15 +441,27 @@ impl AllocationRunner {
                             break;
                         }
                         Err(_) => {
-                            warn!("Allocation timed out waiting for state");
-                            error_outcome = Some(self
-                                .fail_with_cleanup(
-                                    proto_api::executor_api_pb::AllocationFailureReason::FunctionTimeout,
-                                    "Allocation timed out",
-                                    false,
-                                )
-                                .await);
-                            break;
+                            // Don't time out while waiting for child function
+                            // calls. The children have their own timeouts.
+                            if !self.watcher_map.is_empty() {
+                                deadline = Instant::now() + self.timeout;
+                            } else {
+                                warn!(
+                                    allocation_id = %self.allocation_id,
+                                    request_id = ?self.allocation.request_id,
+                                    function_call_id = ?self.allocation.function_call_id,
+                                    timeout_secs = self.timeout.as_secs(),
+                                    "Allocation timed out waiting for state"
+                                );
+                                error_outcome = Some(self
+                                    .fail_with_cleanup(
+                                        proto_api::executor_api_pb::AllocationFailureReason::FunctionTimeout,
+                                        "Allocation timed out",
+                                        false,
+                                    )
+                                    .await);
+                                break;
+                            }
                         }
                     }
                 }

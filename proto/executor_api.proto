@@ -586,7 +586,7 @@ enum ContainerTerminationReason {
 //
 // V2 protocol contract:
 // - The dataplane sends individual AllocationFailed/AllocationCompleted messages
-//   for each allocation with the correct failure reason via report_allocation_activities.
+//   for each allocation with the correct failure reason via the allocation stream.
 // - ContainerTerminated is a container-lifecycle-only event. The server uses it
 //   to update container state but does NOT derive allocation outcomes from it.
 // - AllocationScheduled is a fast ack confirming the dataplane accepted the allocation.
@@ -639,6 +639,10 @@ message AllocationFailed {
     optional string request_id = 5;
     optional DataPayload request_error = 6;
     optional uint64 execution_duration_ms = 7;
+    // Container that ran this allocation. When set, the scheduler skips this
+    // container when rescheduling retries, preventing assignment to a container
+    // that may still appear alive (ContainerTerminated arrives separately).
+    optional string container_id = 8;
 }
 
 // Executor reports outcomes of commands received via command_stream.

@@ -68,7 +68,13 @@ pub(super) enum AllocationState {
         finalization_ctx: FinalizationContext,
     },
     /// Finalizing output blobs (tokio task running).
-    Finalizing { result: ServerAllocationResult },
+    Finalizing {
+        result: ServerAllocationResult,
+        /// When set, the container that ran this allocation is dead.
+        /// Included in the AllocationFailed message so the scheduler
+        /// skips this container during placement.
+        terminated_container_id: Option<String>,
+    },
     /// Terminal.
     Done,
 }

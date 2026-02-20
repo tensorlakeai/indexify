@@ -662,6 +662,7 @@ impl TestExecutor<'_> {
             request_id: allocation.request_id.clone(),
             request_error: request_error.map(internal_data_payload_to_proto),
             execution_duration_ms,
+            container_id: None,
         };
 
         executor_api_pb::AllocationStreamRequest {

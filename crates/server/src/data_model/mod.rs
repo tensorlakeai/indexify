@@ -1390,12 +1390,13 @@ impl FunctionRunFailureReason {
         // prevents infinite retry loops when containers keep crashing.
         //
         // Reasons that DON'T count (free retries — pure infrastructure):
-        //   ExecutorRemoved
+        //   ExecutorRemoved, FunctionExecutorTerminated
+        //   (container killed externally, allocation was an innocent victim)
         //
-        // Reasons that DO count (user-attributable or container crashes):
+        // Reasons that DO count (user-attributable or startup failures):
         //   InternalError, FunctionError, FunctionTimeout, OutOfMemory,
         //   ContainerStartupFunctionError, ContainerStartupFunctionTimeout,
-        //   ContainerStartupInternalError, FunctionExecutorTerminated
+        //   ContainerStartupInternalError
         matches!(
             self,
             FunctionRunFailureReason::InternalError |
@@ -1404,8 +1405,7 @@ impl FunctionRunFailureReason {
                 FunctionRunFailureReason::OutOfMemory |
                 FunctionRunFailureReason::ContainerStartupFunctionError |
                 FunctionRunFailureReason::ContainerStartupFunctionTimeout |
-                FunctionRunFailureReason::ContainerStartupInternalError |
-                FunctionRunFailureReason::FunctionExecutorTerminated
+                FunctionRunFailureReason::ContainerStartupInternalError
         )
     }
 }

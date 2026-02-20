@@ -800,6 +800,43 @@ fn proto_failure_reason_to_internal(
     }
 }
 
+/// Derive a `FunctionExecutorTerminationReason` from an
+/// `AllocationFailureReason`.
+///
+/// Used when the dataplane includes `container_id` in AllocationFailed to
+/// indicate the container died. The exact termination reason will arrive
+/// later via `ContainerTerminated`, but we need a reasonable value now so the
+/// scheduler marks the container as terminated immediately.
+fn proto_failure_reason_to_termination_reason(
+    reason: executor_api_pb::AllocationFailureReason,
+) -> data_model::FunctionExecutorTerminationReason {
+    match reason {
+        executor_api_pb::AllocationFailureReason::StartupFailedInternalError => {
+            data_model::FunctionExecutorTerminationReason::StartupFailedInternalError
+        }
+        executor_api_pb::AllocationFailureReason::StartupFailedFunctionError => {
+            data_model::FunctionExecutorTerminationReason::StartupFailedFunctionError
+        }
+        executor_api_pb::AllocationFailureReason::StartupFailedFunctionTimeout => {
+            data_model::FunctionExecutorTerminationReason::StartupFailedFunctionTimeout
+        }
+        executor_api_pb::AllocationFailureReason::StartupFailedBadImage => {
+            data_model::FunctionExecutorTerminationReason::StartupFailedBadImage
+        }
+        executor_api_pb::AllocationFailureReason::Oom => {
+            data_model::FunctionExecutorTerminationReason::Oom
+        }
+        executor_api_pb::AllocationFailureReason::FunctionTimeout => {
+            data_model::FunctionExecutorTerminationReason::FunctionTimeout
+        }
+        executor_api_pb::AllocationFailureReason::FunctionError |
+        executor_api_pb::AllocationFailureReason::FunctionExecutorTerminated => {
+            data_model::FunctionExecutorTerminationReason::Unhealthy
+        }
+        _ => data_model::FunctionExecutorTerminationReason::Unknown,
+    }
+}
+
 /// Convert a proto `ContainerTerminationReason` to the internal
 /// `FunctionExecutorTerminationReason`.
 fn proto_container_termination_to_internal(
@@ -1108,16 +1145,40 @@ pub async fn process_allocation_failed(
         None
     };
 
-    info!(
-        executor_id = executor_id.get(),
-        allocation_id = %allocation_id,
-        request_id = %request_id,
-        namespace = %namespace,
-        app = %application,
-        "fn" = %fn_name,
-        failure_reason = ?proto_reason,
-        "AllocationFailed ingested"
-    );
+    // If the dataplane included a container_id, include it as a container state
+    // update so the scheduler marks it terminated before rescheduling. This
+    // prevents retries from landing on the same dead container when
+    // ContainerTerminated hasn't arrived yet via the separate channel.
+    let container_state_updates = if let Some(cid) = &failed.container_id {
+        let termination_reason = proto_failure_reason_to_termination_reason(proto_reason);
+        info!(
+            executor_id = executor_id.get(),
+            allocation_id = %allocation_id,
+            request_id = %request_id,
+            namespace = %namespace,
+            app = %application,
+            "fn" = %fn_name,
+            failure_reason = ?proto_reason,
+            container_id = %cid,
+            "AllocationFailed ingested (with container_id)"
+        );
+        vec![data_model::ContainerStateUpdateInfo {
+            container_id: data_model::ContainerId::new(cid.clone()),
+            termination_reason: Some(termination_reason),
+        }]
+    } else {
+        info!(
+            executor_id = executor_id.get(),
+            allocation_id = %allocation_id,
+            request_id = %request_id,
+            namespace = %namespace,
+            app = %application,
+            "fn" = %fn_name,
+            failure_reason = ?proto_reason,
+            "AllocationFailed ingested"
+        );
+        vec![]
+    };
 
     let event = AllocationOutputIngestedEvent {
         namespace,
@@ -1134,7 +1195,14 @@ pub async fn process_allocation_failed(
         execution_duration_ms: failed.execution_duration_ms,
     };
 
-    write_dataplane_results(indexify_state, executor_id, vec![event], vec![], vec![]).await
+    write_dataplane_results(
+        indexify_state,
+        executor_id,
+        vec![event],
+        container_state_updates,
+        vec![],
+    )
+    .await
 }
 
 /// Write a `DataplaneResultsIngestedEvent` to the state machine.
