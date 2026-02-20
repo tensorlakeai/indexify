@@ -21,6 +21,8 @@ use crate::{
         Allocation as DataModelAllocation,
         AllocationId,
         ContainerId,
+        ContainerServerMetadata,
+        ContainerState,
         ExecutorId,
         SandboxKey,
     },
@@ -287,7 +289,8 @@ async fn namespaces(
 }
 
 /// Determines if an executor is ready for teardown.
-/// An executor is ready when it has no running allocations and no sandboxes.
+/// An executor is ready when it has no running allocations, no sandboxes,
+/// and no non-terminated containers.
 ///
 /// Note: allocations_by_executor only contains non-terminal allocations.
 /// Terminal allocations are removed when allocation outputs are ingested.
@@ -298,6 +301,7 @@ fn is_executor_ready_for_teardown(
         HashMap<ContainerId, HashMap<AllocationId, Box<DataModelAllocation>>>,
     >,
     sandboxes_by_executor: &imbl::HashMap<ExecutorId, imbl::HashSet<SandboxKey>>,
+    containers: &HashMap<ContainerId, Box<ContainerServerMetadata>>,
 ) -> bool {
     // Check for running allocations (allocations_by_executor only contains
     // non-terminal ones)
@@ -310,7 +314,14 @@ fn is_executor_ready_for_teardown(
         .get(executor_id)
         .is_some_and(|sandboxes| !sandboxes.is_empty());
 
-    !has_running_allocations && !has_sandboxes
+    // Check for non-terminated containers (function containers, warm pool
+    // containers, etc.). An executor with active containers should not be
+    // torn down — the periodic vacuum will clean up idle ones first.
+    let has_active_containers = containers
+        .values()
+        .any(|c| !matches!(c.desired_state, ContainerState::Terminated { .. }));
+
+    !has_running_allocations && !has_sandboxes && !has_active_containers
 }
 
 /// List executors
@@ -352,6 +363,7 @@ pub(crate) async fn list_executors(
                 &executor.id,
                 &in_memory_state.allocations_by_executor,
                 &in_memory_state.sandboxes_by_executor,
+                &function_container_server_meta,
             );
 
             http_executors.push(from_data_model_executor_metadata(
