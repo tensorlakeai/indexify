@@ -28,7 +28,7 @@ use tower_http::cors::{Any, CorsLayer};
 use tracing::{error, info};
 
 use crate::{
-    file_manager::FileManager,
+    file_manager::{FileError, FileManager},
     http_models::{
         DaemonInfo,
         ErrorResponse,
@@ -506,14 +506,14 @@ async fn read_file(State(state): State<AppState>, Query(query): Query<FilePathQu
             .body(Body::from(content))
             .unwrap(),
         Err(e) => {
-            let (status, code) =
-                if e.to_string().contains("not found") || e.to_string().contains("No such file") {
-                    (StatusCode::NOT_FOUND, "NOT_FOUND")
-                } else if e.to_string().contains("traversal") {
-                    (StatusCode::FORBIDDEN, "PATH_TRAVERSAL")
-                } else {
+            let (status, code) = match &e {
+                FileError::NotFound(_) => (StatusCode::NOT_FOUND, "NOT_FOUND"),
+                FileError::PathTraversal => (StatusCode::FORBIDDEN, "PATH_TRAVERSAL"),
+                FileError::IsDirectory(_) => (StatusCode::BAD_REQUEST, "IS_DIRECTORY"),
+                FileError::NotADirectory(_) | FileError::Other(_) => {
                     (StatusCode::INTERNAL_SERVER_ERROR, "INTERNAL_ERROR")
-                };
+                }
+            };
             (
                 status,
                 axum::Json(ErrorResponse::with_code(e.to_string(), code)),
@@ -535,10 +535,9 @@ async fn write_file(
     {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(e) => {
-            let (status, code) = if e.to_string().contains("traversal") {
-                (StatusCode::FORBIDDEN, "PATH_TRAVERSAL")
-            } else {
-                (StatusCode::INTERNAL_SERVER_ERROR, "INTERNAL_ERROR")
+            let (status, code) = match &e {
+                FileError::PathTraversal => (StatusCode::FORBIDDEN, "PATH_TRAVERSAL"),
+                _ => (StatusCode::INTERNAL_SERVER_ERROR, "INTERNAL_ERROR"),
             };
             (
                 status,
@@ -556,14 +555,11 @@ async fn delete_file(
     match state.file_manager.delete_file(&query.path).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(e) => {
-            let (status, code) =
-                if e.to_string().contains("not found") || e.to_string().contains("No such file") {
-                    (StatusCode::NOT_FOUND, "NOT_FOUND")
-                } else if e.to_string().contains("traversal") {
-                    (StatusCode::FORBIDDEN, "PATH_TRAVERSAL")
-                } else {
-                    (StatusCode::INTERNAL_SERVER_ERROR, "INTERNAL_ERROR")
-                };
+            let (status, code) = match &e {
+                FileError::NotFound(_) => (StatusCode::NOT_FOUND, "NOT_FOUND"),
+                FileError::PathTraversal => (StatusCode::FORBIDDEN, "PATH_TRAVERSAL"),
+                _ => (StatusCode::INTERNAL_SERVER_ERROR, "INTERNAL_ERROR"),
+            };
             (
                 status,
                 axum::Json(ErrorResponse::with_code(e.to_string(), code)),
@@ -587,16 +583,12 @@ async fn list_directory(
         )
             .into_response(),
         Err(e) => {
-            let (status, code) =
-                if e.to_string().contains("not found") || e.to_string().contains("No such file") {
-                    (StatusCode::NOT_FOUND, "NOT_FOUND")
-                } else if e.to_string().contains("traversal") {
-                    (StatusCode::FORBIDDEN, "PATH_TRAVERSAL")
-                } else if e.to_string().contains("not a directory") {
-                    (StatusCode::BAD_REQUEST, "NOT_A_DIRECTORY")
-                } else {
-                    (StatusCode::INTERNAL_SERVER_ERROR, "INTERNAL_ERROR")
-                };
+            let (status, code) = match &e {
+                FileError::NotFound(_) => (StatusCode::NOT_FOUND, "NOT_FOUND"),
+                FileError::PathTraversal => (StatusCode::FORBIDDEN, "PATH_TRAVERSAL"),
+                FileError::NotADirectory(_) => (StatusCode::BAD_REQUEST, "NOT_A_DIRECTORY"),
+                _ => (StatusCode::INTERNAL_SERVER_ERROR, "INTERNAL_ERROR"),
+            };
             (
                 status,
                 axum::Json(ErrorResponse::with_code(e.to_string(), code)),

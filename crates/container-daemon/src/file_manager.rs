@@ -5,11 +5,31 @@
 
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result};
 use tokio::fs;
 use tracing::debug;
 
 use crate::http_models::DirectoryEntry;
+
+/// Typed errors for file operations.
+#[derive(Debug, thiserror::Error)]
+pub enum FileError {
+    #[error("Path traversal detected: '..' is not allowed")]
+    PathTraversal,
+
+    #[error(
+        "Path is a directory, not a file: {0}. Use /api/v1/files/list to list directory contents."
+    )]
+    IsDirectory(PathBuf),
+
+    #[error("Path is not a directory: {0}")]
+    NotADirectory(PathBuf),
+
+    #[error("File not found: {0}")]
+    NotFound(PathBuf),
+
+    #[error("{0}")]
+    Other(#[from] anyhow::Error),
+}
 
 /// Manages file operations for the sandbox API.
 #[derive(Clone)]
@@ -22,13 +42,13 @@ impl FileManager {
     }
 
     /// Validate a path for security (no traversal attacks).
-    fn validate_path(&self, path: &str) -> Result<PathBuf> {
+    fn validate_path(&self, path: &str) -> Result<PathBuf, FileError> {
         let path = Path::new(path);
 
         // Check for path traversal
         for component in path.components() {
             if let std::path::Component::ParentDir = component {
-                anyhow::bail!("Path traversal detected: '..' is not allowed");
+                return Err(FileError::PathTraversal);
             }
         }
 
@@ -36,73 +56,112 @@ impl FileManager {
         let canonical = if path.is_absolute() {
             path.to_path_buf()
         } else {
-            std::env::current_dir()?.join(path)
+            std::env::current_dir()
+                .map_err(|e| FileError::Other(e.into()))?
+                .join(path)
         };
 
         Ok(canonical)
     }
 
     /// Read a file's contents.
-    pub async fn read_file(&self, path: &str) -> Result<Vec<u8>> {
+    pub async fn read_file(&self, path: &str) -> Result<Vec<u8>, FileError> {
         let path = self.validate_path(path)?;
         debug!(path = %path.display(), "Reading file");
 
-        fs::read(&path)
-            .await
-            .with_context(|| format!("Failed to read file: {}", path.display()))
+        if path.is_dir() {
+            return Err(FileError::IsDirectory(path));
+        }
+
+        fs::read(&path).await.map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                FileError::NotFound(path)
+            } else {
+                FileError::Other(
+                    anyhow::Error::from(e)
+                        .context(format!("Failed to read file: {}", path.display())),
+                )
+            }
+        })
     }
 
     /// Write content to a file, creating parent directories if needed.
-    pub async fn write_file(&self, path: &str, content: Vec<u8>) -> Result<()> {
+    pub async fn write_file(&self, path: &str, content: Vec<u8>) -> Result<(), FileError> {
         let path = self.validate_path(path)?;
         debug!(path = %path.display(), size = content.len(), "Writing file");
 
         // Create parent directories if they don't exist
         if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).await.with_context(|| {
-                format!(
+            fs::create_dir_all(parent).await.map_err(|e| {
+                FileError::Other(anyhow::Error::from(e).context(format!(
                     "Failed to create parent directories for: {}",
                     path.display()
-                )
+                )))
             })?;
         }
 
-        fs::write(&path, content)
-            .await
-            .with_context(|| format!("Failed to write file: {}", path.display()))
+        fs::write(&path, content).await.map_err(|e| {
+            FileError::Other(
+                anyhow::Error::from(e).context(format!("Failed to write file: {}", path.display())),
+            )
+        })
     }
 
     /// Delete a file.
-    pub async fn delete_file(&self, path: &str) -> Result<()> {
+    pub async fn delete_file(&self, path: &str) -> Result<(), FileError> {
         let path = self.validate_path(path)?;
         debug!(path = %path.display(), "Deleting file");
 
-        fs::remove_file(&path)
-            .await
-            .with_context(|| format!("Failed to delete file: {}", path.display()))
+        fs::remove_file(&path).await.map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                FileError::NotFound(path)
+            } else {
+                FileError::Other(
+                    anyhow::Error::from(e)
+                        .context(format!("Failed to delete file: {}", path.display())),
+                )
+            }
+        })
     }
 
     /// List contents of a directory.
-    pub async fn list_directory(&self, path: &str) -> Result<Vec<DirectoryEntry>> {
+    pub async fn list_directory(&self, path: &str) -> Result<Vec<DirectoryEntry>, FileError> {
         let path = self.validate_path(path)?;
         debug!(path = %path.display(), "Listing directory");
 
-        let metadata = fs::metadata(&path)
-            .await
-            .with_context(|| format!("Failed to get metadata: {}", path.display()))?;
+        let metadata = fs::metadata(&path).await.map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                FileError::NotFound(path.clone())
+            } else {
+                FileError::Other(
+                    anyhow::Error::from(e)
+                        .context(format!("Failed to get metadata: {}", path.display())),
+                )
+            }
+        })?;
 
         if !metadata.is_dir() {
-            anyhow::bail!("Path is not a directory: {}", path.display());
+            return Err(FileError::NotADirectory(path));
         }
 
         let mut entries = Vec::new();
-        let mut read_dir = fs::read_dir(&path)
-            .await
-            .with_context(|| format!("Failed to read directory: {}", path.display()))?;
+        let mut read_dir = fs::read_dir(&path).await.map_err(|e| {
+            FileError::Other(
+                anyhow::Error::from(e)
+                    .context(format!("Failed to read directory: {}", path.display())),
+            )
+        })?;
 
-        while let Some(entry) = read_dir.next_entry().await? {
+        while let Some(entry) = read_dir
+            .next_entry()
+            .await
+            .map_err(|e| FileError::Other(e.into()))?
+        {
             let name = entry.file_name().to_string_lossy().to_string();
-            let metadata = entry.metadata().await?;
+            let metadata = entry
+                .metadata()
+                .await
+                .map_err(|e| FileError::Other(e.into()))?;
             let is_dir = metadata.is_dir();
             let size = if is_dir { None } else { Some(metadata.len()) };
 
