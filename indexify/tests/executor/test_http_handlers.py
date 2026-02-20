@@ -29,7 +29,7 @@ def successful_function_cold_start_2(arg: str) -> str:
 
 
 def fetch_metrics(test_case: unittest.TestCase) -> Dict[str, Metric]:
-    response = httpx.get(f"http://localhost:7000/monitoring/metrics")
+    response = httpx.get("http://localhost:8100/monitoring/metrics")
     test_case.assertEqual(response.status_code, 200)
     metrics: Dict[str, Metric] = {}
     for metric in text_string_to_metric_families(response.text):
@@ -429,11 +429,11 @@ class TestMetrics(unittest.TestCase):
 
 class TestStateHanlers(unittest.TestCase):
     def test_reported_state_handler_success(self):
-        response = httpx.get("http://localhost:7000/state/reported")
+        response = httpx.get("http://localhost:8100/state/reported")
         self.assertEqual(response.status_code, 200)
 
     def test_desired_state_handler_success(self):
-        response = httpx.get("http://localhost:7000/state/desired")
+        response = httpx.get("http://localhost:8100/state/desired")
         self.assertEqual(response.status_code, 200)
 
 
