@@ -665,7 +665,25 @@ impl AllocationController {
                     );
                 }
                 ctx.output_blob_handles = output_blob_handles;
-                proto_convert::make_failure_result(&alloc.allocation, reason)
+
+                // If the container is already known to be terminated (e.g. the health
+                // checker fired before this outcome was processed), prefer the container's
+                // known termination reason over the runner's reason.  This handles the race
+                // where determine_crash_reason() inspects Docker before the OOMKilled flag
+                // is set, but the health checker subsequently detects OOM and updates
+                // container state first.
+                let effective_reason = self
+                    .containers
+                    .get(&fe_id)
+                    .and_then(|fe| match &fe.state {
+                        ContainerState::Terminated { reason, .. } => {
+                            Some(proto_convert::termination_to_failure_reason(*reason))
+                        }
+                        _ => None,
+                    })
+                    .unwrap_or(reason);
+
+                proto_convert::make_failure_result(&alloc.allocation, effective_reason)
             }
         };
 
