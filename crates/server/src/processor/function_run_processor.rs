@@ -331,6 +331,7 @@ impl FunctionRunProcessor {
         {
             let mut updated_fc = *fc.clone();
             updated_fc.allocations.insert(allocation.id.clone());
+            updated_fc.idle_since = None; // now busy
             update.containers.insert(
                 updated_fc.function_container.id.clone(),
                 Box::new(updated_fc.clone()),

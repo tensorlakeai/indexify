@@ -906,6 +906,7 @@ impl ContainerScheduler {
             desired_state: ContainerState::Running,
             container_type,
             allocations: std::collections::HashSet::new(),
+            idle_since: Some(tokio::time::Instant::now()),
         };
 
         let mut update = SchedulerUpdateRequest::default();
@@ -1164,6 +1165,69 @@ impl ContainerScheduler {
         update.containers.insert(container_id.clone(), fc.clone());
 
         Ok(Some(update))
+    }
+
+    /// Return containers eligible for periodic cluster vacuum.
+    ///
+    /// A container is eligible when:
+    /// - It is not already terminated
+    /// - It is idle (`idle_since` is `Some`) for longer than `max_idle_age`
+    /// - It passes `fe_can_be_removed` (Function type, no allocations, not on
+    ///   an executor allowlist — this also excludes all Sandbox containers)
+    /// - Removing it would not drop the pool below `min_containers`
+    #[tracing::instrument(skip_all)]
+    pub fn periodic_vacuum_candidates(
+        &self,
+        max_idle_age: std::time::Duration,
+    ) -> Vec<(ContainerId, ContainerServerMetadata)> {
+        let now = tokio::time::Instant::now();
+        let mut candidates = Vec::new();
+        // Track evictions per pool to respect min_containers
+        let mut evicted_from_pool: imbl::HashMap<ContainerPoolKey, u32> = imbl::HashMap::new();
+
+        for (container_id, fc) in &self.function_containers {
+            // Skip already-terminated containers
+            if matches!(fc.desired_state, ContainerState::Terminated { .. }) {
+                continue;
+            }
+
+            // Skip busy containers (idle_since is None)
+            let idle_since = match fc.idle_since {
+                Some(t) => t,
+                None => continue,
+            };
+
+            // Skip containers not idle long enough
+            if now.duration_since(idle_since) < max_idle_age {
+                continue;
+            }
+
+            // Skip containers that can't be removed: sandbox types, containers
+            // with active allocations, and containers on executor allowlists.
+            if !self.fe_can_be_removed(fc) {
+                continue;
+            }
+
+            // Respect min_containers per pool
+            if let Some(pool_key) = fc.function_container.pool_key() {
+                let already_evicted = evicted_from_pool.get(&pool_key).copied().unwrap_or(0);
+                let effective_count = self
+                    .pool_container_count(&pool_key)
+                    .saturating_sub(already_evicted);
+                let min = self
+                    .get_pool(&pool_key)
+                    .and_then(|p| p.min_containers)
+                    .unwrap_or(0);
+                if effective_count <= min {
+                    continue;
+                }
+                *evicted_from_pool.entry(pool_key).or_insert(0) += 1;
+            }
+
+            candidates.push((container_id.clone(), *fc.clone()));
+        }
+
+        candidates
     }
 
     // ====================================

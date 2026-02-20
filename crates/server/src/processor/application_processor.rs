@@ -1,4 +1,4 @@
-use std::{sync::Arc, vec};
+use std::{sync::Arc, time::Duration, vec};
 
 use anyhow::Result;
 use opentelemetry::{
@@ -44,10 +44,17 @@ pub struct ApplicationProcessor {
     pub allocate_function_runs_latency: Histogram<f64>,
     pub state_change_queue_depth: Gauge<u64>,
     pub queue_size: u32,
+    pub cluster_vacuum_interval: Duration,
+    pub cluster_vacuum_max_idle_age: Duration,
 }
 
 impl ApplicationProcessor {
-    pub fn new(indexify_state: Arc<IndexifyState>, queue_size: u32) -> Self {
+    pub fn new(
+        indexify_state: Arc<IndexifyState>,
+        queue_size: u32,
+        cluster_vacuum_interval: Duration,
+        cluster_vacuum_max_idle_age: Duration,
+    ) -> Self {
         let meter = opentelemetry::global::meter("processor_metrics");
 
         let write_sm_update_latency = meter
@@ -105,6 +112,8 @@ impl ApplicationProcessor {
             allocate_function_runs_latency,
             state_change_queue_depth,
             queue_size,
+            cluster_vacuum_interval,
+            cluster_vacuum_max_idle_age,
         }
     }
 
@@ -158,6 +167,19 @@ impl ApplicationProcessor {
         // changes but if we only process one event from the queue then the
         // watch will not notify again
         let notify = Arc::new(Notify::new());
+
+        let vacuum_enabled = !self.cluster_vacuum_interval.is_zero();
+        let mut vacuum_timer = tokio::time::interval(
+            if vacuum_enabled {
+                self.cluster_vacuum_interval
+            } else {
+                // Interval must be > 0; use a large dummy value (guarded by vacuum_enabled)
+                Duration::from_secs(3600)
+            },
+        );
+        // Consume the first immediate tick so vacuum doesn't fire on startup
+        vacuum_timer.tick().await;
+
         loop {
             tokio::select! {
                 _ = change_events_rx.changed() => {
@@ -171,6 +193,11 @@ impl ApplicationProcessor {
                     if let Err(err) = self.write_sm_update(&mut cached_state_changes, &mut last_global_state_change_cursor, &mut last_namespace_state_change_cursor, &notify).await {
                         error!("error processing state change: {:?}", err);
                         continue
+                    }
+                },
+                _ = vacuum_timer.tick(), if vacuum_enabled => {
+                    if let Err(err) = self.handle_cluster_vacuum().await {
+                        error!("error during cluster vacuum: {:?}", err);
                     }
                 },
                 _ = shutdown_rx.changed() => {
@@ -644,5 +671,72 @@ impl ApplicationProcessor {
                 processed_state_changes: vec![state_change.clone()],
             }),
         })
+    }
+
+    #[instrument(skip(self))]
+    async fn handle_cluster_vacuum(&self) -> Result<()> {
+        let container_scheduler = self.indexify_state.container_scheduler.read().await.clone();
+        let mut container_scheduler_guard = container_scheduler.write().await;
+
+        let candidates =
+            container_scheduler_guard.periodic_vacuum_candidates(self.cluster_vacuum_max_idle_age);
+
+        if candidates.is_empty() {
+            return Ok(());
+        }
+
+        info!(
+            num_candidates = candidates.len(),
+            "cluster vacuum: terminating idle containers"
+        );
+
+        // Follow the same pattern as the reactive vacuum in create_container():
+        // mark containers as terminated and include executor state so the
+        // executor gets notified — but do NOT free resources. Resources are
+        // freed later when the executor confirms termination.
+        let mut scheduler_update = SchedulerUpdateRequest::default();
+        for (container_id, fc) in &candidates {
+            let mut terminated = fc.clone();
+            terminated.desired_state = data_model::ContainerState::Terminated {
+                reason: data_model::ContainerTerminationReason::DesiredStateRemoved,
+            };
+            scheduler_update
+                .containers
+                .insert(container_id.clone(), Box::new(terminated));
+
+            // Include executor state so the executor receives the updated
+            // desired state and terminates the container.
+            if let Some(executor_state) = container_scheduler_guard
+                .executor_states
+                .get(&fc.executor_id)
+            {
+                scheduler_update
+                    .updated_executor_states
+                    .insert(fc.executor_id.clone(), executor_state.clone());
+            }
+
+            info!(
+                container_id = container_id.get(),
+                executor_id = fc.executor_id.get(),
+                "cluster vacuum: marking idle container for termination"
+            );
+        }
+
+        // Apply to local clone so subsequent scheduler operations see
+        // the terminated state.
+        container_scheduler_guard.update(&RequestPayload::SchedulerUpdate(
+            SchedulerUpdatePayload::new(scheduler_update.clone()),
+        ))?;
+
+        self.indexify_state
+            .write(StateMachineUpdateRequest {
+                payload: RequestPayload::SchedulerUpdate(SchedulerUpdatePayload {
+                    update: Box::new(scheduler_update),
+                    processed_state_changes: vec![],
+                }),
+            })
+            .await?;
+
+        Ok(())
     }
 }

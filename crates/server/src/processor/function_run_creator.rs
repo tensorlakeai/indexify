@@ -152,6 +152,9 @@ impl FunctionRunCreator {
             .get_mut(&alloc_finished_event.allocation_target.container_id)
         {
             fc.allocations.remove(&alloc_finished_event.allocation_id);
+            if fc.allocations.is_empty() {
+                fc.idle_since = Some(tokio::time::Instant::now());
+            }
             scheduler_update.containers.insert(
                 alloc_finished_event.allocation_target.container_id.clone(),
                 fc.clone(),

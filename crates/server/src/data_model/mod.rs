@@ -2102,6 +2102,12 @@ pub struct ContainerServerMetadata {
     #[builder(default)]
     #[serde(default)]
     pub allocations: HashSet<AllocationId>,
+    /// When the container last became idle (no allocations).
+    /// - `Some(instant)` = container is idle since this time
+    /// - `None` = container is currently busy (has allocations)
+    #[serde(skip)]
+    #[builder(default)]
+    pub idle_since: Option<tokio::time::Instant>,
 }
 
 impl Eq for ContainerServerMetadata {}
@@ -2133,6 +2139,7 @@ impl ContainerServerMetadata {
             desired_state,
             container_type,
             allocations: HashSet::new(),
+            idle_since: Some(tokio::time::Instant::now()),
         }
     }
 
