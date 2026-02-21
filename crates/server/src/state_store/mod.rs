@@ -576,6 +576,17 @@ impl IndexifyState {
             RequestPayload::CreateSandbox(request) => {
                 state_machine::upsert_sandbox(&txn, &request.sandbox, current_clock).await?;
             }
+            RequestPayload::CreateSnapshot(request) => {
+                state_machine::upsert_snapshot(&txn, &request.snapshot, current_clock).await?;
+            }
+            RequestPayload::DeleteSnapshot(request) => {
+                state_machine::delete_snapshot(&txn, &request.namespace, request.snapshot_id.get())
+                    .await?;
+            }
+            RequestPayload::TerminateSandbox(request) => {
+                // Update sandbox status to terminating
+                state_machine::upsert_sandbox(&txn, &request.sandbox, current_clock).await?;
+            }
             RequestPayload::CreateContainerPool(request) => {
                 state_machine::upsert_container_pool(&txn, &request.pool, current_clock).await?;
             }

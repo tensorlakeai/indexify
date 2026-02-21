@@ -2300,6 +2300,8 @@ pub enum ChangeType {
     TombStoneExecutor(ExecutorRemovedEvent),
     CreateSandbox(CreateSandboxEvent),
     TerminateSandbox(TerminateSandboxEvent),
+    CreateSnapshot(CreateSnapshotEvent),
+    DeleteSnapshot(DeleteSnapshotEvent),
     CreateContainerPool(CreateContainerPoolEvent),
     UpdateContainerPool(UpdateContainerPoolEvent),
     DeleteContainerPool(DeleteContainerPoolEvent),
@@ -2352,6 +2354,16 @@ impl fmt::Display for ChangeType {
                 f,
                 "TerminateSandbox, namespace: {}, sandbox_id: {}",
                 ev.namespace, ev.sandbox_id
+            ),
+            ChangeType::CreateSnapshot(ev) => write!(
+                f,
+                "CreateSnapshot, namespace: {}, snapshot_id: {}",
+                ev.namespace, ev.snapshot_id
+            ),
+            ChangeType::DeleteSnapshot(ev) => write!(
+                f,
+                "DeleteSnapshot, namespace: {}, snapshot_id: {}",
+                ev.namespace, ev.snapshot_id
             ),
             ChangeType::CreateContainerPool(ev) => write!(
                 f,
@@ -2866,6 +2878,221 @@ pub struct CreateSandboxEvent {
 pub struct TerminateSandboxEvent {
     pub namespace: String,
     pub sandbox_id: SandboxId,
+}
+
+// ================================
+// Sandbox Snapshot Types
+// ================================
+
+/// Unique identifier for a sandbox snapshot
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct SnapshotId(pub String);
+
+impl SnapshotId {
+    pub fn new(id: String) -> Self {
+        Self(id)
+    }
+
+    pub fn get(&self) -> &str {
+        &self.0
+    }
+
+    /// Generate a new snapshot ID with prefix "snap-"
+    pub fn generate() -> Self {
+        Self(format!("snap-{}", nanoid!()))
+    }
+}
+
+impl Default for SnapshotId {
+    fn default() -> Self {
+        Self::generate()
+    }
+}
+
+impl Display for SnapshotId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl From<&str> for SnapshotId {
+    fn from(s: &str) -> Self {
+        Self(s.to_string())
+    }
+}
+
+impl From<String> for SnapshotId {
+    fn from(s: String) -> Self {
+        Self(s)
+    }
+}
+
+/// Status of a snapshot
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase")]
+#[derive(Default)]
+pub enum SnapshotStatus {
+    /// Snapshot is being created (docker commit in progress)
+    #[default]
+    Creating,
+    /// Snapshot is ready for restore
+    Active,
+    /// Snapshot is being deleted
+    Deleting,
+}
+
+
+impl Display for SnapshotStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            SnapshotStatus::Creating => write!(f, "creating"),
+            SnapshotStatus::Active => write!(f, "active"),
+            SnapshotStatus::Deleting => write!(f, "deleting"),
+        }
+    }
+}
+
+/// Configuration of the sandbox that was snapshotted
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SandboxSnapshotConfig {
+    pub image: String,
+    pub resources: ContainerResources,
+    #[serde(default)]
+    pub secret_names: Vec<String>,
+    pub timeout_secs: u64,
+    #[serde(default)]
+    pub entrypoint: Option<Vec<String>>,
+    #[serde(default)]
+    pub network_policy: Option<NetworkPolicy>,
+}
+
+impl From<&Sandbox> for SandboxSnapshotConfig {
+    fn from(sandbox: &Sandbox) -> Self {
+        Self {
+            image: sandbox.image.clone(),
+            resources: sandbox.resources.clone(),
+            secret_names: sandbox.secret_names.clone(),
+            timeout_secs: sandbox.timeout_secs,
+            entrypoint: sandbox.entrypoint.clone(),
+            network_policy: sandbox.network_policy.clone(),
+        }
+    }
+}
+
+/// A snapshot of a sandbox's filesystem state
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Builder)]
+pub struct SandboxSnapshot {
+    pub id: SnapshotId,
+    pub sandbox_id: SandboxId,
+    pub namespace: String,
+    /// Docker image reference for the snapshot (e.g.,
+    /// "indexify-snapshots:sb-{sandbox_id}-snap-{snapshot_id}")
+    pub image_ref: String,
+    /// When the snapshot was created (epoch nanoseconds)
+    pub created_at: u128,
+    /// Time-to-live in seconds (0 = no expiration)
+    pub ttl_secs: u64,
+    pub status: SnapshotStatus,
+    /// Original sandbox configuration (for fallback when TTL expires)
+    pub sandbox_config: SandboxSnapshotConfig,
+    /// Size of the snapshot in bytes (if known)
+    #[builder(default)]
+    #[serde(default)]
+    pub size_bytes: Option<u64>,
+    #[builder(default)]
+    #[serde(default)]
+    created_at_clock: Option<u64>,
+    #[builder(default)]
+    #[serde(default)]
+    updated_at_clock: Option<u64>,
+}
+
+impl SandboxSnapshotBuilder {
+    fn default_creation_time_ns(&self) -> u128 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    }
+}
+
+impl SandboxSnapshot {
+    /// Returns the storage key for this snapshot
+    pub fn key(&self) -> String {
+        format!("{}|{}", self.namespace, self.id.0)
+    }
+
+    /// Prepares the snapshot for persistence by setting the server clock
+    pub fn prepare_for_persistence(&mut self, clock: u64) {
+        if self.created_at_clock.is_none() {
+            self.created_at_clock = Some(clock);
+        }
+        self.updated_at_clock = Some(clock);
+    }
+
+    /// Check if the snapshot has expired based on TTL
+    pub fn is_expired(&self, current_time_ns: u128) -> bool {
+        if self.ttl_secs == 0 {
+            return false; // No expiration
+        }
+        let age_secs = (current_time_ns - self.created_at) / 1_000_000_000;
+        age_secs >= self.ttl_secs as u128
+    }
+
+    /// Get expiration time in nanoseconds (None if no expiration)
+    pub fn expires_at(&self) -> Option<u128> {
+        if self.ttl_secs == 0 {
+            None
+        } else {
+            Some(self.created_at + (self.ttl_secs as u128 * 1_000_000_000))
+        }
+    }
+}
+
+/// Composite key for snapshot (namespace + snapshot_id)
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct SnapshotKey {
+    pub namespace: String,
+    pub snapshot_id: SnapshotId,
+}
+
+impl SnapshotKey {
+    pub fn new(namespace: &str, snapshot_id: &SnapshotId) -> Self {
+        Self {
+            namespace: namespace.to_string(),
+            snapshot_id: snapshot_id.clone(),
+        }
+    }
+
+    pub fn key(&self) -> String {
+        format!("{}|{}", self.namespace, self.snapshot_id.0)
+    }
+}
+
+impl Display for SnapshotKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}|{}", self.namespace, self.snapshot_id.0)
+    }
+}
+
+impl From<&SandboxSnapshot> for SnapshotKey {
+    fn from(snapshot: &SandboxSnapshot) -> Self {
+        SnapshotKey::new(&snapshot.namespace, &snapshot.id)
+    }
+}
+
+/// Event for creating a snapshot
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
+pub struct CreateSnapshotEvent {
+    pub namespace: String,
+    pub snapshot_id: SnapshotId,
+}
+
+/// Event for deleting a snapshot
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
+pub struct DeleteSnapshotEvent {
+    pub namespace: String,
+    pub snapshot_id: SnapshotId,
 }
 
 /// Event for creating a container pool

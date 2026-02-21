@@ -7,4 +7,5 @@ pub mod invoke;
 mod invoke_test;
 pub mod routes_state;
 pub mod sandbox_pools;
+pub mod sandbox_snapshots;
 pub mod sandboxes;

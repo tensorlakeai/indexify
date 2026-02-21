@@ -252,9 +252,42 @@ message ExecutorState {
 
 // Updates that Executor wants to report to Server. If report_executor_state RPC is successful
 // then the updates from it won't be included in the next RPC.
+// Snapshot operation types
+enum SnapshotOperationType {
+    SNAPSHOT_OPERATION_TYPE_UNKNOWN = 0;
+    SNAPSHOT_OPERATION_TYPE_CREATE = 1;
+    SNAPSHOT_OPERATION_TYPE_DELETE = 2;
+}
+
+// Request to create a snapshot of a container
+message SnapshotOperation {
+    optional SnapshotOperationType operation_type = 1;
+    optional string snapshot_id = 2;
+    optional string container_id = 3;
+    // Docker image tag for the snapshot (e.g., "sb-sandbox123-snap-xyz")
+    optional string snapshot_tag = 4;
+    // Docker image reference for deletion (e.g., "indexify-snapshots:tag")
+    optional string image_ref = 5;
+}
+
+// Result of a snapshot operation
+message SnapshotOperationResult {
+    optional string snapshot_id = 1;
+    optional SnapshotOperationType operation_type = 2;
+    // True if operation succeeded
+    optional bool success = 3;
+    // Error message if operation failed
+    optional string error_message = 4;
+    // Docker image reference for created snapshot
+    optional string image_ref = 5;
+    // Size of snapshot in bytes (only for create operations)
+    optional uint64 size_bytes = 6;
+}
+
 message ExecutorUpdate {
     optional string executor_id = 1;
     repeated AllocationResult allocation_results = 2;
+    repeated SnapshotOperationResult snapshot_operation_results = 3;
 }
 
 message FunctionCallWatch {
@@ -316,6 +349,8 @@ message DesiredExecutorState {
     // it observed and ignores all the messages with clock value <= the max observed value.
     optional uint64 clock = 3;
     repeated FunctionCallResult function_call_results = 4;
+    // Snapshot operations to perform (create or delete snapshots)
+    repeated SnapshotOperation snapshot_operations = 5;
 }
 
 enum AllocationOutcomeCode {

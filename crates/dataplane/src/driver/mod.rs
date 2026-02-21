@@ -83,6 +83,15 @@ pub struct ExitStatus {
     pub oom_killed: bool,
 }
 
+/// Metadata about a created snapshot.
+#[derive(Debug, Clone)]
+pub struct SnapshotMetadata {
+    /// Docker image reference for the snapshot.
+    pub image_ref: String,
+    /// Size of the snapshot in bytes (if available).
+    pub size_bytes: Option<u64>,
+}
+
 /// Trait for process drivers that can start and manage processes.
 #[async_trait]
 pub trait ProcessDriver: Send + Sync {
@@ -111,5 +120,20 @@ pub trait ProcessDriver: Send + Sync {
     /// Returns empty string for drivers that don't support log retrieval.
     async fn get_logs(&self, _handle: &ProcessHandle, _tail: u32) -> Result<String> {
         Ok(String::new())
+    }
+
+    /// Create a snapshot of a container's filesystem using docker commit.
+    /// Returns the image reference and size metadata.
+    async fn create_snapshot(
+        &self,
+        _handle: &ProcessHandle,
+        _snapshot_tag: &str,
+    ) -> Result<SnapshotMetadata> {
+        anyhow::bail!("Snapshot creation not supported by this driver")
+    }
+
+    /// Delete a snapshot image.
+    async fn delete_snapshot(&self, _image_ref: &str) -> Result<()> {
+        anyhow::bail!("Snapshot deletion not supported by this driver")
     }
 }

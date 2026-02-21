@@ -52,6 +52,10 @@ impl IndexifyAPIError {
     pub fn conflict(message: &str) -> Self {
         Self::new(StatusCode::CONFLICT, message)
     }
+
+    pub fn forbidden(message: &str) -> Self {
+        Self::new(StatusCode::FORBIDDEN, message)
+    }
 }
 
 impl IntoResponse for IndexifyAPIError {

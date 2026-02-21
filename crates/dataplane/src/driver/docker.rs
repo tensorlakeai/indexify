@@ -46,6 +46,8 @@ pub struct DockerDriver {
     network: Option<String>,
     /// Volume bind mounts for function executor containers.
     binds: Vec<String>,
+    /// Optional registry configuration for snapshot distribution.
+    registry_config: Option<crate::config::SnapshotRegistryConfig>,
 }
 
 impl DockerDriver {
@@ -54,6 +56,7 @@ impl DockerDriver {
         runtime: Option<String>,
         network: Option<String>,
         binds: Vec<String>,
+        registry_config: Option<crate::config::SnapshotRegistryConfig>,
     ) -> Result<Self> {
         let docker =
             Docker::connect_with_local_defaults().context("Failed to connect to Docker daemon")?;
@@ -62,6 +65,7 @@ impl DockerDriver {
             runtime,
             network,
             binds,
+            registry_config,
         })
     }
 
@@ -76,6 +80,7 @@ impl DockerDriver {
         runtime: Option<String>,
         network: Option<String>,
         binds: Vec<String>,
+        registry_config: Option<crate::config::SnapshotRegistryConfig>,
     ) -> Result<Self> {
         let docker = if address.starts_with("http://") || address.starts_with("tcp://") {
             // HTTP connection
@@ -104,6 +109,7 @@ impl DockerDriver {
             runtime,
             network,
             binds,
+            registry_config,
         })
     }
 
@@ -154,12 +160,39 @@ impl DockerDriver {
         info!(image = %image, event = "image_pull_started", "Pulling Docker image");
         let start = Instant::now();
 
+        // Check if this is a snapshot image from a registry
+        let is_registry_snapshot = if let Some(registry) = &self.registry_config {
+            let registry_prefix = format!("{}/{}", registry.url, registry.repository);
+            image.starts_with(&registry_prefix)
+        } else {
+            false
+        };
+
+        // Prepare authentication for registry snapshots
+        let auth = if is_registry_snapshot {
+            if let Some(registry) = &self.registry_config {
+                if let (Some(username), Some(password)) = (&registry.username, &registry.password) {
+                    Some(bollard::auth::DockerCredentials {
+                        username: Some(username.clone()),
+                        password: Some(password.clone()),
+                        ..Default::default()
+                    })
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
         let options = CreateImageOptions {
             from_image: Some(image.to_string()),
             ..Default::default()
         };
 
-        let mut stream = self.docker.create_image(Some(options), None, None);
+        let mut stream = self.docker.create_image(Some(options), None, auth);
 
         while let Some(result) = stream.next().await {
             match result {
@@ -196,7 +229,7 @@ impl DockerDriver {
 
 impl Default for DockerDriver {
     fn default() -> Self {
-        Self::new(None, None, Vec::new()).expect("Failed to create default DockerDriver")
+        Self::new(None, None, Vec::new(), None).expect("Failed to create default DockerDriver")
     }
 }
 
@@ -495,6 +528,228 @@ impl DockerDriver {
             host_config,
         })
     }
+
+    /// Create a snapshot of a container using docker commit.
+    async fn commit_container(
+        &self,
+        container_id: &str,
+        snapshot_tag: &str,
+    ) -> Result<super::SnapshotMetadata> {
+        use bollard::{models::ContainerConfig, query_parameters::CommitContainerOptionsBuilder};
+
+        // Determine repo and full image reference based on registry config
+        let (local_repo, registry_image_ref) = if let Some(registry) = &self.registry_config {
+            let repo = format!("{}/{}", registry.url, registry.repository);
+            let image_ref = format!("{}:{}", repo, snapshot_tag);
+            ("indexify-snapshots", image_ref)
+        } else {
+            let repo = "indexify-snapshots";
+            let image_ref = format!("{}:{}", repo, snapshot_tag);
+            (repo, image_ref.clone())
+        };
+
+        // First commit to local image
+        let options = CommitContainerOptionsBuilder::default()
+            .container(container_id)
+            .repo(local_repo)
+            .tag(snapshot_tag)
+            .pause(true) // Pause container during commit for consistency
+            .build();
+
+        info!(
+            container_id = %container_id,
+            snapshot_tag = %snapshot_tag,
+            local_repo = %local_repo,
+            "creating snapshot via docker commit"
+        );
+
+        let _commit_result = self
+            .docker
+            .commit_container(options, ContainerConfig::default())
+            .await
+            .context("Failed to commit container")?;
+
+        let local_image_ref = format!("{}:{}", local_repo, snapshot_tag);
+
+        // Inspect the image to get size
+        let image_inspect = self
+            .docker
+            .inspect_image(&local_image_ref)
+            .await
+            .context("Failed to inspect snapshot image")?;
+
+        info!(
+            image_ref = %local_image_ref,
+            size_bytes = ?image_inspect.size,
+            "snapshot created successfully"
+        );
+
+        // If registry is configured, tag and push to registry
+        if let Some(registry) = &self.registry_config {
+            info!(
+                local_image = %local_image_ref,
+                registry_image = %registry_image_ref,
+                "pushing snapshot to registry"
+            );
+
+            // Tag the local image for the registry
+            use bollard::query_parameters::TagImageOptions;
+            let tag_options = TagImageOptions {
+                repo: Some(registry_image_ref.clone()),
+                tag: Some(String::new()),
+            };
+
+            self.docker
+                .tag_image(&local_image_ref, Some(tag_options))
+                .await
+                .context("Failed to tag image for registry")?;
+
+            // Push to registry
+            self.push_image_to_registry(&registry_image_ref, registry)
+                .await
+                .context("Failed to push snapshot to registry")?;
+
+            info!(
+                registry_image = %registry_image_ref,
+                "snapshot pushed to registry successfully"
+            );
+
+            // Return registry image ref for multi-executor access
+            Ok(super::SnapshotMetadata {
+                image_ref: registry_image_ref,
+                size_bytes: image_inspect.size.map(|s| s as u64),
+            })
+        } else {
+            // No registry configured, return local image ref
+            Ok(super::SnapshotMetadata {
+                image_ref: local_image_ref,
+                size_bytes: image_inspect.size.map(|s| s as u64),
+            })
+        }
+    }
+
+    /// Delete a snapshot image.
+    async fn remove_snapshot_image(&self, image_ref: &str) -> Result<()> {
+        use bollard::query_parameters::RemoveImageOptionsBuilder;
+
+        info!(image_ref = %image_ref, "deleting snapshot image");
+
+        let options = RemoveImageOptionsBuilder::default()
+            .force(true)
+            .noprune(false)
+            .build();
+
+        self.docker
+            .remove_image(image_ref, Some(options), None)
+            .await
+            .context("Failed to remove snapshot image")?;
+
+        info!(image_ref = %image_ref, "snapshot image deleted");
+        Ok(())
+    }
+
+    /// Push an image to the configured Docker registry with authentication.
+    async fn push_image_to_registry(
+        &self,
+        image_ref: &str,
+        registry: &crate::config::SnapshotRegistryConfig,
+    ) -> Result<()> {
+        use bollard::{auth::DockerCredentials, query_parameters::CreateImageOptions};
+        use futures_util::StreamExt;
+
+        // Prepare authentication if credentials are provided
+        let auth =
+            if let (Some(username), Some(password)) = (&registry.username, &registry.password) {
+                Some(DockerCredentials {
+                    username: Some(username.clone()),
+                    password: Some(password.clone()),
+                    ..Default::default()
+                })
+            } else {
+                None
+            };
+
+        let options = CreateImageOptions {
+            from_image: Some(image_ref.to_string()),
+            ..Default::default()
+        };
+
+        // Push image and collect stream to completion
+        let mut stream = self.docker.create_image(Some(options), None, auth);
+
+        while let Some(result) = stream.next().await {
+            match result {
+                Ok(info) => {
+                    if let Some(error_detail) = info.error_detail
+                        && let Some(message) = error_detail.message {
+                            anyhow::bail!("Registry push error: {}", message);
+                        }
+                    // Log progress if needed
+                    if let Some(status) = info.status {
+                        tracing::debug!(status = %status, "push progress");
+                    }
+                }
+                Err(e) => {
+                    return Err(e).context("Failed during registry push");
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Pull an image from the registry with authentication.
+    async fn pull_image_from_registry(&self, image_ref: &str) -> Result<()> {
+        use bollard::{auth::DockerCredentials, query_parameters::CreateImageOptions};
+        use futures_util::StreamExt;
+
+        info!(image_ref = %image_ref, "pulling snapshot image from registry");
+
+        // Prepare authentication if registry is configured
+        let auth = if let Some(registry) = &self.registry_config {
+            if let (Some(username), Some(password)) = (&registry.username, &registry.password) {
+                Some(DockerCredentials {
+                    username: Some(username.clone()),
+                    password: Some(password.clone()),
+                    ..Default::default()
+                })
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        let options = CreateImageOptions {
+            from_image: Some(image_ref.to_string()),
+            ..Default::default()
+        };
+
+        // Pull image and collect stream to completion
+        let mut stream = self.docker.create_image(Some(options), None, auth);
+
+        while let Some(result) = stream.next().await {
+            match result {
+                Ok(info) => {
+                    if let Some(error_detail) = info.error_detail
+                        && let Some(message) = error_detail.message {
+                            anyhow::bail!("Registry pull error: {}", message);
+                        }
+                    // Log progress if needed
+                    if let Some(status) = info.status {
+                        tracing::debug!(status = %status, "pull progress");
+                    }
+                }
+                Err(e) => {
+                    return Err(e).context("Failed during registry pull");
+                }
+            }
+        }
+
+        info!(image_ref = %image_ref, "snapshot image pulled successfully");
+
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -715,6 +970,18 @@ impl ProcessDriver for DockerDriver {
         }
 
         Ok(output)
+    }
+
+    async fn create_snapshot(
+        &self,
+        handle: &ProcessHandle,
+        snapshot_tag: &str,
+    ) -> Result<super::SnapshotMetadata> {
+        self.commit_container(&handle.id, snapshot_tag).await
+    }
+
+    async fn delete_snapshot(&self, image_ref: &str) -> Result<()> {
+        self.remove_snapshot_image(image_ref).await
     }
 }
 

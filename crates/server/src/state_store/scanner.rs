@@ -18,6 +18,7 @@ use crate::{
         PersistedRequestCtx,
         RequestCtx,
         Sandbox,
+        SandboxSnapshot,
         StateChange,
         UnprocessedStateChanges,
     },
@@ -591,6 +592,63 @@ impl StateReader {
             )
             .await?;
         Ok(sandboxes)
+    }
+
+    pub async fn get_snapshot(
+        &self,
+        namespace: &str,
+        snapshot_id: &str,
+    ) -> Result<Option<SandboxSnapshot>> {
+        let kvs = &[KeyValue::new("op", "get_snapshot")];
+        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
+
+        let key = format!("{namespace}|{snapshot_id}");
+        let snapshot = self
+            .get_from_cf(&IndexifyObjectsColumns::Snapshots, key.as_bytes())
+            .await?;
+        Ok(snapshot)
+    }
+
+    pub async fn list_snapshots(&self, namespace: &str) -> Result<Vec<SandboxSnapshot>> {
+        let kvs = &[KeyValue::new("op", "list_snapshots")];
+        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
+
+        let key_prefix = format!("{namespace}|");
+        let (snapshots, _) = self
+            .get_rows_from_cf_with_limits::<SandboxSnapshot>(
+                key_prefix.as_bytes(),
+                None,
+                IndexifyObjectsColumns::Snapshots,
+                None,
+            )
+            .await?;
+        Ok(snapshots)
+    }
+
+    pub async fn list_snapshots_for_sandbox(
+        &self,
+        namespace: &str,
+        sandbox_id: &str,
+    ) -> Result<Vec<SandboxSnapshot>> {
+        let kvs = &[KeyValue::new("op", "list_snapshots_for_sandbox")];
+        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
+
+        let key_prefix = format!("{namespace}|");
+        let (all_snapshots, _) = self
+            .get_rows_from_cf_with_limits::<SandboxSnapshot>(
+                key_prefix.as_bytes(),
+                None,
+                IndexifyObjectsColumns::Snapshots,
+                None,
+            )
+            .await?;
+
+        let snapshots: Vec<SandboxSnapshot> = all_snapshots
+            .into_iter()
+            .filter(|s| s.sandbox_id.get() == sandbox_id)
+            .collect();
+
+        Ok(snapshots)
     }
 }
 #[cfg(test)]

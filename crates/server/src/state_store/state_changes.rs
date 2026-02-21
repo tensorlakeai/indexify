@@ -11,7 +11,9 @@ use crate::{
         ChangeType,
         CreateContainerPoolEvent,
         CreateSandboxEvent,
+        CreateSnapshotEvent,
         DeleteContainerPoolEvent,
+        DeleteSnapshotEvent,
         ExecutorId,
         ExecutorUpsertedEvent,
         FunctionCallEvent,
@@ -30,9 +32,11 @@ use crate::{
         CreateContainerPoolRequest,
         CreateOrUpdateApplicationRequest,
         CreateSandboxRequest,
+        CreateSnapshotRequest,
         DeleteApplicationRequest,
         DeleteContainerPoolRequest,
         DeleteRequestRequest,
+        DeleteSnapshotRequest,
         FunctionCallRequest,
         InvokeApplicationRequest,
         TerminateSandboxRequest,
@@ -216,14 +220,54 @@ pub fn terminate_sandbox(
 ) -> Result<Vec<StateChange>> {
     let last_change_id = last_change_id.fetch_add(1, atomic::Ordering::Relaxed);
     let state_change = StateChangeBuilder::default()
-        .namespace(Some(request.namespace.clone()))
+        .namespace(Some(request.sandbox.namespace.clone()))
         .application(None)
         .change_type(ChangeType::TerminateSandbox(TerminateSandboxEvent {
-            namespace: request.namespace.clone(),
-            sandbox_id: request.sandbox_id.clone(),
+            namespace: request.sandbox.namespace.clone(),
+            sandbox_id: request.sandbox.id.clone(),
         }))
         .created_at(get_epoch_time_in_ms())
-        .object_id(request.sandbox_id.to_string())
+        .object_id(request.sandbox.id.to_string())
+        .id(StateChangeId::new(last_change_id))
+        .processed_at(None)
+        .build()?;
+    Ok(vec![state_change])
+}
+
+pub fn create_snapshot(
+    last_change_id: &AtomicU64,
+    request: &CreateSnapshotRequest,
+) -> Result<Vec<StateChange>> {
+    let last_change_id = last_change_id.fetch_add(1, atomic::Ordering::Relaxed);
+    let state_change = StateChangeBuilder::default()
+        .namespace(Some(request.snapshot.namespace.clone()))
+        .application(None)
+        .change_type(ChangeType::CreateSnapshot(CreateSnapshotEvent {
+            namespace: request.snapshot.namespace.clone(),
+            snapshot_id: request.snapshot.id.clone(),
+        }))
+        .created_at(get_epoch_time_in_ms())
+        .object_id(request.snapshot.id.to_string())
+        .id(StateChangeId::new(last_change_id))
+        .processed_at(None)
+        .build()?;
+    Ok(vec![state_change])
+}
+
+pub fn delete_snapshot(
+    last_change_id: &AtomicU64,
+    request: &DeleteSnapshotRequest,
+) -> Result<Vec<StateChange>> {
+    let last_change_id = last_change_id.fetch_add(1, atomic::Ordering::Relaxed);
+    let state_change = StateChangeBuilder::default()
+        .namespace(Some(request.namespace.clone()))
+        .application(None)
+        .change_type(ChangeType::DeleteSnapshot(DeleteSnapshotEvent {
+            namespace: request.namespace.clone(),
+            snapshot_id: request.snapshot_id.clone(),
+        }))
+        .created_at(get_epoch_time_in_ms())
+        .object_id(request.snapshot_id.to_string())
         .id(StateChangeId::new(last_change_id))
         .processed_at(None)
         .build()?;

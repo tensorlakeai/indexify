@@ -5,7 +5,7 @@ use opentelemetry::{
     KeyValue,
     metrics::{Counter, Gauge, Histogram},
 };
-use tokio::sync::Notify;
+use tokio::sync::{Notify, RwLock};
 use tracing::{debug, error, info, instrument, trace, warn};
 
 use crate::{
@@ -17,6 +17,8 @@ use crate::{
         function_run_creator,
         function_run_processor::FunctionRunProcessor,
         sandbox_processor::SandboxProcessor,
+        snapshot_cleanup_processor::SnapshotCleanupProcessor,
+        snapshot_processor::SnapshotProcessor,
     },
     state_store::{
         IndexifyState,
@@ -44,10 +46,16 @@ pub struct ApplicationProcessor {
     pub allocate_function_runs_latency: Histogram<f64>,
     pub state_change_queue_depth: Gauge<u64>,
     pub queue_size: u32,
+    pub snapshot_cleanup_processor: Arc<RwLock<SnapshotCleanupProcessor>>,
+    pub snapshot_cleanup_interval_secs: u64,
 }
 
 impl ApplicationProcessor {
-    pub fn new(indexify_state: Arc<IndexifyState>, queue_size: u32) -> Self {
+    pub fn new(
+        indexify_state: Arc<IndexifyState>,
+        queue_size: u32,
+        snapshot_cleanup_interval_secs: u64,
+    ) -> Self {
         let meter = opentelemetry::global::meter("processor_metrics");
 
         let write_sm_update_latency = meter
@@ -95,6 +103,10 @@ impl ApplicationProcessor {
             .with_description("Number of unprocessed state changes in the queue")
             .build();
 
+        let snapshot_cleanup_processor = Arc::new(RwLock::new(
+            SnapshotCleanupProcessor::with_interval_secs(snapshot_cleanup_interval_secs),
+        ));
+
         Self {
             indexify_state,
             write_sm_update_latency,
@@ -105,6 +117,8 @@ impl ApplicationProcessor {
             allocate_function_runs_latency,
             state_change_queue_depth,
             queue_size,
+            snapshot_cleanup_processor,
+            snapshot_cleanup_interval_secs,
         }
     }
 
@@ -158,6 +172,13 @@ impl ApplicationProcessor {
         // changes but if we only process one event from the queue then the
         // watch will not notify again
         let notify = Arc::new(Notify::new());
+
+        // Create interval for snapshot cleanup - tick every 10 minutes to check if
+        // cleanup should run The cleanup processor itself enforces the
+        // configured interval
+        let mut cleanup_interval = tokio::time::interval(std::time::Duration::from_secs(600)); // 10 min
+        cleanup_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
         loop {
             tokio::select! {
                 _ = change_events_rx.changed() => {
@@ -173,12 +194,50 @@ impl ApplicationProcessor {
                         continue
                     }
                 },
+                _ = cleanup_interval.tick() => {
+                    if let Err(err) = self.run_snapshot_cleanup().await {
+                        error!("error running snapshot cleanup: {:?}", err);
+                    }
+                },
                 _ = shutdown_rx.changed() => {
                     info!("application processor shutting down");
                     break;
                 }
             }
         }
+    }
+
+    /// Run snapshot cleanup processor to delete expired snapshots
+    #[instrument(skip_all)]
+    async fn run_snapshot_cleanup(&self) -> Result<()> {
+        let in_memory_state = self.indexify_state.in_memory_state.read().await;
+
+        // Check if cleanup should run and get deleted snapshots
+        let mut cleanup_processor = self.snapshot_cleanup_processor.write().await;
+        let cleanup_update = cleanup_processor.process_cleanup(&in_memory_state).await?;
+
+        if let Some(update) = cleanup_update {
+            if update.deleted_snapshots.is_empty() {
+                return Ok(());
+            }
+
+            let deleted_count = update.deleted_snapshots.len();
+            info!(count = deleted_count, "cleaning up expired snapshots");
+
+            // Write the cleanup update to state store
+            let payload = SchedulerUpdatePayload::new(update);
+            let sm_update = StateMachineUpdateRequest {
+                payload: RequestPayload::SchedulerUpdate(payload),
+            };
+
+            self.indexify_state.write(sm_update).await?;
+            info!(
+                count = deleted_count,
+                "expired snapshots marked for deletion"
+            );
+        }
+
+        Ok(())
     }
 
     #[instrument(skip_all)]
@@ -325,6 +384,7 @@ impl ApplicationProcessor {
             container_reconciler::ContainerReconciler::new(clock, self.indexify_state.clone());
         let task_allocator = FunctionRunProcessor::new(clock, self.queue_size);
         let sandbox_processor = SandboxProcessor::new(clock);
+        let snapshot_processor = SnapshotProcessor::new(clock);
         let buffer_reconciler = BufferReconciler::new();
 
         let mut scheduler_update = match &state_change.change_type {
@@ -439,6 +499,16 @@ impl ApplicationProcessor {
                 &ev.namespace,
                 ev.sandbox_id.get(),
             )?,
+            ChangeType::CreateSnapshot(_ev) => {
+                // Snapshot operations don't require scheduler updates
+                // They are handled separately by the snapshot processor
+                SchedulerUpdateRequest::default()
+            }
+            ChangeType::DeleteSnapshot(_ev) => {
+                // Snapshot operations don't require scheduler updates
+                // They are handled separately by the snapshot processor
+                SchedulerUpdateRequest::default()
+            }
             ChangeType::CreateContainerPool(ev) => {
                 tracing::info!(
                     namespace = %ev.namespace,
@@ -479,6 +549,15 @@ impl ApplicationProcessor {
         let buffer_update =
             buffer_reconciler.reconcile(&indexes_guard, &mut container_scheduler_guard)?;
         scheduler_update.extend(buffer_update);
+
+        // Process snapshot operations (creations and deletions)
+        let snapshot_create_update = snapshot_processor
+            .process_snapshot_creations(&indexes_guard, &container_scheduler_guard)?;
+        scheduler_update.extend(snapshot_create_update);
+
+        let snapshot_delete_update = snapshot_processor
+            .process_snapshot_deletions(&indexes_guard, &container_scheduler_guard)?;
+        scheduler_update.extend(snapshot_delete_update);
 
         Ok(StateMachineUpdateRequest {
             payload: RequestPayload::SchedulerUpdate(SchedulerUpdatePayload {

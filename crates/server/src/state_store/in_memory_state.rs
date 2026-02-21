@@ -285,6 +285,10 @@ pub struct InMemoryState {
     // Pending sandboxes waiting for executor allocation
     pub pending_sandboxes: imbl::OrdSet<SandboxKey>,
 
+    // Snapshots - SnapshotKey -> SandboxSnapshot
+    pub snapshots:
+        imbl::OrdMap<crate::data_model::SnapshotKey, Box<crate::data_model::SandboxSnapshot>>,
+
     // Tracks resource profile histogram for pending function runs and sandboxes
     pub pending_resources: PendingResources,
 
@@ -313,6 +317,7 @@ impl InMemoryState {
             all_function_runs,
             all_function_calls,
             all_sandboxes,
+            all_snapshots,
         ) = tokio::join!(
             reader.get_all_namespaces(),
             reader.get_all_rows_from_cf::<Application>(IndexifyObjectsColumns::Applications),
@@ -329,6 +334,9 @@ impl InMemoryState {
             reader.get_all_rows_from_cf::<FunctionRun>(IndexifyObjectsColumns::FunctionRuns),
             reader.get_all_rows_from_cf::<FunctionCall>(IndexifyObjectsColumns::FunctionCalls),
             reader.get_all_rows_from_cf::<Sandbox>(IndexifyObjectsColumns::Sandboxes),
+            reader.get_all_rows_from_cf::<crate::data_model::SandboxSnapshot>(
+                IndexifyObjectsColumns::Snapshots
+            ),
         );
 
         // Unwrap all results
@@ -341,6 +349,7 @@ impl InMemoryState {
         let all_function_runs: Vec<(String, FunctionRun)> = all_function_runs?;
         let all_function_calls: Vec<(String, FunctionCall)> = all_function_calls?;
         let all_sandboxes: Vec<(String, Sandbox)> = all_sandboxes?;
+        let all_snapshots: Vec<(String, crate::data_model::SandboxSnapshot)> = all_snapshots?;
 
         debug!(
             duration = get_elapsed_time(start_time.elapsed().as_millis(), TimeUnit::Milliseconds),
@@ -487,6 +496,17 @@ impl InMemoryState {
             sandboxes.insert(sandbox_key, sandbox);
         }
 
+        // Process snapshots
+        let mut snapshots = imbl::OrdMap::new();
+        for (_key, snapshot) in all_snapshots {
+            use crate::data_model::{SnapshotKey, SnapshotStatus};
+            // Only load non-deleted snapshots
+            if snapshot.status != SnapshotStatus::Deleting {
+                let snapshot_key = SnapshotKey::new(&snapshot.namespace, &snapshot.id);
+                snapshots.insert(snapshot_key, Box::new(snapshot));
+            }
+        }
+
         let in_memory_state = Self {
             clock,
             namespaces,
@@ -501,6 +521,7 @@ impl InMemoryState {
             sandbox_by_container,
             sandboxes_by_executor,
             pending_sandboxes,
+            snapshots,
             pending_resources,
             metrics,
         };
@@ -897,6 +918,22 @@ impl InMemoryState {
                 if let Some(deficits) = &req.pool_deficits {
                     self.pending_resources.pool_deficits = deficits.clone();
                 }
+
+                // Handle snapshot updates
+                for (snapshot_key, snapshot) in &req.updated_snapshots {
+                    self.snapshots
+                        .insert(snapshot_key.clone(), Box::new(snapshot.clone()));
+                }
+
+                // Handle snapshot deletions
+                for snapshot_key in &req.deleted_snapshots {
+                    self.snapshots.remove(snapshot_key);
+                }
+
+                // Notify executors with snapshot operations
+                for executor_id in req.snapshot_operations.keys() {
+                    changed_executors.insert(executor_id.clone());
+                }
             }
             RequestPayload::UpsertExecutor(req) => {
                 for allocation_output in &req.allocation_outputs {
@@ -1044,6 +1081,7 @@ impl InMemoryState {
             sandbox_by_container: self.sandbox_by_container.clone(),
             sandboxes_by_executor: self.sandboxes_by_executor.clone(),
             pending_sandboxes: self.pending_sandboxes.clone(),
+            snapshots: self.snapshots.clone(),
             pending_resources: self.pending_resources.clone(),
         }))
     }
@@ -1162,6 +1200,7 @@ mod test_helpers {
                 sandbox_by_container: imbl::HashMap::new(),
                 sandboxes_by_executor: imbl::HashMap::new(),
                 pending_sandboxes: imbl::OrdSet::new(),
+                snapshots: imbl::OrdMap::new(),
                 pending_resources: PendingResources::default(),
             }
         }

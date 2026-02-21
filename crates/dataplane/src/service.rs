@@ -396,6 +396,7 @@ impl ServiceRuntime {
             executor_update: Some(ExecutorUpdate {
                 executor_id: Some(self.identity.executor_id.clone()),
                 allocation_results: vec![],
+                snapshot_operation_results: vec![],
             }),
         };
         let base_message_size = base_request.encoded_len();
@@ -404,6 +405,9 @@ impl ServiceRuntime {
         // Results are NOT removed from the buffer yet — only after successful RPC.
         let (allocation_results, has_remaining) =
             self.state_reporter.collect_results(base_message_size).await;
+
+        // Collect snapshot operation results
+        let snapshot_operation_results = self.state_reporter.collect_snapshot_results().await;
 
         let reported_ids: Vec<String> = allocation_results
             .iter()
@@ -415,6 +419,7 @@ impl ServiceRuntime {
             executor_update: Some(ExecutorUpdate {
                 executor_id: Some(self.identity.executor_id.clone()),
                 allocation_results,
+                snapshot_operation_results,
             }),
         };
 
@@ -630,6 +635,7 @@ impl ServiceRuntime {
                     handle_desired_state(
                         state,
                         &self.state_reconciler,
+                        &self.state_reporter,
                         &self.metrics,
                         &self.monitoring_state,
                     )
@@ -666,6 +672,7 @@ const RECONCILIATION_RETRY_DELAY: Duration = Duration::from_secs(5);
 async fn handle_desired_state(
     state: DesiredExecutorState,
     state_reconciler: &Arc<Mutex<StateReconciler>>,
+    state_reporter: &Arc<StateReporter>,
     metrics: &DataplaneMetrics,
     monitoring_state: &MonitoringState,
 ) {
@@ -705,7 +712,7 @@ async fn handle_desired_state(
         RECONCILIATION_MAX_RETRIES,
         Backoff::Fixed(RECONCILIATION_RETRY_DELAY),
         "reconciliation",
-        || try_reconcile(&state, state_reconciler),
+        || try_reconcile(&state, state_reconciler, state_reporter),
         |_: &anyhow::Error| true,
     )
     .await
@@ -730,6 +737,7 @@ async fn handle_desired_state(
 async fn try_reconcile(
     state: &DesiredExecutorState,
     state_reconciler: &Arc<Mutex<StateReconciler>>,
+    state_reporter: &Arc<StateReporter>,
 ) -> Result<()> {
     // Validate FE descriptions, skip invalid ones
     let valid_fes: Vec<_> = state
@@ -785,7 +793,182 @@ async fn try_reconcile(
             .await;
     }
 
+    // Process snapshot operations
+    if !state.snapshot_operations.is_empty() {
+        tracing::info!(
+            num_operations = state.snapshot_operations.len(),
+            "Processing snapshot operations"
+        );
+
+        // Get driver from container_manager
+        let driver = reconciler.get_driver();
+
+        for operation in &state.snapshot_operations {
+            process_snapshot_operation(operation.clone(), driver.clone(), state_reporter.clone())
+                .await;
+        }
+    }
+
     Ok(())
+}
+
+/// Process a single snapshot operation (create or delete).
+async fn process_snapshot_operation(
+    operation: proto_api::executor_api_pb::SnapshotOperation,
+    driver: Arc<dyn ProcessDriver>,
+    state_reporter: Arc<StateReporter>,
+) {
+    use proto_api::executor_api_pb::{SnapshotOperationResult, SnapshotOperationType};
+
+    let snapshot_id = operation.snapshot_id.clone().unwrap_or_default();
+    let operation_type = operation.operation_type();
+
+    tracing::info!(
+        snapshot_id = %snapshot_id,
+        operation_type = ?operation_type,
+        "Processing snapshot operation"
+    );
+
+    let result = match operation_type {
+        SnapshotOperationType::Create => process_snapshot_create(operation, driver).await,
+        SnapshotOperationType::Delete => process_snapshot_delete(operation, driver).await,
+        _ => {
+            let error_msg = format!("Unknown snapshot operation type: {:?}", operation_type);
+            tracing::error!(%snapshot_id, %error_msg);
+            SnapshotOperationResult {
+                snapshot_id: Some(snapshot_id),
+                operation_type: Some(operation_type.into()),
+                success: Some(false),
+                error_message: Some(error_msg),
+                image_ref: None,
+                size_bytes: None,
+            }
+        }
+    };
+
+    // Report result to server
+    state_reporter.add_snapshot_result(result).await;
+}
+
+/// Process a snapshot creation operation.
+async fn process_snapshot_create(
+    operation: proto_api::executor_api_pb::SnapshotOperation,
+    driver: Arc<dyn ProcessDriver>,
+) -> proto_api::executor_api_pb::SnapshotOperationResult {
+    use proto_api::executor_api_pb::{SnapshotOperationResult, SnapshotOperationType};
+
+    use crate::driver::ProcessHandle;
+
+    let snapshot_id = operation.snapshot_id.clone().unwrap_or_default();
+    let container_id = operation.container_id.clone().unwrap_or_default();
+    let snapshot_tag = operation.snapshot_tag.clone().unwrap_or_default();
+
+    tracing::info!(
+        snapshot_id = %snapshot_id,
+        container_id = %container_id,
+        snapshot_tag = %snapshot_tag,
+        "Creating snapshot"
+    );
+
+    // Create a ProcessHandle for the container
+    let handle = ProcessHandle {
+        id: container_id.clone(),
+        daemon_addr: None, // Not needed for snapshot
+        http_addr: None,
+        container_ip: String::new(), // Not needed for snapshot
+    };
+
+    match driver.create_snapshot(&handle, &snapshot_tag).await {
+        Ok(metadata) => {
+            tracing::info!(
+                snapshot_id = %snapshot_id,
+                image_ref = %metadata.image_ref,
+                size_bytes = ?metadata.size_bytes,
+                "Snapshot created successfully"
+            );
+
+            SnapshotOperationResult {
+                snapshot_id: Some(snapshot_id),
+                operation_type: Some(SnapshotOperationType::Create.into()),
+                success: Some(true),
+                error_message: None,
+                image_ref: Some(metadata.image_ref),
+                size_bytes: metadata.size_bytes,
+            }
+        }
+        Err(err) => {
+            let error_msg = format!("Failed to create snapshot: {}", err);
+            tracing::error!(
+                snapshot_id = %snapshot_id,
+                container_id = %container_id,
+                error = %err,
+                "Snapshot creation failed"
+            );
+
+            SnapshotOperationResult {
+                snapshot_id: Some(snapshot_id),
+                operation_type: Some(SnapshotOperationType::Create.into()),
+                success: Some(false),
+                error_message: Some(error_msg),
+                image_ref: None,
+                size_bytes: None,
+            }
+        }
+    }
+}
+
+/// Process a snapshot deletion operation.
+async fn process_snapshot_delete(
+    operation: proto_api::executor_api_pb::SnapshotOperation,
+    driver: Arc<dyn ProcessDriver>,
+) -> proto_api::executor_api_pb::SnapshotOperationResult {
+    use proto_api::executor_api_pb::{SnapshotOperationResult, SnapshotOperationType};
+
+    let snapshot_id = operation.snapshot_id.clone().unwrap_or_default();
+    let image_ref = operation.image_ref.clone().unwrap_or_default();
+
+    tracing::info!(
+        snapshot_id = %snapshot_id,
+        image_ref = %image_ref,
+        "Deleting snapshot"
+    );
+
+    match driver.delete_snapshot(&image_ref).await {
+        Ok(()) => {
+            tracing::info!(
+                snapshot_id = %snapshot_id,
+                image_ref = %image_ref,
+                "Snapshot deleted successfully"
+            );
+
+            SnapshotOperationResult {
+                snapshot_id: Some(snapshot_id),
+                operation_type: Some(SnapshotOperationType::Delete.into()),
+                success: Some(true),
+                error_message: None,
+                image_ref: Some(image_ref),
+                size_bytes: None,
+            }
+        }
+        Err(err) => {
+            let error_msg = format!("Failed to delete snapshot: {}", err);
+            tracing::error!(
+                snapshot_id = %snapshot_id,
+                image_ref = %image_ref,
+                error = %err,
+                "Snapshot deletion failed"
+            );
+
+            SnapshotOperationResult {
+                snapshot_id: Some(snapshot_id),
+                operation_type: Some(SnapshotOperationType::Delete.into()),
+                success: Some(false),
+                error_message: Some(error_msg),
+                image_ref: Some(image_ref),
+                size_bytes: None,
+            }
+        }
+    }
 }
 
 /// Wait for any shutdown signal (SIGINT, SIGTERM, SIGQUIT).
@@ -830,11 +1013,13 @@ fn create_process_driver(config: &DataplaneConfig) -> Result<Arc<dyn ProcessDriv
                 runtime.clone(),
                 network.clone(),
                 binds.clone(),
+                config.snapshot_registry.clone(),
             )?)),
             None => Ok(Arc::new(DockerDriver::new(
                 runtime.clone(),
                 network.clone(),
                 binds.clone(),
+                config.snapshot_registry.clone(),
             )?)),
         },
     }

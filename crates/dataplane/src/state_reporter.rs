@@ -13,7 +13,7 @@
 use std::sync::Arc;
 
 use prost::Message;
-use proto_api::executor_api_pb::AllocationResult;
+use proto_api::executor_api_pb::{AllocationResult, SnapshotOperationResult};
 use tokio::sync::{Mutex, Notify, mpsc};
 use tracing::debug;
 
@@ -25,6 +25,8 @@ const STATE_REPORT_MAX_MESSAGE_SIZE: usize = 10 * 1024 * 1024;
 pub struct StateReporter {
     /// Buffered results waiting to be sent in next heartbeat.
     pending_results: Arc<Mutex<Vec<AllocationResult>>>,
+    /// Buffered snapshot operation results waiting to be sent.
+    pending_snapshot_results: Arc<Mutex<Vec<SnapshotOperationResult>>>,
     /// Notify when new results are available (wakes up heartbeat loop).
     results_notify: Arc<Notify>,
 }
@@ -34,6 +36,7 @@ impl StateReporter {
     /// the result channel and notifies the heartbeat loop.
     pub fn new(result_rx: mpsc::UnboundedReceiver<AllocationResult>) -> Self {
         let pending_results = Arc::new(Mutex::new(Vec::new()));
+        let pending_snapshot_results = Arc::new(Mutex::new(Vec::new()));
         let results_notify = Arc::new(Notify::new());
 
         // Spawn background drainer task
@@ -45,6 +48,7 @@ impl StateReporter {
 
         Self {
             pending_results,
+            pending_snapshot_results,
             results_notify,
         }
     }
@@ -125,6 +129,24 @@ impl StateReporter {
                 .map(|id| !allocation_ids.contains(id))
                 .unwrap_or(true)
         });
+    }
+
+    /// Add a snapshot operation result to the pending buffer.
+    /// Called by snapshot operation handlers.
+    pub async fn add_snapshot_result(&self, result: SnapshotOperationResult) {
+        let mut pending = self.pending_snapshot_results.lock().await;
+        pending.push(result);
+        drop(pending);
+        // Wake up heartbeat loop to send results immediately
+        self.results_notify.notify_one();
+    }
+
+    /// Collect all pending snapshot operation results.
+    /// Returns the results and clears the buffer.
+    pub async fn collect_snapshot_results(&self) -> Vec<SnapshotOperationResult> {
+        let mut pending = self.pending_snapshot_results.lock().await;
+        
+        pending.drain(..).collect()
     }
 }
 

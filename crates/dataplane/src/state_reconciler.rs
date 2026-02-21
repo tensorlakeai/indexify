@@ -143,6 +143,11 @@ impl StateReconciler {
         self.state_change_notify.clone()
     }
 
+    /// Get the driver from the container manager for snapshot operations.
+    pub fn get_driver(&self) -> Arc<dyn crate::driver::ProcessDriver> {
+        self.container_manager.get_driver()
+    }
+
     /// Get all FE states for heartbeat reporting.
     ///
     /// Returns states from both the AllocationController and Docker containers.

@@ -20,6 +20,13 @@ use sandbox_pools::{
     list_sandbox_pools,
     update_sandbox_pool,
 };
+use sandbox_snapshots::{
+    create_snapshot,
+    delete_snapshot,
+    get_snapshot,
+    list_snapshots_for_sandbox,
+    restore_snapshot,
+};
 use sandboxes::{create_sandbox, delete_sandbox, get_sandbox, list_sandboxes};
 use tracing::info;
 use utoipa::OpenApi;
@@ -55,6 +62,7 @@ use crate::{
         invoke::{self, progress_stream},
         routes_state::RouteState,
         sandbox_pools,
+        sandbox_snapshots,
         sandboxes,
     },
     state_store::{
@@ -87,6 +95,12 @@ use crate::{
             sandboxes::list_sandboxes,
             sandboxes::get_sandbox,
             sandboxes::delete_sandbox,
+            // Sandbox snapshot endpoints
+            sandbox_snapshots::create_snapshot,
+            sandbox_snapshots::list_snapshots_for_sandbox,
+            sandbox_snapshots::get_snapshot,
+            sandbox_snapshots::delete_snapshot,
+            sandbox_snapshots::restore_snapshot,
             // Sandbox pool endpoints
             sandbox_pools::create_sandbox_pool,
             sandbox_pools::list_sandbox_pools,
@@ -119,6 +133,13 @@ use crate::{
                 sandboxes::CreateSandboxResponse,
                 sandboxes::SandboxInfo,
                 sandboxes::ListSandboxesResponse,
+                // Sandbox snapshot schemas
+                sandbox_snapshots::CreateSnapshotRequest,
+                sandbox_snapshots::CreateSnapshotResponse,
+                sandbox_snapshots::SnapshotInfo,
+                sandbox_snapshots::ListSnapshotsResponse,
+                sandbox_snapshots::RestoreSnapshotRequest,
+                sandbox_snapshots::RestoreSnapshotResponse,
                 // Sandbox pool schemas
                 sandbox_pools::CreateSandboxPoolRequest,
                 sandbox_pools::UpdateSandboxPoolRequest,
@@ -228,6 +249,27 @@ fn v1_namespace_routes(route_state: RouteState) -> Router {
         .route(
             "/sandboxes/{sandbox_id}",
             delete(delete_sandbox).with_state(route_state.clone()),
+        )
+        // Sandbox snapshot routes
+        .route(
+            "/sandboxes/{sandbox_id}/snapshots",
+            post(create_snapshot).with_state(route_state.clone()),
+        )
+        .route(
+            "/sandboxes/{sandbox_id}/snapshots",
+            get(list_snapshots_for_sandbox).with_state(route_state.clone()),
+        )
+        .route(
+            "/snapshots/{snapshot_id}",
+            get(get_snapshot).with_state(route_state.clone()),
+        )
+        .route(
+            "/snapshots/{snapshot_id}",
+            delete(delete_snapshot).with_state(route_state.clone()),
+        )
+        .route(
+            "/snapshots/{snapshot_id}/restore",
+            post(restore_snapshot).with_state(route_state.clone()),
         )
         // Sandbox pool routes
         .route(

@@ -55,6 +55,26 @@ impl Display for ExecutorCatalogEntry {
     }
 }
 
+/// Configuration for Docker registry used to distribute snapshots across
+/// executors.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SnapshotRegistryConfig {
+    /// Registry URL (e.g., "registry.example.com" or "docker.io")
+    pub url: String,
+    /// Repository path within the registry (e.g., "indexify/snapshots")
+    pub repository: String,
+    /// Optional username for registry authentication
+    #[serde(default)]
+    pub username: Option<String>,
+    /// Optional password for registry authentication
+    #[serde(default)]
+    pub password: Option<String>,
+    /// Whether to use insecure (HTTP) connection to registry. Default: false
+    /// (HTTPS)
+    #[serde(default)]
+    pub insecure: bool,
+}
+
 #[serde_inline_default]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerConfig {
@@ -95,6 +115,21 @@ pub struct ServerConfig {
     /// local dev.
     #[serde_inline_default("http".to_string())]
     pub sandbox_proxy_scheme: String,
+    /// Default TTL for snapshots in seconds (0 = no expiration). Defaults to 2
+    /// weeks.
+    #[serde_inline_default(1_209_600)]
+    pub default_snapshot_ttl_secs: u64,
+    /// Maximum number of snapshots allowed per namespace. Defaults to 100.
+    #[serde_inline_default(100)]
+    pub max_snapshots_per_namespace: usize,
+    /// Interval in seconds for snapshot cleanup processor to run. Defaults to
+    /// 3600 (1 hour).
+    #[serde_inline_default(3600)]
+    pub snapshot_cleanup_interval_secs: u64,
+    /// Optional Docker registry configuration for snapshot distribution across
+    /// executors.
+    #[serde(default)]
+    pub snapshot_registry: Option<SnapshotRegistryConfig>,
 }
 
 impl Default for ServerConfig {
@@ -116,6 +151,10 @@ impl Default for ServerConfig {
             default_sandbox_image: DEFAULT_SANDBOX_IMAGE.to_string(),
             sandbox_proxy_domain: Some("127.0.0.1.nip.io".to_string()),
             sandbox_proxy_scheme: "http".to_string(),
+            default_snapshot_ttl_secs: 1_209_600, // 2 weeks
+            max_snapshots_per_namespace: 100,
+            snapshot_cleanup_interval_secs: 3600, // 1 hour
+            snapshot_registry: None,
         }
     }
 }

@@ -50,6 +50,26 @@ impl TlsConfig {
     }
 }
 
+/// Configuration for Docker registry used to distribute snapshots across
+/// executors.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SnapshotRegistryConfig {
+    /// Registry URL (e.g., "registry.example.com" or "docker.io")
+    pub url: String,
+    /// Repository path within the registry (e.g., "indexify/snapshots")
+    pub repository: String,
+    /// Optional username for registry authentication
+    #[serde(default)]
+    pub username: Option<String>,
+    /// Optional password for registry authentication
+    #[serde(default)]
+    pub password: Option<String>,
+    /// Whether to use insecure (HTTP) connection to registry. Default: false
+    /// (HTTPS)
+    #[serde(default)]
+    pub insecure: bool,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum TracingExporter {
@@ -335,6 +355,10 @@ pub struct DataplaneConfig {
     /// image resolution service is configured.
     #[serde(default)]
     pub default_function_image: Option<String>,
+    /// Optional Docker registry configuration for snapshot distribution across
+    /// executors.
+    #[serde(default)]
+    pub snapshot_registry: Option<SnapshotRegistryConfig>,
 }
 
 /// Resource overrides to replace probed host resources.
@@ -403,6 +427,7 @@ impl Default for DataplaneConfig {
             monitoring: MonitoringConfig::default(),
             resource_overrides: None,
             default_function_image: None,
+            snapshot_registry: None,
         }
     }
 }

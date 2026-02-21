@@ -892,6 +892,98 @@ async fn executor_update_loop(
         // Store the sent state for next comparison
         last_sent_state = desired_state;
     }
+    /// Handle snapshot operation results from executor.
+    /// Processes results and updates snapshot status accordingly.
+    async fn handle_snapshot_results(
+        &self,
+        executor_id: ExecutorId,
+        snapshot_results: Vec<executor_api_pb::SnapshotOperationResult>,
+    ) -> Result<()> {
+        use crate::processor::snapshot_processor::SnapshotProcessor;
+
+        if snapshot_results.is_empty() {
+            return Ok(());
+        }
+
+        info!(
+            executor_id = executor_id.get(),
+            num_results = snapshot_results.len(),
+            results = ?snapshot_results.iter().map(|r| format!("{}:{:?}",
+                r.snapshot_id.as_ref().unwrap_or(&"unknown".to_string()),
+                r.operation_type)).collect::<Vec<_>>(),
+            "handling snapshot results from executor"
+        );
+
+        // Get current clock from in-memory state
+        let in_memory_state_guard = self.indexify_state.in_memory_state.read().await;
+        let clock = in_memory_state_guard.clock;
+        drop(in_memory_state_guard);
+
+        let snapshot_processor = SnapshotProcessor::new(clock);
+
+        // Process each result
+        for result in snapshot_results {
+            let snapshot_id = result.snapshot_id.as_ref()
+                .ok_or_else(|| anyhow::anyhow!("snapshot_id missing from result"))?;
+
+            info!(
+                executor_id = executor_id.get(),
+                snapshot_id = %snapshot_id,
+                success = ?result.success,
+                operation_type = ?result.operation_type,
+                "processing snapshot operation result"
+            );
+
+            // Get writable access to in-memory state
+            let in_memory_state_arc = self.indexify_state.in_memory_state.read().await.clone();
+            let mut in_memory_state = in_memory_state_arc.write().await;
+
+            // Process the result and get state update
+            let update = snapshot_processor
+                .handle_snapshot_result(&mut in_memory_state, &result)
+                .map_err(|e| {
+                    error!(
+                        executor_id = executor_id.get(),
+                        snapshot_id = %snapshot_id,
+                        error = ?e,
+                        "failed to handle snapshot result"
+                    );
+                    e
+                })?;
+
+            drop(in_memory_state);
+
+            // If there are updates, write them to the state store
+            if !update.updated_snapshots.is_empty() || !update.deleted_snapshots.is_empty() {
+                let sm_request = StateMachineUpdateRequest {
+                    payload: RequestPayload::SchedulerUpdate(
+                        crate::state_store::requests::SchedulerUpdatePayload::new(update),
+                    ),
+                };
+
+                self.indexify_state
+                    .write(sm_request)
+                    .await
+                    .map_err(|e| {
+                        error!(
+                            executor_id = executor_id.get(),
+                            snapshot_id = %snapshot_id,
+                            error = ?e,
+                            "failed to write snapshot update to state store"
+                        );
+                        e
+                    })?;
+
+                info!(
+                    executor_id = executor_id.get(),
+                    snapshot_id = %snapshot_id,
+                    "snapshot status updated successfully"
+                );
+            }
+        }
+
+        Ok(())
+    }
 }
 
 #[tonic::async_trait]
@@ -1038,6 +1130,7 @@ impl ExecutorApi for ExecutorAPIService {
             allocations: vec![],
             clock: Some(0),
             function_call_results: vec![],
+            snapshot_operations: vec![],
         }));
         tokio::spawn(executor_update_loop(
             executor_id,

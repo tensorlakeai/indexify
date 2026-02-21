@@ -28,8 +28,9 @@ use crate::{
         FunctionRunStatus,
         RequestCtx,
         Sandbox,
-        SandboxId,
         SandboxKey,
+        SandboxSnapshot,
+        SnapshotId,
         StateChange,
     },
     state_store::{IndexifyState, executor_watches::ExecutorWatch, state_changes},
@@ -89,6 +90,12 @@ impl StateMachineUpdateRequest {
             RequestPayload::TerminateSandbox(request) => {
                 state_changes::terminate_sandbox(state_change_id_seq, request)
             }
+            RequestPayload::CreateSnapshot(request) => {
+                state_changes::create_snapshot(state_change_id_seq, request)
+            }
+            RequestPayload::DeleteSnapshot(request) => {
+                state_changes::delete_snapshot(state_change_id_seq, request)
+            }
             RequestPayload::CreateContainerPool(request) => {
                 state_changes::create_container_pool(state_change_id_seq, request)
             }
@@ -118,6 +125,8 @@ pub enum RequestPayload {
     DeregisterExecutor(DeregisterExecutorRequest),
     CreateSandbox(CreateSandboxRequest),
     TerminateSandbox(TerminateSandboxRequest),
+    CreateSnapshot(CreateSnapshotRequest),
+    DeleteSnapshot(DeleteSnapshotRequest),
     CreateContainerPool(CreateContainerPoolRequest),
     UpdateContainerPool(UpdateContainerPoolRequest),
 
@@ -173,6 +182,14 @@ pub struct SchedulerUpdateRequest {
     /// Propagated to the real scheduler's blocked_pools for cross-cycle
     /// persistence so these pools are skipped until resources become available.
     pub newly_blocked_pools: HashSet<ContainerPoolKey>,
+    /// Snapshot updates to apply to in-memory state
+    pub updated_snapshots:
+        HashMap<crate::data_model::SnapshotKey, crate::data_model::SandboxSnapshot>,
+    /// Snapshots to delete from in-memory state
+    pub deleted_snapshots: HashSet<crate::data_model::SnapshotKey>,
+    /// Snapshot operations to send to executors
+    pub snapshot_operations:
+        HashMap<ExecutorId, Vec<proto_api::executor_api_pb::SnapshotOperation>>,
 }
 
 impl SchedulerUpdateRequest {
@@ -209,6 +226,14 @@ impl SchedulerUpdateRequest {
             self.pool_deficits = other.pool_deficits;
         }
         self.newly_blocked_pools.extend(other.newly_blocked_pools);
+        self.updated_snapshots.extend(other.updated_snapshots);
+        self.deleted_snapshots.extend(other.deleted_snapshots);
+        for (executor_id, snapshot_ops) in other.snapshot_operations {
+            self.snapshot_operations
+                .entry(executor_id)
+                .or_default()
+                .extend(snapshot_ops);
+        }
     }
 
     pub fn cancel_allocation(&mut self, allocation: &mut Allocation) {
@@ -402,8 +427,18 @@ pub struct CreateSandboxRequest {
 
 #[derive(Debug, Clone)]
 pub struct TerminateSandboxRequest {
+    pub sandbox: Sandbox,
+}
+
+#[derive(Debug, Clone)]
+pub struct CreateSnapshotRequest {
+    pub snapshot: SandboxSnapshot,
+}
+
+#[derive(Debug, Clone)]
+pub struct DeleteSnapshotRequest {
+    pub snapshot_id: SnapshotId,
     pub namespace: String,
-    pub sandbox_id: SandboxId,
 }
 
 #[derive(Debug, Clone)]

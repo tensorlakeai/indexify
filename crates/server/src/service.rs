@@ -99,6 +99,7 @@ impl Service {
         let application_processor = Arc::new(ApplicationProcessor::new(
             indexify_state.clone(),
             config.queue_size,
+            config.snapshot_cleanup_interval_secs,
         ));
         application_processor.validate_app_constraints().await?;
 
@@ -211,6 +212,22 @@ impl Service {
         tokio::spawn(
             async move {
                 monitor.start_heartbeat_monitor(shutdown_rx).await;
+            }
+            .instrument(span.clone()),
+        );
+
+        // Spawn snapshot cleanup task
+        let indexify_state_cleanup = self.indexify_state.clone();
+        let shutdown_rx_cleanup = self.shutdown_rx.clone();
+        let cleanup_interval_secs = 3600; // 1 hour
+        tokio::spawn(
+            async move {
+                crate::processor::snapshot_processor::start_snapshot_cleanup_task(
+                    indexify_state_cleanup,
+                    shutdown_rx_cleanup,
+                    cleanup_interval_secs,
+                )
+                .await;
             }
             .instrument(span.clone()),
         );

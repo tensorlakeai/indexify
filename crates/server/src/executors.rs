@@ -838,6 +838,7 @@ impl ExecutorManager {
             allocations: allocations_pb,
             clock: Some(desired_executor_state.clock),
             function_call_results: function_call_results_pb,
+            snapshot_operations: vec![],
         })
     }
 

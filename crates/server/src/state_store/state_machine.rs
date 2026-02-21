@@ -32,6 +32,7 @@ use crate::{
         PersistedRequestCtx,
         RequestCtx,
         Sandbox,
+        SandboxSnapshot,
         StateChange,
     },
     state_store::{
@@ -78,6 +79,9 @@ pub enum IndexifyObjectsColumns {
 
     // Sandboxes - Namespace|Application|SandboxId -> Sandbox
     Sandboxes,
+
+    // Sandbox Snapshots - Namespace|SnapshotId -> SandboxSnapshot
+    Snapshots,
 
     // Legacy Container Pools CF — kept for V13 (re-encode) and V15 (split)
     // migrations. Not used at runtime; V15 moves data to FunctionPools +
@@ -684,6 +688,44 @@ pub(crate) async fn upsert_sandbox(txn: &Transaction, sandbox: &Sandbox, clock: 
         status = %sandbox.status,
         "upserted sandbox"
     );
+    Ok(())
+}
+
+#[tracing::instrument(skip(txn, snapshot), fields(namespace = snapshot.namespace, snapshot_id = %snapshot.id))]
+pub(crate) async fn upsert_snapshot(
+    txn: &Transaction,
+    snapshot: &SandboxSnapshot,
+    clock: u64,
+) -> Result<()> {
+    let mut snapshot = snapshot.clone();
+    snapshot.prepare_for_persistence(clock);
+    let key = snapshot.key();
+    let serialized = StateStoreEncoder::encode(&snapshot)?;
+    txn.put(
+        IndexifyObjectsColumns::Snapshots.as_ref(),
+        key.as_bytes(),
+        &serialized,
+    )
+    .await?;
+    debug!(
+        namespace = %snapshot.namespace,
+        snapshot_id = %snapshot.id,
+        status = %snapshot.status,
+        "upserted snapshot"
+    );
+    Ok(())
+}
+
+#[tracing::instrument(skip(txn), fields(namespace = namespace, snapshot_id = snapshot_id))]
+pub(crate) async fn delete_snapshot(
+    txn: &Transaction,
+    namespace: &str,
+    snapshot_id: &str,
+) -> Result<()> {
+    let key = format!("{}|{}", namespace, snapshot_id);
+    txn.delete(IndexifyObjectsColumns::Snapshots.as_ref(), key.as_bytes())
+        .await?;
+    debug!(namespace = %namespace, snapshot_id = %snapshot_id, "deleted snapshot");
     Ok(())
 }
 

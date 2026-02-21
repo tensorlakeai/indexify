@@ -64,6 +64,11 @@ impl FunctionContainerManager {
         }
     }
 
+    /// Get the driver for snapshot operations.
+    pub fn get_driver(&self) -> Arc<dyn ProcessDriver> {
+        self.driver.clone()
+    }
+
     /// Recover containers from the state file.
     ///
     /// This should be called on startup to reconnect to any containers that

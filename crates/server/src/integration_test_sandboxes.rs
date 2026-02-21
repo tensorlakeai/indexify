@@ -337,8 +337,7 @@ mod tests {
         // Terminate the sandbox
         let request = StateMachineUpdateRequest {
             payload: RequestPayload::TerminateSandbox(TerminateSandboxRequest {
-                namespace: TEST_NAMESPACE.to_string(),
-                sandbox_id: sandbox_id.clone(),
+                sandbox: sandbox.clone(),
             }),
         };
         indexify_state.write(request).await?;
@@ -559,10 +558,12 @@ mod tests {
         );
 
         // User terminates the sandbox
+        let sandbox = get_sandbox(&indexify_state, TEST_NAMESPACE, sandbox_id.get())
+            .await
+            .expect("Sandbox should exist");
         let request = StateMachineUpdateRequest {
             payload: RequestPayload::TerminateSandbox(TerminateSandboxRequest {
-                namespace: TEST_NAMESPACE.to_string(),
-                sandbox_id: sandbox_id.clone(),
+                sandbox: sandbox.clone(),
             }),
         };
         indexify_state.write(request).await?;
@@ -735,10 +736,12 @@ mod tests {
         test_srv.process_all_state_changes().await?;
 
         // Terminate one sandbox
+        let sandbox_1 = get_sandbox(&indexify_state, TEST_NAMESPACE, sandbox_id_1.get())
+            .await
+            .expect("Sandbox 1 should exist");
         let request = StateMachineUpdateRequest {
             payload: RequestPayload::TerminateSandbox(TerminateSandboxRequest {
-                namespace: TEST_NAMESPACE.to_string(),
-                sandbox_id: sandbox_id_1.clone(),
+                sandbox: sandbox_1.clone(),
             }),
         };
         indexify_state.write(request).await?;

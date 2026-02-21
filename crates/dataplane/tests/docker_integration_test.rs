@@ -96,7 +96,8 @@ async fn test_docker_daemon_binary_mounted() {
     };
     assert!(daemon_path.exists(), "Daemon binary should exist");
 
-    let driver = DockerDriver::new(None, None, Vec::new()).expect("Failed to create DockerDriver");
+    let driver =
+        DockerDriver::new(None, None, Vec::new(), None).expect("Failed to create DockerDriver");
 
     // Start a container with the daemon
     let config = ProcessConfig {
@@ -178,7 +179,8 @@ async fn test_docker_daemon_accessible() {
     }
 
     let _ = extract_daemon_binary();
-    let driver = DockerDriver::new(None, None, Vec::new()).expect("Failed to create DockerDriver");
+    let driver =
+        DockerDriver::new(None, None, Vec::new(), None).expect("Failed to create DockerDriver");
 
     let config = ProcessConfig {
         id: format!("test-{}", uuid::Uuid::new_v4()),
@@ -256,7 +258,8 @@ async fn test_docker_grpc_health_check() {
     }
 
     let _ = extract_daemon_binary();
-    let driver = DockerDriver::new(None, None, Vec::new()).expect("Failed to create DockerDriver");
+    let driver =
+        DockerDriver::new(None, None, Vec::new(), None).expect("Failed to create DockerDriver");
 
     let config = ProcessConfig {
         id: format!("test-{}", uuid::Uuid::new_v4()),
@@ -342,8 +345,9 @@ async fn test_docker_multiple_containers() {
     }
 
     let _ = extract_daemon_binary();
-    let driver =
-        Arc::new(DockerDriver::new(None, None, Vec::new()).expect("Failed to create DockerDriver"));
+    let driver = Arc::new(
+        DockerDriver::new(None, None, Vec::new(), None).expect("Failed to create DockerDriver"),
+    );
 
     // Start 3 containers
     let mut handles = Vec::new();
@@ -419,7 +423,8 @@ async fn test_docker_env_vars_passed() {
     }
 
     let _ = extract_daemon_binary();
-    let driver = DockerDriver::new(None, None, Vec::new()).expect("Failed to create DockerDriver");
+    let driver =
+        DockerDriver::new(None, None, Vec::new(), None).expect("Failed to create DockerDriver");
 
     let config = ProcessConfig {
         id: format!("test-{}", uuid::Uuid::new_v4()),
@@ -483,7 +488,8 @@ async fn test_docker_resource_limits() {
     }
 
     let _ = extract_daemon_binary();
-    let driver = DockerDriver::new(None, None, Vec::new()).expect("Failed to create DockerDriver");
+    let driver =
+        DockerDriver::new(None, None, Vec::new(), None).expect("Failed to create DockerDriver");
 
     let config = ProcessConfig {
         id: format!("test-{}", uuid::Uuid::new_v4()),

@@ -366,8 +366,7 @@ pub async fn delete_sandbox(
     // Write TerminateSandboxRequest to state store
     let request = StateMachineUpdateRequest {
         payload: RequestPayload::TerminateSandbox(TerminateSandboxRequest {
-            namespace: namespace.clone(),
-            sandbox_id: SandboxId::new(sandbox_id),
+            sandbox: sandbox.clone(),
         }),
     };
 
