@@ -207,7 +207,7 @@ function SandboxesTable({ sandboxes, namespace, onSandboxDeleted }: SandboxesTab
                   )}
                 </TableCell>
                 <TableCell sx={CELL_STYLES}>
-                  {sandbox.status.toLowerCase() !== 'terminated' && (
+                  {sandbox.status !== 'terminated' && (
                     <Tooltip title="Stop Sandbox">
                       <IconButton
                         size="small"

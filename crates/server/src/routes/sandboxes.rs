@@ -78,11 +78,35 @@ pub struct CreateSandboxRequest {
     pub snapshot_id: Option<String>,
 }
 
+/// Simplified sandbox status for the API.
+///
+/// The internal `SandboxStatus::Pending` variant carries a `reason` field
+/// that is exposed separately as `pending_reason` in the response structs.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ApiSandboxStatus {
+    Pending,
+    Running,
+    Snapshotting,
+    Terminated,
+}
+
+impl From<&data_model::SandboxStatus> for ApiSandboxStatus {
+    fn from(status: &data_model::SandboxStatus) -> Self {
+        match status {
+            data_model::SandboxStatus::Pending { .. } => Self::Pending,
+            data_model::SandboxStatus::Running => Self::Running,
+            data_model::SandboxStatus::Snapshotting { .. } => Self::Snapshotting,
+            data_model::SandboxStatus::Terminated => Self::Terminated,
+        }
+    }
+}
+
 /// Response after creating a sandbox
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct CreateSandboxResponse {
     pub sandbox_id: String,
-    pub status: String,
+    pub status: ApiSandboxStatus,
     /// Reason why the sandbox is pending (only set when status is "pending").
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pending_reason: Option<String>,
@@ -94,7 +118,7 @@ pub struct SandboxInfo {
     pub id: String,
     pub namespace: String,
     pub image: String,
-    pub status: String,
+    pub status: ApiSandboxStatus,
     /// Reason why the sandbox is pending (only set when status is "pending").
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pending_reason: Option<String>,
@@ -148,20 +172,16 @@ impl SandboxInfo {
             })
         };
 
-        let (status, pending_reason) = match &sandbox.status {
-            data_model::SandboxStatus::Pending { reason } => {
-                ("pending".to_string(), Some(reason.to_string()))
-            }
-            data_model::SandboxStatus::Running => ("running".to_string(), None),
-            data_model::SandboxStatus::Snapshotting { .. } => ("snapshotting".to_string(), None),
-            data_model::SandboxStatus::Terminated => ("terminated".to_string(), None),
+        let pending_reason = match &sandbox.status {
+            data_model::SandboxStatus::Pending { reason } => Some(reason.to_string()),
+            _ => None,
         };
 
         Self {
             id: sandbox.id.get().to_string(),
             namespace: sandbox.namespace.clone(),
             image: sandbox.image.clone(),
-            status,
+            status: ApiSandboxStatus::from(&sandbox.status),
             pending_reason,
             outcome: sandbox.outcome.as_ref().map(|o| o.to_string()),
             created_at: (sandbox.creation_time_ns / 1_000_000) as u64, // Convert ns to ms
@@ -325,7 +345,7 @@ pub async fn create_sandbox(
 
     Ok(Json(CreateSandboxResponse {
         sandbox_id: sandbox_id.get().to_string(),
-        status: "pending".to_string(),
+        status: ApiSandboxStatus::Pending,
         pending_reason: Some("scheduling".to_string()),
     }))
 }
@@ -441,7 +461,7 @@ pub async fn delete_sandbox(
         .ok_or_else(|| IndexifyAPIError::not_found("Sandbox not found"))?;
 
     // If already terminated, return success (idempotent)
-    if sandbox.status == SandboxStatus::Terminated {
+    if sandbox.status == data_model::SandboxStatus::Terminated {
         return Ok(());
     }
 

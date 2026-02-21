@@ -126,7 +126,10 @@ use crate::{
                 sandboxes::CreateSandboxResponse,
                 sandboxes::SandboxInfo,
                 sandboxes::ListSandboxesResponse,
+                sandboxes::ApiSandboxStatus,
+
                 // Sandbox pool schemas
+                sandbox_pools::ApiContainerState,
                 sandbox_pools::CreateSandboxPoolRequest,
                 sandbox_pools::UpdateSandboxPoolRequest,
                 sandbox_pools::CreateSandboxPoolResponse,

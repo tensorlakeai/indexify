@@ -54,7 +54,7 @@ export function SandboxesCard({ sandboxes, namespace }: SandboxesCardProps) {
       // Update the sandbox status locally
       setLocalSandboxes((prevSandboxes) =>
         prevSandboxes.map((s) =>
-          s.id === sandboxId ? { ...s, status: 'Terminated' } : s
+          s.id === sandboxId ? { ...s, status: 'terminated' } : s
         )
       )
     } catch (err) {
@@ -86,7 +86,7 @@ export function SandboxesCard({ sandboxes, namespace }: SandboxesCardProps) {
               </Link>
               <Box display="flex" flexDirection="row" alignItems="center">
                 <CopyText text={sandbox.id} />
-                {sandbox.status.toLowerCase() !== 'terminated' && (
+                {sandbox.status !== 'terminated' && (
                   <IconButton
                     onClick={() => handleStopSandbox(sandbox.id)}
                     aria-label="stop sandbox"

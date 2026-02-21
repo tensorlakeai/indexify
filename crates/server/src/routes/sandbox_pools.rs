@@ -12,13 +12,13 @@ use crate::{
         ContainerPoolBuilder,
         ContainerPoolId,
         ContainerPoolKey,
+        ContainerState,
         SandboxBuilder,
         SandboxId,
         SandboxPendingReason,
-        SandboxStatus,
     },
     http_objects::{ContainerResources, ContainerResourcesInfo, IndexifyAPIError},
-    routes::routes_state::RouteState,
+    routes::{routes_state::RouteState, sandboxes::ApiSandboxStatus},
     state_store::requests::{
         CreateContainerPoolRequest as StateCreateContainerPoolRequest,
         CreateSandboxRequest as StateCreateSandboxRequest,
@@ -29,6 +29,30 @@ use crate::{
     },
     utils::get_epoch_time_in_ns,
 };
+
+/// Simplified container state for the API.
+///
+/// The internal `ContainerState::Terminated` variant carries extra fields
+/// (`reason`, `failed_alloc_ids`) that are not exposed through this endpoint.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ApiContainerState {
+    Unknown,
+    Pending,
+    Running,
+    Terminated,
+}
+
+impl From<&ContainerState> for ApiContainerState {
+    fn from(state: &ContainerState) -> Self {
+        match state {
+            ContainerState::Unknown => Self::Unknown,
+            ContainerState::Pending => Self::Pending,
+            ContainerState::Running => Self::Running,
+            ContainerState::Terminated { .. } => Self::Terminated,
+        }
+    }
+}
 
 /// Request to create a new sandbox pool
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -91,7 +115,7 @@ pub struct CreateSandboxPoolResponse {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct CreatePoolSandboxResponse {
     pub sandbox_id: String,
-    pub status: String,
+    pub status: ApiSandboxStatus,
     /// Reason why the sandbox is pending (only set when status is "pending").
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pending_reason: Option<String>,
@@ -135,7 +159,7 @@ impl SandboxPoolInfo {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ContainerInfo {
     pub id: String,
-    pub state: String,
+    pub state: ApiContainerState,
     pub sandbox_id: Option<String>,
     pub executor_id: String,
 }
@@ -308,7 +332,7 @@ pub async fn get_sandbox_pool(
                     let c = &meta.function_container;
                     Some(ContainerInfo {
                         id: c.id.get().to_string(),
-                        state: c.state.to_string(),
+                        state: ApiContainerState::from(&c.state),
                         sandbox_id: c.sandbox_id.as_ref().map(|s| s.get().to_string()),
                         executor_id: meta.executor_id.get().to_string(),
                     })
@@ -416,7 +440,7 @@ pub async fn create_pool_sandbox(
         .id(sandbox_id.clone())
         .namespace(namespace.clone())
         .image(pool.image.clone())
-        .status(SandboxStatus::Pending {
+        .status(data_model::SandboxStatus::Pending {
             reason: SandboxPendingReason::Scheduling,
         })
         .creation_time_ns(get_epoch_time_in_ns())
@@ -446,7 +470,7 @@ pub async fn create_pool_sandbox(
 
     Ok(Json(CreatePoolSandboxResponse {
         sandbox_id: sandbox_id.get().to_string(),
-        status: "pending".to_string(),
+        status: ApiSandboxStatus::Pending,
         pending_reason: Some("scheduling".to_string()),
     }))
 }

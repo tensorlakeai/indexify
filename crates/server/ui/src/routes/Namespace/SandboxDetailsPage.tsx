@@ -117,7 +117,7 @@ const SandboxDetailsPage = () => {
 
   // Use sandbox_url for routing via sandbox-proxy or direct dataplane access
   const daemonUrl = sandbox?.sandbox_url ?? null
-  const isRunning = sandbox?.status?.toLowerCase() === 'running'
+  const isRunning = sandbox?.status === 'running'
 
   // Check if we're accessing dataplane directly (local dev)
   const isLocalDataplane = daemonUrl?.includes('127.0.0.1') || daemonUrl?.includes('localhost')
@@ -457,7 +457,7 @@ const SandboxDetailsPage = () => {
         {/* Processes Section */}
         {!isRunning ? (
           <Alert severity="info" sx={{ mb: 3 }}>
-            {sandbox.status === 'Terminated'
+            {sandbox.status === 'terminated'
               ? 'Sandbox has been terminated. Process information is no longer available.'
               : 'Sandbox is not yet running. Process information will be available once the sandbox starts.'}
           </Alert>

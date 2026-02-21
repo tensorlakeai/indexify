@@ -2620,7 +2620,7 @@ impl From<String> for SandboxId {
 
 /// Status of a sandbox instance
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "snake_case")]
 pub enum SandboxStatus {
     /// Sandbox is waiting for executor allocation
     Pending { reason: SandboxPendingReason },
