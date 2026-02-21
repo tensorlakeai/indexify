@@ -1,10 +1,14 @@
 mod docker;
+pub mod firecracker;
 mod fork_exec;
+pub mod snapshotter;
 
 use anyhow::Result;
 use async_trait::async_trait;
 pub use docker::{DockerDriver, ImageError};
+pub use firecracker::{FirecrackerDriver, FirecrackerDriverConfig};
 pub use fork_exec::ForkExecDriver;
+pub use snapshotter::{SnapshotConfig, SnapshotHandle, Snapshotter};
 
 /// Container port for the daemon gRPC server (internal API).
 pub const DAEMON_GRPC_PORT: u16 = 9500;

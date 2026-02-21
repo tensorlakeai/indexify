@@ -29,7 +29,7 @@ use crate::{
     blob_ops::BlobStore,
     code_cache::CodeCache,
     config::{DataplaneConfig, DriverConfig},
-    driver::{DockerDriver, ForkExecDriver, ProcessDriver},
+    driver::{DockerDriver, FirecrackerDriver, FirecrackerDriverConfig, ForkExecDriver, ProcessDriver},
     function_container_manager::{DefaultImageResolver, FunctionContainerManager, ImageResolver},
     function_executor::controller::FESpawnConfig,
     http_proxy::run_http_proxy,
@@ -1068,7 +1068,7 @@ async fn wait_for_shutdown_signal() -> &'static str {
     }
 }
 
-/// Create the process driver based on config (ForkExec or Docker).
+/// Create the process driver based on config (ForkExec, Docker, or Firecracker).
 fn create_process_driver(config: &DataplaneConfig) -> Result<Arc<dyn ProcessDriver>> {
     match &config.driver {
         DriverConfig::ForkExec => Ok(Arc::new(ForkExecDriver::new())),
@@ -1090,6 +1090,28 @@ fn create_process_driver(config: &DataplaneConfig) -> Result<Arc<dyn ProcessDriv
                 binds.clone(),
             )?)),
         },
+        DriverConfig::Firecracker {
+            firecracker_bin,
+            kernel_image_path,
+            kernel_boot_args,
+            base_rootfs_path,
+            state_dir,
+            default_vcpu_count,
+            default_mem_size_mib,
+            overlay_size_bytes,
+        } => {
+            let fc_config = FirecrackerDriverConfig {
+                firecracker_bin: firecracker_bin.into(),
+                kernel_image_path: kernel_image_path.into(),
+                kernel_boot_args: kernel_boot_args.clone(),
+                base_rootfs_path: base_rootfs_path.into(),
+                state_dir: state_dir.into(),
+                default_vcpu_count: *default_vcpu_count,
+                default_mem_size_mib: *default_mem_size_mib,
+                overlay_size_bytes: *overlay_size_bytes,
+            };
+            Ok(Arc::new(FirecrackerDriver::new(fc_config)))
+        }
     }
 }
 

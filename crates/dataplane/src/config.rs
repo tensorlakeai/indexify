@@ -88,6 +88,69 @@ pub enum DriverConfig {
         #[serde(default)]
         binds: Vec<String>,
     },
+    Firecracker {
+        /// Path to the Firecracker binary.
+        /// Defaults to `/usr/bin/firecracker`.
+        #[serde(default = "default_firecracker_bin")]
+        firecracker_bin: String,
+        /// Path to the kernel image (vmlinux).
+        /// Defaults to `/var/lib/firecracker/vmlinux`.
+        #[serde(default = "default_kernel_image_path")]
+        kernel_image_path: String,
+        /// Kernel boot arguments.
+        #[serde(default = "default_kernel_boot_args")]
+        kernel_boot_args: String,
+        /// Path to the base rootfs image (ext4).
+        /// Defaults to `/var/lib/firecracker/rootfs.ext4`.
+        #[serde(default = "default_base_rootfs_path")]
+        base_rootfs_path: String,
+        /// Directory for VM runtime state (sockets, logs, overlays).
+        /// Defaults to `/var/lib/firecracker/vms`.
+        #[serde(default = "default_fc_state_dir")]
+        state_dir: String,
+        /// Default number of vCPUs per VM.
+        #[serde(default = "default_vcpu_count")]
+        default_vcpu_count: u32,
+        /// Default memory size in MiB per VM.
+        #[serde(default = "default_mem_size_mib")]
+        default_mem_size_mib: u32,
+        /// Overlay size in bytes for snapshot rootfs.
+        /// Must be >= base rootfs. Defaults to 2 GiB.
+        #[serde(default = "default_overlay_size_bytes")]
+        overlay_size_bytes: u64,
+    },
+}
+
+fn default_firecracker_bin() -> String {
+    "/usr/bin/firecracker".to_string()
+}
+
+fn default_kernel_image_path() -> String {
+    "/var/lib/firecracker/vmlinux".to_string()
+}
+
+fn default_kernel_boot_args() -> String {
+    "console=ttyS0 reboot=k panic=1 pci=off".to_string()
+}
+
+fn default_base_rootfs_path() -> String {
+    "/var/lib/firecracker/rootfs.ext4".to_string()
+}
+
+fn default_fc_state_dir() -> String {
+    "/var/lib/firecracker/vms".to_string()
+}
+
+fn default_vcpu_count() -> u32 {
+    1
+}
+
+fn default_mem_size_mib() -> u32 {
+    256
+}
+
+fn default_overlay_size_bytes() -> u64 {
+    2 * 1024 * 1024 * 1024 // 2 GiB
 }
 
 #[serde_inline_default]
@@ -693,5 +756,72 @@ server_addr: "http://localhost:8901"
 "#;
         let config = DataplaneConfig::from_yaml_str(yaml).unwrap();
         assert!(config.resource_overrides.is_none());
+    }
+
+    #[test]
+    fn test_firecracker_driver_defaults() {
+        let yaml = r#"
+env: local
+server_addr: "http://localhost:8901"
+driver:
+  type: firecracker
+"#;
+        let config = DataplaneConfig::from_yaml_str(yaml).unwrap();
+        match &config.driver {
+            DriverConfig::Firecracker {
+                firecracker_bin,
+                kernel_image_path,
+                default_vcpu_count,
+                default_mem_size_mib,
+                overlay_size_bytes,
+                ..
+            } => {
+                assert_eq!(firecracker_bin, "/usr/bin/firecracker");
+                assert_eq!(kernel_image_path, "/var/lib/firecracker/vmlinux");
+                assert_eq!(*default_vcpu_count, 1);
+                assert_eq!(*default_mem_size_mib, 256);
+                assert_eq!(*overlay_size_bytes, 2 * 1024 * 1024 * 1024);
+            }
+            _ => panic!("Expected Firecracker driver"),
+        }
+    }
+
+    #[test]
+    fn test_firecracker_driver_custom() {
+        let yaml = r#"
+env: local
+server_addr: "http://localhost:8901"
+driver:
+  type: firecracker
+  firecracker_bin: "/opt/firecracker/bin/firecracker"
+  kernel_image_path: "/opt/kernels/vmlinux-5.10"
+  base_rootfs_path: "/opt/images/rootfs.ext4"
+  state_dir: "/var/run/fc-vms"
+  default_vcpu_count: 2
+  default_mem_size_mib: 1024
+  overlay_size_bytes: 4294967296
+"#;
+        let config = DataplaneConfig::from_yaml_str(yaml).unwrap();
+        match &config.driver {
+            DriverConfig::Firecracker {
+                firecracker_bin,
+                kernel_image_path,
+                base_rootfs_path,
+                state_dir,
+                default_vcpu_count,
+                default_mem_size_mib,
+                overlay_size_bytes,
+                ..
+            } => {
+                assert_eq!(firecracker_bin, "/opt/firecracker/bin/firecracker");
+                assert_eq!(kernel_image_path, "/opt/kernels/vmlinux-5.10");
+                assert_eq!(base_rootfs_path, "/opt/images/rootfs.ext4");
+                assert_eq!(state_dir, "/var/run/fc-vms");
+                assert_eq!(*default_vcpu_count, 2);
+                assert_eq!(*default_mem_size_mib, 1024);
+                assert_eq!(*overlay_size_bytes, 4294967296);
+            }
+            _ => panic!("Expected Firecracker driver"),
+        }
     }
 }

@@ -32,11 +32,16 @@ pub mod validation;
 pub use daemon_client::DaemonClient;
 pub use driver::{
     DockerDriver,
+    FirecrackerDriver,
+    FirecrackerDriverConfig,
     ForkExecDriver,
     ProcessConfig,
     ProcessDriver,
     ProcessHandle,
     ProcessType,
+    SnapshotConfig,
+    SnapshotHandle,
+    Snapshotter,
 };
 pub use function_container_manager::{
     DefaultImageResolver,
