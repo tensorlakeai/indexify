@@ -37,6 +37,9 @@ use crate::{
         Sandbox,
         SandboxKey,
         SandboxStatus,
+        Snapshot,
+        SnapshotKey,
+        SnapshotStatus,
     },
     state_store::{
         ExecutorCatalog,
@@ -160,6 +163,8 @@ pub struct DesiredStateFunctionExecutor {
     pub sandbox_timeout_secs: u64,
     pub entrypoint: Vec<String>,
     pub network_policy: Option<NetworkPolicy>,
+    pub snapshot_id: Option<String>,
+    pub snapshot_uri: Option<String>,
 }
 
 pub struct DesiredExecutorState {
@@ -261,6 +266,9 @@ pub struct InMemoryState {
     // Pending sandboxes waiting for executor allocation
     pub pending_sandboxes: imbl::OrdSet<SandboxKey>,
 
+    // Snapshots - SnapshotKey -> Snapshot
+    pub snapshots: imbl::OrdMap<SnapshotKey, Box<Snapshot>>,
+
     // Tracks resource profile histogram for pending function runs and sandboxes
     pub pending_resources: PendingResources,
 
@@ -289,6 +297,7 @@ impl InMemoryState {
             all_function_runs,
             all_function_calls,
             all_sandboxes,
+            all_snapshots,
         ) = tokio::join!(
             reader.get_all_namespaces(),
             reader.get_all_rows_from_cf::<Application>(IndexifyObjectsColumns::Applications),
@@ -305,6 +314,7 @@ impl InMemoryState {
             reader.get_all_rows_from_cf::<FunctionRun>(IndexifyObjectsColumns::FunctionRuns),
             reader.get_all_rows_from_cf::<FunctionCall>(IndexifyObjectsColumns::FunctionCalls),
             reader.get_all_rows_from_cf::<Sandbox>(IndexifyObjectsColumns::Sandboxes),
+            reader.get_all_rows_from_cf::<Snapshot>(IndexifyObjectsColumns::Snapshots),
         );
 
         // Unwrap all results
@@ -317,6 +327,7 @@ impl InMemoryState {
         let all_function_runs: Vec<(String, FunctionRun)> = all_function_runs?;
         let all_function_calls: Vec<(String, FunctionCall)> = all_function_calls?;
         let all_sandboxes: Vec<(String, Sandbox)> = all_sandboxes?;
+        let all_snapshots: Vec<(String, Snapshot)> = all_snapshots?;
 
         debug!(
             duration = get_elapsed_time(start_time.elapsed().as_millis(), TimeUnit::Milliseconds),
@@ -463,6 +474,12 @@ impl InMemoryState {
             sandboxes.insert(sandbox_key, sandbox);
         }
 
+        let mut snapshots = imbl::OrdMap::new();
+        for (_key, snapshot) in all_snapshots {
+            let snapshot_key = SnapshotKey::from_snapshot(&snapshot);
+            snapshots.insert(snapshot_key, Box::new(snapshot));
+        }
+
         let in_memory_state = Self {
             clock,
             namespaces,
@@ -477,6 +494,7 @@ impl InMemoryState {
             sandbox_by_container,
             sandboxes_by_executor,
             pending_sandboxes,
+            snapshots,
             pending_resources,
             metrics,
         };
@@ -828,6 +846,12 @@ impl InMemoryState {
                                 }
                             }
                         }
+                        SandboxStatus::Snapshotting { .. } => {
+                            // Snapshotting: sandbox is still "live" (indices unchanged),
+                            // just update the status in place.
+                            self.sandboxes
+                                .insert(sandbox_key.clone(), Box::new(sandbox.clone()));
+                        }
                         SandboxStatus::Terminated => {
                             if was_pending {
                                 self.pending_resources.sandboxes.decrement(
@@ -963,6 +987,96 @@ impl InMemoryState {
                     );
                 }
             }
+            RequestPayload::SnapshotSandbox(req) => {
+                // Add snapshot to in-memory state
+                let snapshot_key = SnapshotKey::from_snapshot(&req.snapshot);
+                self.snapshots
+                    .insert(snapshot_key, Box::new(req.snapshot.clone()));
+
+                // Update sandbox status to Snapshotting
+                let sandbox_key =
+                    SandboxKey::new(&req.snapshot.namespace, req.snapshot.sandbox_id.get());
+                if let Some(sandbox) = self.sandboxes.get_mut(&sandbox_key) {
+                    sandbox.status = SandboxStatus::Snapshotting {
+                        snapshot_id: req.snapshot.id.clone(),
+                    };
+                    sandbox.snapshot_id = Some(req.snapshot.id.clone());
+                }
+            }
+            RequestPayload::CompleteSnapshot(req) => {
+                // Find the snapshot key for this snapshot_id
+                let snap_key = self
+                    .snapshots
+                    .iter()
+                    .find(|(_, s)| s.id == req.snapshot_id)
+                    .map(|(k, _)| k.clone());
+
+                if let Some(snap_key) = snap_key {
+                    if let Some(snapshot) = self.snapshots.get_mut(&snap_key) {
+                        snapshot.status = SnapshotStatus::Completed;
+                        snapshot.snapshot_uri = Some(req.snapshot_uri.clone());
+                        snapshot.size_bytes = Some(req.size_bytes);
+                    }
+
+                    let (ns, sb_id) = {
+                        let snapshot = &self.snapshots[&snap_key];
+                        (snapshot.namespace.clone(), snapshot.sandbox_id.clone())
+                    };
+
+                    // Terminate the sandbox
+                    let sandbox_key = SandboxKey::new(&ns, sb_id.get());
+                    if let Some(sandbox) = self.sandboxes.get(&sandbox_key) {
+                        let was_pending = sandbox.status.is_pending();
+
+                        if was_pending {
+                            self.pending_sandboxes.remove(&sandbox_key);
+                            self.pending_resources.sandboxes.decrement(
+                                &ResourceProfile::from_container_resources(&sandbox.resources),
+                            );
+                        }
+                        if let Some(container_id) = &sandbox.container_id {
+                            self.sandbox_by_container.remove(container_id);
+                        }
+                        if let Some(executor_id) = &sandbox.executor_id &&
+                            let Some(set) = self.sandboxes_by_executor.get_mut(executor_id)
+                        {
+                            set.remove(&sandbox_key);
+                        }
+                        self.sandboxes.remove(&sandbox_key);
+                    }
+                }
+            }
+            RequestPayload::FailSnapshot(req) => {
+                // Find the snapshot key for this snapshot_id
+                let snap_key = self
+                    .snapshots
+                    .iter()
+                    .find(|(_, s)| s.id == req.snapshot_id)
+                    .map(|(k, _)| k.clone());
+
+                if let Some(snap_key) = snap_key {
+                    if let Some(snapshot) = self.snapshots.get_mut(&snap_key) {
+                        snapshot.status = SnapshotStatus::Failed {
+                            error: req.error.clone(),
+                        };
+                    }
+
+                    let (ns, sb_id) = {
+                        let snapshot = &self.snapshots[&snap_key];
+                        (snapshot.namespace.clone(), snapshot.sandbox_id.clone())
+                    };
+
+                    // Revert sandbox to Running
+                    let sandbox_key = SandboxKey::new(&ns, sb_id.get());
+                    if let Some(sandbox) = self.sandboxes.get_mut(&sandbox_key) {
+                        sandbox.status = SandboxStatus::Running;
+                    }
+                }
+            }
+            RequestPayload::DeleteSnapshot(req) => {
+                let snapshot_key = SnapshotKey::new(&req.namespace, req.snapshot_id.get());
+                self.snapshots.remove(&snapshot_key);
+            }
             // Pool operations handled by ContainerScheduler
             _ => {}
         }
@@ -1051,6 +1165,7 @@ impl InMemoryState {
             sandbox_by_container: self.sandbox_by_container.clone(),
             sandboxes_by_executor: self.sandboxes_by_executor.clone(),
             pending_sandboxes: self.pending_sandboxes.clone(),
+            snapshots: self.snapshots.clone(),
             pending_resources: self.pending_resources.clone(),
         }))
     }
@@ -1169,6 +1284,7 @@ mod test_helpers {
                 sandbox_by_container: imbl::HashMap::new(),
                 sandboxes_by_executor: imbl::HashMap::new(),
                 pending_sandboxes: imbl::OrdSet::new(),
+                snapshots: imbl::OrdMap::new(),
                 pending_resources: PendingResources::default(),
             }
         }

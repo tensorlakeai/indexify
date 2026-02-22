@@ -1972,6 +1972,14 @@ pub struct Container {
     #[builder(default)]
     #[serde(default)]
     pub pool_id: Option<ContainerPoolId>,
+    /// Snapshot ID to restore from (if creating from a snapshot)
+    #[builder(default)]
+    #[serde(default)]
+    pub snapshot_id: Option<String>,
+    /// Snapshot URI to restore from (e.g. "s3://bucket/snap.tar.zst")
+    #[builder(default)]
+    #[serde(default)]
+    pub snapshot_uri: Option<String>,
     #[builder(default)]
     #[serde(default)]
     created_at_clock: Option<u64>,
@@ -2320,6 +2328,7 @@ pub enum ChangeType {
     TombStoneExecutor(ExecutorRemovedEvent),
     CreateSandbox(CreateSandboxEvent),
     TerminateSandbox(TerminateSandboxEvent),
+    SnapshotSandbox(SnapshotSandboxEvent),
     CreateContainerPool(CreateContainerPoolEvent),
     UpdateContainerPool(UpdateContainerPoolEvent),
     DeleteContainerPool(DeleteContainerPoolEvent),
@@ -2373,6 +2382,11 @@ impl fmt::Display for ChangeType {
                 f,
                 "TerminateSandbox, namespace: {}, sandbox_id: {}",
                 ev.namespace, ev.sandbox_id
+            ),
+            ChangeType::SnapshotSandbox(ev) => write!(
+                f,
+                "SnapshotSandbox, namespace: {}, sandbox_id: {}, snapshot_id: {}",
+                ev.namespace, ev.sandbox_id, ev.snapshot_id
             ),
             ChangeType::CreateContainerPool(ev) => write!(
                 f,
@@ -2616,6 +2630,8 @@ pub enum SandboxStatus {
     Pending { reason: SandboxPendingReason },
     /// Sandbox container is running
     Running,
+    /// Sandbox is being snapshotted; will be terminated after completion
+    Snapshotting { snapshot_id: SnapshotId },
     /// Sandbox container has terminated
     Terminated,
 }
@@ -2640,6 +2656,7 @@ impl Display for SandboxStatus {
         match self {
             SandboxStatus::Pending { .. } => write!(f, "Pending"),
             SandboxStatus::Running => write!(f, "Running"),
+            SandboxStatus::Snapshotting { .. } => write!(f, "Snapshotting"),
             SandboxStatus::Terminated => write!(f, "Terminated"),
         }
     }
@@ -2857,6 +2874,10 @@ pub struct Sandbox {
     #[builder(default)]
     #[serde(default)]
     pub container_id: Option<ContainerId>,
+    /// If created from a snapshot, the snapshot ID
+    #[builder(default)]
+    #[serde(default)]
+    pub snapshot_id: Option<SnapshotId>,
 }
 
 impl SandboxBuilder {
@@ -2892,6 +2913,144 @@ pub struct CreateSandboxEvent {
 pub struct TerminateSandboxEvent {
     pub namespace: String,
     pub sandbox_id: SandboxId,
+}
+
+/// Event for snapshotting a sandbox
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
+pub struct SnapshotSandboxEvent {
+    pub namespace: String,
+    pub sandbox_id: SandboxId,
+    pub snapshot_id: SnapshotId,
+}
+
+// ================================
+// Snapshot Types
+// ================================
+
+/// Unique identifier for a filesystem snapshot
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[serde(transparent)]
+pub struct SnapshotId(pub String);
+
+impl SnapshotId {
+    pub fn new(id: String) -> Self {
+        Self(id)
+    }
+
+    pub fn get(&self) -> &str {
+        &self.0
+    }
+}
+
+impl Default for SnapshotId {
+    fn default() -> Self {
+        Self(nanoid!(21, SANDBOX_ID_ALPHABET))
+    }
+}
+
+impl Display for SnapshotId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl From<&str> for SnapshotId {
+    fn from(s: &str) -> Self {
+        Self(s.to_string())
+    }
+}
+
+impl From<String> for SnapshotId {
+    fn from(s: String) -> Self {
+        Self(s)
+    }
+}
+
+/// Key for snapshot storage: namespace|snapshot_id
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct SnapshotKey(pub String);
+
+impl SnapshotKey {
+    pub fn new(namespace: &str, snapshot_id: &str) -> Self {
+        Self(format!("{namespace}|{snapshot_id}"))
+    }
+
+    pub fn from_snapshot(snapshot: &Snapshot) -> Self {
+        Self::new(&snapshot.namespace, snapshot.id.get())
+    }
+}
+
+impl Display for SnapshotKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl From<&Snapshot> for SnapshotKey {
+    fn from(snapshot: &Snapshot) -> Self {
+        SnapshotKey::from_snapshot(snapshot)
+    }
+}
+
+impl From<String> for SnapshotKey {
+    fn from(s: String) -> Self {
+        SnapshotKey(s)
+    }
+}
+
+impl From<&String> for SnapshotKey {
+    fn from(s: &String) -> Self {
+        SnapshotKey(s.clone())
+    }
+}
+
+/// Status of a snapshot
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SnapshotStatus {
+    /// Snapshot is being created (container being exported + uploaded)
+    InProgress,
+    /// Snapshot completed successfully
+    Completed,
+    /// Snapshot creation failed
+    Failed { error: String },
+}
+
+impl Display for SnapshotStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            SnapshotStatus::InProgress => write!(f, "in_progress"),
+            SnapshotStatus::Completed => write!(f, "completed"),
+            SnapshotStatus::Failed { .. } => write!(f, "failed"),
+        }
+    }
+}
+
+/// A filesystem snapshot of a sandbox container
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Snapshot {
+    pub id: SnapshotId,
+    pub namespace: String,
+    /// The sandbox that was snapshotted
+    pub sandbox_id: SandboxId,
+    /// Base image of the sandbox at snapshot time
+    pub base_image: String,
+    pub status: SnapshotStatus,
+    /// URI of the stored snapshot blob (set on completion)
+    #[serde(default)]
+    pub snapshot_uri: Option<String>,
+    /// Size of the snapshot in bytes (set on completion)
+    #[serde(default)]
+    pub size_bytes: Option<u64>,
+    pub creation_time_ns: u128,
+    /// Resources of the original sandbox (inherited by restored sandboxes)
+    pub resources: ContainerResources,
+    /// Entrypoint of the original sandbox
+    #[serde(default)]
+    pub entrypoint: Option<Vec<String>>,
+    /// Secret names from the original sandbox
+    #[serde(default)]
+    pub secret_names: Vec<String>,
 }
 
 /// Event for creating a container pool

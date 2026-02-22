@@ -23,6 +23,7 @@ pub mod resources;
 pub mod retry;
 pub mod secrets;
 pub mod service;
+pub mod snapshotter;
 pub mod state_file;
 pub mod state_reconciler;
 pub mod state_reporter;

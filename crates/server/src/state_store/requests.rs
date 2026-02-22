@@ -31,6 +31,8 @@ use crate::{
         Sandbox,
         SandboxId,
         SandboxKey,
+        Snapshot,
+        SnapshotId,
         StateChange,
     },
     state_store::{IndexifyState, state_changes},
@@ -90,6 +92,15 @@ impl StateMachineUpdateRequest {
             RequestPayload::TerminateSandbox(request) => {
                 state_changes::terminate_sandbox(state_change_id_seq, request)
             }
+            RequestPayload::SnapshotSandbox(request) => {
+                state_changes::snapshot_sandbox(state_change_id_seq, request)
+            }
+            RequestPayload::CompleteSnapshot(_) |
+            RequestPayload::FailSnapshot(_) |
+            RequestPayload::DeleteSnapshot(_) => {
+                // These are direct state mutations, no state changes needed
+                Ok(Vec::new())
+            }
             RequestPayload::CreateContainerPool(request) => {
                 state_changes::create_container_pool(state_change_id_seq, request)
             }
@@ -122,6 +133,10 @@ pub enum RequestPayload {
     DeregisterExecutor(DeregisterExecutorRequest),
     CreateSandbox(CreateSandboxRequest),
     TerminateSandbox(TerminateSandboxRequest),
+    SnapshotSandbox(SnapshotSandboxRequest),
+    CompleteSnapshot(CompleteSnapshotRequest),
+    FailSnapshot(FailSnapshotRequest),
+    DeleteSnapshot(DeleteSnapshotRequest),
     CreateContainerPool(CreateContainerPoolRequest),
     UpdateContainerPool(UpdateContainerPoolRequest),
 
@@ -434,4 +449,29 @@ pub struct DeleteContainerPoolRequest {
 #[derive(Debug, Clone)]
 pub struct DataplaneResultsRequest {
     pub event: DataplaneResultsIngestedEvent,
+}
+
+#[derive(Debug, Clone)]
+pub struct SnapshotSandboxRequest {
+    pub snapshot: Snapshot,
+    pub upload_uri: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct CompleteSnapshotRequest {
+    pub snapshot_id: SnapshotId,
+    pub snapshot_uri: String,
+    pub size_bytes: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct FailSnapshotRequest {
+    pub snapshot_id: SnapshotId,
+    pub error: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct DeleteSnapshotRequest {
+    pub namespace: String,
+    pub snapshot_id: SnapshotId,
 }

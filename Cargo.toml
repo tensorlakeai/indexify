@@ -4,6 +4,7 @@ members = [
     "crates/server",
     "crates/dataplane",
     "crates/container-daemon",
+    "crates/blob-store",
 ]
 resolver = "2"
 
@@ -26,7 +27,7 @@ serde-inline-default = "1.0.1"
 serde_json = "1.0.149"
 serde-saphyr = "0.0.19"
 postcard = { version = "1", features = ["alloc"] }
-axum = { version = "0.8.8", features = ["multipart", "macros", "tokio"] }
+axum = { version = "0.8.8", features = ["multipart", "macros", "tokio", "ws"] }
 axum-server = "0.8.0"
 tower-http = { version = "0.6.8", default-features = false, features = ["cors", "trace"] }
 hyper = { version = "1.8.1", features = ["client", "http1"] }
@@ -51,7 +52,6 @@ console-subscriber = "0.5.0"
 otlp-logs-exporter = { git = "https://github.com/tensorlakeai/otlp-logs-exporter", features = ["rt-tokio"] }
 utoipa = { version = "5.4.0", features = ["axum_extras", "yaml"] }
 utoipa-swagger-ui = { version = "9.0.2", features = ["axum"] }
-object_store = { version = "0.13.1", features = ["aws"] }
 rocksdb = "0.24.0"
 anyhow = "1.0.101"
 thiserror = "2.0.18"
@@ -66,12 +66,13 @@ imbl = "7.0.0"
 rand = "0.10.0"
 rayon = "1.10.0"
 url = "2.5.8"
-chrono = "0.4.43"
+chrono = { version = "0.4.43", features = ["serde"] }
 strum = { version = "0.27.2", features = ["derive"] }
 derive_builder = "0.20.2"
 rust-embed = { version = "8.11.0", features = ["mime-guess"] }
 omniqueue = { git = "https://github.com/tensorlakeai/omniqueue-rs", branch = "main", features = ["sqs"], default-features = false }
 proto-api = { path = "crates/proto-api" }
+indexify-blob-store = { path = "crates/blob-store" }
 tempfile = "3.24.0"
 mock_instant = "0.6.0"
 criterion = { version = "0.8.2", features = ["html_reports"] }
@@ -90,5 +91,7 @@ pingora-core = { git = "https://github.com/cloudflare/pingora", rev = "ad449bf37
 pingora-proxy = { git = "https://github.com/cloudflare/pingora", rev = "ad449bf373a696116f60c89f1e7d62c00f7cb09a" }
 pingora-http = { git = "https://github.com/cloudflare/pingora", rev = "ad449bf373a696116f60c89f1e7d62c00f7cb09a" }
 reqwest = { version = "0.13.2", default-features = false, features = ["json"] }
+zstd = "0.13"
 aws-sdk-s3 = "1.122.0"
 aws-config = { version = "1.8.13", features = ["behavior-version-latest"] }
+pty-process = { version = "0.4", features = ["async"] }

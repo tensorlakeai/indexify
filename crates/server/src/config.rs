@@ -102,6 +102,15 @@ pub struct ServerConfig {
     /// min_containers.
     #[serde_inline_default(300u64)]
     pub cluster_vacuum_max_idle_age_secs: u64,
+    /// Base path/URI for snapshot storage. Snapshot files are stored under
+    /// `{snapshot_storage_path}/snapshots/{namespace}/{snapshot_id}.tar.zst`.
+    /// Defaults to the blob_storage path if not set.
+    #[serde(default)]
+    pub snapshot_storage_path: Option<String>,
+    /// Timeout in seconds for snapshots stuck in InProgress state. Snapshots
+    /// older than this are automatically failed by the vacuum. 0 disables.
+    #[serde_inline_default(600u64)]
+    pub snapshot_timeout_secs: u64,
 }
 
 impl Default for ServerConfig {
@@ -125,6 +134,8 @@ impl Default for ServerConfig {
             sandbox_proxy_scheme: "http".to_string(),
             cluster_vacuum_interval_secs: 60,
             cluster_vacuum_max_idle_age_secs: 300,
+            snapshot_storage_path: None,
+            snapshot_timeout_secs: 600,
         }
     }
 }

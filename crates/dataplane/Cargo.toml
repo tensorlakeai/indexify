@@ -48,7 +48,9 @@ pingora-http.workspace = true
 aws-sdk-s3.workspace = true
 aws-config.workspace = true
 url.workspace = true
-object_store.workspace = true
+indexify-blob-store.workspace = true
+zstd.workspace = true
+reqwest.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 nix.workspace = true

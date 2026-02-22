@@ -169,6 +169,21 @@ impl StateReconciler {
         }
     }
 
+    /// Snapshot a container's filesystem.
+    ///
+    /// Delegates to the container manager which handles stopping the container,
+    /// exporting the filesystem, compressing, and uploading to the blob store.
+    pub async fn snapshot_container(
+        &mut self,
+        container_id: &str,
+        snapshot_id: &str,
+        upload_uri: &str,
+    ) {
+        self.container_manager
+            .snapshot_container(container_id, snapshot_id, upload_uri)
+            .await;
+    }
+
     /// Get the notify for waking up the heartbeat loop when state changes (FEs
     /// added/removed).
     pub fn state_change_notify(&self) -> Arc<Notify> {

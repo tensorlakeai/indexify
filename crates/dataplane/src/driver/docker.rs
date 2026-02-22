@@ -120,6 +120,12 @@ impl DockerDriver {
         })
     }
 
+    /// Get a reference to the underlying Docker client.
+    /// Used by DockerSnapshotter for export/import operations.
+    pub fn docker_client(&self) -> &Docker {
+        &self.docker
+    }
+
     /// Check if an image exists locally.
     async fn image_exists(&self, image: &str) -> Result<bool> {
         match self.docker.inspect_image(image).await {
