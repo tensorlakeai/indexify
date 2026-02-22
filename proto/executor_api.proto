@@ -143,8 +143,6 @@ message SandboxMetadata {
     // The sandbox this container is serving (if any).
     // Unset for warm pool containers, set when claimed by a sandbox.
     optional string sandbox_id = 14;
-    // Snapshot ID this container was restored from (if any).
-    optional string snapshot_id = 15;
     // URI of the snapshot to restore from (e.g. "s3://bucket/snap.tar.zst").
     // When set, the dataplane restores this snapshot instead of using the base image.
     optional string snapshot_uri = 16;

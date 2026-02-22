@@ -1708,7 +1708,6 @@ fn sandbox_metadata_to_pb(fe: &data_model::Container) -> Option<executor_api_pb:
         entrypoint: fe.entrypoint.clone(),
         network_policy: fe.network_policy.as_ref().map(network_policy_to_pb),
         sandbox_id: fe.sandbox_id.as_ref().map(|s| s.get().to_string()),
-        snapshot_id: fe.snapshot_id.clone(),
         snapshot_uri: fe.snapshot_uri.clone(),
     })
 }
@@ -2636,7 +2635,6 @@ mod tests {
                     entrypoint: vec![],
                     network_policy: None,
                     sandbox_id: Some(sandbox_id.to_string()),
-                    snapshot_id: None,
                     snapshot_uri: None,
                 }),
                 secret_names: vec![],

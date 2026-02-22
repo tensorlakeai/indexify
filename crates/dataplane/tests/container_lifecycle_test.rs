@@ -302,7 +302,6 @@ fn create_test_fe_description(id: &str) -> ContainerDescription {
             entrypoint: vec![],
             network_policy: None,
             sandbox_id: None,
-            snapshot_id: None,
             snapshot_uri: None,
         }),
         container_type: None,

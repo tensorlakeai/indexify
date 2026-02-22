@@ -662,6 +662,7 @@ impl ContainerScheduler {
     pub fn create_container_for_sandbox(
         &mut self,
         sandbox: &Sandbox,
+        snapshot_uri: Option<&str>,
     ) -> Result<Option<SchedulerUpdateRequest>> {
         let resources = FunctionResources {
             cpu_ms_per_sec: sandbox.resources.cpu_ms_per_sec,
@@ -706,6 +707,7 @@ impl ContainerScheduler {
             .network_policy(sandbox.network_policy.clone())
             .sandbox_id(Some(sandbox.id.clone()))
             .pool_id(pool_id)
+            .snapshot_uri(snapshot_uri.map(|s| s.to_string()))
             .build()?;
 
         self.create_container(

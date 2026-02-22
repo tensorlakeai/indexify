@@ -108,6 +108,22 @@ impl BlobStore {
         .await
     }
 
+    /// Write data from a stream to a blob.
+    pub async fn put(
+        &self,
+        uri: &str,
+        data: impl futures_util::Stream<Item = Result<Bytes>> + Send + Unpin,
+        options: indexify_blob_store::PutOptions,
+    ) -> Result<indexify_blob_store::PutResult> {
+        record_blob_op(
+            &self.metrics.counters.blob_store_put_requests,
+            &self.metrics.histograms.blob_store_put_latency_seconds,
+            &self.metrics.counters.blob_store_put_errors,
+            self.inner.put(uri, data, options),
+        )
+        .await
+    }
+
     /// Stream a blob's contents.
     pub async fn get_stream(
         &self,

@@ -1972,10 +1972,6 @@ pub struct Container {
     #[builder(default)]
     #[serde(default)]
     pub pool_id: Option<ContainerPoolId>,
-    /// Snapshot ID to restore from (if creating from a snapshot)
-    #[builder(default)]
-    #[serde(default)]
-    pub snapshot_id: Option<String>,
     /// Snapshot URI to restore from (e.g. "s3://bucket/snap.tar.zst")
     #[builder(default)]
     #[serde(default)]

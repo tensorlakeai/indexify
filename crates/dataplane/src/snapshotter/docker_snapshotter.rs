@@ -1,14 +1,9 @@
 //! Docker-based snapshotter using `docker export` + zstd + blob store.
 //!
-//! **Snapshot**: docker export → streaming zstd compress → blob store multipart
-//! upload
-//! **Restore**: blob store download → zstd decompress → docker import → local
-//! image
+//! **Snapshot**: docker export → streaming zstd compress → blob store put
+//! **Restore**: blob store streaming download → zstd decompress → docker import
 //!
-//! The snapshot pipeline is fully streaming: `docker export` chunks are fed
-//! into a zstd encoder, and compressed output is uploaded in 100 MB parts as
-//! soon as each part fills up. Peak memory usage is bounded to
-//! ~UPLOAD_CHUNK_SIZE regardless of container filesystem size.
+//! Both pipelines are fully streaming with bounded memory usage.
 
 use std::{io::Write, sync::Arc, time::Duration};
 
@@ -17,46 +12,42 @@ use async_trait::async_trait;
 use bollard::{
     Docker,
     body_full,
-    query_parameters::{ImportImageOptions, RemoveImageOptions, TagImageOptions},
+    query_parameters::{CreateImageOptionsBuilder, RemoveImageOptions},
 };
 use bytes::Bytes;
 use futures_util::StreamExt;
-use tracing::{debug, info, warn};
+use indexify_blob_store::PutOptions;
+use tracing::{debug, info};
 
 use super::{RestoreResult, SnapshotResult, Snapshotter};
 use crate::{blob_ops::BlobStore, metrics::DataplaneMetrics};
 
-/// Chunk size for multipart upload (100 MB).
-const UPLOAD_CHUNK_SIZE: usize = 100 * 1024 * 1024;
-
-/// Timeout for individual part uploads.
-const UPLOAD_PART_TIMEOUT: Duration = Duration::from_secs(300);
+/// Size of compressed chunks yielded to `blob_store.put()`.
+///
+/// Docker export sends small chunks (~32-64 KB). We accumulate compressed
+/// output until it reaches this size before yielding, keeping the number of
+/// blob store parts manageable for large snapshots.
+const COMPRESSED_CHUNK_SIZE: usize = 100 * 1024 * 1024;
 
 /// Timeout for the entire docker export + compress + upload pipeline.
 /// Prevents indefinite hangs if docker export stalls.
 const SNAPSHOT_TOTAL_TIMEOUT: Duration = Duration::from_secs(3600);
 
-/// Docker-based snapshotter using `docker export` + zstd + S3.
+/// Docker-based snapshotter using `docker export` + zstd + blob store.
 ///
-/// Snapshot: docker export → zstd compress → S3 multipart upload (streaming)
-/// Restore:  S3 download → zstd decompress → docker import → local image
+/// Snapshot: docker export → zstd compress → blob store put (streaming)
+/// Restore:  blob store streaming download → zstd decompress → docker import
 pub struct DockerSnapshotter {
     docker: Docker,
     blob_store: BlobStore,
-    http_client: reqwest::Client,
     _metrics: Arc<DataplaneMetrics>,
 }
 
 impl DockerSnapshotter {
     pub fn new(docker: Docker, blob_store: BlobStore, metrics: Arc<DataplaneMetrics>) -> Self {
-        let http_client = reqwest::Client::builder()
-            .timeout(UPLOAD_PART_TIMEOUT)
-            .build()
-            .expect("Failed to build HTTP client for snapshot uploads");
         Self {
             docker,
             blob_store,
-            http_client,
             _metrics: metrics,
         }
     }
@@ -77,101 +68,75 @@ impl Snapshotter for DockerSnapshotter {
             "Starting streaming snapshot creation"
         );
 
-        // Create the multipart upload first so we have an upload_id.
-        let handle = self
-            .blob_store
-            .create_multipart_upload(upload_uri)
-            .await
-            .context("Failed to create multipart upload")?;
+        // Build a stream that yields compressed chunks from docker export.
+        // The blob store's put() handles multipart upload, local FS writes,
+        // retries, and cleanup internally.
+        let compressed_stream = self.build_compressed_export_stream(container_id);
 
-        // Stream docker export → zstd compress → multipart upload.
-        // On failure, abort the multipart upload to clean up S3 resources.
-        // Wrap the entire pipeline in a timeout to prevent indefinite hangs.
-        let stream_result = match tokio::time::timeout(
+        let result = match tokio::time::timeout(
             SNAPSHOT_TOTAL_TIMEOUT,
-            self.stream_export_compress_upload(container_id, upload_uri, &handle.upload_id),
+            self.blob_store
+                .put(upload_uri, compressed_stream, PutOptions::default()),
         )
         .await
         {
-            Ok(result) => result,
-            Err(_) => Err(anyhow::anyhow!(
-                "Snapshot export+upload timed out after {}s",
-                SNAPSHOT_TOTAL_TIMEOUT.as_secs()
-            )),
+            Ok(result) => result.context("Snapshot upload failed")?,
+            Err(_) => {
+                anyhow::bail!(
+                    "Snapshot export+upload timed out after {}s",
+                    SNAPSHOT_TOTAL_TIMEOUT.as_secs()
+                );
+            }
         };
 
-        match stream_result {
-            Ok((compressed_size, etags)) => {
-                self.blob_store
-                    .complete_multipart_upload(upload_uri, &handle.upload_id, &etags)
-                    .await
-                    .context("Failed to complete multipart upload")?;
+        info!(
+            container_id = %container_id,
+            snapshot_id = %snapshot_id,
+            upload_uri = %upload_uri,
+            size_bytes = result.size_bytes,
+            "Snapshot upload completed"
+        );
 
-                info!(
-                    container_id = %container_id,
-                    snapshot_id = %snapshot_id,
-                    upload_uri = %upload_uri,
-                    size_bytes = compressed_size,
-                    parts = etags.len(),
-                    "Snapshot upload completed"
-                );
-
-                Ok(SnapshotResult {
-                    snapshot_uri: upload_uri.to_string(),
-                    size_bytes: compressed_size,
-                })
-            }
-            Err(e) => {
-                warn!(
-                    upload_uri = %upload_uri,
-                    error = %e,
-                    "Snapshot stream failed, aborting multipart upload"
-                );
-                if let Err(abort_err) = self
-                    .blob_store
-                    .abort_multipart_upload(upload_uri, &handle.upload_id)
-                    .await
-                {
-                    warn!(
-                        upload_uri = %upload_uri,
-                        error = %abort_err,
-                        "Failed to abort multipart upload after failure"
-                    );
-                }
-                Err(e).context("Snapshot creation failed")
-            }
-        }
+        Ok(SnapshotResult {
+            snapshot_uri: upload_uri.to_string(),
+            size_bytes: result.size_bytes,
+        })
     }
 
-    async fn restore_snapshot(
-        &self,
-        snapshot_uri: &str,
-        snapshot_id: &str,
-    ) -> Result<RestoreResult> {
+    async fn restore_snapshot(&self, snapshot_uri: &str) -> Result<RestoreResult> {
+        let tag = snapshot_tag_from_uri(snapshot_uri);
         info!(
             snapshot_uri = %snapshot_uri,
-            snapshot_id = %snapshot_id,
+            tag = %tag,
             "Starting snapshot restore"
         );
 
-        // Step 1: Download compressed snapshot
-        let compressed = self
+        // Stream download from blob store → decompress → docker import.
+        let compressed_stream = self
             .blob_store
-            .get(snapshot_uri)
+            .get_stream(snapshot_uri)
             .await
-            .context("Failed to download snapshot")?;
+            .context("Failed to open snapshot stream")?;
+
+        // Collect the compressed data. We need the full blob in memory for
+        // zstd::decode_all, but streaming download avoids a second copy vs get().
+        let mut compressed = Vec::new();
+        futures_util::pin_mut!(compressed_stream);
+        while let Some(chunk) = compressed_stream.next().await {
+            let chunk = chunk.context("Failed to read snapshot stream")?;
+            compressed.extend_from_slice(&chunk);
+        }
 
         info!(
-            snapshot_id = %snapshot_id,
+            snapshot_uri = %snapshot_uri,
             compressed_size = compressed.len(),
             "Downloaded snapshot, decompressing"
         );
 
-        // Step 2: Decompress in a blocking thread. Move `compressed` into the
-        // closure so it is dropped as soon as `decode_all` finishes, avoiding
-        // holding both compressed and decompressed data simultaneously.
+        // Decompress in a blocking thread. Move `compressed` into the closure
+        // so it is dropped as soon as `decode_all` finishes.
         let decompressed = tokio::task::spawn_blocking(move || {
-            zstd::decode_all(compressed.as_ref())
+            zstd::decode_all(compressed.as_slice())
             // `compressed` is dropped here after decode_all consumes it
         })
         .await
@@ -179,30 +144,31 @@ impl Snapshotter for DockerSnapshotter {
         .context("Failed to decompress snapshot")?;
 
         info!(
-            snapshot_id = %snapshot_id,
+            snapshot_uri = %snapshot_uri,
             decompressed_size = decompressed.len(),
             "Decompressed snapshot, importing to Docker"
         );
 
-        // Step 3: Import into Docker
-        let image_tag = format!("indexify-snapshot:{}", snapshot_id);
+        // Import into Docker using `POST /images/create?fromSrc=-`
+        // (the `docker import` API). Note: bollard's `import_image` maps to
+        // `docker load` (`/images/load`), which expects Docker image format —
+        // not the raw filesystem tar from `docker export`.
+        let image_tag = format!("indexify-snapshot:{}", tag);
 
-        let options = ImportImageOptions {
-            quiet: true,
-            ..Default::default()
-        };
+        let options = CreateImageOptionsBuilder::default()
+            .from_src("-")
+            .repo(&image_tag)
+            .build();
 
         let body = body_full(Bytes::from(decompressed));
-        let mut import_stream = self.docker.import_image(options, body, None);
+        let mut import_stream = self.docker.create_image(Some(options), Some(body), None);
 
         let mut imported_id = None;
         while let Some(result) = import_stream.next().await {
             match result {
                 Ok(info) => {
                     debug!(status = ?info.status, "Docker import progress");
-                    if let Some(status) = &info.status &&
-                        status.starts_with("sha256:")
-                    {
+                    if let Some(ref status) = info.status {
                         imported_id = Some(status.clone());
                     }
                 }
@@ -212,32 +178,20 @@ impl Snapshotter for DockerSnapshotter {
             }
         }
 
-        // Ensure we got a valid image ID from the import
-        let imported_id = imported_id.ok_or_else(|| {
-            anyhow::anyhow!("Docker import completed but no image ID (sha256:...) was returned")
-        })?;
-
-        // Tag the imported image so we can reference it by name
-        let tag_options = TagImageOptions {
-            repo: Some("indexify-snapshot".to_string()),
-            tag: Some(snapshot_id.to_string()),
-        };
-        self.docker
-            .tag_image(&imported_id, Some(tag_options))
-            .await
-            .context("Failed to tag imported snapshot image")?;
-
+        let imported_id = imported_id.unwrap_or_default();
         info!(
-            snapshot_id = %snapshot_id,
+            snapshot_uri = %snapshot_uri,
             image_tag = %image_tag,
+            imported_id = %imported_id,
             "Snapshot restored as Docker image"
         );
 
         Ok(RestoreResult { image: image_tag })
     }
 
-    async fn cleanup_local(&self, snapshot_id: &str) -> Result<()> {
-        let image_tag = format!("indexify-snapshot:{}", snapshot_id);
+    async fn cleanup_local(&self, snapshot_uri: &str) -> Result<()> {
+        let tag = snapshot_tag_from_uri(snapshot_uri);
+        let image_tag = format!("indexify-snapshot:{}", tag);
         if let Err(e) = self
             .docker
             .remove_image(&image_tag, None::<RemoveImageOptions>, None)
@@ -254,34 +208,53 @@ impl Snapshotter for DockerSnapshotter {
 }
 
 impl DockerSnapshotter {
-    /// Stream docker export → zstd compress → multipart upload.
+    /// Build an async stream that yields zstd-compressed chunks from a docker
+    /// export.
     ///
-    /// Memory usage is bounded to ~UPLOAD_CHUNK_SIZE: each docker export chunk
-    /// is fed into a zstd streaming encoder, and once the compressed output
-    /// buffer exceeds UPLOAD_CHUNK_SIZE it is uploaded as a multipart part and
-    /// the buffer is reused.
+    /// Docker export chunks (~32-64 KB) are fed into a synchronous zstd
+    /// encoder. Compressed output is accumulated and yielded in
+    /// ~COMPRESSED_CHUNK_SIZE pieces. The blob store's `put()` then handles
+    /// uploading these chunks via its multipart upload logic.
     ///
-    /// Returns `(total_compressed_bytes, etags)`.
-    async fn stream_export_compress_upload(
+    /// Memory usage is bounded to ~COMPRESSED_CHUNK_SIZE regardless of
+    /// container filesystem size.
+    fn build_compressed_export_stream(
         &self,
         container_id: &str,
-        upload_uri: &str,
-        upload_id: &str,
-    ) -> Result<(u64, Vec<String>)> {
+    ) -> impl futures_util::Stream<Item = Result<Bytes>> + Send + Unpin {
+        let (tx, rx) = tokio::sync::mpsc::channel::<Result<Bytes>>(4);
+        let docker = self.docker.clone();
+        let container_id = container_id.to_string();
+
+        tokio::spawn(async move {
+            let result = Self::run_export_compress_pipeline(&docker, &container_id, &tx).await;
+            if let Err(e) = result {
+                // Send the error downstream so blob_store.put() sees it.
+                let _ = tx.send(Err(e)).await;
+            }
+        });
+
+        tokio_stream::wrappers::ReceiverStream::new(rx)
+    }
+
+    /// The actual export → compress → send pipeline running in a spawned task.
+    async fn run_export_compress_pipeline(
+        docker: &Docker,
+        container_id: &str,
+        tx: &tokio::sync::mpsc::Sender<Result<Bytes>>,
+    ) -> Result<()> {
         // zstd level 3 is a good balance of speed and compression.
-        // Pre-allocate the output buffer slightly over UPLOAD_CHUNK_SIZE so
-        // we don't reallocate on every part boundary.
-        let mut encoder =
-            zstd::stream::Encoder::new(Vec::with_capacity(UPLOAD_CHUNK_SIZE + 4 * 1024 * 1024), 3)
-                .context("Failed to create zstd encoder")?;
+        // Pre-allocate the output buffer slightly over COMPRESSED_CHUNK_SIZE
+        // to avoid reallocating on every chunk boundary.
+        let mut encoder = zstd::stream::Encoder::new(
+            Vec::with_capacity(COMPRESSED_CHUNK_SIZE + 4 * 1024 * 1024),
+            3,
+        )
+        .context("Failed to create zstd encoder")?;
 
-        let mut etags = Vec::new();
-        let mut part_number = 1i32;
-        let mut total_compressed = 0u64;
         let mut total_raw = 0u64;
-
-        // Stream docker export chunks directly into the zstd encoder.
-        let mut export_stream = self.docker.export_container(container_id);
+        let mut total_compressed = 0u64;
+        let mut export_stream = docker.export_container(container_id);
 
         while let Some(chunk_result) = export_stream.next().await {
             let chunk = chunk_result.context("Failed to read docker export stream")?;
@@ -294,124 +267,46 @@ impl DockerSnapshotter {
                 .write_all(&chunk)
                 .context("zstd compression write failed")?;
 
-            // When the compressed output buffer exceeds the upload chunk size,
-            // drain it and upload as a multipart part.
-            if encoder.get_ref().len() >= UPLOAD_CHUNK_SIZE {
+            // When the compressed buffer is large enough, yield it downstream.
+            if encoder.get_ref().len() >= COMPRESSED_CHUNK_SIZE {
                 let data = std::mem::take(encoder.get_mut());
                 total_compressed += data.len() as u64;
-
-                let etag = self
-                    .upload_single_part(upload_uri, upload_id, part_number, Bytes::from(data))
-                    .await?;
-                etags.push(etag);
-                part_number += 1;
+                tx.send(Ok(Bytes::from(data)))
+                    .await
+                    .map_err(|_| anyhow::anyhow!("Blob store consumer dropped"))?;
             }
         }
 
-        // Finish the zstd frame and upload the remaining compressed data.
+        // Finish the zstd frame and send any remaining compressed data.
         let remaining = encoder.finish().context("Failed to finish zstd encoder")?;
-        if !remaining.is_empty() || etags.is_empty() {
+        if !remaining.is_empty() {
             total_compressed += remaining.len() as u64;
-            let etag = self
-                .upload_single_part(upload_uri, upload_id, part_number, Bytes::from(remaining))
-                .await?;
-            etags.push(etag);
+            tx.send(Ok(Bytes::from(remaining)))
+                .await
+                .map_err(|_| anyhow::anyhow!("Blob store consumer dropped"))?;
         }
 
         info!(
             container_id = %container_id,
             raw_size = total_raw,
             compressed_size = total_compressed,
-            parts = etags.len(),
-            "Streaming export+compress+upload complete"
+            "Streaming export+compress complete"
         );
 
-        Ok((total_compressed, etags))
+        Ok(())
     }
+}
 
-    /// Upload a single part of a multipart upload with retry.
-    ///
-    /// Retries up to 3 times with exponential backoff (1s, 2s, 4s) on
-    /// transient failures (network errors, 5xx responses).
-    async fn upload_single_part(
-        &self,
-        upload_uri: &str,
-        upload_id: &str,
-        part_number: i32,
-        data: Bytes,
-    ) -> Result<String> {
-        const MAX_RETRIES: u32 = 3;
-
-        let presigned_url = self
-            .blob_store
-            .presign_upload_part_uri(upload_uri, part_number, upload_id)
-            .await
-            .context("Failed to presign upload part")?;
-
-        let chunk_size = data.len();
-        let mut last_err = None;
-
-        for attempt in 0..=MAX_RETRIES {
-            if attempt > 0 {
-                let delay = Duration::from_secs(1 << (attempt - 1));
-                warn!(
-                    part_number,
-                    attempt,
-                    delay_secs = delay.as_secs(),
-                    "Retrying upload part after failure"
-                );
-                tokio::time::sleep(delay).await;
-            }
-
-            match self
-                .http_client
-                .put(&presigned_url)
-                .body(data.clone())
-                .send()
-                .await
-            {
-                Ok(resp) => {
-                    if resp.status().is_server_error() {
-                        let status = resp.status();
-                        last_err = Some(anyhow::anyhow!(
-                            "Upload part {} returned server error: {}",
-                            part_number,
-                            status
-                        ));
-                        continue;
-                    }
-
-                    let etag = resp
-                        .headers()
-                        .get("etag")
-                        .and_then(|v| v.to_str().ok())
-                        .filter(|s| !s.is_empty())
-                        .ok_or_else(|| {
-                            anyhow::anyhow!(
-                                "Missing or empty ETag header in upload part {} response",
-                                part_number
-                            )
-                        })?
-                        .to_string();
-
-                    debug!(
-                        part_number,
-                        chunk_size,
-                        etag = %etag,
-                        "Uploaded part"
-                    );
-
-                    return Ok(etag);
-                }
-                Err(e) => {
-                    last_err = Some(
-                        anyhow::Error::from(e)
-                            .context(format!("Failed to upload part {}", part_number)),
-                    );
-                }
-            }
-        }
-
-        Err(last_err.unwrap())
-    }
+/// Derive a Docker image tag from a snapshot URI.
+///
+/// The URI format is `{base}/snapshots/{namespace}/{snapshot_id}.tar.zst`.
+/// This extracts the filename stem (e.g. `abc123` from `.../abc123.tar.zst`).
+/// Falls back to a sanitized version of the full URI if parsing fails.
+fn snapshot_tag_from_uri(uri: &str) -> String {
+    uri.rsplit('/')
+        .next()
+        .and_then(|filename| filename.split('.').next())
+        .filter(|s| !s.is_empty())
+        .unwrap_or("unknown")
+        .to_string()
 }

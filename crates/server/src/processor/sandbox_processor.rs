@@ -147,8 +147,20 @@ impl SandboxProcessor {
             // Fall through to create on-demand
         }
 
+        // Resolve snapshot URI if the sandbox was created from a snapshot
+        let snapshot_uri = sandbox.snapshot_id.as_ref().and_then(|snap_id| {
+            let key = crate::data_model::SnapshotKey::new(
+                &sandbox.namespace,
+                snap_id.get(),
+            );
+            in_memory_state
+                .snapshots
+                .get(&key)
+                .and_then(|s| s.snapshot_uri.clone())
+        });
+
         // Try to create a container for the sandbox using consolidated method
-        match container_scheduler.create_container_for_sandbox(sandbox) {
+        match container_scheduler.create_container_for_sandbox(sandbox, snapshot_uri.as_deref()) {
             Ok(Some(container_update)) => {
                 // Find the newly placed container, skipping any vacuum-marked
                 // containers that have Terminated desired state.

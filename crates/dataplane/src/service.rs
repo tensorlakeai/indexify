@@ -134,56 +134,45 @@ impl Service {
                 .context("Failed to initialize state file")?,
         );
 
-        // Create snapshotter if snapshot_storage_uri is configured and driver is Docker
-        let snapshotter: Option<Arc<dyn Snapshotter>> = if let Some(ref uri) =
-            config.snapshot_storage_uri
-        {
-            match &config.driver {
-                DriverConfig::Docker { address, .. } => {
-                    let snapshot_blob_store = BlobStore::from_uri(uri, metrics.clone())
+        // Create snapshotter for Docker driver. The server provides full
+        // upload/download URIs per-request, so the dataplane only needs a blob
+        // store client that matches the URI scheme. When snapshot_storage_uri is
+        // configured, use that to pick the backend; otherwise default to local FS.
+        let snapshotter: Option<Arc<dyn Snapshotter>> = match &config.driver {
+            DriverConfig::Docker { address, .. } => {
+                let snapshot_blob_store = if let Some(ref uri) = config.snapshot_storage_uri {
+                    BlobStore::from_uri(uri, metrics.clone())
                         .await
-                        .context("Failed to create snapshot blob store")?;
-                    // Create a Docker client from the same address as the driver
-                    let docker = match address {
-                        Some(addr) => {
-                            if addr.starts_with("http://") || addr.starts_with("tcp://") {
-                                bollard::Docker::connect_with_http_defaults()
-                            } else {
-                                bollard::Docker::connect_with_unix(
-                                    addr,
-                                    120,
-                                    bollard::API_DEFAULT_VERSION,
-                                )
-                            }
+                        .context("Failed to create snapshot blob store")?
+                } else {
+                    BlobStore::new_local(metrics.clone())
+                };
+                let docker = match address {
+                    Some(addr) => {
+                        if addr.starts_with("http://") || addr.starts_with("tcp://") {
+                            bollard::Docker::connect_with_http_defaults()
+                        } else {
+                            bollard::Docker::connect_with_unix(
+                                addr,
+                                120,
+                                bollard::API_DEFAULT_VERSION,
+                            )
                         }
-                        None => bollard::Docker::connect_with_local_defaults(),
                     }
-                    .context("Failed to connect to Docker for snapshotter")?;
-                    Some(Arc::new(
-                        crate::snapshotter::docker_snapshotter::DockerSnapshotter::new(
-                            docker,
-                            snapshot_blob_store,
-                            metrics.clone(),
-                        ),
-                    ))
+                    None => bollard::Docker::connect_with_local_defaults(),
                 }
-                _ => {
-                    tracing::warn!(
-                        "snapshot_storage_uri is set but driver is not Docker; snapshots disabled"
-                    );
-                    None
-                }
+                .context("Failed to connect to Docker for snapshotter")?;
+                tracing::info!("Snapshotter enabled (Docker driver)");
+                Some(Arc::new(
+                    crate::snapshotter::docker_snapshotter::DockerSnapshotter::new(
+                        docker,
+                        snapshot_blob_store,
+                        metrics.clone(),
+                    ),
+                ))
             }
-        } else {
-            None
+            _ => None,
         };
-
-        if snapshotter.is_some() {
-            tracing::info!(
-                uri = ?config.snapshot_storage_uri,
-                "Snapshotter enabled"
-            );
-        }
 
         let container_manager = Arc::new(FunctionContainerManager::new(
             driver.clone(),

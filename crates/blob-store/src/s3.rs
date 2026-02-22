@@ -11,8 +11,12 @@ use tracing::debug;
 
 use crate::{BlobMetadata, MultipartUploadHandle, PutOptions, PutResult};
 
-/// Minimum part size for S3 multipart uploads (5 MB).
-const MIN_PART_SIZE: usize = 5 * 1024 * 1024;
+/// Part size for S3 multipart uploads (100 MB).
+///
+/// S3 requires a minimum of 5 MB per part, but larger parts reduce the number
+/// of API calls and improve throughput for big uploads (e.g. a 10 GB snapshot
+/// is 100 parts at 100 MB vs 2,000 parts at 5 MB).
+const PART_SIZE: usize = 100 * 1024 * 1024;
 
 pub(crate) async fn get(client: &S3Client, bucket: &str, key: &str) -> Result<Bytes> {
     let resp = client
@@ -128,7 +132,7 @@ async fn put_parts(
         }
         buffer.extend_from_slice(&chunk);
 
-        if buffer.len() >= MIN_PART_SIZE {
+        if buffer.len() >= PART_SIZE {
             let part_data = Bytes::from(std::mem::take(&mut buffer));
             let resp = client
                 .upload_part()

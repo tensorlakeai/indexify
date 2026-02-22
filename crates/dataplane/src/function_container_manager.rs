@@ -1326,7 +1326,6 @@ mod tests {
             entrypoint: vec![],
             network_policy: None,
             sandbox_id: None,
-            snapshot_id: None,
             snapshot_uri: None,
         });
         desc

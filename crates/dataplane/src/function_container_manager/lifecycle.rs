@@ -51,12 +51,6 @@ pub(super) async fn start_container_with_daemon(
 
     let image = if let Some(ref uri) = snapshot_uri {
         // Restore from snapshot — download, decompress, import as Docker image
-        let snapshot_id = desc
-            .sandbox_metadata
-            .as_ref()
-            .and_then(|m| m.snapshot_id.clone())
-            .unwrap_or_else(|| "unknown".to_string());
-
         let snapshotter = snapshotter.as_ref().ok_or_else(|| {
             anyhow::anyhow!("Snapshot restore requested but snapshotter not configured")
         })?;
@@ -64,11 +58,10 @@ pub(super) async fn start_container_with_daemon(
         tracing::info!(
             container_id = %info.container_id,
             snapshot_uri = %uri,
-            snapshot_id = %snapshot_id,
             "Restoring container from snapshot"
         );
 
-        let restore_result = snapshotter.restore_snapshot(uri, &snapshot_id).await?;
+        let restore_result = snapshotter.restore_snapshot(uri).await?;
         restore_result.image
     } else if let Some(ref meta) = desc.sandbox_metadata &&
         let Some(ref img) = meta.image

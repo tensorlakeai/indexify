@@ -50,17 +50,13 @@ pub trait Snapshotter: Send + Sync {
     ///
     /// Returns a `RestoreResult` with the image/path to use when creating the
     /// container.
-    async fn restore_snapshot(
-        &self,
-        snapshot_uri: &str,
-        snapshot_id: &str,
-    ) -> Result<RestoreResult>;
+    async fn restore_snapshot(&self, snapshot_uri: &str) -> Result<RestoreResult>;
 
     /// Delete a snapshot's local artifacts (cached images, temp files).
     /// The blob store cleanup (S3 deletion) is handled separately by the
     /// server.
-    async fn cleanup_local(&self, snapshot_id: &str) -> Result<()> {
-        let _ = snapshot_id;
+    async fn cleanup_local(&self, snapshot_uri: &str) -> Result<()> {
+        let _ = snapshot_uri;
         Ok(())
     }
 }

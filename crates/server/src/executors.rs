@@ -472,7 +472,6 @@ impl ExecutorManager {
                 sandbox_timeout_secs: fe.timeout_secs,
                 entrypoint: fe.entrypoint.clone(),
                 network_policy: fe.network_policy.clone(),
-                snapshot_id: fe.snapshot_id.clone(),
                 snapshot_uri: fe.snapshot_uri.clone(),
             };
 
@@ -566,7 +565,6 @@ impl ExecutorManager {
                     entrypoint: desired_state_fe.entrypoint.clone(),
                     network_policy: network_policy_pb,
                     sandbox_id: fe.sandbox_id.as_ref().map(|s| s.get().to_string()),
-                    snapshot_id: desired_state_fe.snapshot_id.clone(),
                     snapshot_uri: desired_state_fe.snapshot_uri.clone(),
                 })
             } else {

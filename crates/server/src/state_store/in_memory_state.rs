@@ -163,7 +163,6 @@ pub struct DesiredStateFunctionExecutor {
     pub sandbox_timeout_secs: u64,
     pub entrypoint: Vec<String>,
     pub network_policy: Option<NetworkPolicy>,
-    pub snapshot_id: Option<String>,
     pub snapshot_uri: Option<String>,
 }
 
