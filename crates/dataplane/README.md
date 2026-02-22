@@ -125,10 +125,21 @@ telemetry:
 
 # Process driver configuration
 driver:
-  # Options: "fork_exec" (default) or "docker"
+  # Options: "fork_exec" (default), "docker", or "firecracker"
   type: docker
   # Docker daemon address (optional, uses default socket if not specified)
   # address: "unix:///var/run/docker.sock"
+
+  # Firecracker driver (requires --features firecracker):
+  # type: firecracker
+  # kernel_image_path: /opt/firecracker/vmlinux
+  # base_rootfs_image: /opt/firecracker/rootfs.ext4
+  # cni_network_name: indexify-fc
+  # guest_gateway: "192.168.30.1"
+
+# Snapshot storage URI for container filesystem snapshots (optional).
+# Enables snapshot/restore for Docker (docker export) and Firecracker (COW file).
+# snapshot_storage_uri: "s3://my-bucket/snapshots"
 
 # HTTP proxy for sandbox routing
 # Receives requests from sandbox-proxy with Tensorlake-Sandbox-Id header

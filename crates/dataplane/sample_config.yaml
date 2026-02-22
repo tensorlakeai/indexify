@@ -33,7 +33,7 @@ telemetry:
   # instance_id: "dataplane-1"
 
 # Process driver configuration
-# Options: "fork_exec" (default) or "docker"
+# Options: "fork_exec" (default), "docker", or "firecracker"
 driver:
   type: docker
   # For docker driver:
@@ -43,6 +43,29 @@ driver:
   # network: bridge    # Docker network mode
   # binds:             # Volume bind mounts for containers
   #   - "/host/path:/container/path:ro"
+
+  # For firecracker driver (requires --features firecracker):
+  # type: firecracker
+  # kernel_image_path: /opt/firecracker/vmlinux           # Path to uncompressed Linux kernel
+  # base_rootfs_image: /opt/firecracker/rootfs.ext4       # Path to base ext4 rootfs image
+  # cni_network_name: indexify-fc                         # CNI network name (must match conflist)
+  # guest_gateway: "192.168.30.1"                         # Gateway IP for guest networking
+  # firecracker_binary: firecracker                       # Path to firecracker binary (default: PATH lookup)
+  # default_rootfs_size_bytes: 1073741824                 # Per-VM COW file size (default: 1 GiB)
+  # cni_bin_path: /opt/cni/bin                            # CNI plugin binaries directory
+  # guest_netmask: "255.255.255.0"                        # Guest network mask
+  # default_vcpu_count: 2                                 # vCPUs per VM
+  # default_memory_mib: 512                               # Memory per VM in MiB
+  # state_dir: /var/lib/indexify/firecracker              # VM metadata, sockets, COW overlays
+  # log_dir: /var/log/indexify/firecracker                # VM log directory
+
+# Snapshot storage URI for container filesystem snapshots.
+# Enables snapshot create/restore for both Docker and Firecracker drivers.
+# For Docker: exports container filesystem → zstd → blob store
+# For Firecracker: reads dm-snapshot COW file → zstd → blob store
+# Examples:
+#   snapshot_storage_uri: "s3://my-bucket/snapshots"
+#   snapshot_storage_uri: "file:///var/data/snapshots"
 
 # Default container image for function containers.
 # Used as a fallback when no external image resolution service is configured.
