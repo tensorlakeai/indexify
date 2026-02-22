@@ -85,7 +85,9 @@ def wait_for_sandbox_running(namespace, sandbox_id, timeout=60):
         if info["status"] == "terminated":
             raise RuntimeError(f"Sandbox {sandbox_id} terminated unexpectedly: {info}")
         time.sleep(1)
-    raise TimeoutError(f"Sandbox {sandbox_id} did not reach running status within {timeout}s")
+    raise TimeoutError(
+        f"Sandbox {sandbox_id} did not reach running status within {timeout}s"
+    )
 
 
 def wait_for_snapshot_completed(namespace, snapshot_id, timeout=120):
@@ -96,7 +98,9 @@ def wait_for_snapshot_completed(namespace, snapshot_id, timeout=120):
         if info["status"] == "completed":
             return info
         if info["status"] == "failed":
-            raise RuntimeError(f"Snapshot {snapshot_id} failed: {info.get('error', 'unknown')}")
+            raise RuntimeError(
+                f"Snapshot {snapshot_id} failed: {info.get('error', 'unknown')}"
+            )
         time.sleep(2)
     raise TimeoutError(f"Snapshot {snapshot_id} did not complete within {timeout}s")
 
@@ -146,9 +150,13 @@ class TestSnapshotLifecycle(unittest.TestCase):
 
     def test_snapshot_create_and_restore(self):
         # ── 1. Create a sandbox ──────────────────────────────────────────
-        resp = api_request("POST", f"/v1/namespaces/{NAMESPACE}/sandboxes", body={
-            "resources": {"cpus": 0.1, "memory_mb": 256},
-        })
+        resp = api_request(
+            "POST",
+            f"/v1/namespaces/{NAMESPACE}/sandboxes",
+            body={
+                "resources": {"cpus": 0.1, "memory_mb": 256},
+            },
+        )
         sandbox_id = resp["sandbox_id"]
         self.sandbox_ids.append(sandbox_id)
         print(f"Created sandbox: {sandbox_id}")
@@ -176,7 +184,9 @@ class TestSnapshotLifecycle(unittest.TestCase):
             sandbox_id,
             f"/api/v1/files?path={MARKER_PATH}",
         )
-        self.assertIn(MARKER_CONTENT, content, "Marker file content mismatch before snapshot")
+        self.assertIn(
+            MARKER_CONTENT, content, "Marker file content mismatch before snapshot"
+        )
         print("Verified marker file before snapshot")
 
         # ── 4. Snapshot the sandbox ──────────────────────────────────────
@@ -191,20 +201,33 @@ class TestSnapshotLifecycle(unittest.TestCase):
 
         # ── 5. Wait for snapshot completion ──────────────────────────────
         snap_info = wait_for_snapshot_completed(NAMESPACE, snapshot_id)
-        self.assertIsNotNone(snap_info.get("size_bytes"), "Snapshot should have size_bytes")
-        self.assertGreater(snap_info["size_bytes"], 0, "Snapshot should have non-zero size")
+        self.assertIsNotNone(
+            snap_info.get("size_bytes"), "Snapshot should have size_bytes"
+        )
+        self.assertGreater(
+            snap_info["size_bytes"], 0, "Snapshot should have non-zero size"
+        )
         print(f"Snapshot completed: {snap_info.get('size_bytes', 0)} bytes")
 
         # The original sandbox should be auto-terminated after snapshot.
-        orig_info = api_request("GET", f"/v1/namespaces/{NAMESPACE}/sandboxes/{sandbox_id}")
-        self.assertEqual(orig_info["status"], "terminated",
-                         "Original sandbox should be terminated after snapshot")
+        orig_info = api_request(
+            "GET", f"/v1/namespaces/{NAMESPACE}/sandboxes/{sandbox_id}"
+        )
+        self.assertEqual(
+            orig_info["status"],
+            "terminated",
+            "Original sandbox should be terminated after snapshot",
+        )
         print("Original sandbox terminated after snapshot")
 
         # ── 6. Create a new sandbox from the snapshot ────────────────────
-        restore_resp = api_request("POST", f"/v1/namespaces/{NAMESPACE}/sandboxes", body={
-            "snapshot_id": snapshot_id,
-        })
+        restore_resp = api_request(
+            "POST",
+            f"/v1/namespaces/{NAMESPACE}/sandboxes",
+            body={
+                "snapshot_id": snapshot_id,
+            },
+        )
         restored_sandbox_id = restore_resp["sandbox_id"]
         self.sandbox_ids.append(restored_sandbox_id)
         print(f"Created restored sandbox: {restored_sandbox_id}")

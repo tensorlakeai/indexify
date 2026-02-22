@@ -149,10 +149,7 @@ impl SandboxProcessor {
 
         // Resolve snapshot URI if the sandbox was created from a snapshot
         let snapshot_uri = sandbox.snapshot_id.as_ref().and_then(|snap_id| {
-            let key = crate::data_model::SnapshotKey::new(
-                &sandbox.namespace,
-                snap_id.get(),
-            );
+            let key = crate::data_model::SnapshotKey::new(&sandbox.namespace, snap_id.get());
             in_memory_state
                 .snapshots
                 .get(&key)
