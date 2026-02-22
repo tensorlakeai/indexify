@@ -19,6 +19,7 @@ use bollard::{
         KillContainerOptions,
         RemoveContainerOptions,
         StartContainerOptions,
+        StopContainerOptionsBuilder,
     },
 };
 use futures_util::StreamExt;
@@ -601,6 +602,17 @@ impl ProcessDriver for DockerDriver {
             .await
             .context("Failed to send signal to container")?;
 
+        Ok(())
+    }
+
+    async fn stop(&self, handle: &ProcessHandle, timeout_secs: u64) -> Result<()> {
+        let options = StopContainerOptionsBuilder::default()
+            .t(timeout_secs as i32)
+            .build();
+        self.docker
+            .stop_container(&handle.id, Some(options))
+            .await
+            .context("Failed to stop container")?;
         Ok(())
     }
 

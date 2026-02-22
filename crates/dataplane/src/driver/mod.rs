@@ -92,6 +92,15 @@ pub trait ProcessDriver: Send + Sync {
     /// Send a signal to a process.
     async fn send_sig(&self, handle: &ProcessHandle, signal: i32) -> Result<()>;
 
+    /// Gracefully stop a process (SIGTERM + wait + SIGKILL).
+    /// Unlike `kill`, this waits for the process to exit cleanly, which
+    /// ensures gVisor flushes filesystem writes to the overlay before the
+    /// container is removed.
+    async fn stop(&self, handle: &ProcessHandle, _timeout_secs: u64) -> Result<()> {
+        // Default implementation: just kill
+        self.kill(handle).await
+    }
+
     /// Kill a process.
     async fn kill(&self, handle: &ProcessHandle) -> Result<()>;
 

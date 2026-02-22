@@ -562,7 +562,7 @@ impl FunctionContainerManager {
             }
         };
 
-        // Transition Running → Stopping and send stop signal.
+        // Transition Running → Stopping.
         // We do NOT call `initiate_stop` because it spawns
         // `spawn_grace_period_kill` which would race with `docker export`.
         let docker_handle_id = {
@@ -581,7 +581,7 @@ impl FunctionContainerManager {
                 return;
             };
 
-            let (handle, daemon_client) = match container
+            let (handle, _daemon_client) = match container
                 .transition_to_stopping(ContainerTerminationReason::FunctionCancelled)
             {
                 Ok((h, dc)) => (h, dc),
@@ -600,18 +600,9 @@ impl FunctionContainerManager {
                 }
             };
 
-            let span = container.info().tracing_span();
-            tracing::info!(
-                parent: &span,
-                event = "snapshot_stopping",
-                "Sending stop signal before snapshot"
-            );
-
-            send_stop_signal(&*self.driver, &handle, daemon_client, &span).await;
-
             if let Err(e) = self.state_file.remove(container_id).await {
                 tracing::warn!(
-                    parent: &span,
+                    container_id = %container_id,
                     error = %e,
                     "Failed to remove container from state file"
                 );
@@ -623,9 +614,30 @@ impl FunctionContainerManager {
             handle.id.clone()
         };
 
-        // Grace period for container processes to shut down.
-        const SNAPSHOT_SHUTDOWN_GRACE_SECS: u64 = 5;
-        tokio::time::sleep(Duration::from_secs(SNAPSHOT_SHUTDOWN_GRACE_SECS)).await;
+        // Stop the container via `docker stop` before exporting. This sends
+        // SIGTERM, waits for the process to exit, then SIGKILL if needed.
+        // Critically, stopping the container ensures the runtime (e.g. gVisor)
+        // flushes all filesystem writes to the overlay so `docker export`
+        // captures the complete state.
+        const SNAPSHOT_STOP_TIMEOUT_SECS: u64 = 10;
+        let stop_handle = ProcessHandle {
+            id: docker_handle_id.clone(),
+            daemon_addr: None,
+            http_addr: None,
+            container_ip: String::new(),
+        };
+        if let Err(e) = self
+            .driver
+            .stop(&stop_handle, SNAPSHOT_STOP_TIMEOUT_SECS)
+            .await
+        {
+            tracing::warn!(
+                container_id = %container_id,
+                docker_id = %docker_handle_id,
+                error = %e,
+                "Failed to stop container before snapshot, proceeding anyway"
+            );
+        }
 
         // Create the snapshot using the Docker container name.
         let snapshot_result = snapshotter
