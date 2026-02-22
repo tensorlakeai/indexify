@@ -219,7 +219,9 @@ pub async fn get_snapshot(
         .get_snapshot(&namespace, &snapshot_id)
         .await
         .map_err(IndexifyAPIError::internal_error)?
-        .ok_or_else(|| IndexifyAPIError::not_found("Snapshot not found"))?;
+        .ok_or_else(|| {
+            IndexifyAPIError::not_found(&format!("Snapshot not found: {snapshot_id}"))
+        })?;
 
     Ok(Json(SnapshotInfo::from_snapshot(&snapshot)))
 }

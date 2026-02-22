@@ -669,6 +669,14 @@ impl ApplicationProcessor {
                 );
                 scheduler_update.extend(alloc_result);
 
+                // Step 4: Schedule pending sandboxes.
+                // Container terminations in Step 1 free resources that may
+                // unblock sandboxes stuck in Pending/NoResourcesAvailable.
+                scheduler_update.extend(
+                    sandbox_processor
+                        .allocate_sandboxes(&mut indexes_guard, &mut container_scheduler_guard)?,
+                );
+
                 scheduler_update
             }
         };
