@@ -12,6 +12,7 @@ use crate::{
     driver::ProcessDriver,
     function_container_manager::ImageResolver,
     secrets::SecretsProvider,
+    state_file::StateFile,
 };
 
 /// Shared configuration for spawning function executor controllers.
@@ -36,6 +37,7 @@ pub struct FESpawnConfig {
     pub executor_id: String,
     pub fe_binary_path: String,
     pub metrics: Arc<crate::metrics::DataplaneMetrics>,
+    pub state_file: Arc<StateFile>,
 }
 
 /// Time an async phase, recording latency and adjusting in-progress/error

@@ -25,17 +25,17 @@ pin-project = "1.1.10"
 serde = { version = "1.0.228", features = ["derive"] }
 serde-inline-default = "1.0.1"
 serde_json = "1.0.149"
-serde-saphyr = "0.0.19"
+serde-saphyr = "0.0.20"
 postcard = { version = "1", features = ["alloc"] }
 axum = { version = "0.8.8", features = ["multipart", "macros", "tokio", "ws"] }
 axum-server = "0.8.0"
 tower-http = { version = "0.6.8", default-features = false, features = ["cors", "trace"] }
 hyper = { version = "1.8.1", features = ["client", "http1"] }
 tonic = { version = "0.14.4", features = ["transport", "tls-ring", "tls-native-roots"] }
-tonic-prost = "0.14.4"
-tonic-reflection = "0.14.4"
-tonic-types = "0.14.4"
-tonic-prost-build = "0.14.4"
+tonic-prost = "0.14.5"
+tonic-reflection = "0.14.5"
+tonic-types = "0.14.5"
+tonic-prost-build = "0.14.5"
 prost = "0.14.3"
 prost-types = "0.14.3"
 tracing = "0.1.44"
@@ -53,9 +53,9 @@ otlp-logs-exporter = { git = "https://github.com/tensorlakeai/otlp-logs-exporter
 utoipa = { version = "5.4.0", features = ["axum_extras", "yaml"] }
 utoipa-swagger-ui = { version = "9.0.2", features = ["axum"] }
 rocksdb = "0.24.0"
-anyhow = "1.0.101"
+anyhow = "1.0.102"
 thiserror = "2.0.18"
-clap = { version = "4.5.58", features = ["derive"] }
+clap = { version = "4.5.60", features = ["derive"] }
 sha2 = "0.10.9"
 base64 = "0.22.1"
 nanoid = "0.4.0"
@@ -67,7 +67,7 @@ rand = "0.10.0"
 rayon = "1.10.0"
 url = "2.5.8"
 chrono = { version = "0.4.43", features = ["serde"] }
-strum = { version = "0.27.2", features = ["derive"] }
+strum = { version = "0.28.0", features = ["derive"] }
 derive_builder = "0.20.2"
 rust-embed = { version = "8.11.0", features = ["mime-guess"] }
 omniqueue = { git = "https://github.com/tensorlakeai/omniqueue-rs", branch = "main", features = ["sqs"], default-features = false }
@@ -77,7 +77,7 @@ tempfile = "3.24.0"
 mock_instant = "0.6.0"
 criterion = { version = "0.8.2", features = ["html_reports"] }
 vergen = { version = "9.1.0", features = ["build", "cargo", "rustc", "si"] }
-nix = { version = "0.31.1", features = ["signal", "process"] }
+nix = { version = "0.31.1", features = ["signal", "process", "fs"] }
 bollard = "0.20.1"
 futures-util = "0.3.32"
 lazy_static = "1.5"
@@ -92,6 +92,7 @@ pingora-proxy = { git = "https://github.com/cloudflare/pingora", rev = "ad449bf3
 pingora-http = { git = "https://github.com/cloudflare/pingora", rev = "ad449bf373a696116f60c89f1e7d62c00f7cb09a" }
 reqwest = { version = "0.13.2", default-features = false, features = ["json"] }
 zstd = "0.13"
-aws-sdk-s3 = "1.122.0"
+devicemapper = "0.34.6"
+aws-sdk-s3 = "1.124.0"
 aws-config = { version = "1.8.13", features = ["behavior-version-latest"] }
-pty-process = { version = "0.4", features = ["async"] }
+pty-process = { version = "0.5.3", features = ["async"] }

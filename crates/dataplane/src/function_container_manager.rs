@@ -209,8 +209,11 @@ impl FunctionContainerManager {
     /// This handles containers that were created but the dataplane crashed
     /// before saving them to the state file, or containers left behind when
     /// the server terminated a sandbox while the dataplane was down.
-    pub async fn cleanup_orphans(&self) -> usize {
-        let known_handles: HashSet<String> = {
+    ///
+    /// `additional_known` contains handle IDs from other execution paths
+    /// (e.g. AllocationController) that should not be killed.
+    pub async fn cleanup_orphans(&self, additional_known: &HashSet<String>) -> usize {
+        let mut known_handles: HashSet<String> = {
             let containers = self.containers.read().await;
             containers
                 .values()
@@ -221,6 +224,7 @@ impl FunctionContainerManager {
                 })
                 .collect()
         };
+        known_handles.extend(additional_known.iter().cloned());
 
         let all_containers = match self.driver.list_containers().await {
             Ok(containers) => containers,

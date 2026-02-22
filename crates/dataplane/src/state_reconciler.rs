@@ -32,7 +32,7 @@
 //!   reconnection would incorrectly stop containers that haven't been
 //!   re-announced yet.
 
-use std::sync::Arc;
+use std::{collections::HashSet, sync::Arc};
 
 use proto_api::executor_api_pb::{Allocation, ContainerDescription, ContainerState, ContainerType};
 use tokio::sync::Notify;
@@ -197,6 +197,29 @@ impl StateReconciler {
         let mut states = self.container_manager.get_states().await;
         states.extend(self.allocation_controller.state_rx.borrow().clone());
         states
+    }
+
+    /// Recover AC containers from the state file.
+    ///
+    /// Sends a Recover command to the AllocationController and waits for
+    /// it to process. Returns the set of recovered handle IDs.
+    pub async fn recover_ac_containers(&self) -> HashSet<String> {
+        let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+        let _ = self
+            .allocation_controller
+            .command_tx
+            .send(ACCommand::Recover { reply: reply_tx });
+        reply_rx.await.unwrap_or_default()
+    }
+
+    /// Clean up orphaned containers from all execution paths.
+    ///
+    /// `ac_known_handles` contains handle IDs recovered by the
+    /// AllocationController, so the FCM orphan cleanup won't kill them.
+    pub async fn cleanup_orphans(&self, ac_known_handles: &HashSet<String>) -> usize {
+        self.container_manager
+            .cleanup_orphans(ac_known_handles)
+            .await
     }
 
     /// Shut down the AllocationController gracefully.

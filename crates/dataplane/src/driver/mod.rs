@@ -1,9 +1,13 @@
 mod docker;
+#[cfg(feature = "firecracker")]
+mod firecracker;
 mod fork_exec;
 
 use anyhow::Result;
 use async_trait::async_trait;
 pub use docker::{DockerDriver, ImageError};
+#[cfg(feature = "firecracker")]
+pub use firecracker::FirecrackerDriver;
 pub use fork_exec::ForkExecDriver;
 
 /// Container port for the daemon gRPC server (internal API).

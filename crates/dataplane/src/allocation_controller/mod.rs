@@ -14,8 +14,9 @@ pub mod events;
 mod types;
 
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     sync::Arc,
+    time::Instant,
 };
 
 use proto_api::executor_api_pb::{
@@ -34,6 +35,7 @@ use self::{
 use crate::{
     allocation_result_dispatcher::AllocationResultDispatcher,
     function_executor::{controller::FESpawnConfig, events::FinalizationContext, proto_convert},
+    state_file::StateFile,
 };
 
 /// Handle returned to service.rs / StateReconciler for communicating with the
@@ -75,6 +77,9 @@ pub struct AllocationController {
     state_change_notify: Arc<Notify>,
     allocation_result_dispatcher: Arc<AllocationResultDispatcher>,
 
+    // -- State persistence --
+    state_file: Arc<StateFile>,
+
     // -- Shutdown --
     cancel_token: CancellationToken,
 }
@@ -91,6 +96,7 @@ impl AllocationController {
         let (command_tx, command_rx) = mpsc::unbounded_channel();
         let (event_tx, event_rx) = mpsc::unbounded_channel();
         let (state_tx, state_rx) = watch::channel(Vec::new());
+        let state_file = config.state_file.clone();
         let controller = Self {
             containers: HashMap::new(),
             allocations: HashMap::new(),
@@ -104,6 +110,7 @@ impl AllocationController {
             state_tx,
             state_change_notify,
             allocation_result_dispatcher,
+            state_file,
             cancel_token,
         };
 
@@ -152,6 +159,11 @@ impl AllocationController {
                             self.reconcile_containers(added_or_updated_fes, removed_fe_ids).await;
                             self.add_allocations(new_allocations);
                             self.try_schedule();
+                        }
+                        ACCommand::Recover { reply } => {
+                            info!("AllocationController recovery requested");
+                            let recovered_handles = self.recover_containers().await;
+                            let _ = reply.send(recovered_handles);
                         }
                         ACCommand::Shutdown => {
                             info!("AllocationController shutdown requested");
@@ -258,6 +270,200 @@ impl AllocationController {
         tokio::spawn(async move {
             let _ = driver.kill(&handle).await;
         });
+    }
+
+    /// Recover containers from state file entries.
+    ///
+    /// For each persisted container:
+    /// 1. Check if process is alive via driver
+    /// 2. Reconnect gRPC client
+    /// 3. Insert as Running with health checker
+    /// 4. Remove dead entries from state file
+    ///
+    /// Returns the set of recovered handle IDs (for orphan cleanup).
+    async fn recover_containers(&mut self) -> HashSet<String> {
+        let entries = self.state_file.get_all().await;
+        let mut recovered_handles = HashSet::new();
+
+        for entry in entries {
+            match self.recover_single_entry(&entry).await {
+                Some(handle_id) => {
+                    recovered_handles.insert(handle_id);
+                }
+                None => {
+                    // Dead or unrecoverable — already cleaned from state file
+                }
+            }
+        }
+
+        if !recovered_handles.is_empty() {
+            info!(
+                recovered = recovered_handles.len(),
+                "AC recovered containers from state file"
+            );
+            self.broadcast_state();
+        }
+
+        recovered_handles
+    }
+
+    /// Try to recover a single container from a persisted state entry.
+    ///
+    /// Returns the handle ID on success, or `None` if the container is
+    /// dead or unrecoverable (cleans up the state file entry on failure).
+    async fn recover_single_entry(
+        &mut self,
+        entry: &crate::state_file::PersistedContainer,
+    ) -> Option<String> {
+        let handle = ProcessHandle {
+            id: entry.handle_id.clone(),
+            daemon_addr: Some(entry.daemon_addr.clone()),
+            http_addr: Some(entry.http_addr.clone()),
+            container_ip: entry.container_ip.clone(),
+        };
+
+        // Check if process is alive
+        match self.config.driver.alive(&handle).await {
+            Ok(true) => {}
+            Ok(false) => {
+                info!(
+                    container_id = %entry.container_id,
+                    handle_id = %entry.handle_id,
+                    "AC container no longer alive, removing from state"
+                );
+                let _ = self.state_file.remove(&entry.container_id).await;
+                return None;
+            }
+            Err(e) => {
+                warn!(
+                    container_id = %entry.container_id,
+                    handle_id = %entry.handle_id,
+                    error = ?e,
+                    "Failed to check AC container status, removing from state"
+                );
+                let _ = self.state_file.remove(&entry.container_id).await;
+                return None;
+            }
+        }
+
+        // Reconnect gRPC client
+        let addr = &entry.daemon_addr;
+        let client = match crate::retry::retry_until_deadline(
+            std::time::Duration::from_secs(5),
+            std::time::Duration::from_millis(100),
+            &format!("reconnecting to recovered FE at {}", addr),
+            || crate::function_executor::fe_client::FunctionExecutorGrpcClient::connect(addr),
+            || async { Ok(()) },
+        )
+        .await
+        {
+            Ok(client) => client,
+            Err(e) => {
+                warn!(
+                    container_id = %entry.container_id,
+                    handle_id = %entry.handle_id,
+                    error = ?e,
+                    "Failed to reconnect to AC container, removing from state"
+                );
+                let _ = self.state_file.remove(&entry.container_id).await;
+                return None;
+            }
+        };
+
+        // Decode description
+        let description = match entry.decode_description() {
+            Some(desc) => desc,
+            None => {
+                warn!(
+                    container_id = %entry.container_id,
+                    "No description stored in state file for AC container, skipping"
+                );
+                let _ = self.state_file.remove(&entry.container_id).await;
+                return None;
+            }
+        };
+
+        let fe_id = entry.container_id.clone();
+        let max_concurrency = description.max_concurrency.unwrap_or(1);
+
+        // Spawn health checker
+        let health_cancel = tokio_util::sync::CancellationToken::new();
+        let health_cancel_clone = health_cancel.clone();
+        let event_tx = self.event_tx.clone();
+        let panic_event_tx = event_tx.clone();
+        let health_client = client.clone();
+        let health_driver = self.config.driver.clone();
+        let health_handle = handle.clone();
+        let health_fe_id = fe_id.clone();
+        let panic_fe_id = fe_id.clone();
+        let health_metrics = self.config.metrics.clone();
+
+        tokio::spawn(async move {
+            let result = tokio::spawn(async move {
+                if let Some(reason) = crate::function_executor::health_checker::run_health_check_loop(
+                    health_client,
+                    health_driver,
+                    health_handle,
+                    health_cancel_clone,
+                    &health_fe_id,
+                    health_metrics,
+                )
+                .await
+                {
+                    let _ = event_tx.send(ACEvent::ContainerTerminated {
+                        fe_id: health_fe_id,
+                        reason,
+                        blamed_allocation_id: None,
+                    });
+                }
+            })
+            .await;
+
+            if let Err(join_err) = result {
+                tracing::error!(container_id = %panic_fe_id, error = %join_err, "Recovered health checker panicked");
+                let _ = panic_event_tx.send(ACEvent::ContainerTerminated {
+                    fe_id: panic_fe_id,
+                    reason: proto_api::executor_api_pb::ContainerTerminationReason::Unknown,
+                    blamed_allocation_id: None,
+                });
+            }
+        });
+
+        let managed = ManagedFE {
+            description,
+            state: ContainerState::Running {
+                handle: handle.clone(),
+                client: Box::new(client),
+                health_checker_cancel: health_cancel,
+            },
+            max_concurrency,
+            allocated_gpu_uuids: Vec::new(), // GPUs not recovered across restarts
+            created_at: Instant::now(),
+        };
+
+        let handle_id = handle.id.clone();
+        info!(
+            container_id = %fe_id,
+            handle_id = %handle_id,
+            daemon_addr = %entry.daemon_addr,
+            max_concurrency = max_concurrency,
+            "Recovered AC container from state file"
+        );
+
+        self.containers.insert(fe_id.clone(), managed);
+
+        // Notify the server so it can update container state
+        let response =
+            crate::function_executor::proto_convert::make_container_started_response(&fe_id);
+        let _ = self.config.container_state_tx.send(response);
+
+        self.config
+            .metrics
+            .up_down_counters
+            .containers_count
+            .add(1, &[]);
+
+        Some(handle_id)
     }
 
     /// Fail all non-terminal allocations for a given FE.

@@ -24,6 +24,8 @@ use tokio_util::sync::CancellationToken;
 use tonic::transport::{Channel, ClientTlsConfig, Endpoint};
 use tracing::Instrument;
 
+#[cfg(feature = "firecracker")]
+use crate::driver::FirecrackerDriver;
 use crate::{
     allocation_result_dispatcher::AllocationResultDispatcher,
     blob_ops::BlobStore,
@@ -128,8 +130,12 @@ impl Service {
         let (container_state_tx, container_state_rx) = mpsc::unbounded_channel(); // CommandResponse (ContainerTerminated)
         let (activity_tx, activity_rx) = mpsc::unbounded_channel(); // AllocationStreamRequest (completed/failed)
 
+        // Ensure the state directory exists
+        std::fs::create_dir_all(&config.state_dir)
+            .context("Failed to create state directory")?;
+
         let state_file = Arc::new(
-            StateFile::new(&config.state_file)
+            StateFile::new(&config.state_file_path())
                 .await
                 .context("Failed to initialize state file")?,
         );
@@ -179,7 +185,7 @@ impl Service {
             image_resolver.clone(),
             secrets_provider.clone(),
             metrics.clone(),
-            state_file,
+            state_file.clone(),
             config.executor_id.clone(),
             container_state_tx.clone(),
             snapshotter,
@@ -213,6 +219,7 @@ impl Service {
                 .clone()
                 .unwrap_or_else(|| "function-executor".to_string()),
             metrics: metrics.clone(),
+            state_file: state_file.clone(),
         };
 
         let allocation_result_dispatcher = AllocationResultDispatcher::new();
@@ -265,14 +272,21 @@ impl Service {
         // log line includes executor_id.
         let span = tracing::Span::current();
 
-        // Recover containers from previous run
+        // Recover containers from previous run (FCM sandbox path)
         let recovered = self.container_manager.recover().await;
         if recovered > 0 {
-            tracing::info!(recovered, "Recovered containers from state file");
+            tracing::info!(recovered, "Recovered FCM containers from state file");
         }
 
-        // Clean up orphaned containers (exist in Docker but not in state file)
-        let cleaned = self.container_manager.cleanup_orphans().await;
+        // Recover containers from previous run (AC function path)
+        let ac_known_handles = self.state_reconciler.lock().await.recover_ac_containers().await;
+        if !ac_known_handles.is_empty() {
+            tracing::info!(recovered = ac_known_handles.len(), "Recovered AC containers from state file");
+        }
+
+        // Clean up orphaned containers (exist in Docker but not in state file).
+        // Both FCM and AC recovered handles are excluded from cleanup.
+        let cleaned = self.container_manager.cleanup_orphans(&ac_known_handles).await;
         if cleaned > 0 {
             tracing::info!(cleaned, "Cleaned up orphaned containers");
         }
@@ -1128,7 +1142,7 @@ async fn wait_for_shutdown_signal() -> &'static str {
     }
 }
 
-/// Create the process driver based on config (ForkExec or Docker).
+/// Create the process driver based on config (ForkExec, Docker, or Firecracker).
 fn create_process_driver(config: &DataplaneConfig) -> Result<Arc<dyn ProcessDriver>> {
     match &config.driver {
         DriverConfig::ForkExec => Ok(Arc::new(ForkExecDriver::new())),
@@ -1150,6 +1164,39 @@ fn create_process_driver(config: &DataplaneConfig) -> Result<Arc<dyn ProcessDriv
                 binds.clone(),
             )?)),
         },
+        #[cfg(feature = "firecracker")]
+        DriverConfig::Firecracker {
+            firecracker_binary,
+            kernel_image_path,
+            thin_pool_meta_device,
+            thin_pool_data_device,
+            thin_pool_block_size,
+            default_rootfs_size_bytes,
+            base_rootfs_image,
+            cni_network_name,
+            cni_bin_path,
+            guest_gateway,
+            guest_netmask,
+            default_vcpu_count,
+            default_memory_mib,
+            ..
+        } => Ok(Arc::new(FirecrackerDriver::new(
+            firecracker_binary.clone(),
+            kernel_image_path.clone(),
+            thin_pool_meta_device.clone(),
+            thin_pool_data_device.clone(),
+            *thin_pool_block_size,
+            *default_rootfs_size_bytes,
+            base_rootfs_image.clone(),
+            cni_network_name.clone(),
+            cni_bin_path.clone(),
+            guest_gateway.clone(),
+            guest_netmask.clone(),
+            *default_vcpu_count,
+            *default_memory_mib,
+            config.firecracker_state_dir(),
+            config.firecracker_log_dir(),
+        )?)),
     }
 }
 

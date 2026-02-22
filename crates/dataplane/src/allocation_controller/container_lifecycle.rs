@@ -25,6 +25,7 @@ use crate::{
         fe_client::FunctionExecutorGrpcClient,
         health_checker,
     },
+    state_file::PersistedContainer,
 };
 
 /// Timeout for connecting to the FE after spawning the process.
@@ -139,6 +140,12 @@ impl AllocationController {
                 health_checker_cancel.cancel();
                 self.kill_process_fire_and_forget(handle.clone());
             }
+            // Remove from state file
+            let state_file = self.state_file.clone();
+            let id = fe_id.to_string();
+            tokio::spawn(async move {
+                let _ = state_file.remove(&id).await;
+            });
         } else if is_starting {
             info!(container_id = %fe_id, "Removing Starting container, marking Terminated");
         }
@@ -383,10 +390,32 @@ impl AllocationController {
 
                 let fe = self.containers.get_mut(&fe_id).unwrap();
                 fe.state = ContainerState::Running {
-                    handle,
+                    handle: handle.clone(),
                     client: Box::new(client),
                     health_checker_cancel: health_cancel,
                 };
+
+                // Persist to state file for recovery after restart
+                let persisted = PersistedContainer {
+                    container_id: fe_id.clone(),
+                    handle_id: handle.id.clone(),
+                    daemon_addr: handle.daemon_addr.clone().unwrap_or_default(),
+                    http_addr: handle.http_addr.clone().unwrap_or_default(),
+                    container_ip: handle.container_ip.clone(),
+                    started_at: std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_millis() as u64)
+                        .unwrap_or(0),
+                    description_proto: Some(PersistedContainer::encode_description(
+                        &fe.description,
+                    )),
+                };
+                let state_file = self.state_file.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = state_file.upsert(persisted).await {
+                        tracing::warn!(error = ?e, "Failed to persist AC container state");
+                    }
+                });
 
                 // Notify the server so it can update container state.
                 let response =
@@ -520,6 +549,13 @@ impl AllocationController {
         let fe = self.containers.get_mut(&fe_id).unwrap();
         Self::return_gpus(&gpu_allocator, &mut fe.allocated_gpu_uuids);
 
+        // Remove from state file
+        let state_file = self.state_file.clone();
+        let id = fe_id.clone();
+        tokio::spawn(async move {
+            let _ = state_file.remove(&id).await;
+        });
+
         self.config
             .metrics
             .up_down_counters
@@ -650,6 +686,27 @@ async fn start_fe_process(
         env.push((k, v));
     }
 
+    let sandbox_id = description
+        .sandbox_metadata
+        .as_ref()
+        .and_then(|m| m.sandbox_id.as_deref())
+        .unwrap_or("")
+        .to_string();
+    let pool_id = description
+        .pool_id
+        .as_deref()
+        .unwrap_or("")
+        .to_string();
+
+    let labels = vec![
+        ("indexify.container_id".to_string(), fe_id.clone()),
+        ("indexify.namespace".to_string(), namespace.to_string()),
+        ("indexify.application".to_string(), app.to_string()),
+        ("indexify.function".to_string(), function.to_string()),
+        ("indexify.sandbox_id".to_string(), sandbox_id),
+        ("indexify.pool_id".to_string(), pool_id),
+    ];
+
     let process_config = ProcessConfig {
         id: fe_id.clone(),
         process_type: ProcessType::Function,
@@ -676,7 +733,7 @@ async fn start_fe_process(
                     gpu_device_ids,
                 })
         },
-        labels: vec![],
+        labels,
     };
 
     config.driver.start(process_config).await
