@@ -9,7 +9,7 @@ use tokio::sync::Notify;
 use tracing::{debug, error, info, instrument, trace, warn};
 
 use crate::{
-    data_model::{self, Application, ApplicationState, ChangeType, StateChange},
+    data_model::{self, Application, ApplicationState, ChangeType, SnapshotStatus, StateChange},
     metrics::{Timer, low_latency_boundaries},
     processor::{
         buffer_reconciler::BufferReconciler,
@@ -25,13 +25,14 @@ use crate::{
             DeleteApplicationRequest,
             DeleteContainerPoolRequest,
             DeleteRequestRequest,
+            FailSnapshotRequest,
             RequestPayload,
             SchedulerUpdatePayload,
             SchedulerUpdateRequest,
             StateMachineUpdateRequest,
         },
     },
-    utils::{TimeUnit, get_elapsed_time},
+    utils::{TimeUnit, get_elapsed_time, get_epoch_time_in_ns},
 };
 
 pub struct ApplicationProcessor {
@@ -46,6 +47,7 @@ pub struct ApplicationProcessor {
     pub queue_size: u32,
     pub cluster_vacuum_interval: Duration,
     pub cluster_vacuum_max_idle_age: Duration,
+    pub snapshot_timeout: Duration,
 }
 
 impl ApplicationProcessor {
@@ -54,6 +56,7 @@ impl ApplicationProcessor {
         queue_size: u32,
         cluster_vacuum_interval: Duration,
         cluster_vacuum_max_idle_age: Duration,
+        snapshot_timeout: Duration,
     ) -> Self {
         let meter = opentelemetry::global::meter("processor_metrics");
 
@@ -114,6 +117,7 @@ impl ApplicationProcessor {
             queue_size,
             cluster_vacuum_interval,
             cluster_vacuum_max_idle_age,
+            snapshot_timeout,
         }
     }
 
@@ -466,6 +470,15 @@ impl ApplicationProcessor {
                 &ev.namespace,
                 ev.sandbox_id.get(),
             )?,
+            ChangeType::SnapshotSandbox(ev) => {
+                info!(
+                    namespace = %ev.namespace,
+                    sandbox_id = %ev.sandbox_id,
+                    snapshot_id = %ev.snapshot_id,
+                    "processing SnapshotSandbox event"
+                );
+                SchedulerUpdateRequest::default()
+            }
             ChangeType::CreateContainerPool(ev) => {
                 tracing::info!(
                     namespace = %ev.namespace,
@@ -681,18 +694,62 @@ impl ApplicationProcessor {
         let scheduler_update =
             container_scheduler_guard.periodic_vacuum(self.cluster_vacuum_max_idle_age)?;
 
-        if scheduler_update.containers.is_empty() {
+        if !scheduler_update.containers.is_empty() {
+            self.indexify_state
+                .write(StateMachineUpdateRequest {
+                    payload: RequestPayload::SchedulerUpdate(SchedulerUpdatePayload {
+                        update: Box::new(scheduler_update),
+                        processed_state_changes: vec![],
+                    }),
+                })
+                .await?;
+        }
+
+        // Fail snapshots that have been stuck in InProgress for too long
+        self.handle_snapshot_vacuum().await?;
+
+        Ok(())
+    }
+
+    /// Detect and fail snapshots stuck in `InProgress` beyond the configured
+    /// timeout. This prevents sandboxes from being permanently stuck in the
+    /// `Snapshotting` state if a dataplane crashes mid-snapshot.
+    async fn handle_snapshot_vacuum(&self) -> Result<()> {
+        if self.snapshot_timeout.is_zero() {
             return Ok(());
         }
 
-        self.indexify_state
-            .write(StateMachineUpdateRequest {
-                payload: RequestPayload::SchedulerUpdate(SchedulerUpdatePayload {
-                    update: Box::new(scheduler_update),
-                    processed_state_changes: vec![],
-                }),
-            })
-            .await?;
+        let now_ns = get_epoch_time_in_ns();
+        let timeout_ns = self.snapshot_timeout.as_nanos();
+
+        let stale_snapshot_ids: Vec<_> = {
+            let in_memory = self.indexify_state.in_memory_state.read().await;
+            in_memory
+                .snapshots
+                .values()
+                .filter(|s| {
+                    matches!(s.status, SnapshotStatus::InProgress) &&
+                        now_ns.saturating_sub(s.creation_time_ns) > timeout_ns
+                })
+                .map(|s| s.id.clone())
+                .collect()
+        };
+
+        for snapshot_id in stale_snapshot_ids {
+            warn!(
+                snapshot_id = snapshot_id.get(),
+                timeout_secs = self.snapshot_timeout.as_secs(),
+                "Failing stale snapshot stuck in InProgress"
+            );
+            self.indexify_state
+                .write(StateMachineUpdateRequest {
+                    payload: RequestPayload::FailSnapshot(FailSnapshotRequest {
+                        snapshot_id,
+                        error: "Snapshot timed out".to_string(),
+                    }),
+                })
+                .await?;
+        }
 
         Ok(())
     }

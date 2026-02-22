@@ -143,6 +143,9 @@ message SandboxMetadata {
     // The sandbox this container is serving (if any).
     // Unset for warm pool containers, set when claimed by a sandbox.
     optional string sandbox_id = 14;
+    // URI of the snapshot to restore from (e.g. "s3://bucket/snap.tar.zst").
+    // When set, the dataplane restores this snapshot instead of using the base image.
+    optional string snapshot_uri = 16;
 }
 
 // Describes a container managed by the dataplane.
@@ -482,8 +485,18 @@ message Command {
         RunAllocation run_allocation = 4;
         KillAllocation kill_allocation = 5;
         UpdateContainerDescription update_container_description = 7;
+        SnapshotContainer snapshot_container = 8;
     }
     reserved 6; // was DeliverResult — results now delivered via AllocationEvent log
+}
+
+// Server → Dataplane: snapshot a container's filesystem.
+// The container should be stopped before the snapshot is taken.
+message SnapshotContainer {
+    string container_id = 1;
+    string snapshot_id = 2;
+    // URI where the snapshot should be uploaded (e.g. "s3://bucket/snap.tar.zst").
+    string upload_uri = 3;
 }
 
 message UpdateContainerDescription {
@@ -548,8 +561,27 @@ message CommandResponse {
         ContainerStarted container_started = 2;
         ContainerTerminated container_terminated = 3;
         AllocationScheduled allocation_scheduled = 6;
+        SnapshotCompleted snapshot_completed = 7;
+        SnapshotFailed snapshot_failed = 8;
     }
     reserved 4, 5;
+}
+
+// Dataplane → Server: snapshot completed successfully.
+message SnapshotCompleted {
+    string container_id = 1;
+    string snapshot_id = 2;
+    // URI where the snapshot was stored.
+    string snapshot_uri = 3;
+    // Size of the snapshot in bytes.
+    uint64 size_bytes = 4;
+}
+
+// Dataplane → Server: snapshot failed.
+message SnapshotFailed {
+    string container_id = 1;
+    string snapshot_id = 2;
+    string error_message = 3;
 }
 
 message AllocationScheduled {

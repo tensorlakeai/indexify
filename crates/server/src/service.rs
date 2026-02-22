@@ -77,19 +77,24 @@ impl Service {
         )
         .await?;
 
-        let blob_storage_registry = Arc::new(BlobStorageRegistry::new(
-            config.blob_storage.path.as_str(),
-            config.blob_storage.region.clone(),
-        )?);
+        let blob_storage_registry = Arc::new(
+            BlobStorageRegistry::new(
+                config.blob_storage.path.as_str(),
+                config.blob_storage.region.clone(),
+            )
+            .await?,
+        );
 
         let namespaces = indexify_state.reader().get_all_namespaces().await?;
         for namespace in namespaces {
             if let Some(blob_storage_bucket) = namespace.blob_storage_bucket {
-                blob_storage_registry.create_new_blob_store(
-                    &namespace.name,
-                    blob_storage_bucket.as_str(),
-                    namespace.blob_storage_region.clone(),
-                )?;
+                blob_storage_registry
+                    .create_new_blob_store(
+                        &namespace.name,
+                        blob_storage_bucket.as_str(),
+                        namespace.blob_storage_region.clone(),
+                    )
+                    .await?;
             }
         }
 
@@ -101,6 +106,7 @@ impl Service {
             config.queue_size,
             std::time::Duration::from_secs(config.cluster_vacuum_interval_secs),
             std::time::Duration::from_secs(config.cluster_vacuum_max_idle_age_secs),
+            std::time::Duration::from_secs(config.snapshot_timeout_secs),
         ));
         application_processor.validate_app_constraints().await?;
 

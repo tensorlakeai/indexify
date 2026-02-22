@@ -31,6 +31,9 @@ use crate::{
         ContainerPoolKey,
         ContainerState,
         ExecutorId,
+        SandboxKey,
+        SandboxStatus,
+        SnapshotStatus,
         StateChange,
         StateMachineMetadata,
     },
@@ -82,6 +85,13 @@ pub enum ExecutorEvent {
     /// on warm-pool claim). Consumer builds an UpdateContainerDescription
     /// command with only the changed fields.
     ContainerDescriptionChanged(ContainerId),
+
+    /// Snapshot a container's filesystem.
+    SnapshotContainer {
+        container_id: ContainerId,
+        snapshot_id: String,
+        upload_uri: String,
+    },
 
     /// Fallback: consumer does full state recompute via
     /// get_executor_state() + CommandEmitter.
@@ -404,6 +414,30 @@ impl IndexifyState {
                 changed_executors.insert(container_meta.executor_id.clone());
             }
         }
+        // When a snapshot is requested, send a SnapshotContainer event to the
+        // executor hosting the sandbox's container.
+        if let RequestPayload::SnapshotSandbox(req) = &request.payload {
+            let in_memory = self.in_memory_state.read().await;
+            let sandbox_key =
+                SandboxKey::new(&req.snapshot.namespace, req.snapshot.sandbox_id.get());
+            if let Some(sandbox) = in_memory.sandboxes.get(&sandbox_key) &&
+                let (Some(container_id), Some(executor_id)) =
+                    (&sandbox.container_id, &sandbox.executor_id)
+            {
+                let upload_uri = req.upload_uri.clone();
+                Self::send_event(
+                    &event_channels,
+                    executor_id,
+                    ExecutorEvent::SnapshotContainer {
+                        container_id: container_id.clone(),
+                        snapshot_id: req.snapshot.id.get().to_string(),
+                        upload_uri,
+                    },
+                );
+                changed_executors.insert(executor_id.clone());
+            }
+        }
+
         // Notify executors when a container pool is deleted so they terminate
         // containers immediately rather than waiting for the next poll cycle.
         if let RequestPayload::DeleteContainerPool((delete_req, _)) = &request.payload {
@@ -597,6 +631,118 @@ impl IndexifyState {
             RequestPayload::CreateSandbox(request) => {
                 state_machine::upsert_sandbox(&txn, &request.sandbox, current_clock).await?;
             }
+            RequestPayload::SnapshotSandbox(request) => {
+                // 1) Persist the new Snapshot object
+                state_machine::upsert_snapshot(&txn, &request.snapshot).await?;
+
+                // 2) Transition the sandbox to Snapshotting status
+                let reader = scanner::StateReader::new(self.db.clone(), self.metrics.clone());
+                if let Some(mut sandbox) = reader
+                    .get_sandbox(
+                        &request.snapshot.namespace,
+                        request.snapshot.sandbox_id.get(),
+                    )
+                    .await?
+                {
+                    sandbox.status = SandboxStatus::Snapshotting {
+                        snapshot_id: request.snapshot.id.clone(),
+                    };
+                    sandbox.snapshot_id = Some(request.snapshot.id.clone());
+                    state_machine::upsert_sandbox(&txn, &sandbox, current_clock).await?;
+                }
+            }
+            RequestPayload::CompleteSnapshot(request) => {
+                // Find the snapshot by ID. Try in-memory first, fall back to DB
+                // scan to handle cases where in-memory state is stale.
+                let in_memory = self.in_memory_state.read().await;
+                let snapshot_opt = in_memory
+                    .snapshots
+                    .values()
+                    .find(|s| s.id == request.snapshot_id)
+                    .map(|s| (**s).clone());
+                drop(in_memory);
+
+                let snapshot_opt = match snapshot_opt {
+                    Some(s) => Some(s),
+                    None => {
+                        // Fallback: scan DB for the snapshot
+                        let reader =
+                            scanner::StateReader::new(self.db.clone(), self.metrics.clone());
+                        reader
+                            .find_snapshot_by_id(request.snapshot_id.get())
+                            .await?
+                    }
+                };
+
+                if let Some(mut snapshot) = snapshot_opt {
+                    snapshot.status = SnapshotStatus::Completed;
+                    snapshot.snapshot_uri = Some(request.snapshot_uri.clone());
+                    snapshot.size_bytes = Some(request.size_bytes);
+                    state_machine::upsert_snapshot(&txn, &snapshot).await?;
+
+                    // Terminate the sandbox
+                    let sb_key = SandboxKey::new(&snapshot.namespace, snapshot.sandbox_id.get());
+                    let in_memory = self.in_memory_state.read().await;
+                    if let Some(mut sandbox) = in_memory.sandboxes.get(&sb_key).cloned() {
+                        sandbox.status = SandboxStatus::Terminated;
+                        state_machine::upsert_sandbox(&txn, &sandbox, current_clock).await?;
+                    }
+                    drop(in_memory);
+                } else {
+                    error!(
+                        snapshot_id = request.snapshot_id.get(),
+                        "CompleteSnapshot: snapshot not found in memory or DB"
+                    );
+                }
+            }
+            RequestPayload::FailSnapshot(request) => {
+                // Find the snapshot by ID. Try in-memory first, fall back to DB
+                // scan to handle cases where in-memory state is stale.
+                let in_memory = self.in_memory_state.read().await;
+                let snapshot_opt = in_memory
+                    .snapshots
+                    .values()
+                    .find(|s| s.id == request.snapshot_id)
+                    .map(|s| (**s).clone());
+                drop(in_memory);
+
+                let snapshot_opt = match snapshot_opt {
+                    Some(s) => Some(s),
+                    None => {
+                        // Fallback: scan DB for the snapshot
+                        let reader =
+                            scanner::StateReader::new(self.db.clone(), self.metrics.clone());
+                        reader
+                            .find_snapshot_by_id(request.snapshot_id.get())
+                            .await?
+                    }
+                };
+
+                if let Some(mut snapshot) = snapshot_opt {
+                    snapshot.status = SnapshotStatus::Failed {
+                        error: request.error.clone(),
+                    };
+                    state_machine::upsert_snapshot(&txn, &snapshot).await?;
+
+                    // Revert sandbox to Running
+                    let sb_key = SandboxKey::new(&snapshot.namespace, snapshot.sandbox_id.get());
+                    let in_memory = self.in_memory_state.read().await;
+                    if let Some(mut sandbox) = in_memory.sandboxes.get(&sb_key).cloned() {
+                        sandbox.status = SandboxStatus::Running;
+                        state_machine::upsert_sandbox(&txn, &sandbox, current_clock).await?;
+                    }
+                    drop(in_memory);
+                } else {
+                    error!(
+                        snapshot_id = request.snapshot_id.get(),
+                        "FailSnapshot: snapshot not found in memory or DB"
+                    );
+                }
+            }
+            RequestPayload::DeleteSnapshot(request) => {
+                state_machine::delete_snapshot(&txn, &request.namespace, request.snapshot_id.get())
+                    .await?;
+            }
             RequestPayload::CreateContainerPool(request) => {
                 state_machine::upsert_container_pool(&txn, &request.pool, current_clock).await?;
             }
@@ -706,16 +852,20 @@ impl IndexifyState {
             .remove(executor_id);
     }
 
-    /// Send an event to an executor's channel. Silently drops if no channel
-    /// is registered (executor not connected or channel closed).
+    /// Send an event to an executor's channel. Logs a warning if the channel
+    /// is closed (executor disconnected).
     fn send_event(
         channels: &HashMap<ExecutorId, mpsc::UnboundedSender<ExecutorEvent>>,
         executor_id: &ExecutorId,
         event: ExecutorEvent,
     ) {
-        if let Some(tx) = channels.get(executor_id) {
-            // Silently drop if channel closed — executor disconnected.
-            let _ = tx.send(event);
+        if let Some(tx) = channels.get(executor_id) &&
+            tx.send(event).is_err()
+        {
+            debug!(
+                executor_id = executor_id.get(),
+                "Failed to send executor event: channel closed"
+            );
         }
     }
 }
@@ -989,6 +1139,7 @@ mod tests {
             "SandboxPools",
             "FunctionRuns",
             "FunctionCalls",
+            "Snapshots",
         ];
 
         let columns_iter = columns

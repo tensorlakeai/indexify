@@ -929,6 +929,27 @@ pub async fn process_command_responses(
                 );
                 container_started_ids.push(data_model::ContainerId::new(started.container_id));
             }
+            executor_api_pb::command_response::Response::SnapshotCompleted(completed) => {
+                info!(
+                    executor_id = executor_id.get(),
+                    container_id = %completed.container_id,
+                    snapshot_id = %completed.snapshot_id,
+                    snapshot_uri = %completed.snapshot_uri,
+                    size_bytes = completed.size_bytes,
+                    "SnapshotCompleted received"
+                );
+                handle_snapshot_completed(indexify_state, &completed).await?;
+            }
+            executor_api_pb::command_response::Response::SnapshotFailed(failed) => {
+                warn!(
+                    executor_id = executor_id.get(),
+                    container_id = %failed.container_id,
+                    snapshot_id = %failed.snapshot_id,
+                    error = %failed.error_message,
+                    "SnapshotFailed received"
+                );
+                handle_snapshot_failed(indexify_state, &failed).await?;
+            }
         }
     }
 
@@ -944,6 +965,50 @@ pub async fn process_command_responses(
         container_started_ids,
     )
     .await
+}
+
+/// Handle a snapshot completed response from the dataplane.
+async fn handle_snapshot_completed(
+    indexify_state: &Arc<IndexifyState>,
+    completed: &executor_api_pb::SnapshotCompleted,
+) -> Result<()> {
+    use crate::state_store::requests::CompleteSnapshotRequest;
+
+    if completed.snapshot_id.is_empty() {
+        anyhow::bail!("SnapshotCompleted: snapshot_id is empty");
+    }
+    if completed.snapshot_uri.is_empty() {
+        anyhow::bail!("SnapshotCompleted: snapshot_uri is empty");
+    }
+
+    let request = StateMachineUpdateRequest {
+        payload: RequestPayload::CompleteSnapshot(CompleteSnapshotRequest {
+            snapshot_id: data_model::SnapshotId::new(completed.snapshot_id.clone()),
+            snapshot_uri: completed.snapshot_uri.clone(),
+            size_bytes: completed.size_bytes,
+        }),
+    };
+    indexify_state.write(request).await
+}
+
+/// Handle a snapshot failed response from the dataplane.
+async fn handle_snapshot_failed(
+    indexify_state: &Arc<IndexifyState>,
+    failed: &executor_api_pb::SnapshotFailed,
+) -> Result<()> {
+    use crate::state_store::requests::FailSnapshotRequest;
+
+    if failed.snapshot_id.is_empty() {
+        anyhow::bail!("SnapshotFailed: snapshot_id is empty");
+    }
+
+    let request = StateMachineUpdateRequest {
+        payload: RequestPayload::FailSnapshot(FailSnapshotRequest {
+            snapshot_id: data_model::SnapshotId::new(failed.snapshot_id.clone()),
+            error: failed.error_message.clone(),
+        }),
+    };
+    indexify_state.write(request).await
 }
 
 /// Process a single AllocationCompleted message.
@@ -1643,6 +1708,7 @@ fn sandbox_metadata_to_pb(fe: &data_model::Container) -> Option<executor_api_pb:
         entrypoint: fe.entrypoint.clone(),
         network_policy: fe.network_policy.as_ref().map(network_policy_to_pb),
         sandbox_id: fe.sandbox_id.as_ref().map(|s| s.get().to_string()),
+        snapshot_uri: fe.snapshot_uri.clone(),
     })
 }
 
@@ -1842,6 +1908,33 @@ async fn command_stream_loop(
                             if grpc_tx.send(Ok(cmd)).await.is_err() {
                                 break;
                             }
+                        }
+                    }
+                    ExecutorEvent::SnapshotContainer {
+                        container_id,
+                        snapshot_id,
+                        upload_uri,
+                    } => {
+                        info!(
+                            executor_id = executor_id.get(),
+                            container_id = container_id.get(),
+                            snapshot_id = %snapshot_id,
+                            "command_stream: emitting SnapshotContainer"
+                        );
+                        let cmd = executor_api_pb::Command {
+                            seq: 0,
+                            command: Some(
+                                executor_api_pb::command::Command::SnapshotContainer(
+                                    executor_api_pb::SnapshotContainer {
+                                        container_id: container_id.get().to_string(),
+                                        snapshot_id,
+                                        upload_uri,
+                                    },
+                                ),
+                            ),
+                        };
+                        if grpc_tx.send(Ok(cmd)).await.is_err() {
+                            break;
                         }
                     }
                     ExecutorEvent::FullSync => {
@@ -2542,6 +2635,7 @@ mod tests {
                     entrypoint: vec![],
                     network_policy: None,
                     sandbox_id: Some(sandbox_id.to_string()),
+                    snapshot_uri: None,
                 }),
                 secret_names: vec![],
                 initialization_timeout_ms: None,

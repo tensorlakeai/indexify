@@ -270,9 +270,11 @@ define_counters! {
     // Allocation lifecycle (detailed)
     allocation_run_errors: "indexify.dataplane.allocation_run_errors", "Number of failed allocation runs";
 
-    // Blob store get
+    // Blob store get/put
     blob_store_get_requests: "indexify.dataplane.blob_store.get.requests", "Number of blob store get requests";
     blob_store_get_errors: "indexify.dataplane.blob_store.get.errors", "Number of blob store get errors";
+    blob_store_put_requests: "indexify.dataplane.blob_store.put.requests", "Number of blob store put requests";
+    blob_store_put_errors: "indexify.dataplane.blob_store.put.errors", "Number of blob store put errors";
 
     // Stream
     stream_creations: "indexify.dataplane.stream.creations", "Number of stream creations";
@@ -410,8 +412,9 @@ define_histograms! {
     function_executor_initialize_rpc_latency_seconds: "indexify.dataplane.function_executor.initialize_rpc_latency_seconds", "FE initialize RPC latency", "s";
     function_executor_health_check_latency_seconds: "indexify.dataplane.function_executor.health_check_latency_seconds", "FE health check latency", "s";
 
-    // Blob store get
+    // Blob store get/put
     blob_store_get_latency_seconds: "indexify.dataplane.blob_store.get.latency_seconds", "Blob store get latency", "s";
+    blob_store_put_latency_seconds: "indexify.dataplane.blob_store.put.latency_seconds", "Blob store put latency", "s";
 
     // Sandbox lifecycle
     sandbox_startup_latency_seconds: "indexify.dataplane.sandbox.startup_latency_seconds", "Sandbox total startup latency (Pending to Running)", "s";

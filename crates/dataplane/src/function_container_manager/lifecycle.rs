@@ -24,6 +24,7 @@ use crate::{
     driver::{ProcessConfig, ProcessDriver, ProcessHandle},
     metrics::DataplaneMetrics,
     secrets::SecretsProvider,
+    snapshotter::Snapshotter,
     state_file::{PersistedContainer, StateFile},
 };
 
@@ -34,16 +35,38 @@ pub(super) async fn start_container_with_daemon(
     driver: &Arc<dyn ProcessDriver>,
     image_resolver: &Arc<dyn ImageResolver>,
     secrets_provider: &Arc<dyn SecretsProvider>,
+    snapshotter: &Option<Arc<dyn Snapshotter>>,
     executor_id: &str,
     desc: &ContainerDescription,
     metrics: &Arc<DataplaneMetrics>,
 ) -> anyhow::Result<(ProcessHandle, DaemonClient)> {
     let info = ContainerInfo::from_description(desc, executor_id);
 
-    // Prefer image from sandbox_metadata (server-provided)
-    let image = if let Some(ref meta) = desc.sandbox_metadata &&
+    // Check if this container should be restored from a snapshot
+    let snapshot_uri = desc
+        .sandbox_metadata
+        .as_ref()
+        .and_then(|m| m.snapshot_uri.clone())
+        .filter(|u| !u.is_empty());
+
+    let image = if let Some(ref uri) = snapshot_uri {
+        // Restore from snapshot — download, decompress, import as Docker image
+        let snapshotter = snapshotter.as_ref().ok_or_else(|| {
+            anyhow::anyhow!("Snapshot restore requested but snapshotter not configured")
+        })?;
+
+        tracing::info!(
+            container_id = %info.container_id,
+            snapshot_uri = %uri,
+            "Restoring container from snapshot"
+        );
+
+        let restore_result = snapshotter.restore_snapshot(uri).await?;
+        restore_result.image
+    } else if let Some(ref meta) = desc.sandbox_metadata &&
         let Some(ref img) = meta.image
     {
+        // Prefer image from sandbox_metadata (server-provided)
         img.clone()
     } else if let Some(ref pool_id) = desc.pool_id {
         image_resolver

@@ -13,21 +13,22 @@ pub struct BlobStorageRegistry {
 }
 
 impl BlobStorageRegistry {
-    pub fn new(
+    pub async fn new(
         default_blob_storage_path: &str,
         default_blob_storage_region: Option<String>,
     ) -> Result<Self> {
         let default_blob_storage = BlobStorage::new(BlobStorageConfig {
             path: default_blob_storage_path.to_string(),
             region: default_blob_storage_region,
-        })?;
+        })
+        .await?;
         Ok(Self {
             blob_storage_buckets: Mutex::new(HashMap::new()),
             default_blob_storage: Arc::new(default_blob_storage),
         })
     }
 
-    pub fn create_new_blob_store(
+    pub async fn create_new_blob_store(
         &self,
         namespace: &str,
         path: &str,
@@ -36,7 +37,8 @@ impl BlobStorageRegistry {
         let blob_storage = BlobStorage::new(BlobStorageConfig {
             path: path.to_string(),
             region,
-        })?;
+        })
+        .await?;
         self.blob_storage_buckets
             .lock()
             .unwrap()

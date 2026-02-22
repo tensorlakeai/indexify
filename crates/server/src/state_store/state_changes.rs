@@ -17,6 +17,7 @@ use crate::{
         FunctionCallEvent,
         GraphUpdates,
         InvokeApplicationEvent,
+        SnapshotSandboxEvent,
         StateChange,
         StateChangeBuilder,
         StateChangeId,
@@ -36,6 +37,7 @@ use crate::{
         DeleteRequestRequest,
         FunctionCallRequest,
         InvokeApplicationRequest,
+        SnapshotSandboxRequest,
         TerminateSandboxRequest,
         UpdateContainerPoolRequest,
     },
@@ -317,6 +319,27 @@ pub fn create_or_update_application_pools(
         changes.push(state_change);
     }
     Ok(changes)
+}
+
+pub fn snapshot_sandbox(
+    last_change_id: &AtomicU64,
+    request: &SnapshotSandboxRequest,
+) -> Result<Vec<StateChange>> {
+    let last_change_id = last_change_id.fetch_add(1, atomic::Ordering::Relaxed);
+    let state_change = StateChangeBuilder::default()
+        .namespace(Some(request.snapshot.namespace.clone()))
+        .application(None)
+        .change_type(ChangeType::SnapshotSandbox(SnapshotSandboxEvent {
+            namespace: request.snapshot.namespace.clone(),
+            sandbox_id: request.snapshot.sandbox_id.clone(),
+            snapshot_id: request.snapshot.id.clone(),
+        }))
+        .created_at(get_epoch_time_in_ms())
+        .object_id(request.snapshot.id.to_string())
+        .id(StateChangeId::new(last_change_id))
+        .processed_at(None)
+        .build()?;
+    Ok(vec![state_change])
 }
 
 pub fn dataplane_results_ingested(

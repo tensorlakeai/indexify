@@ -5,13 +5,22 @@
 //! - Streaming I/O (stdin, stdout, stderr via SSE)
 //! - File operations (read, write, delete, list)
 
-use std::{convert::Infallible, net::SocketAddr, time::Instant};
+use std::{
+    convert::Infallible,
+    net::SocketAddr,
+    time::{Duration, Instant},
+};
 
 use anyhow::{Context, Result};
 use axum::{
     Router,
     body::Body,
-    extract::{Path, Query, State},
+    extract::{
+        Path,
+        Query,
+        State,
+        ws::{Message, WebSocket, WebSocketUpgrade},
+    },
     http::StatusCode,
     response::{
         IntoResponse,
@@ -25,25 +34,31 @@ use tokio::sync::broadcast::error::RecvError;
 use tokio_stream::Stream;
 use tokio_util::sync::CancellationToken;
 use tower_http::cors::{Any, CorsLayer};
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use crate::{
     file_manager::{FileError, FileManager},
     http_models::{
+        CreatePtySessionRequest,
+        CreatePtySessionResponse,
         DaemonInfo,
         ErrorResponse,
         FilePathQuery,
         HealthResponse,
         ListDirectoryResponse,
         ListProcessesResponse,
+        ListPtySessionsResponse,
         OutputEvent,
         OutputResponse,
+        ResizePtyRequest,
         SendSignalRequest,
         SendSignalResponse,
         StartProcessRequest,
         StartProcessResponse,
+        WsTokenQuery,
     },
     process_manager::ProcessManager,
+    pty_manager::PtyManager,
 };
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -53,28 +68,18 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub struct AppState {
     pub process_manager: ProcessManager,
     pub file_manager: FileManager,
+    pub pty_manager: PtyManager,
     pub start_time: Instant,
 }
 
-/// Run the HTTP server for the sandbox API.
-pub async fn run_http_server(
-    port: u16,
-    process_manager: ProcessManager,
-    file_manager: FileManager,
-    cancel_token: CancellationToken,
-) -> Result<()> {
-    let state = AppState {
-        process_manager,
-        file_manager,
-        start_time: Instant::now(),
-    };
-
+/// Build the HTTP router with all routes configured.
+pub fn build_router(state: AppState) -> Router {
     let cors = CorsLayer::new()
         .allow_origin(Any)
         .allow_methods(Any)
         .allow_headers(Any);
 
-    let app = Router::new()
+    Router::new()
         // Health and info
         .route("/api/v1/health", get(health))
         .route("/api/v1/info", get(info))
@@ -100,8 +105,33 @@ pub async fn run_http_server(
         .route("/api/v1/files", put(write_file))
         .route("/api/v1/files", delete(delete_file))
         .route("/api/v1/files/list", get(list_directory))
+        // PTY sessions
+        .route("/api/v1/pty", post(create_pty_session))
+        .route("/api/v1/pty", get(list_pty_sessions))
+        .route("/api/v1/pty/{session_id}", get(get_pty_session))
+        .route("/api/v1/pty/{session_id}", delete(kill_pty_session))
+        .route("/api/v1/pty/{session_id}/resize", post(resize_pty))
+        .route("/api/v1/pty/{session_id}/ws", get(pty_websocket_handler))
         .layer(cors)
-        .with_state(state);
+        .with_state(state)
+}
+
+/// Run the HTTP server for the sandbox API.
+pub async fn run_http_server(
+    port: u16,
+    process_manager: ProcessManager,
+    file_manager: FileManager,
+    pty_manager: PtyManager,
+    cancel_token: CancellationToken,
+) -> Result<()> {
+    let state = AppState {
+        process_manager,
+        file_manager,
+        pty_manager,
+        start_time: Instant::now(),
+    };
+
+    let app = build_router(state);
 
     let addr: SocketAddr = ([0, 0, 0, 0], port).into();
     info!(port = port, addr = %addr, "HTTP server listening");
@@ -596,4 +626,406 @@ async fn list_directory(
                 .into_response()
         }
     }
+}
+
+// ============================================================================
+// PTY Session Endpoints
+// ============================================================================
+
+/// Maximum size of buffered output held before client sends READY signal.
+const MAX_PRE_READY_BUFFER_BYTES: usize = 1_048_576; // 1MB
+
+/// Interval between WebSocket ping frames for connection liveness detection.
+const WS_PING_INTERVAL: Duration = Duration::from_secs(30);
+
+/// Maximum WebSocket message/frame size (64KB). Terminal messages should never
+/// exceed this. Prevents malicious clients from sending huge frames.
+const WS_MAX_MESSAGE_SIZE: usize = 65_536;
+
+/// Maximum input bytes per second from a WebSocket client (1MB/sec). Generous
+/// enough for pastes but prevents flooding.
+const MAX_INPUT_BYTES_PER_SEC: usize = 1_048_576;
+
+async fn create_pty_session(
+    State(state): State<AppState>,
+    axum::Json(req): axum::Json<CreatePtySessionRequest>,
+) -> impl IntoResponse {
+    match state.pty_manager.create_session(req).await {
+        Ok(info) => {
+            let resp = CreatePtySessionResponse {
+                session_id: info.session_id,
+                token: info.token.unwrap_or_default(),
+            };
+            (StatusCode::CREATED, axum::Json(resp)).into_response()
+        }
+        Err(e) => {
+            error!(error = %e, "Failed to create PTY session");
+            if e.to_string().contains("Maximum number") {
+                (
+                    StatusCode::TOO_MANY_REQUESTS,
+                    axum::Json(ErrorResponse::with_code(e.to_string(), "TOO_MANY_SESSIONS")),
+                )
+                    .into_response()
+            } else {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    axum::Json(ErrorResponse::new(e.to_string())),
+                )
+                    .into_response()
+            }
+        }
+    }
+}
+
+async fn list_pty_sessions(State(state): State<AppState>) -> impl IntoResponse {
+    let sessions = state.pty_manager.list_sessions().await;
+    axum::Json(ListPtySessionsResponse { sessions })
+}
+
+async fn get_pty_session(
+    State(state): State<AppState>,
+    Path(session_id): Path<String>,
+) -> impl IntoResponse {
+    match state.pty_manager.get_session(&session_id).await {
+        Some(info) => (StatusCode::OK, axum::Json(info)).into_response(),
+        None => (
+            StatusCode::NOT_FOUND,
+            axum::Json(ErrorResponse::with_code(
+                format!("PTY session {} not found", session_id),
+                "NOT_FOUND",
+            )),
+        )
+            .into_response(),
+    }
+}
+
+async fn kill_pty_session(
+    State(state): State<AppState>,
+    Path(session_id): Path<String>,
+) -> impl IntoResponse {
+    match state.pty_manager.kill_session(&session_id).await {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(e) => {
+            if e.to_string().contains("not found") {
+                (
+                    StatusCode::NOT_FOUND,
+                    axum::Json(ErrorResponse::with_code(
+                        format!("PTY session {} not found", session_id),
+                        "NOT_FOUND",
+                    )),
+                )
+                    .into_response()
+            } else {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    axum::Json(ErrorResponse::new(e.to_string())),
+                )
+                    .into_response()
+            }
+        }
+    }
+}
+
+async fn resize_pty(
+    State(state): State<AppState>,
+    Path(session_id): Path<String>,
+    axum::Json(req): axum::Json<ResizePtyRequest>,
+) -> impl IntoResponse {
+    match state
+        .pty_manager
+        .resize(&session_id, req.rows, req.cols)
+        .await
+    {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(e) => {
+            if e.to_string().contains("not found") {
+                (
+                    StatusCode::NOT_FOUND,
+                    axum::Json(ErrorResponse::with_code(
+                        format!("PTY session {} not found", session_id),
+                        "NOT_FOUND",
+                    )),
+                )
+                    .into_response()
+            } else {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    axum::Json(ErrorResponse::new(e.to_string())),
+                )
+                    .into_response()
+            }
+        }
+    }
+}
+
+async fn pty_websocket_handler(
+    ws: WebSocketUpgrade,
+    Path(session_id): Path<String>,
+    Query(query): Query<WsTokenQuery>,
+    State(state): State<AppState>,
+) -> Response {
+    // Validate token
+    if !state
+        .pty_manager
+        .validate_token(&session_id, &query.token)
+        .await
+    {
+        return (
+            StatusCode::FORBIDDEN,
+            axum::Json(ErrorResponse::with_code("Invalid token", "INVALID_TOKEN")),
+        )
+            .into_response();
+    }
+
+    ws.max_message_size(WS_MAX_MESSAGE_SIZE)
+        .max_frame_size(WS_MAX_MESSAGE_SIZE)
+        .on_upgrade(move |socket| handle_pty_websocket(socket, session_id, state))
+}
+
+async fn handle_pty_websocket(mut socket: WebSocket, session_id: String, state: AppState) {
+    // Subscribe to output (get history + optional live receiver)
+    let (history, output_rx) = match state.pty_manager.subscribe_output(&session_id).await {
+        Ok(v) => v,
+        Err(e) => {
+            error!(error = %e, "Failed to subscribe to PTY output");
+            let _ = socket.send(Message::Close(None)).await;
+            return;
+        }
+    };
+
+    // Get session cancel token for instant disconnect on kill/shutdown
+    let session_cancel = match state.pty_manager.get_session_cancel(&session_id).await {
+        Some(t) => t,
+        None => {
+            let _ = socket.send(Message::Close(None)).await;
+            return;
+        }
+    };
+
+    // Track client connection
+    if let Err(e) = state.pty_manager.client_connected(&session_id).await {
+        error!(error = %e, "Failed to register client connection");
+        let _ = socket.send(Message::Close(None)).await;
+        return;
+    }
+
+    let mut ready = false;
+    let mut pre_ready_buffer: Vec<Bytes> = history;
+    let mut pre_ready_bytes: usize = pre_ready_buffer.iter().map(|b| b.len()).sum();
+    let mut output_rx = output_rx;
+
+    // Input rate limiting
+    let mut input_bytes_this_second: usize = 0;
+    let mut rate_limit_reset = tokio::time::Instant::now();
+
+    // Ping/pong for connection liveness detection
+    let mut ping_interval = tokio::time::interval(WS_PING_INTERVAL);
+    ping_interval.tick().await; // consume the immediate first tick
+    let mut awaiting_pong = false;
+
+    loop {
+        tokio::select! {
+            result = async {
+                match output_rx.as_mut() {
+                    Some(rx) => rx.recv().await,
+                    None => std::future::pending().await,
+                }
+            } => {
+                match result {
+                    Ok(data) => {
+                        if ready {
+                            let mut frame = Vec::with_capacity(1 + data.len());
+                            frame.push(0x00);
+                            frame.extend_from_slice(&data);
+                            if socket.send(Message::Binary(Bytes::from(frame))).await.is_err() {
+                                break;
+                            }
+                        } else {
+                            pre_ready_bytes += data.len();
+                            pre_ready_buffer.push(data);
+                            if pre_ready_bytes > MAX_PRE_READY_BUFFER_BYTES {
+                                warn!(
+                                    session_id = %session_id,
+                                    bytes = pre_ready_bytes,
+                                    "Pre-ready buffer exceeded limit, disconnecting client"
+                                );
+                                let _ = socket
+                                    .send(Message::Close(Some(axum::extract::ws::CloseFrame {
+                                        code: 1008,
+                                        reason: "pre-ready buffer overflow".into(),
+                                    })))
+                                    .await;
+                                break;
+                            }
+                        }
+                    }
+                    Err(RecvError::Closed) => {
+                        // Output stream closed. If ready, send close frame
+                        // with exit code. Otherwise wait for READY to flush
+                        // buffer first.
+                        output_rx = None;
+                        if ready {
+                            send_exit_close_frame(&mut socket, &session_id, &state).await;
+                            break;
+                        }
+                    }
+                    Err(RecvError::Lagged(n)) => {
+                        warn!(
+                            lagged = n,
+                            session_id = %session_id,
+                            "PTY output stream lagged, disconnecting client"
+                        );
+                        let _ = socket
+                            .send(Message::Close(Some(axum::extract::ws::CloseFrame {
+                                code: 1008,
+                                reason: format!("output lagged by {} messages", n).into(),
+                            })))
+                            .await;
+                        break;
+                    }
+                }
+            }
+
+            msg = socket.recv() => {
+                match msg {
+                    Some(Ok(Message::Binary(data))) if !data.is_empty() => {
+                        awaiting_pong = false;
+                        match data[0] {
+                            // DATA: forward to PTY (with rate limiting)
+                            0x00 => {
+                                let now = tokio::time::Instant::now();
+                                if now.duration_since(rate_limit_reset) >= Duration::from_secs(1) {
+                                    input_bytes_this_second = 0;
+                                    rate_limit_reset = now;
+                                }
+                                input_bytes_this_second += data.len() - 1;
+                                if input_bytes_this_second > MAX_INPUT_BYTES_PER_SEC {
+                                    warn!(
+                                        session_id = %session_id,
+                                        "Input rate limit exceeded, disconnecting client"
+                                    );
+                                    let _ = socket
+                                        .send(Message::Close(Some(
+                                            axum::extract::ws::CloseFrame {
+                                                code: 1008,
+                                                reason: "input rate limit exceeded".into(),
+                                            },
+                                        )))
+                                        .await;
+                                    break;
+                                }
+                                if let Err(e) = state
+                                    .pty_manager
+                                    .write_input(&session_id, &data[1..])
+                                    .await
+                                {
+                                    warn!(error = %e, "Failed to write to PTY");
+                                }
+                            }
+                            // RESIZE: cols(u16BE) + rows(u16BE)
+                            0x01 if data.len() >= 5 => {
+                                let cols = u16::from_be_bytes([data[1], data[2]]);
+                                let rows = u16::from_be_bytes([data[3], data[4]]);
+                                if let Err(e) = state
+                                    .pty_manager
+                                    .resize(&session_id, rows, cols)
+                                    .await
+                                {
+                                    warn!(error = %e, "Failed to resize PTY");
+                                }
+                            }
+                            // READY: flush buffered output
+                            0x02 => {
+                                ready = true;
+                                let mut flush_failed = false;
+                                for buffered in pre_ready_buffer.drain(..) {
+                                    let mut frame = Vec::with_capacity(1 + buffered.len());
+                                    frame.push(0x00);
+                                    frame.extend_from_slice(&buffered);
+                                    if socket
+                                        .send(Message::Binary(Bytes::from(frame)))
+                                        .await
+                                        .is_err()
+                                    {
+                                        flush_failed = true;
+                                        break;
+                                    }
+                                }
+                                pre_ready_bytes = 0;
+                                if flush_failed {
+                                    break;
+                                }
+                                // If output already closed, send close frame now
+                                if output_rx.is_none() {
+                                    send_exit_close_frame(&mut socket, &session_id, &state).await;
+                                    break;
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                    Some(Ok(Message::Pong(_))) => {
+                        awaiting_pong = false;
+                    }
+                    Some(Ok(Message::Close(_))) | None => break,
+                    Some(Err(e)) => {
+                        warn!(error = %e, "WebSocket error");
+                        break;
+                    }
+                    _ => {
+                        // Text, Ping, or empty Binary — any client activity
+                        // resets the pong deadline.
+                        awaiting_pong = false;
+                    }
+                }
+            }
+
+            _ = ping_interval.tick() => {
+                if awaiting_pong {
+                    warn!(
+                        session_id = %session_id,
+                        "WebSocket client not responding to pings, disconnecting"
+                    );
+                    break;
+                }
+                if socket.send(Message::Ping(Bytes::new())).await.is_err() {
+                    break;
+                }
+                awaiting_pong = true;
+            }
+
+            _ = session_cancel.cancelled() => {
+                info!(
+                    session_id = %session_id,
+                    "Session cancelled, disconnecting WebSocket client"
+                );
+                let _ = socket
+                    .send(Message::Close(Some(axum::extract::ws::CloseFrame {
+                        code: 1001,
+                        reason: "session terminated".into(),
+                    })))
+                    .await;
+                break;
+            }
+        }
+    }
+
+    state.pty_manager.client_disconnected(&session_id).await;
+}
+
+/// Send a WebSocket close frame with the session's exit code.
+async fn send_exit_close_frame(socket: &mut WebSocket, session_id: &str, state: &AppState) {
+    let exit_code = state
+        .pty_manager
+        .get_session(session_id)
+        .await
+        .and_then(|info| info.exit_code)
+        .unwrap_or(-1);
+    let reason = format!("exit:{}", exit_code);
+    let _ = socket
+        .send(Message::Close(Some(axum::extract::ws::CloseFrame {
+            code: 1000,
+            reason: reason.into(),
+        })))
+        .await;
 }
