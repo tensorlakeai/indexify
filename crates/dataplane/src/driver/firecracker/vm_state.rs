@@ -9,7 +9,6 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use tokio_util::sync::CancellationToken;
 use tokio::process::Child;
 
@@ -112,8 +111,15 @@ pub struct VmMetadata {
     pub vm_id: String,
     /// PID of the Firecracker process.
     pub pid: u32,
-    /// Thin device ID used for this VM's rootfs.
-    pub thin_id: u32,
+    /// Path to the COW file for this VM's dm-snapshot.
+    #[serde(default)]
+    pub cow_file: String,
+    /// Loop device backing the COW file (e.g., "/dev/loopM").
+    #[serde(default)]
+    pub loop_device: String,
+    /// dm device name (e.g., "indexify-vm-abc123").
+    #[serde(default)]
+    pub dm_name: String,
     /// Name of the network namespace.
     pub netns_name: String,
     /// Guest IP address.
@@ -176,7 +182,7 @@ pub fn scan_metadata_files(state_dir: &Path) -> Result<Vec<VmMetadata>> {
         let entry = entry?;
         let path = entry.path();
         if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-            if name.starts_with("fc-") && name.ends_with(".json") {
+            if name.starts_with("fc-") && name.ends_with(".json") && name != "fc-origin.json" {
                 match VmMetadata::load(&path) {
                     Ok(metadata) => results.push(metadata),
                     Err(e) => {
@@ -194,16 +200,18 @@ pub fn scan_metadata_files(state_dir: &Path) -> Result<Vec<VmMetadata>> {
     Ok(results)
 }
 
-/// Metadata for the origin thin volume (the base rootfs image).
+/// Metadata for the origin device (base rootfs loop mount).
 ///
-/// Tracks which base image was used to populate the origin so we can
-/// detect when the image changes and rebuild the origin.
+/// Tracks the loop device and dm name for the origin so we can detect
+/// and reuse it across restarts.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OriginMetadata {
-    /// SHA-256 hex digest of the base rootfs image used to populate the origin.
-    pub base_image_hash: String,
-    /// Thin device ID of the origin volume (always 0).
-    pub thin_id: u32,
+    /// Path to the base rootfs image file.
+    pub base_image_path: String,
+    /// Loop device backing the origin (e.g., "/dev/loop0").
+    pub loop_device: String,
+    /// dm device name (e.g., "indexify-base").
+    pub dm_name: String,
 }
 
 impl OriginMetadata {
@@ -237,25 +245,6 @@ impl OriginMetadata {
     }
 }
 
-/// Compute the SHA-256 hex digest of a file.
-pub fn sha256_file(path: &Path) -> Result<String> {
-    use std::io::Read;
-    let mut file = std::fs::File::open(path)
-        .with_context(|| format!("Failed to open {} for hashing", path.display()))?;
-    let mut hasher = Sha256::new();
-    let mut buf = [0u8; 64 * 1024];
-    loop {
-        let n = file
-            .read(&mut buf)
-            .with_context(|| format!("Failed to read {} during hashing", path.display()))?;
-        if n == 0 {
-            break;
-        }
-        hasher.update(&buf[..n]);
-    }
-    Ok(format!("{:x}", hasher.finalize()))
-}
-
 /// Check if a PID belongs to a Firecracker process by inspecting
 /// `/proc/{pid}/comm`.
 pub fn is_firecracker_process(pid: u32) -> bool {
@@ -274,7 +263,9 @@ mod tests {
             handle_id: "fc-test-vm-1".to_string(),
             vm_id: "test-vm-1".to_string(),
             pid: 12345,
-            thin_id: 1,
+            cow_file: "/var/lib/indexify/overlays/test-vm-1.cow".to_string(),
+            loop_device: "/dev/loop5".to_string(),
+            dm_name: "indexify-vm-test-vm-1".to_string(),
             netns_name: "indexify-vm-test-vm-1".to_string(),
             guest_ip: "192.168.30.2".to_string(),
             daemon_addr: "192.168.30.2:9500".to_string(),
@@ -292,7 +283,9 @@ mod tests {
         assert_eq!(loaded.handle_id, metadata.handle_id);
         assert_eq!(loaded.vm_id, metadata.vm_id);
         assert_eq!(loaded.pid, metadata.pid);
-        assert_eq!(loaded.thin_id, metadata.thin_id);
+        assert_eq!(loaded.cow_file, metadata.cow_file);
+        assert_eq!(loaded.loop_device, metadata.loop_device);
+        assert_eq!(loaded.dm_name, metadata.dm_name);
         assert_eq!(loaded.netns_name, metadata.netns_name);
         assert_eq!(loaded.guest_ip, metadata.guest_ip);
         assert_eq!(loaded.daemon_addr, metadata.daemon_addr);
@@ -314,7 +307,31 @@ mod tests {
         assert_eq!(loaded.handle_id, "fc-test-vm-1");
         assert_eq!(loaded.vm_id, "test-vm-1");
         assert_eq!(loaded.pid, 12345);
-        assert_eq!(loaded.thin_id, 1);
+        assert_eq!(loaded.cow_file, "/var/lib/indexify/overlays/test-vm-1.cow");
+        assert_eq!(loaded.loop_device, "/dev/loop5");
+        assert_eq!(loaded.dm_name, "indexify-vm-test-vm-1");
+    }
+
+    #[test]
+    fn test_metadata_backward_compat_missing_new_fields() {
+        // Simulate loading old metadata that has thin_id but not cow_file etc.
+        // The #[serde(default)] annotations should handle this gracefully.
+        let old_json = r#"{
+            "handle_id": "fc-old-vm",
+            "vm_id": "old-vm",
+            "pid": 999,
+            "netns_name": "indexify-vm-old-vm",
+            "guest_ip": "192.168.30.5",
+            "daemon_addr": "192.168.30.5:9500",
+            "http_addr": "192.168.30.5:9501",
+            "socket_path": "/tmp/fc-old-vm.sock"
+        }"#;
+
+        let loaded: VmMetadata = serde_json::from_str(old_json).unwrap();
+        assert_eq!(loaded.vm_id, "old-vm");
+        assert_eq!(loaded.cow_file, "");
+        assert_eq!(loaded.loop_device, "");
+        assert_eq!(loaded.dm_name, "");
     }
 
     #[test]
@@ -351,13 +368,11 @@ mod tests {
         let mut m1 = sample_metadata();
         m1.vm_id = "vm-1".to_string();
         m1.handle_id = "fc-vm-1".to_string();
-        m1.thin_id = 1;
         m1.save(dir.path()).unwrap();
 
         let mut m2 = sample_metadata();
         m2.vm_id = "vm-2".to_string();
         m2.handle_id = "fc-vm-2".to_string();
-        m2.thin_id = 2;
         m2.save(dir.path()).unwrap();
 
         // Write a non-matching file (should be ignored)
@@ -370,6 +385,26 @@ mod tests {
             results.iter().map(|m| m.vm_id.clone()).collect();
         assert!(ids.contains("vm-1"));
         assert!(ids.contains("vm-2"));
+    }
+
+    #[test]
+    fn test_scan_metadata_files_skips_origin() {
+        let dir = tempfile::tempdir().unwrap();
+
+        // Save a VM metadata file
+        sample_metadata().save(dir.path()).unwrap();
+
+        // Save an origin metadata file (should be skipped)
+        let origin = OriginMetadata {
+            base_image_path: "/opt/rootfs.ext4".to_string(),
+            loop_device: "/dev/loop0".to_string(),
+            dm_name: "indexify-base".to_string(),
+        };
+        origin.save(dir.path()).unwrap();
+
+        let results = scan_metadata_files(dir.path()).unwrap();
+        assert_eq!(results.len(), 1, "Should skip fc-origin.json");
+        assert_eq!(results[0].vm_id, "test-vm-1");
     }
 
     #[test]
@@ -409,21 +444,24 @@ mod tests {
     #[test]
     fn test_origin_metadata_serialize_roundtrip() {
         let metadata = OriginMetadata {
-            base_image_hash: "abc123def456".to_string(),
-            thin_id: 0,
+            base_image_path: "/opt/firecracker/rootfs.ext4".to_string(),
+            loop_device: "/dev/loop0".to_string(),
+            dm_name: "indexify-base".to_string(),
         };
         let json = serde_json::to_string(&metadata).unwrap();
         let loaded: OriginMetadata = serde_json::from_str(&json).unwrap();
-        assert_eq!(loaded.base_image_hash, "abc123def456");
-        assert_eq!(loaded.thin_id, 0);
+        assert_eq!(loaded.base_image_path, "/opt/firecracker/rootfs.ext4");
+        assert_eq!(loaded.loop_device, "/dev/loop0");
+        assert_eq!(loaded.dm_name, "indexify-base");
     }
 
     #[test]
     fn test_origin_metadata_save_and_load() {
         let dir = tempfile::tempdir().unwrap();
         let metadata = OriginMetadata {
-            base_image_hash: "deadbeef".to_string(),
-            thin_id: 0,
+            base_image_path: "/opt/rootfs.ext4".to_string(),
+            loop_device: "/dev/loop0".to_string(),
+            dm_name: "indexify-base".to_string(),
         };
 
         metadata.save(dir.path()).unwrap();
@@ -432,8 +470,9 @@ mod tests {
         assert!(expected_path.exists(), "Origin metadata file should be created");
 
         let loaded = OriginMetadata::load(dir.path()).unwrap().unwrap();
-        assert_eq!(loaded.base_image_hash, "deadbeef");
-        assert_eq!(loaded.thin_id, 0);
+        assert_eq!(loaded.base_image_path, "/opt/rootfs.ext4");
+        assert_eq!(loaded.loop_device, "/dev/loop0");
+        assert_eq!(loaded.dm_name, "indexify-base");
     }
 
     #[test]
@@ -447,8 +486,9 @@ mod tests {
     fn test_origin_metadata_remove() {
         let dir = tempfile::tempdir().unwrap();
         let metadata = OriginMetadata {
-            base_image_hash: "test".to_string(),
-            thin_id: 0,
+            base_image_path: "/opt/rootfs.ext4".to_string(),
+            loop_device: "/dev/loop0".to_string(),
+            dm_name: "indexify-base".to_string(),
         };
         metadata.save(dir.path()).unwrap();
         let path = dir.path().join("fc-origin.json");
@@ -456,33 +496,5 @@ mod tests {
 
         OriginMetadata::remove(dir.path());
         assert!(!path.exists(), "Origin metadata file should be removed");
-    }
-
-    #[test]
-    fn test_sha256_file() {
-        let dir = tempfile::tempdir().unwrap();
-        let file_path = dir.path().join("test.bin");
-        std::fs::write(&file_path, b"hello world").unwrap();
-
-        let hash = sha256_file(&file_path).unwrap();
-        // SHA-256 of "hello world"
-        assert_eq!(
-            hash,
-            "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"
-        );
-    }
-
-    #[test]
-    fn test_sha256_file_empty() {
-        let dir = tempfile::tempdir().unwrap();
-        let file_path = dir.path().join("empty.bin");
-        std::fs::write(&file_path, b"").unwrap();
-
-        let hash = sha256_file(&file_path).unwrap();
-        // SHA-256 of empty input
-        assert_eq!(
-            hash,
-            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-        );
     }
 }

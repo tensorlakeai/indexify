@@ -13,7 +13,7 @@
 //! 2. **Full VM lifecycle tests** (this file): create real VMs, verify the
 //!    container daemon starts, test health checks, multi-VM isolation, signal
 //!    handling, cleanup, recovery, and log retrieval. These require Firecracker
-//!    infrastructure (binary, kernel, rootfs image, thin pool devices, CNI).
+//!    infrastructure (binary, kernel, rootfs image, CNI).
 //!    They check prerequisites at runtime and **skip gracefully** if the
 //!    infrastructure is missing.
 //!
@@ -22,23 +22,19 @@
 //! Provision a host with:
 //! - `firecracker` and `cnitool` on PATH
 //! - A Linux kernel image (vmlinux)
-//! - Thin pool metadata and data block devices
 //! - A base ext4 rootfs image
 //! - CNI conflist at `/etc/cni/net.d/<name>.conflist`
 //!
 //! Then set environment variables and run:
 //! ```sh
 //! FC_KERNEL_IMAGE=/opt/firecracker/vmlinux \
-//! FC_META_DEVICE=/dev/sdb1 \
-//! FC_DATA_DEVICE=/dev/sdb2 \
 //! FC_BASE_ROOTFS=/opt/firecracker/rootfs.ext4 \
-//! FC_CNI_NETWORK=indexify-fc \
 //! cargo test -p indexify-dataplane --features firecracker \
-//!   --test firecracker_integration_test
+//!   --test firecracker_integration_test -- --test-threads=1
 //! ```
 //!
 //! **Note:** These tests MUST run serially (`--test-threads=1`) because they
-//! share a single thin pool backed by the same block devices.
+//! share the same dm-snapshot origin device.
 
 #![cfg(feature = "firecracker")]
 
@@ -49,8 +45,8 @@ use indexify_dataplane::driver::{
     FirecrackerDriver, ProcessConfig, ProcessDriver, ProcessHandle, ProcessType, ResourceLimits,
 };
 
-/// Ensure tests run one at a time. The thin pool uses fixed device names
-/// backed by the same block devices, so concurrent tests would conflict.
+/// Ensure tests run one at a time. The dm-snapshot origin uses a fixed device
+/// name, so concurrent tests would conflict.
 /// Each test must call `let _lock = serial();` at the start.
 fn serial() -> std::sync::MutexGuard<'static, ()> {
     static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -75,7 +71,7 @@ fn infra_available() -> bool {
         return false;
     }
     // 3. Required env vars for test configuration
-    let required = ["FC_KERNEL_IMAGE", "FC_META_DEVICE", "FC_DATA_DEVICE", "FC_BASE_ROOTFS"];
+    let required = ["FC_KERNEL_IMAGE", "FC_BASE_ROOTFS"];
     for var in &required {
         if std::env::var(var).is_err() {
             eprintln!("SKIP: environment variable {} not set", var);
@@ -129,8 +125,6 @@ fn create_test_driver() -> Result<FirecrackerDriver> {
     indexify_dataplane::daemon_binary::extract_daemon_binary(None)?;
 
     let kernel = std::env::var("FC_KERNEL_IMAGE")?;
-    let meta_dev = std::env::var("FC_META_DEVICE")?;
-    let data_dev = std::env::var("FC_DATA_DEVICE")?;
     let rootfs = std::env::var("FC_BASE_ROOTFS")?;
     let cni_network =
         std::env::var("FC_CNI_NETWORK").unwrap_or_else(|_| "indexify-fc".to_string());
@@ -145,9 +139,6 @@ fn create_test_driver() -> Result<FirecrackerDriver> {
     FirecrackerDriver::new(
         None,
         kernel,
-        meta_dev,
-        data_dev,
-        None,
         None,
         rootfs,
         cni_network,
@@ -417,7 +408,7 @@ async fn test_env_vars_injected() {
 }
 
 // ---------------------------------------------------------------------------
-// Test: kill() cleans up thin volumes, netns, metadata files, and sockets
+// Test: kill() cleans up dm-snapshot, COW files, netns, metadata, sockets
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
@@ -439,6 +430,13 @@ async fn test_cleanup_on_kill() {
     // Kill and wait for cleanup
     driver.kill(&handle).await.expect("kill");
     tokio::time::sleep(Duration::from_secs(1)).await;
+
+    // dm-snapshot device should be removed
+    let dm_path = format!("/dev/mapper/indexify-vm-{}", vm_id);
+    assert!(
+        !std::path::Path::new(&dm_path).exists(),
+        "dm-snapshot device should be removed after kill"
+    );
 
     // Netns should be removed
     let netns_path = format!("/var/run/netns/indexify-vm-{}", vm_id);
@@ -647,8 +645,6 @@ async fn test_recovery_after_restart() {
     let log_dir = format!("/tmp/indexify-fc-recovery-{}/logs", run_id);
 
     let kernel = std::env::var("FC_KERNEL_IMAGE").unwrap();
-    let meta_dev = std::env::var("FC_META_DEVICE").unwrap();
-    let data_dev = std::env::var("FC_DATA_DEVICE").unwrap();
     let rootfs = std::env::var("FC_BASE_ROOTFS").unwrap();
     let cni_network =
         std::env::var("FC_CNI_NETWORK").unwrap_or_else(|_| "indexify-fc".to_string());
@@ -659,9 +655,6 @@ async fn test_recovery_after_restart() {
         FirecrackerDriver::new(
             None,
             kernel.clone(),
-            meta_dev.clone(),
-            data_dev.clone(),
-            None,
             None,
             rootfs.clone(),
             cni_network.clone(),
@@ -710,7 +703,7 @@ async fn test_recovery_after_restart() {
 }
 
 // ---------------------------------------------------------------------------
-// Test: Measure VM provisioning time with CoW snapshots
+// Test: Measure VM provisioning time with dm-snapshot CoW
 // ---------------------------------------------------------------------------
 
 #[tokio::test]

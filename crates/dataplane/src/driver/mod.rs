@@ -1,6 +1,6 @@
 mod docker;
 #[cfg(feature = "firecracker")]
-mod firecracker;
+pub(crate) mod firecracker;
 mod fork_exec;
 
 use anyhow::Result;

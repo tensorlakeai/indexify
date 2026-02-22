@@ -1,4 +1,6 @@
 pub mod docker_snapshotter;
+#[cfg(feature = "firecracker")]
+pub mod firecracker_snapshotter;
 
 use anyhow::Result;
 use async_trait::async_trait;

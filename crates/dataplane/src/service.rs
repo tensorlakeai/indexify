@@ -177,6 +177,27 @@ impl Service {
                     ),
                 ))
             }
+            #[cfg(feature = "firecracker")]
+            DriverConfig::Firecracker { state_dir, .. } => {
+                let snapshot_blob_store = if let Some(ref uri) = config.snapshot_storage_uri {
+                    BlobStore::from_uri(uri, metrics.clone())
+                        .await
+                        .context("Failed to create snapshot blob store")?
+                } else {
+                    BlobStore::new_local(metrics.clone())
+                };
+                let state_dir_path = state_dir
+                    .as_deref()
+                    .unwrap_or("/var/lib/indexify/firecracker");
+                tracing::info!("Snapshotter enabled (Firecracker driver)");
+                Some(Arc::new(
+                    crate::snapshotter::firecracker_snapshotter::FirecrackerSnapshotter::new(
+                        PathBuf::from(state_dir_path),
+                        snapshot_blob_store,
+                        metrics.clone(),
+                    ),
+                ))
+            }
             _ => None,
         };
 
@@ -1168,9 +1189,6 @@ fn create_process_driver(config: &DataplaneConfig) -> Result<Arc<dyn ProcessDriv
         DriverConfig::Firecracker {
             firecracker_binary,
             kernel_image_path,
-            thin_pool_meta_device,
-            thin_pool_data_device,
-            thin_pool_block_size,
             default_rootfs_size_bytes,
             base_rootfs_image,
             cni_network_name,
@@ -1183,9 +1201,6 @@ fn create_process_driver(config: &DataplaneConfig) -> Result<Arc<dyn ProcessDriv
         } => Ok(Arc::new(FirecrackerDriver::new(
             firecracker_binary.clone(),
             kernel_image_path.clone(),
-            thin_pool_meta_device.clone(),
-            thin_pool_data_device.clone(),
-            *thin_pool_block_size,
             *default_rootfs_size_bytes,
             base_rootfs_image.clone(),
             cni_network_name.clone(),

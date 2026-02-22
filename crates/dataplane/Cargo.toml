@@ -52,11 +52,10 @@ indexify-blob-store.workspace = true
 zstd.workspace = true
 
 [features]
-firecracker = ["dep:devicemapper"]
+firecracker = []
 
 [target.'cfg(unix)'.dependencies]
 nix.workspace = true
-devicemapper = { workspace = true, optional = true }
 
 [dev-dependencies]
 tempfile.workspace = true

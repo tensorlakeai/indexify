@@ -95,14 +95,7 @@ pub enum DriverConfig {
         firecracker_binary: Option<String>,
         /// Path to Linux kernel image (vmlinux).
         kernel_image_path: String,
-        /// Block device for thin pool metadata (e.g., "/dev/sdb1").
-        thin_pool_meta_device: String,
-        /// Block device for thin pool data (e.g., "/dev/sdb2").
-        thin_pool_data_device: String,
-        /// Thin pool block size in sectors. Default: 128 (64KB).
-        #[serde(default)]
-        thin_pool_block_size: Option<u64>,
-        /// Per-VM thin volume size in bytes. Default: 1 GiB.
+        /// Per-VM COW file size in bytes. Default: 1 GiB.
         #[serde(default)]
         default_rootfs_size_bytes: Option<u64>,
         /// Path to base guest OS rootfs ext4 image.
@@ -801,8 +794,6 @@ server_addr: "http://localhost:8901"
 driver:
   type: firecracker
   kernel_image_path: "/opt/firecracker/vmlinux"
-  thin_pool_meta_device: "/dev/sdb1"
-  thin_pool_data_device: "/dev/sdb2"
   base_rootfs_image: "/opt/firecracker/rootfs.ext4"
   cni_network_name: "indexify-fc"
   guest_gateway: "192.168.30.1"
@@ -811,13 +802,10 @@ driver:
         match &config.driver {
             DriverConfig::Firecracker {
                 kernel_image_path,
-                thin_pool_meta_device,
-                thin_pool_data_device,
                 base_rootfs_image,
                 cni_network_name,
                 guest_gateway,
                 firecracker_binary,
-                thin_pool_block_size,
                 default_rootfs_size_bytes,
                 cni_bin_path,
                 guest_netmask,
@@ -827,14 +815,11 @@ driver:
                 log_dir,
             } => {
                 assert_eq!(kernel_image_path, "/opt/firecracker/vmlinux");
-                assert_eq!(thin_pool_meta_device, "/dev/sdb1");
-                assert_eq!(thin_pool_data_device, "/dev/sdb2");
                 assert_eq!(base_rootfs_image, "/opt/firecracker/rootfs.ext4");
                 assert_eq!(cni_network_name, "indexify-fc");
                 assert_eq!(guest_gateway, "192.168.30.1");
                 // Defaults
                 assert!(firecracker_binary.is_none());
-                assert!(thin_pool_block_size.is_none());
                 assert!(default_rootfs_size_bytes.is_none());
                 assert!(cni_bin_path.is_none());
                 assert!(guest_netmask.is_none());
@@ -857,9 +842,6 @@ driver:
   type: firecracker
   firecracker_binary: "/usr/local/bin/firecracker"
   kernel_image_path: "/opt/firecracker/vmlinux"
-  thin_pool_meta_device: "/dev/sdb1"
-  thin_pool_data_device: "/dev/sdb2"
-  thin_pool_block_size: 256
   default_rootfs_size_bytes: 2147483648
   base_rootfs_image: "/opt/firecracker/rootfs.ext4"
   cni_network_name: "indexify-fc"
@@ -875,7 +857,6 @@ driver:
         match &config.driver {
             DriverConfig::Firecracker {
                 firecracker_binary,
-                thin_pool_block_size,
                 default_rootfs_size_bytes,
                 cni_bin_path,
                 guest_netmask,
@@ -889,7 +870,6 @@ driver:
                     firecracker_binary.as_deref(),
                     Some("/usr/local/bin/firecracker")
                 );
-                assert_eq!(*thin_pool_block_size, Some(256));
                 assert_eq!(*default_rootfs_size_bytes, Some(2147483648));
                 assert_eq!(cni_bin_path.as_deref(), Some("/usr/lib/cni"));
                 assert_eq!(guest_netmask.as_deref(), Some("255.255.0.0"));
@@ -914,8 +894,6 @@ state_dir: "/data/indexify"
 driver:
   type: firecracker
   kernel_image_path: "/opt/firecracker/vmlinux"
-  thin_pool_meta_device: "/dev/sdb1"
-  thin_pool_data_device: "/dev/sdb2"
   base_rootfs_image: "/opt/firecracker/rootfs.ext4"
   cni_network_name: "indexify-fc"
   guest_gateway: "192.168.30.1"
@@ -947,8 +925,6 @@ state_dir: "/data/indexify"
 driver:
   type: firecracker
   kernel_image_path: "/opt/firecracker/vmlinux"
-  thin_pool_meta_device: "/dev/sdb1"
-  thin_pool_data_device: "/dev/sdb2"
   base_rootfs_image: "/opt/firecracker/rootfs.ext4"
   cni_network_name: "indexify-fc"
   guest_gateway: "192.168.30.1"
