@@ -2888,6 +2888,13 @@ impl Sandbox {
         format!("{}|{}", self.namespace, self.id.0)
     }
 
+    /// Returns true if a container has already been scheduled for this sandbox.
+    /// A sandbox with a container assigned is waiting for the container to
+    /// report Running and should not be re-allocated.
+    pub fn has_scheduled(&self) -> bool {
+        self.container_id.is_some()
+    }
+
     /// Prepares the sandbox for persistence by setting the server clock
     pub fn prepare_for_persistence(&mut self, clock: u64) {
         if self.created_at_clock.is_none() {

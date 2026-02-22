@@ -105,6 +105,13 @@ impl SandboxProcessor {
             return Ok(update);
         }
 
+        // Skip if a container has already been scheduled for this sandbox.
+        // It is waiting for the container to report Running and should not
+        // be re-allocated — doing so would claim a duplicate pool slot.
+        if sandbox.has_scheduled() {
+            return Ok(update);
+        }
+
         // If sandbox has a pool_id, try to claim from pool first
         if let Some(pool_id) = &sandbox.pool_id {
             let container_pool_key = ContainerPoolKey::new(&sandbox.namespace, pool_id);
