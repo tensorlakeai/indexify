@@ -861,19 +861,27 @@ impl IndexifyState {
     }
 
     /// Send an event to an executor's channel. Logs a warning if the channel
-    /// is closed (executor disconnected).
+    /// is missing or closed.
     fn send_event(
         channels: &HashMap<ExecutorId, mpsc::UnboundedSender<ExecutorEvent>>,
         executor_id: &ExecutorId,
         event: ExecutorEvent,
     ) {
-        if let Some(tx) = channels.get(executor_id) &&
-            tx.send(event).is_err()
-        {
-            debug!(
-                executor_id = executor_id.get(),
-                "Failed to send executor event: channel closed"
-            );
+        match channels.get(executor_id) {
+            Some(tx) => {
+                if tx.send(event).is_err() {
+                    info!(
+                        executor_id = executor_id.get(),
+                        "executor event dropped: channel closed"
+                    );
+                }
+            }
+            None => {
+                info!(
+                    executor_id = executor_id.get(),
+                    "executor event dropped: no command stream connected"
+                );
+            }
         }
     }
 }
