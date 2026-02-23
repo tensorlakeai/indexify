@@ -1,0 +1,28 @@
+# Indexify Dataplane — Firecracker test configuration
+#
+# Usage:
+#   cargo run -p indexify-dataplane --features firecracker -- \
+#     --config crates/dataplane/sample_firecracker_config.yaml
+
+env: local
+
+server_addr: "http://localhost:8901"
+
+state_dir: /var/lib/indexify
+
+driver:
+  type: firecracker
+  kernel_image_path: /home/diptanuc/Projects/firecracker/vmlinux-6.1.155
+  base_rootfs_image: /home/diptanuc/Projects/firecracker/ubuntu-24.04.ext4
+  cni_network_name: indexify-fc
+  guest_gateway: "192.168.30.1"
+  lvm_volume_group: indexify-vg
+  lvm_thin_pool: thinpool
+
+http_proxy:
+  port: 8095
+  listen_addr: "0.0.0.0"
+
+monitoring:
+  port: 8100
+  listen_addr: "0.0.0.0"

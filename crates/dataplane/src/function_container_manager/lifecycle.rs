@@ -49,7 +49,7 @@ pub(super) async fn start_container_with_daemon(
         .and_then(|m| m.snapshot_uri.clone())
         .filter(|u| !u.is_empty());
 
-    let image = if let Some(ref uri) = snapshot_uri {
+    let (image, rootfs_overlay) = if let Some(ref uri) = snapshot_uri {
         // Restore from snapshot — download, decompress, import as Docker image
         let snapshotter = snapshotter.as_ref().ok_or_else(|| {
             anyhow::anyhow!("Snapshot restore requested but snapshotter not configured")
@@ -62,18 +62,41 @@ pub(super) async fn start_container_with_daemon(
         );
 
         let restore_result = snapshotter.restore_snapshot(uri).await?;
-        restore_result.image
+
+        // For gVisor (runsc), the restore returns an empty image and a rootfs
+        // overlay tar path. In that case, fall back to the original base image
+        // from sandbox_metadata so the container starts from the same image and
+        // gVisor applies the overlay on top.
+        let image = if restore_result.image.is_empty() {
+            desc.sandbox_metadata
+                .as_ref()
+                .and_then(|m| m.image.clone())
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "gVisor snapshot restore requires sandbox_metadata.image as base image"
+                    )
+                })?
+        } else {
+            restore_result.image
+        };
+        (image, restore_result.rootfs_overlay)
     } else if let Some(ref meta) = desc.sandbox_metadata &&
         let Some(ref img) = meta.image
     {
         // Prefer image from sandbox_metadata (server-provided)
-        img.clone()
+        (img.clone(), None)
     } else if let Some(ref pool_id) = desc.pool_id {
-        image_resolver
-            .sandbox_image_for_pool(info.namespace, pool_id)
-            .await?
+        (
+            image_resolver
+                .sandbox_image_for_pool(info.namespace, pool_id)
+                .await?,
+            None,
+        )
     } else if let Some(sid) = info.sandbox_id {
-        image_resolver.sandbox_image(info.namespace, sid).await?
+        (
+            image_resolver.sandbox_image(info.namespace, sid).await?,
+            None,
+        )
     } else {
         anyhow::bail!("Cannot determine image: no sandbox_metadata.image, pool_id, or sandbox_id")
     };
@@ -147,6 +170,7 @@ pub(super) async fn start_container_with_daemon(
         working_dir: None,
         resources,
         labels,
+        rootfs_overlay,
     };
 
     // Start the container (daemon will be PID 1)

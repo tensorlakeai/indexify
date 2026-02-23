@@ -1,9 +1,13 @@
 mod docker;
+#[cfg(feature = "firecracker")]
+pub(crate) mod firecracker;
 mod fork_exec;
 
 use anyhow::Result;
 use async_trait::async_trait;
 pub use docker::{DockerDriver, ImageError};
+#[cfg(feature = "firecracker")]
+pub use firecracker::FirecrackerDriver;
 pub use fork_exec::ForkExecDriver;
 
 /// Container port for the daemon gRPC server (internal API).
@@ -55,6 +59,10 @@ pub struct ProcessConfig {
     pub resources: Option<ResourceLimits>,
     /// Labels to attach to the container (for Docker driver).
     pub labels: Vec<(String, String)>,
+    /// Path to a local tar file containing the rootfs overlay (upper layer).
+    /// When set, the Docker driver applies this as a gVisor annotation
+    /// (`dev.gvisor.tar.rootfs.upper`) during container creation.
+    pub rootfs_overlay: Option<String>,
 }
 
 /// Handle to a running process.

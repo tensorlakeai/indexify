@@ -1,67 +1,164 @@
 # Indexify Dataplane Configuration
+#
+# Copy this file and adjust for your environment:
+#   cp sample_config.yaml config.yaml
+#   indexify-dataplane --config config.yaml
 
-# Environment name (e.g., "local", "staging", "production")
-# When set to anything other than "local", structured JSON logging is enabled
+# ---------------------------------------------------------------------------
+# General
+# ---------------------------------------------------------------------------
+
+# Environment name. Set to anything other than "local" to enable structured
+# JSON logging (e.g., "staging", "production").
 env: local
 
-# Unique identifier for this executor (auto-generated UUID if not specified)
+# Unique identifier for this executor (auto-generated UUID if not specified).
 # executor_id: "executor-1"
 
-# The gRPC server address to connect to
-server_addr: 'http://localhost:8901'
+# The control-plane gRPC server address. Must include a scheme.
+server_addr: "http://localhost:8901"
 
-# TLS configuration for authenticating with the gRPC server
+# Top-level state directory. Container state, driver metadata, and logs are
+# stored under this path. Default: ./dataplane-state
+# state_dir: /var/lib/indexify
+
+# ---------------------------------------------------------------------------
+# TLS
+# ---------------------------------------------------------------------------
+
 tls:
-  # Enable TLS for gRPC connections
   enabled: false
-  # Path to the CA certificate file (PEM format) - used to verify the server's certificate
-  # ca_cert_path: "/etc/certs/ca.pem"
-  # Path to the client certificate file (PEM format) - required for mTLS
-  # client_cert_path: "/etc/certs/client.pem"
-  # Path to the client private key file (PEM format) - required for mTLS
-  # client_key_path: "/etc/certs/client-key.pem"
-  # Domain name to use for TLS verification (optional)
-  # domain_name: "indexify.example.com"
+  # ca_cert_path: "/etc/certs/ca.pem"          # CA to verify server cert
+  # client_cert_path: "/etc/certs/client.pem"  # Client cert (mTLS)
+  # client_key_path: "/etc/certs/client-key.pem"  # Client key (mTLS)
+  # domain_name: "indexify.example.com"         # Override TLS SNI
 
-# Telemetry configuration
-telemetry:
-  # OpenTelemetry tracing exporter: "stdout" or "otlp"
-  # tracing_exporter: otlp
-  # OpenTelemetry collector endpoint (defaults to OTEL_EXPORTER_OTLP_ENDPOINT or localhost:4317)
-  # endpoint: "http://otel-collector:4317"
-  # Instance ID for this dataplane instance (auto-generated if not specified)
-  # instance_id: "dataplane-1"
+# ---------------------------------------------------------------------------
+# Telemetry
+# ---------------------------------------------------------------------------
 
-# Process driver configuration
-# Options: "fork_exec" (default) or "docker"
+# telemetry:
+#   tracing_exporter: otlp                           # "stdout" or "otlp"
+#   endpoint: "http://otel-collector:4317"            # OTLP collector endpoint
+#   enable_metrics: true
+#   metrics_interval: 10                              # seconds
+#   instance_id: "dataplane-1"
+
+# ---------------------------------------------------------------------------
+# Process Driver
+# ---------------------------------------------------------------------------
+# Determines how function containers are launched.
+# Options: "fork_exec" (default), "docker", "firecracker"
+#
+# Uncomment ONE of the driver sections below.
+
+# --- fork_exec (default — no configuration needed) ---
 driver:
-  type: docker
-  # For docker driver:
-  # type: docker
-  # address: "unix:///var/run/docker.sock"
-  # runtime: runsc     # OCI runtime (e.g., runsc for gVisor)
-  # network: bridge    # Docker network mode
-  # binds:             # Volume bind mounts for containers
-  #   - "/host/path:/container/path:ro"
+  type: fork_exec
 
-# Default container image for function containers.
-# Used as a fallback when no external image resolution service is configured.
+# --- Docker driver ---
+# driver:
+#   type: docker
+#   address: "unix:///var/run/docker.sock"     # Docker daemon address
+#   runtime: runsc                             # OCI runtime (e.g., runsc for gVisor)
+#   network: bridge                            # Docker network mode
+#   binds:                                     # Volume bind mounts
+#     - "/host/path:/container/path:ro"
+#   runsc_root: /var/run/docker/runtime-runc/moby   # runsc state dir (--root)
+#   snapshot_local_dir: /tmp/indexify-snapshots      # gVisor snapshot overlay tars
+
+# --- Firecracker driver (requires --features firecracker) ---
+# Launches each function in an isolated microVM using Firecracker + KVM.
+# Requires: firecracker binary, Linux kernel image, base rootfs, CNI network,
+# and an LVM thin pool for per-VM copy-on-write block devices.
+#
+# driver:
+#   type: firecracker
+#
+#   # -- Required ----------------------------------------------------------
+#   kernel_image_path: /opt/firecracker/vmlinux-6.1    # Linux kernel (vmlinux)
+#   base_rootfs_image: /opt/firecracker/rootfs.ext4    # Base guest OS rootfs
+#   cni_network_name: indexify-fc                      # CNI conflist "name"
+#   guest_gateway: "192.168.30.1"                      # Gateway IP for guests
+#
+#   # LVM thin provisioning for per-VM COW devices.
+#   # Each VM gets a thin logical volume as its dm-snapshot COW device.
+#   # Setup (one-time):
+#   #   pvcreate /dev/nvme1n1            # or use a loopback: see README
+#   #   vgcreate indexify-vg /dev/nvme1n1
+#   #   lvcreate -L 100G -T indexify-vg/thinpool
+#   lvm_volume_group: indexify-vg
+#   lvm_thin_pool: thinpool
+#
+#   # -- Optional (defaults shown) ----------------------------------------
+#   # firecracker_binary: firecracker        # Path or PATH lookup
+#   # default_rootfs_size_bytes: 1073741824  # Per-VM COW LV size (1 GiB)
+#   # cni_bin_path: /opt/cni/bin             # CNI plugin binaries
+#   # guest_netmask: "255.255.255.0"         # Guest network mask
+#   # default_vcpu_count: 2                  # vCPUs per VM
+#   # default_memory_mib: 512               # Memory per VM in MiB
+#   # state_dir: /var/lib/indexify/firecracker   # VM metadata, sockets
+#   # log_dir: /var/log/indexify/firecracker     # VM log files
+
+# ---------------------------------------------------------------------------
+# Function Executor
+# ---------------------------------------------------------------------------
+
+# function_executor:
+#   code_cache_path: /tmp/indexify_code_cache    # Cache dir for app code
+#   blob_store_url: "s3://my-bucket"             # Blob store for code/data
+#   fe_binary_path: /usr/local/bin/function-executor  # FE binary path
+
+# Default container image when no image resolver is configured.
 # default_function_image: "python:3.10-slim"
 
-# HTTP proxy configuration for sandbox routing
+# Only accept allocations for these functions (empty = accept all).
+# Format: "namespace:application:function" or "namespace:application:function:version"
+# function_allowlist:
+#   - "default:my-app:my-function"
+
+# Labels advertised to the control plane for scheduling.
+# labels:
+#   gpu: "a100"
+#   region: "us-east-1"
+
+# ---------------------------------------------------------------------------
+# HTTP Proxy
+# ---------------------------------------------------------------------------
 # Receives requests from sandbox-proxy with Tensorlake-Sandbox-Id header
+# and routes them to the correct container.
+
 http_proxy:
-  # Port to listen on (default: 8095)
   port: 8095
-  # Listen address (default: 0.0.0.0)
-  listen_addr: '0.0.0.0'
-  # Address to advertise to the server (defaults to hostname:port)
-  # IMPORTANT: For local development, set this to 127.0.0.1:port
-  # so sandbox-proxy can reach the dataplane
-  advertise_address: '127.0.0.1:8095'
+  listen_addr: "0.0.0.0"
+  # Address advertised to the server (defaults to hostname:port).
+  # For local dev, set to 127.0.0.1:port so sandbox-proxy can reach this.
+  # advertise_address: "127.0.0.1:8095"
+
+  # Upstream connection tuning (container connections):
+  # upstream:
+  #   idle_timeout_secs: 55
+  #   keepalive_idle_secs: 30
+  #   keepalive_interval_secs: 10
+  #   keepalive_count: 3
+  #   connection_timeout_secs: 10
+  #   read_timeout_secs: 60
+  #   write_timeout_secs: 60
+
+# ---------------------------------------------------------------------------
+# Monitoring
+# ---------------------------------------------------------------------------
 
 monitoring:
-  # Port to listen on for HTTP monitoring requests (default: 8100)
-  port: 8099
-  # Listen address (default: 0.0.0.0)
-  listen_addr: '0.0.0.0'
+  port: 8100
+  listen_addr: "0.0.0.0"
+
+# ---------------------------------------------------------------------------
+# Resource Overrides
+# ---------------------------------------------------------------------------
+# Override auto-detected host resources (useful for testing or cgroup limits).
+#
+# resource_overrides:
+#   cpu_count: 4
+#   memory_bytes: 8589934592    # 8 GiB
+#   disk_bytes: 107374182400    # 100 GiB

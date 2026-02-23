@@ -1,4 +1,6 @@
 pub mod docker_snapshotter;
+#[cfg(feature = "firecracker")]
+pub mod firecracker_snapshotter;
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -17,7 +19,13 @@ pub struct RestoreResult {
     /// Image name/tag that can be passed to the container runtime.
     /// For Docker: the imported image tag.
     /// For Firecracker: path to the rootfs file.
+    /// For gVisor (runsc): empty — the base image is used instead.
     pub image: String,
+    /// Path to a local tar file containing the rootfs overlay (upper layer).
+    /// When set, the container runtime should apply this overlay on top of the
+    /// base image. Used by gVisor's `dev.gvisor.tar.rootfs.upper` annotation.
+    /// `None` for runc (image already contains the full FS) and Firecracker.
+    pub rootfs_overlay: Option<String>,
 }
 
 /// Trait for snapshot backends. Implementations handle the specifics of
@@ -26,10 +34,24 @@ pub struct RestoreResult {
 /// Analogous to `ProcessDriver` which abstracts container runtimes.
 #[async_trait]
 pub trait Snapshotter: Send + Sync {
-    /// Capture the filesystem of a stopped container and upload to storage.
+    /// Whether `create_snapshot` requires the container to still be running.
     ///
-    /// The container should already be stopped (graceful SIGTERM sent)
-    /// before calling this. The implementation handles:
+    /// When `true`, the orchestrator must call `create_snapshot` **before**
+    /// sending the stop signal. This is needed for gVisor (`runsc`), whose
+    /// in-memory overlay is destroyed as soon as the container exits.
+    ///
+    /// When `false` (default), the orchestrator stops the container first,
+    /// then takes the snapshot (e.g., `docker export` works on stopped
+    /// containers).
+    fn requires_running_container(&self) -> bool {
+        false
+    }
+
+    /// Capture the filesystem of a container and upload to storage.
+    ///
+    /// Depending on `requires_running_container()`, the container may be
+    /// running or already stopped when this is called.
+    /// The implementation handles:
     /// - Exporting the filesystem (docker export, rootfs copy, etc.)
     /// - Compressing the data
     /// - Uploading to the snapshot store

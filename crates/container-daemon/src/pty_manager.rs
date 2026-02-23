@@ -135,25 +135,23 @@ impl PtyManager {
         let cols = clamp_cols(req.cols.unwrap_or(80));
 
         // Create PTY
-        let pty = pty_process::Pty::new().context("Failed to allocate PTY")?;
+        let (pty, pts) = pty_process::open().context("Failed to allocate PTY")?;
         pty.resize(Size::new(rows, cols))
             .context("Failed to set initial PTY size")?;
-        let pts = pty.pts().context("Failed to get PTS")?;
 
         // Build and spawn command
         let args = req.args.clone().unwrap_or_default();
-        let mut cmd = pty_process::Command::new(&req.command);
-        cmd.args(&args);
+        let mut cmd = pty_process::Command::new(&req.command).args(&args);
         if let Some(ref env) = req.env {
             for (key, value) in env {
-                cmd.env(key, value);
+                cmd = cmd.env(key, value);
             }
         }
         if let Some(ref cwd) = req.working_dir {
-            cmd.current_dir(cwd);
+            cmd = cmd.current_dir(cwd);
         }
 
-        let child = cmd.spawn(&pts).context("Failed to spawn command on PTY")?;
+        let child = cmd.spawn(pts).context("Failed to spawn command on PTY")?;
         let pid = child.id().context("Failed to get PID of spawned process")?;
 
         // Split PTY into read/write halves

@@ -51,7 +51,11 @@ url.workspace = true
 indexify-blob-store.workspace = true
 zstd.workspace = true
 
+[features]
+firecracker = []
+
 [target.'cfg(unix)'.dependencies]
+libc.workspace = true
 nix.workspace = true
 
 [dev-dependencies]

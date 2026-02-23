@@ -24,9 +24,11 @@ use tokio_util::sync::CancellationToken;
 use tonic::transport::{Channel, ClientTlsConfig, Endpoint};
 use tracing::Instrument;
 
+#[cfg(feature = "firecracker")]
+use crate::driver::FirecrackerDriver;
 use crate::{
     allocation_result_dispatcher::AllocationResultDispatcher,
-    blob_ops::BlobStore,
+    blob_ops::{BlobStore, LazyBlobStore},
     code_cache::CodeCache,
     config::{DataplaneConfig, DriverConfig},
     driver::{DockerDriver, ForkExecDriver, ProcessDriver},
@@ -128,25 +130,27 @@ impl Service {
         let (container_state_tx, container_state_rx) = mpsc::unbounded_channel(); // CommandResponse (ContainerTerminated)
         let (activity_tx, activity_rx) = mpsc::unbounded_channel(); // AllocationStreamRequest (completed/failed)
 
+        // Ensure the state directory exists
+        std::fs::create_dir_all(&config.state_dir).context("Failed to create state directory")?;
+
         let state_file = Arc::new(
-            StateFile::new(&config.state_file)
+            StateFile::new(&config.state_file_path())
                 .await
                 .context("Failed to initialize state file")?,
         );
 
         // Create snapshotter for Docker driver. The server provides full
-        // upload/download URIs per-request, so the dataplane only needs a blob
-        // store client that matches the URI scheme. When snapshot_storage_uri is
-        // configured, use that to pick the backend; otherwise default to local FS.
+        // upload/download URIs per-request (`s3://…` or `file://…`), so the
+        // blob store client is lazily initialized from the first URI's scheme.
         let snapshotter: Option<Arc<dyn Snapshotter>> = match &config.driver {
-            DriverConfig::Docker { address, .. } => {
-                let snapshot_blob_store = if let Some(ref uri) = config.snapshot_storage_uri {
-                    BlobStore::from_uri(uri, metrics.clone())
-                        .await
-                        .context("Failed to create snapshot blob store")?
-                } else {
-                    BlobStore::new_local(metrics.clone())
-                };
+            DriverConfig::Docker {
+                address,
+                runtime,
+                runsc_root,
+                snapshot_local_dir,
+                ..
+            } => {
+                let snapshot_blob_store = LazyBlobStore::new(metrics.clone());
                 let docker = match address {
                     Some(addr) => {
                         if addr.starts_with("http://") || addr.starts_with("tcp://") {
@@ -163,11 +167,36 @@ impl Service {
                 }
                 .context("Failed to connect to Docker for snapshotter")?;
                 tracing::info!("Snapshotter enabled (Docker driver)");
+                let snapshotter = crate::snapshotter::docker_snapshotter::DockerSnapshotter::new(
+                    docker,
+                    snapshot_blob_store,
+                    metrics.clone(),
+                    runtime.clone(),
+                    runsc_root.clone(),
+                    snapshot_local_dir.clone(),
+                );
+                snapshotter.cleanup_stale_overlays().await;
+                Some(Arc::new(snapshotter))
+            }
+            #[cfg(feature = "firecracker")]
+            DriverConfig::Firecracker {
+                lvm_volume_group,
+                lvm_thin_pool,
+                ..
+            } => {
+                let snapshot_blob_store = LazyBlobStore::new(metrics.clone());
+                let state_dir_path = config.firecracker_state_dir();
+                let lvm_config = crate::driver::firecracker::dm_snapshot::LvmConfig {
+                    volume_group: lvm_volume_group.clone(),
+                    thin_pool: lvm_thin_pool.clone(),
+                };
+                tracing::info!("Snapshotter enabled (Firecracker driver)");
                 Some(Arc::new(
-                    crate::snapshotter::docker_snapshotter::DockerSnapshotter::new(
-                        docker,
+                    crate::snapshotter::firecracker_snapshotter::FirecrackerSnapshotter::new(
+                        PathBuf::from(state_dir_path),
                         snapshot_blob_store,
                         metrics.clone(),
+                        lvm_config,
                     ),
                 ))
             }
@@ -179,7 +208,7 @@ impl Service {
             image_resolver.clone(),
             secrets_provider.clone(),
             metrics.clone(),
-            state_file,
+            state_file.clone(),
             config.executor_id.clone(),
             container_state_tx.clone(),
             snapshotter,
@@ -213,6 +242,7 @@ impl Service {
                 .clone()
                 .unwrap_or_else(|| "function-executor".to_string()),
             metrics: metrics.clone(),
+            state_file: state_file.clone(),
         };
 
         let allocation_result_dispatcher = AllocationResultDispatcher::new();
@@ -265,14 +295,32 @@ impl Service {
         // log line includes executor_id.
         let span = tracing::Span::current();
 
-        // Recover containers from previous run
+        // Recover containers from previous run (FCM sandbox path)
         let recovered = self.container_manager.recover().await;
         if recovered > 0 {
-            tracing::info!(recovered, "Recovered containers from state file");
+            tracing::info!(recovered, "Recovered FCM containers from state file");
         }
 
-        // Clean up orphaned containers (exist in Docker but not in state file)
-        let cleaned = self.container_manager.cleanup_orphans().await;
+        // Recover containers from previous run (AC function path)
+        let ac_known_handles = self
+            .state_reconciler
+            .lock()
+            .await
+            .recover_ac_containers()
+            .await;
+        if !ac_known_handles.is_empty() {
+            tracing::info!(
+                recovered = ac_known_handles.len(),
+                "Recovered AC containers from state file"
+            );
+        }
+
+        // Clean up orphaned containers (exist in Docker but not in state file).
+        // Both FCM and AC recovered handles are excluded from cleanup.
+        let cleaned = self
+            .container_manager
+            .cleanup_orphans(&ac_known_handles)
+            .await;
         if cleaned > 0 {
             tracing::info!(cleaned, "Cleaned up orphaned containers");
         }
@@ -371,13 +419,34 @@ impl Service {
         tokio::select! {
             signal_name = wait_for_shutdown_signal() => {
                 tracing::info!(signal = signal_name, "Shutdown signal received");
-                cancel_token.cancel();
-                self.state_reconciler.lock().await.shutdown().await;
             }
             Some(result) = tasks.join_next() => {
-                if let Err(e) = result {
-                    tracing::error!(error = ?e, "Background task panicked");
+                match result {
+                    Ok(()) => tracing::warn!("Background task exited unexpectedly"),
+                    Err(e) => tracing::error!(error = ?e, "Background task panicked"),
                 }
+            }
+        }
+
+        // Always cancel all tasks and clean up, regardless of which branch triggered.
+        cancel_token.cancel();
+
+        // Graceful shutdown with force-exit fallback.
+        // After cancel_token fires, background tasks may still hold the
+        // state_reconciler lock while winding down.  A second Ctrl+C or a
+        // 30-second timeout lets the operator force-exit instead of hanging
+        // indefinitely.
+        tokio::select! {
+            _ = async {
+                self.state_reconciler.lock().await.shutdown().await;
+            } => {
+                tracing::info!("Graceful shutdown completed");
+            }
+            _ = tokio::signal::ctrl_c() => {
+                tracing::warn!("Second interrupt received during shutdown, forcing exit");
+            }
+            _ = tokio::time::sleep(Duration::from_secs(30)) => {
+                tracing::warn!("Shutdown timed out after 30s, forcing exit");
             }
         }
 
@@ -494,7 +563,11 @@ impl ServiceRuntime {
                         .add(1, &[]);
                 }
 
-                match client.report_command_responses(request).await {
+                let rpc_result = tokio::select! {
+                    _ = self.cancel_token.cancelled() => return,
+                    result = client.report_command_responses(request) => result,
+                };
+                match rpc_result {
                     Ok(_) => {
                         // Remove the sent items from the front of the buffer.
                         self.state_reporter.drain_sent(sent_count).await;
@@ -570,7 +643,11 @@ impl ServiceRuntime {
             *self.monitoring_state.last_reported_state.lock().await =
                 Some(format!("{:#?}", heartbeat_req));
 
-            match client.heartbeat(heartbeat_req).await {
+            let rpc_result = tokio::select! {
+                _ = self.cancel_token.cancelled() => return,
+                result = client.heartbeat(heartbeat_req) => result,
+            };
+            match rpc_result {
                 Ok(response) => {
                     self.metrics
                         .histograms
@@ -705,10 +782,12 @@ impl ServiceRuntime {
             last_seq,
         };
 
-        let response = client
-            .command_stream(request)
-            .await
-            .context("Failed to open command stream")?;
+        let response = tokio::select! {
+            _ = self.cancel_token.cancelled() => return Ok(()),
+            result = client.command_stream(request) => {
+                result.context("Failed to open command stream")?
+            }
+        };
 
         let mut stream = response.into_inner();
         self.metrics.counters.stream_creations.add(1, &[]);
@@ -818,10 +897,12 @@ impl ServiceRuntime {
         let (outbound_tx, outbound_rx) = mpsc::channel::<AllocationStreamRequest>(64);
 
         // Open the bidi stream
-        let response = client
-            .allocation_stream(ReceiverStream::new(outbound_rx))
-            .await
-            .context("Failed to open allocation stream")?;
+        let response = tokio::select! {
+            _ = self.cancel_token.cancelled() => return Ok(()),
+            result = client.allocation_stream(ReceiverStream::new(outbound_rx)) => {
+                result.context("Failed to open allocation stream")?
+            }
+        };
 
         let mut inbound = response.into_inner();
 
@@ -1085,14 +1166,18 @@ impl ServiceRuntime {
                     upload_uri = %snapshot.upload_uri,
                     "SnapshotContainer command"
                 );
-                let mut reconciler = self.state_reconciler.lock().await;
-                reconciler
-                    .snapshot_container(
-                        &snapshot.container_id,
-                        &snapshot.snapshot_id,
-                        &snapshot.upload_uri,
-                    )
-                    .await;
+                let reconciler = self.state_reconciler.lock().await;
+                let container_manager = reconciler.container_manager().clone();
+                drop(reconciler);
+                tokio::spawn(async move {
+                    container_manager
+                        .snapshot_container(
+                            &snapshot.container_id,
+                            &snapshot.snapshot_id,
+                            &snapshot.upload_uri,
+                        )
+                        .await;
+                });
             }
         }
 
@@ -1128,7 +1213,8 @@ async fn wait_for_shutdown_signal() -> &'static str {
     }
 }
 
-/// Create the process driver based on config (ForkExec or Docker).
+/// Create the process driver based on config (ForkExec, Docker, or
+/// Firecracker).
 fn create_process_driver(config: &DataplaneConfig) -> Result<Arc<dyn ProcessDriver>> {
     match &config.driver {
         DriverConfig::ForkExec => Ok(Arc::new(ForkExecDriver::new())),
@@ -1137,6 +1223,7 @@ fn create_process_driver(config: &DataplaneConfig) -> Result<Arc<dyn ProcessDriv
             runtime,
             network,
             binds,
+            ..
         } => match address {
             Some(addr) => Ok(Arc::new(DockerDriver::with_address(
                 addr,
@@ -1150,6 +1237,37 @@ fn create_process_driver(config: &DataplaneConfig) -> Result<Arc<dyn ProcessDriv
                 binds.clone(),
             )?)),
         },
+        #[cfg(feature = "firecracker")]
+        DriverConfig::Firecracker {
+            firecracker_binary,
+            kernel_image_path,
+            default_rootfs_size_bytes,
+            base_rootfs_image,
+            cni_network_name,
+            cni_bin_path,
+            guest_gateway,
+            guest_netmask,
+            default_vcpu_count,
+            default_memory_mib,
+            lvm_volume_group,
+            lvm_thin_pool,
+            ..
+        } => Ok(Arc::new(FirecrackerDriver::new(
+            firecracker_binary.clone(),
+            kernel_image_path.clone(),
+            *default_rootfs_size_bytes,
+            base_rootfs_image.clone(),
+            cni_network_name.clone(),
+            cni_bin_path.clone(),
+            guest_gateway.clone(),
+            guest_netmask.clone(),
+            *default_vcpu_count,
+            *default_memory_mib,
+            config.firecracker_state_dir(),
+            config.firecracker_log_dir(),
+            lvm_volume_group.clone(),
+            lvm_thin_pool.clone(),
+        )?)),
     }
 }
 
@@ -1169,8 +1287,9 @@ async fn create_blob_store(
 }
 
 async fn create_channel(config: &DataplaneConfig) -> Result<Channel> {
-    let mut endpoint =
-        Endpoint::from_shared(config.server_addr.clone()).context("Invalid server address")?;
+    let mut endpoint = Endpoint::from_shared(config.server_addr.clone())
+        .context("Invalid server address")?
+        .connect_timeout(Duration::from_secs(10));
 
     if config.tls.enabled {
         let mut tls_config = ClientTlsConfig::new();

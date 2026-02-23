@@ -925,16 +925,10 @@ impl AllocationController {
             self.start_finalization(&alloc_id, result, ctx, None);
         }
 
-        // Kill all running containers and return GPUs
+        // Release GPUs but do NOT kill containers — they will be
+        // adopted on next startup via the state file.
         let gpu_allocator = self.config.gpu_allocator.clone();
         for fe in self.containers.values_mut() {
-            if let ContainerState::Running { handle, .. } = &fe.state {
-                let driver = self.config.driver.clone();
-                let handle = handle.clone();
-                tokio::spawn(async move {
-                    let _ = driver.kill(&handle).await;
-                });
-            }
             Self::return_gpus(&gpu_allocator, &mut fe.allocated_gpu_uuids);
         }
 
