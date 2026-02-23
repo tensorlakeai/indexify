@@ -6,19 +6,33 @@ use bollard::{
     Docker,
     auth::DockerCredentials,
     models::{
-        ContainerCreateBody, ContainerStateStatusEnum, DeviceRequest, HostConfig,
-        HostConfigLogConfig, ResourcesUlimits,
+        ContainerCreateBody,
+        ContainerStateStatusEnum,
+        DeviceRequest,
+        HostConfig,
+        HostConfigLogConfig,
+        ResourcesUlimits,
     },
     query_parameters::{
-        CreateContainerOptions, CreateImageOptions, InspectContainerOptions, KillContainerOptions,
-        RemoveContainerOptions, StartContainerOptions, StopContainerOptionsBuilder,
+        CreateContainerOptions,
+        CreateImageOptions,
+        InspectContainerOptions,
+        KillContainerOptions,
+        RemoveContainerOptions,
+        StartContainerOptions,
+        StopContainerOptionsBuilder,
     },
 };
 use futures_util::StreamExt;
 use tracing::info;
 
 use super::{
-    DAEMON_GRPC_PORT, DAEMON_HTTP_PORT, ExitStatus, ProcessConfig, ProcessDriver, ProcessHandle,
+    DAEMON_GRPC_PORT,
+    DAEMON_HTTP_PORT,
+    ExitStatus,
+    ProcessConfig,
+    ProcessDriver,
+    ProcessHandle,
     ProcessType,
 };
 use crate::daemon_binary;
@@ -141,8 +155,8 @@ impl DockerDriver {
 
         // Get the first network's IP address (usually "bridge" network)
         for (_network_name, endpoint) in networks {
-            if let Some(ip) = endpoint.ip_address
-                && !ip.is_empty()
+            if let Some(ip) = endpoint.ip_address &&
+                !ip.is_empty()
             {
                 return Ok(ip);
             }
