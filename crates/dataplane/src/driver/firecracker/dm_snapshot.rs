@@ -410,7 +410,31 @@ pub fn snapshot_status(vm_id: &str) -> Result<SnapshotStatus> {
 /// For each removed device, also detaches the COW loop device to prevent
 /// loop device leaks. Does NOT touch `indexify-base` — the origin is
 /// managed by `setup_origin()` / `teardown_origin()`.
+///
+/// Also removes legacy thin-provisioning devices (`indexify-tpool*`,
+/// `indexify-thin-*`) left over from older code.
 pub fn cleanup_stale_devices(active_vm_ids: &HashSet<String>) {
+    // Clean up legacy thin-provisioning devices first (order matters:
+    // thin volumes before pool, pool before data/meta).
+    let legacy_prefixes = ["indexify-thin-", "indexify-tpool"];
+    if let Ok(output) = run_cmd("dmsetup", &["ls"]) {
+        // Remove thin volumes first, then pool, then data/meta.
+        let mut legacy_devs: Vec<String> = output
+            .lines()
+            .filter_map(|line| line.split_whitespace().next())
+            .filter(|name| legacy_prefixes.iter().any(|p| name.starts_with(p)))
+            .map(|s| s.to_string())
+            .collect();
+        // Sort so "indexify-thin-*" comes before "indexify-tpool" (thin
+        // volumes must be removed before the pool they belong to).
+        legacy_devs.sort();
+        for name in &legacy_devs {
+            if run_cmd("dmsetup", &["remove", name]).is_ok() {
+                tracing::info!(dm_name = %name, "Removed legacy thin-provisioning device");
+            }
+        }
+    }
+
     let mut stale_devs = Vec::new();
     if let Ok(output) = run_cmd("dmsetup", &["ls"]) {
         for line in output.lines() {

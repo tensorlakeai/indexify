@@ -5,10 +5,13 @@
 //! container-daemon binary, an init script, and environment variables so
 //! the VM boots directly into the Indexify daemon.
 
-use std::{path::Path, process::Stdio};
+use std::{path::Path, process::Stdio, time::Duration};
 
 use anyhow::{Context, Result, bail};
 use tokio::process::Command;
+
+/// Timeout for mount and umount operations.
+const MOUNT_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// The init script injected at `/sbin/indexify-init` in the guest rootfs.
 ///
@@ -95,13 +98,25 @@ pub async fn inject_rootfs(
 
 /// Mount a block device at the given mount point.
 async fn mount_device(device: &Path, mount_point: &str) -> Result<()> {
-    let output = Command::new("mount")
-        .args([device.to_str().unwrap(), mount_point])
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .output()
-        .await
-        .context("Failed to execute mount")?;
+    tracing::debug!(device = %device.display(), mount_point, "Mounting device");
+    let output = tokio::time::timeout(
+        MOUNT_TIMEOUT,
+        Command::new("mount")
+            .args([device.to_str().unwrap(), mount_point])
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .output(),
+    )
+    .await
+    .with_context(|| {
+        format!(
+            "mount {} at {} timed out after {}s",
+            device.display(),
+            mount_point,
+            MOUNT_TIMEOUT.as_secs()
+        )
+    })?
+    .context("Failed to execute mount")?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -112,18 +127,29 @@ async fn mount_device(device: &Path, mount_point: &str) -> Result<()> {
             stderr
         );
     }
+    tracing::debug!(device = %device.display(), mount_point, "Mount succeeded");
     Ok(())
 }
 
 /// Unmount a filesystem.
 async fn unmount(mount_point: &str) -> Result<()> {
-    let output = Command::new("umount")
-        .arg(mount_point)
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .output()
-        .await
-        .context("Failed to execute umount")?;
+    let output = tokio::time::timeout(
+        MOUNT_TIMEOUT,
+        Command::new("umount")
+            .arg(mount_point)
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .output(),
+    )
+    .await
+    .with_context(|| {
+        format!(
+            "umount {} timed out after {}s",
+            mount_point,
+            MOUNT_TIMEOUT.as_secs()
+        )
+    })?
+    .context("Failed to execute umount")?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);

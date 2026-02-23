@@ -405,6 +405,7 @@ impl ProcessDriver for FirecrackerDriver {
         // 2. Get the daemon binary path
         let daemon_binary =
             crate::daemon_binary::get_daemon_path().context("Daemon binary not available")?;
+        tracing::info!(vm_id = %vm_id, daemon_path = %daemon_binary.display(), "Injecting rootfs");
 
         // 3. Inject daemon, init script, and env vars into the snapshot.
         if let Err(e) =
@@ -413,6 +414,7 @@ impl ProcessDriver for FirecrackerDriver {
             let _ = dm_snapshot::destroy_snapshot_async(snapshot).await;
             return Err(e.context("Failed to inject rootfs"));
         }
+        tracing::info!(vm_id = %vm_id, "Rootfs injection complete, setting up CNI");
 
         // 4. Setup CNI networking
         let cni_result = match self.cni.setup_network(&vm_id).await {
@@ -444,6 +446,8 @@ impl ProcessDriver for FirecrackerDriver {
              init=/sbin/indexify-init",
             cni_result.guest_ip, self.guest_gateway, self.guest_netmask,
         );
+
+        tracing::info!(vm_id = %vm_id, guest_ip = %cni_result.guest_ip, "CNI setup complete, spawning Firecracker");
 
         // 7. Spawn Firecracker process
         let socket_path = self
@@ -481,9 +485,16 @@ impl ProcessDriver for FirecrackerDriver {
                 "--log-path",
                 &log_path,
             ])
+            .stdin(Stdio::null())
             .stdout(serial_file)
             .stderr(Stdio::null())
             .kill_on_drop(false)
+            // Put Firecracker in its own process group so terminal Ctrl+C
+            // (SIGINT to the foreground pgrp) only reaches the dataplane,
+            // not the child VM processes.  stdin must be /dev/null too —
+            // Firecracker reads stdin for serial console input, and a
+            // background pgrp reading from the terminal receives SIGTTIN.
+            .process_group(0)
             .spawn()
         {
             Ok(child) => child,
