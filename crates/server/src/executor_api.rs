@@ -2860,6 +2860,7 @@ mod tests {
         // First call — full sync
         let commands = emitter.emit_commands(&desired);
         assert_eq!(commands.len(), 2);
+        emitter.commit_snapshot(&desired);
 
         // Second call — same state → no commands
         let commands = emitter.emit_commands(&desired);
@@ -2877,6 +2878,7 @@ mod tests {
             clock: Some(1),
         };
         emitter.emit_commands(&desired1);
+        emitter.commit_snapshot(&desired1);
 
         // Second: container removed
         let desired2 = ExecutorStateSnapshot {
@@ -2904,6 +2906,7 @@ mod tests {
             clock: Some(1),
         };
         emitter.emit_commands(&desired1);
+        emitter.commit_snapshot(&desired1);
 
         // Second: same container, new allocation added
         let desired2 = ExecutorStateSnapshot {
@@ -2931,6 +2934,7 @@ mod tests {
             clock: Some(1),
         };
         emitter.emit_commands(&desired1);
+        emitter.commit_snapshot(&desired1);
 
         // Second: allocation completed (removed from desired state)
         let desired2 = ExecutorStateSnapshot {
@@ -2955,6 +2959,7 @@ mod tests {
         };
         let cmds1 = emitter.emit_commands(&desired1);
         assert_eq!(cmds1.last().unwrap().seq, 2);
+        emitter.commit_snapshot(&desired1);
 
         // Second batch: 1 command (seq 3)
         let desired2 = ExecutorStateSnapshot {
