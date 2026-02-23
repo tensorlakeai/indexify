@@ -6,8 +6,15 @@ use tracing::info;
 use super::{contexts::MigrationContext, migration_trait::Migration};
 use crate::{
     data_model::{
-        ContainerId, ContainerPoolId, ContainerResources, ExecutorId, NetworkPolicy, SandboxBuilder,
-        SandboxId, SandboxOutcome, SandboxStatus,
+        ContainerId,
+        ContainerPoolId,
+        ContainerResources,
+        ExecutorId,
+        NetworkPolicy,
+        SandboxBuilder,
+        SandboxId,
+        SandboxOutcome,
+        SandboxStatus,
     },
     state_store::{
         serializer::{StateStoreEncode, StateStoreEncoder},
