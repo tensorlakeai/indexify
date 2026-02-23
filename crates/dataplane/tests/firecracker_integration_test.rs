@@ -163,6 +163,7 @@ fn sandbox_config(id: &str) -> ProcessConfig {
         working_dir: None,
         resources: None,
         labels: Vec::new(),
+        rootfs_overlay: None,
     }
 }
 
