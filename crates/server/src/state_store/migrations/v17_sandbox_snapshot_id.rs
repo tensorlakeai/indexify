@@ -80,6 +80,12 @@ impl Migration for V17SandboxSnapshotId {
         let total = entries.len();
 
         for (key_bytes, value_bytes) in &entries {
+            // If v16 ran with this codebase, records already include snapshot_id
+            // and decode as the current Sandbox. Skip those.
+            if StateStoreEncoder::decode::<crate::data_model::Sandbox>(value_bytes).is_ok() {
+                continue;
+            }
+
             let legacy: LegacySandbox = StateStoreEncoder::decode(value_bytes)?;
 
             let sandbox = SandboxBuilder::default()
@@ -130,7 +136,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        data_model::{ContainerResources, Sandbox, SandboxId, SandboxStatus},
+        data_model::{ContainerResources, Sandbox, SandboxBuilder, SandboxId, SandboxStatus},
         state_store::{
             driver::{Reader, Writer},
             migrations::testing::MigrationTestBuilder,
@@ -196,6 +202,67 @@ mod tests {
                         let migrated: Sandbox = StateStoreEncoder::decode(&result)?;
                         assert_eq!(migrated.id.get(), "sandbox_1");
                         assert_eq!(migrated.status, SandboxStatus::Running);
+                        assert_eq!(migrated.snapshot_id, None);
+                        Ok(())
+                    })
+                },
+            )
+            .await?;
+
+        Ok(())
+    }
+
+    /// Records already in the current format (e.g. re-encoded by v16 running
+    /// with new code that includes snapshot_id) should pass through unchanged.
+    #[tokio::test]
+    async fn test_v17_skips_already_current_records() -> Result<()> {
+        let migration = V17SandboxSnapshotId;
+
+        let current_sandbox = SandboxBuilder::default()
+            .id(SandboxId::new("sandbox_1".to_string()))
+            .namespace("test_ns".to_string())
+            .image("python:3.11".to_string())
+            .status(SandboxStatus::Running)
+            .creation_time_ns(1000u128)
+            .resources(ContainerResources {
+                cpu_ms_per_sec: 1000,
+                memory_mb: 512,
+                ephemeral_disk_mb: 1024,
+                gpu: None,
+            })
+            .timeout_secs(300u64)
+            .build()
+            .expect("all fields provided");
+        let current_bytes = StateStoreEncoder::encode(&current_sandbox)?;
+        let key = b"test_ns|sandbox_1";
+
+        let mut builder = MigrationTestBuilder::new();
+        for cf in IndexifyObjectsColumns::iter() {
+            builder = builder.with_column_family(cf.as_ref());
+        }
+
+        builder
+            .run_test(
+                &migration,
+                |db| {
+                    Box::pin(async move {
+                        db.put(
+                            IndexifyObjectsColumns::Sandboxes.as_ref(),
+                            key,
+                            &current_bytes,
+                        )
+                        .await?;
+                        Ok(())
+                    })
+                },
+                |db| {
+                    Box::pin(async move {
+                        let result = db
+                            .get(IndexifyObjectsColumns::Sandboxes.as_ref(), key)
+                            .await?
+                            .expect("sandbox should exist");
+                        let migrated: Sandbox = StateStoreEncoder::decode(&result)?;
+                        assert_eq!(migrated.id.get(), "sandbox_1");
                         assert_eq!(migrated.snapshot_id, None);
                         Ok(())
                     })
