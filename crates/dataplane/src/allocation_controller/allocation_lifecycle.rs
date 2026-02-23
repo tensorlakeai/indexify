@@ -93,16 +93,16 @@ impl AllocationController {
                         _ => None,
                     })
                     .unwrap_or(AllocationFailureReason::ContainerTerminated);
-                let activity = proto_convert::make_allocation_failed_stream_request(
+                let outcome = proto_convert::make_allocation_failed_outcome(
                     &allocation,
                     failure_reason,
                     None,
                     None,
                     Some(fe_id.clone()),
                 );
-                // Send failure via activity channel — no blobs to clean up.
-                proto_convert::record_activity_metrics(&activity, &self.config.metrics.counters);
-                let _ = self.config.activity_tx.send(activity);
+                // Send failure via outcome channel — no blobs to clean up.
+                proto_convert::record_outcome_metrics(&outcome, &self.config.metrics.counters);
+                let _ = self.config.outcome_tx.send(outcome);
                 let managed = ManagedAllocation {
                     allocation: allocation.clone(),
                     fe_id: fe_id.clone(),
@@ -753,11 +753,10 @@ impl AllocationController {
             );
         }
 
-        // Record metrics and send result as AllocationActivity
-        let activity =
-            proto_convert::allocation_result_to_stream_request(&result, terminated_container_id);
-        proto_convert::record_activity_metrics(&activity, &self.config.metrics.counters);
-        let _ = self.config.activity_tx.send(activity);
+        // Record metrics and send result via outcome channel (guaranteed delivery)
+        let outcome = proto_convert::allocation_result_to_outcome(&result, terminated_container_id);
+        proto_convert::record_outcome_metrics(&outcome, &self.config.metrics.counters);
+        let _ = self.config.outcome_tx.send(outcome);
 
         // Keep the allocation in Done state — do NOT remove it.
         // The server may re-send this allocation before it processes the
@@ -962,10 +961,9 @@ impl AllocationController {
                 // During shutdown all containers are dying, so include
                 // container_id if it wasn't already set.
                 let container_id = terminated_container_id.or_else(|| Some(alloc.fe_id.clone()));
-                let activity =
-                    proto_convert::allocation_result_to_stream_request(&result, container_id);
-                proto_convert::record_activity_metrics(&activity, &self.config.metrics.counters);
-                let _ = self.config.activity_tx.send(activity);
+                let outcome = proto_convert::allocation_result_to_outcome(&result, container_id);
+                proto_convert::record_outcome_metrics(&outcome, &self.config.metrics.counters);
+                let _ = self.config.outcome_tx.send(outcome);
             }
         }
 

@@ -28,7 +28,7 @@ use bollard::{
     },
 };
 use indexify_dataplane::{
-    blob_ops::LazyBlobStore,
+    blob_ops::BlobStore,
     metrics::DataplaneMetrics,
     snapshotter::{Snapshotter, docker_snapshotter::DockerSnapshotter},
 };
@@ -125,7 +125,7 @@ async fn test_snapshot_create_and_restore() {
     let snapshot_uri = format!("file://{}", snapshot_path.display());
 
     let metrics = Arc::new(DataplaneMetrics::new());
-    let blob_store = LazyBlobStore::new(metrics.clone());
+    let blob_store = BlobStore::new(metrics.clone());
     let snapshotter = DockerSnapshotter::new(docker.clone(), blob_store, metrics, None, None, None);
 
     // ── 1. Create and start a sandbox container ────────────────────────

@@ -106,7 +106,6 @@ driver:
 
 # function_executor:
 #   code_cache_path: /tmp/indexify_code_cache    # Cache dir for app code
-#   blob_store_url: "s3://my-bucket"             # Blob store for code/data
 #   fe_binary_path: /usr/local/bin/function-executor  # FE binary path
 
 # Default container image when no image resolver is configured.

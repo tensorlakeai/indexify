@@ -9,9 +9,8 @@ use std::{
 
 use anyhow::{Context, Result};
 use proto_api::executor_api_pb::{
-    AllocationStreamRequest,
+    AllocationLogEntry,
     ExecutorStatus,
-    GetCommandStreamRequest,
     HostResources,
     executor_api_client::ExecutorApiClient,
 };
@@ -19,7 +18,6 @@ use tokio::{
     sync::{Mutex, Notify, mpsc, watch},
     task::JoinSet,
 };
-use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::sync::CancellationToken;
 use tonic::transport::{Channel, ClientTlsConfig, Endpoint};
 use tracing::Instrument;
@@ -28,7 +26,7 @@ use tracing::Instrument;
 use crate::driver::FirecrackerDriver;
 use crate::{
     allocation_result_dispatcher::AllocationResultDispatcher,
-    blob_ops::{BlobStore, LazyBlobStore},
+    blob_ops::BlobStore,
     code_cache::CodeCache,
     config::{DataplaneConfig, DriverConfig},
     driver::{DockerDriver, ForkExecDriver, ProcessDriver},
@@ -47,7 +45,24 @@ use crate::{
 };
 
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
-const STREAM_IDLE_TIMEOUT: Duration = Duration::from_secs(300); // 5 minutes
+
+/// Explicit connection state for the dataplane's relationship with the server.
+///
+/// Replaces the implicit `heartbeat_watch: watch::Sender<bool>` with a typed
+/// enum that makes valid states and transitions visible and logged.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ConnectionState {
+    /// Initial state. Heartbeat running, waiting for server to accept
+    /// registration. Streams should not connect yet.
+    Registering,
+    /// Server accepted registration (send_state=false).
+    /// Streams can connect. Heartbeat continues for liveness.
+    Ready,
+    /// Heartbeat failed. Since heartbeat and streams share the same
+    /// gRPC channel, streams will also fail and reconnect on their own.
+    /// This state is for observability, not for stream control.
+    Unhealthy,
+}
 
 /// Heartbeat retry backoff parameters (matches Python executor's
 /// state_reporter.py).
@@ -128,7 +143,8 @@ impl Service {
 
         let (result_tx, result_rx) = mpsc::unbounded_channel(); // CommandResponse (acks + container events)
         let (container_state_tx, container_state_rx) = mpsc::unbounded_channel(); // CommandResponse (ContainerTerminated)
-        let (activity_tx, activity_rx) = mpsc::unbounded_channel(); // AllocationStreamRequest (completed/failed)
+        let (activity_tx, activity_rx) = mpsc::unbounded_channel::<AllocationLogEntry>(); // AllocationLogEntry (CallFunction)
+        let (outcome_tx, outcome_rx) = mpsc::unbounded_channel(); // AllocationOutcome (Completed/Failed, guaranteed delivery)
 
         // Ensure the state directory exists
         std::fs::create_dir_all(&config.state_dir).context("Failed to create state directory")?;
@@ -139,9 +155,11 @@ impl Service {
                 .context("Failed to initialize state file")?,
         );
 
-        // Create snapshotter for Docker driver. The server provides full
-        // upload/download URIs per-request (`s3://…` or `file://…`), so the
-        // blob store client is lazily initialized from the first URI's scheme.
+        // Single blob store shared across snapshotter, code cache, and
+        // allocation execution. Dispatches to local FS or S3 based on each
+        // URI's scheme; clones share the same lazily-initialized S3 client.
+        let blob_store = Arc::new(BlobStore::new(metrics.clone()));
+
         let snapshotter: Option<Arc<dyn Snapshotter>> = match &config.driver {
             DriverConfig::Docker {
                 address,
@@ -150,7 +168,6 @@ impl Service {
                 snapshot_local_dir,
                 ..
             } => {
-                let snapshot_blob_store = LazyBlobStore::new(metrics.clone());
                 let docker = match address {
                     Some(addr) => {
                         if addr.starts_with("http://") || addr.starts_with("tcp://") {
@@ -169,7 +186,7 @@ impl Service {
                 tracing::info!("Snapshotter enabled (Docker driver)");
                 let snapshotter = crate::snapshotter::docker_snapshotter::DockerSnapshotter::new(
                     docker,
-                    snapshot_blob_store,
+                    (*blob_store).clone(),
                     metrics.clone(),
                     runtime.clone(),
                     runsc_root.clone(),
@@ -184,7 +201,6 @@ impl Service {
                 lvm_thin_pool,
                 ..
             } => {
-                let snapshot_blob_store = LazyBlobStore::new(metrics.clone());
                 let state_dir_path = config.firecracker_state_dir();
                 let lvm_config = crate::driver::firecracker::dm_snapshot::LvmConfig {
                     volume_group: lvm_volume_group.clone(),
@@ -194,7 +210,7 @@ impl Service {
                 Some(Arc::new(
                     crate::snapshotter::firecracker_snapshotter::FirecrackerSnapshotter::new(
                         PathBuf::from(state_dir_path),
-                        snapshot_blob_store,
+                        (*blob_store).clone(),
                         metrics.clone(),
                         lvm_config,
                     ),
@@ -213,8 +229,6 @@ impl Service {
             container_state_tx.clone(),
             snapshotter,
         ));
-
-        let blob_store = create_blob_store(&config, &metrics).await?;
         let code_cache = Arc::new(CodeCache::new(
             PathBuf::from(&config.function_executor.code_cache_path),
             blob_store.clone(),
@@ -231,6 +245,7 @@ impl Service {
             secrets_provider,
             result_tx,
             container_state_tx,
+            outcome_tx,
             activity_tx,
             server_channel: channel.clone(),
             blob_store,
@@ -260,6 +275,7 @@ impl Service {
             result_rx,
             container_state_rx,
             activity_rx,
+            outcome_rx,
         ));
 
         let allowed_functions = config.parse_allowed_functions();
@@ -327,7 +343,7 @@ impl Service {
 
         let cancel_token = CancellationToken::new();
         let heartbeat_healthy = self.monitoring_state.heartbeat_healthy.clone();
-        let (heartbeat_watch_tx, _) = watch::channel(false);
+        let (connection_state_tx, _) = watch::channel(ConnectionState::Registering);
 
         let runtime = Arc::new(ServiceRuntime {
             channel: self.channel.clone(),
@@ -342,11 +358,12 @@ impl Service {
             state_reconciler: self.state_reconciler.clone(),
             state_reporter: self.state_reporter.clone(),
             heartbeat_healthy: heartbeat_healthy.clone(),
-            heartbeat_watch: heartbeat_watch_tx,
+            connection_state: connection_state_tx,
             cancel_token: cancel_token.clone(),
             metrics: self.metrics.clone(),
             monitoring_state: self.monitoring_state.clone(),
-            command_stream_last_seq: Arc::new(AtomicU64::new(0)),
+            last_applied_command_seq: Arc::new(AtomicU64::new(0)),
+            last_applied_result_seq: Arc::new(AtomicU64::new(0)),
             allocation_result_dispatcher: self.allocation_result_dispatcher.clone(),
         });
 
@@ -361,13 +378,13 @@ impl Service {
         tasks.spawn({
             let span = span.clone();
             let rt = runtime.clone();
-            async move { rt.run_command_stream_loop().await }.instrument(span)
+            async move { rt.run_poll_commands_loop().await }.instrument(span)
         });
 
         tasks.spawn({
             let span = span.clone();
             let rt = runtime.clone();
-            async move { rt.run_allocation_stream_loop().await }.instrument(span)
+            async move { rt.run_poll_results_loop().await }.instrument(span)
         });
 
         tasks.spawn({
@@ -492,17 +509,64 @@ struct ServiceRuntime {
     state_reconciler: Arc<Mutex<StateReconciler>>,
     state_reporter: Arc<StateReporter>,
     heartbeat_healthy: Arc<AtomicBool>,
-    heartbeat_watch: watch::Sender<bool>,
+    /// Explicit connection state machine. Replaces the old `heartbeat_watch:
+    /// watch::Sender<bool>`. Transitions are logged in the heartbeat loop;
+    /// streams observe via `subscribe()`.
+    connection_state: watch::Sender<ConnectionState>,
     cancel_token: CancellationToken,
     metrics: Arc<DataplaneMetrics>,
     monitoring_state: Arc<MonitoringState>,
-    /// Last processed command sequence number for the command stream.
-    command_stream_last_seq: Arc<AtomicU64>,
-    /// Dispatcher for routing allocation stream results to allocation runners.
+    /// Highest command seq successfully applied (used by poll_commands ack).
+    last_applied_command_seq: Arc<AtomicU64>,
+    /// Highest result seq successfully applied (used by poll_allocation_results
+    /// ack).
+    last_applied_result_seq: Arc<AtomicU64>,
+    /// Dispatcher for routing allocation results to allocation runners.
     allocation_result_dispatcher: Arc<AllocationResultDispatcher>,
 }
 
 impl ServiceRuntime {
+    /// Transition the connection state if it differs from the current state.
+    /// Logs the transition with executor ID, old/new state, and reason.
+    /// No-op (no log) if already in the target state.
+    fn transition_connection_state(&self, to: ConnectionState, reason: &str) {
+        let old = *self.connection_state.borrow();
+        if old != to {
+            self.connection_state.send(to).ok();
+            tracing::info!(
+                executor_id = %self.identity.executor_id,
+                from = ?old,
+                to = ?to,
+                reason,
+                "Connection state transition"
+            );
+        }
+    }
+
+    /// Wait for the connection state to become `Ready`. Returns `true` if
+    /// ready, `false` if the channel closed (should exit the loop).
+    async fn wait_for_ready(&self, stream_name: &str) -> bool {
+        let mut state_rx = self.connection_state.subscribe();
+        if state_rx
+            .wait_for(|s| *s == ConnectionState::Ready)
+            .await
+            .is_err()
+        {
+            tracing::info!(
+                executor_id = %self.identity.executor_id,
+                stream = stream_name,
+                "Connection state channel closed, exiting stream loop"
+            );
+            return false;
+        }
+        tracing::info!(
+            executor_id = %self.identity.executor_id,
+            stream = stream_name,
+            "Connection ready, connecting stream"
+        );
+        true
+    }
+
     /// Build a full state sync message (identity + all containers).
     fn build_full_state(
         &self,
@@ -535,86 +599,9 @@ impl ServiceRuntime {
                 return;
             }
 
-            // Phase 1: Send pending command responses.
-            //
-            // collect_responses() clones items from the buffer. On success,
-            // drain_sent() removes the sent count from the front. On failure,
-            // items stay in the buffer for retry (no action needed).
-            let mut results_failed = false;
-            loop {
-                let (responses, sent_count, has_remaining) =
-                    self.state_reporter.collect_responses(0).await;
-
-                if responses.is_empty() {
-                    break;
-                }
-
-                let request = proto_api::executor_api_pb::ReportCommandResponsesRequest {
-                    executor_id: self.identity.executor_id.clone(),
-                    responses,
-                };
-
-                self.metrics.counters.state_report_rpcs.add(1, &[]);
-
-                if has_remaining {
-                    self.metrics
-                        .counters
-                        .state_report_message_fragmentations
-                        .add(1, &[]);
-                }
-
-                let rpc_result = tokio::select! {
-                    _ = self.cancel_token.cancelled() => return,
-                    result = client.report_command_responses(request) => result,
-                };
-                match rpc_result {
-                    Ok(_) => {
-                        // Remove the sent items from the front of the buffer.
-                        self.state_reporter.drain_sent(sent_count).await;
-                        self.metrics.counters.record_heartbeat(true);
-                        retry_interval = HEARTBEAT_MIN_RETRY_INTERVAL;
-                        self.heartbeat_healthy.store(true, Ordering::SeqCst);
-                        if !has_remaining {
-                            break;
-                        }
-                        // More responses pending, loop to send next batch
-                    }
-                    Err(e) => {
-                        // Items stay in the buffer for retry — no action needed.
-                        self.metrics.counters.record_heartbeat(false);
-                        self.metrics.counters.state_report_rpc_errors.add(1, &[]);
-                        tracing::warn!(
-                            error = %e,
-                            server_addr = %self.identity.server_addr,
-                            "report_command_responses failed"
-                        );
-                        self.heartbeat_healthy.store(false, Ordering::SeqCst);
-                        self.heartbeat_watch.send(false).ok();
-                        tracing::info!(executor_id = %self.identity.executor_id, "Heartbeat failed, signaling streams to disconnect");
-                        send_full_state = true;
-                        results_failed = true;
-                        break;
-                    }
-                }
-            }
-
-            if results_failed {
-                tokio::select! {
-                    _ = self.cancel_token.cancelled() => return,
-                    _ = tokio::time::sleep(retry_interval) => {}
-                }
-                retry_interval = std::cmp::min(
-                    retry_interval * HEARTBEAT_BACKOFF_MULTIPLIER,
-                    HEARTBEAT_MAX_RETRY_INTERVAL,
-                );
-                continue;
-            }
-
-            // Allocation activities (AllocationCompleted/AllocationFailed and
-            // CallFunction log entries) are sent via the separate
-            // run_allocation_stream_loop bidi RPC, not the heartbeat loop.
-
-            // Phase 2: Build and send heartbeat
+            // Phase 1: Build and send heartbeat(s) (includes batched reports).
+            // If buffers exceed the 10MB fragmentation limit, loop sending
+            // additional heartbeats until all buffers are drained.
             let report_start = std::time::Instant::now();
 
             // Build full_state payload if the server requested it
@@ -628,88 +615,154 @@ impl ServiceRuntime {
                 None
             };
 
-            let heartbeat_req = proto_api::executor_api_pb::HeartbeatRequest {
-                executor_id: Some(self.identity.executor_id.clone()),
-                status: Some(ExecutorStatus::Running.into()),
-                full_state,
-            };
+            let mut heartbeat_failed = false;
+            let mut is_first_fragment = true;
 
-            let request_size = prost::Message::encoded_len(&heartbeat_req);
-            self.metrics.counters.state_report_rpcs.add(1, &[]);
-            self.metrics
-                .histograms
-                .state_report_message_size_mb
-                .record(request_size as f64 / (1024.0 * 1024.0), &[]);
+            loop {
+                // Track cumulative message size across collect calls so
+                // each buffer respects the 10MB total limit.
+                let mut base_size: usize = 0;
 
-            // Store reported state for monitoring endpoint
-            *self.monitoring_state.last_reported_state.lock().await =
-                Some(format!("{:#?}", heartbeat_req));
+                let (responses, resp_count, resp_remaining) =
+                    self.state_reporter.collect_responses(base_size).await;
+                base_size += responses
+                    .iter()
+                    .map(prost::Message::encoded_len)
+                    .sum::<usize>();
 
-            let rpc_result = tokio::select! {
-                _ = self.cancel_token.cancelled() => return,
-                result = client.heartbeat(heartbeat_req) => result,
-            };
-            match rpc_result {
-                Ok(response) => {
-                    self.metrics
-                        .histograms
-                        .state_report_rpc_latency_seconds
-                        .record(report_start.elapsed().as_secs_f64(), &[]);
-                    self.metrics.counters.record_heartbeat(true);
-                    retry_interval = HEARTBEAT_MIN_RETRY_INTERVAL;
-                    send_full_state = false;
+                let (outcomes, out_count, out_remaining) =
+                    self.state_reporter.collect_outcomes(base_size).await;
+                base_size += outcomes
+                    .iter()
+                    .map(prost::Message::encoded_len)
+                    .sum::<usize>();
 
-                    // Check if server needs full state
-                    let resp = response.into_inner();
-                    let server_needs_state = resp.send_state.unwrap_or(false);
-                    if server_needs_state {
-                        tracing::info!("Server requested full state");
-                        send_full_state = true;
+                let (log_entries, log_count, log_remaining) =
+                    self.state_reporter.collect_log_entries(base_size).await;
+
+                let heartbeat_req = proto_api::executor_api_pb::HeartbeatRequest {
+                    executor_id: Some(self.identity.executor_id.clone()),
+                    status: Some(ExecutorStatus::Running.into()),
+                    // Only include full_state in the first fragment
+                    full_state: if is_first_fragment {
+                        full_state.clone()
+                    } else {
+                        None
+                    },
+                    command_responses: responses,
+                    allocation_outcomes: outcomes,
+                    allocation_log_entries: log_entries,
+                };
+
+                let request_size = prost::Message::encoded_len(&heartbeat_req);
+                self.metrics.counters.state_report_rpcs.add(1, &[]);
+                self.metrics
+                    .histograms
+                    .state_report_message_size_mb
+                    .record(request_size as f64 / (1024.0 * 1024.0), &[]);
+
+                if is_first_fragment {
+                    // Store reported state for monitoring endpoint
+                    *self.monitoring_state.last_reported_state.lock().await =
+                        Some(format!("{:#?}", heartbeat_req));
+                }
+
+                let rpc_result = tokio::select! {
+                    _ = self.cancel_token.cancelled() => return,
+                    result = client.heartbeat(heartbeat_req) => result,
+                };
+                match rpc_result {
+                    Ok(response) => {
+                        self.metrics
+                            .histograms
+                            .state_report_rpc_latency_seconds
+                            .record(report_start.elapsed().as_secs_f64(), &[]);
+                        self.metrics.counters.record_heartbeat(true);
+                        retry_interval = HEARTBEAT_MIN_RETRY_INTERVAL;
+                        send_full_state = false;
+
+                        // Drain sent items from all three buffers
+                        self.state_reporter.drain_sent(resp_count).await;
+                        self.state_reporter.drain_sent_outcomes(out_count).await;
+                        self.state_reporter.drain_sent_log_entries(log_count).await;
+
+                        if is_first_fragment {
+                            // Check if server needs full state
+                            let resp = response.into_inner();
+                            let server_needs_state = resp.send_state.unwrap_or(false);
+                            if server_needs_state {
+                                tracing::info!("Server requested full state");
+                                send_full_state = true;
+                            }
+
+                            // Mark monitoring as ready after first successful heartbeat
+                            self.monitoring_state.ready.store(true, Ordering::SeqCst);
+
+                            // Only mark healthy when the server knows our executor
+                            // (send_state == false). When the server asks for full state,
+                            // the executor isn't registered in runtime_data yet, so the
+                            // poll loops would be rejected with "executor not found".
+                            if !server_needs_state {
+                                self.heartbeat_healthy.store(true, Ordering::SeqCst);
+                                self.transition_connection_state(
+                                    ConnectionState::Ready,
+                                    "server accepted registration",
+                                );
+                            } else {
+                                // Server asked for full state — transition to Registering
+                                // if we were previously Ready (re-registration needed)
+                                self.transition_connection_state(
+                                    ConnectionState::Registering,
+                                    "server requested re-registration",
+                                );
+                            }
+                        }
                     }
-
-                    // Mark monitoring as ready after first successful heartbeat
-                    self.monitoring_state.ready.store(true, Ordering::SeqCst);
-
-                    // Only mark healthy when the server knows our executor
-                    // (send_state == false). When the server asks for full state,
-                    // the executor isn't registered in runtime_data yet, so the
-                    // command stream would be rejected with "executor not found".
-                    if !server_needs_state {
-                        self.heartbeat_healthy.store(true, Ordering::SeqCst);
-                        let _ = self.heartbeat_watch.send(true);
-                        tracing::info!(executor_id = %self.identity.executor_id, "Heartbeat recovered, signaling streams to connect");
+                    Err(e) => {
+                        self.metrics.counters.record_heartbeat(false);
+                        self.metrics.counters.state_report_rpc_errors.add(1, &[]);
+                        self.metrics
+                            .histograms
+                            .state_report_rpc_latency_seconds
+                            .record(report_start.elapsed().as_secs_f64(), &[]);
+                        tracing::warn!(
+                            error = ?e,
+                            server_addr = %self.identity.server_addr,
+                            retry_in_secs = retry_interval.as_secs(),
+                            "Heartbeat failed, retrying with backoff"
+                        );
+                        self.heartbeat_healthy.store(false, Ordering::SeqCst);
+                        self.transition_connection_state(
+                            ConnectionState::Unhealthy,
+                            "heartbeat RPC failed",
+                        );
+                        send_full_state = true;
+                        heartbeat_failed = true;
+                        break;
                     }
                 }
-                Err(e) => {
-                    self.metrics.counters.record_heartbeat(false);
-                    self.metrics.counters.state_report_rpc_errors.add(1, &[]);
-                    self.metrics
-                        .histograms
-                        .state_report_rpc_latency_seconds
-                        .record(report_start.elapsed().as_secs_f64(), &[]);
-                    tracing::warn!(
-                        error = ?e,
-                        server_addr = %self.identity.server_addr,
-                        retry_in_secs = retry_interval.as_secs(),
-                        "Heartbeat failed, retrying with backoff"
-                    );
-                    self.heartbeat_healthy.store(false, Ordering::SeqCst);
-                    self.heartbeat_watch.send(false).ok();
-                    tracing::info!(executor_id = %self.identity.executor_id, "Heartbeat failed, signaling streams to disconnect");
-                    send_full_state = true;
-                    tokio::select! {
-                        _ = self.cancel_token.cancelled() => return,
-                        _ = tokio::time::sleep(retry_interval) => {}
-                    }
-                    retry_interval = std::cmp::min(
-                        retry_interval * HEARTBEAT_BACKOFF_MULTIPLIER,
-                        HEARTBEAT_MAX_RETRY_INTERVAL,
-                    );
-                    continue;
+
+                is_first_fragment = false;
+
+                // If all buffers are fully drained, we're done
+                if !resp_remaining && !out_remaining && !log_remaining {
+                    break;
                 }
             }
 
-            // Phase 3: Wait for next trigger
+            if heartbeat_failed {
+                tokio::select! {
+                    _ = self.cancel_token.cancelled() => return,
+                    _ = tokio::time::sleep(retry_interval) => {}
+                }
+                retry_interval = std::cmp::min(
+                    retry_interval * HEARTBEAT_BACKOFF_MULTIPLIER,
+                    HEARTBEAT_MAX_RETRY_INTERVAL,
+                );
+                continue;
+            }
+
+            // Phase 2: Wait for next trigger
             // If the server requested full state, send it immediately without
             // waiting for the heartbeat interval.
             if send_full_state {
@@ -717,6 +770,8 @@ impl ServiceRuntime {
             }
 
             let results_notify = self.state_reporter.results_notify();
+            let outcomes_notify = self.state_reporter.outcomes_notify();
+            let activities_notify = self.state_reporter.activities_notify();
             let reconciler = self.state_reconciler.lock().await;
             let state_change_notify = reconciler.state_change_notify();
             drop(reconciler);
@@ -727,7 +782,13 @@ impl ServiceRuntime {
                     return;
                 }
                 _ = results_notify.notified() => {
-                    // Results available, send immediately
+                    // Command responses available, send immediately
+                }
+                _ = outcomes_notify.notified() => {
+                    // Allocation outcomes available, send immediately
+                }
+                _ = activities_notify.notified() => {
+                    // Allocation log entries available, send immediately
                 }
                 _ = state_change_notify.notified() => {
                     // FE added/removed, send immediately
@@ -737,317 +798,140 @@ impl ServiceRuntime {
         }
     }
 
-    /// Outer reconnect loop for the command stream.
-    async fn run_command_stream_loop(&self) {
-        let mut heartbeat_rx = self.heartbeat_watch.subscribe();
-        loop {
-            if self.cancel_token.is_cancelled() {
-                tracing::info!("Command stream loop cancelled");
-                return;
-            }
-
-            // Wait for heartbeat to become healthy
-            if heartbeat_rx.wait_for(|&healthy| healthy).await.is_err() {
-                tracing::info!(executor_id = %self.identity.executor_id, "Heartbeat watch closed, exiting command stream loop");
-                return;
-            }
-            tracing::info!(executor_id = %self.identity.executor_id, "Heartbeat healthy, connecting command stream");
-
-            if let Err(e) = self.run_command_stream(&mut heartbeat_rx).await {
-                self.metrics.counters.record_stream_disconnection("error");
-                tracing::warn!(error = ?e, "Command stream ended");
-            }
-
-            // Small delay before reconnecting
-            tokio::select! {
-                _ = self.cancel_token.cancelled() => {
-                    tracing::info!("Command stream loop cancelled");
-                    return;
-                }
-                _ = tokio::time::sleep(Duration::from_secs(1)) => {}
-            }
-        }
-    }
-
-    /// Single connection for the command stream.
-    async fn run_command_stream(&self, heartbeat_rx: &mut watch::Receiver<bool>) -> Result<()> {
-        let mut client = ExecutorApiClient::new(self.channel.clone());
-        let last_seq = self.command_stream_last_seq.load(Ordering::SeqCst);
-
-        let request = GetCommandStreamRequest {
-            executor_id: self.identity.executor_id.clone(),
-            last_seq,
-        };
-
-        let response = tokio::select! {
-            _ = self.cancel_token.cancelled() => return Ok(()),
-            result = client.command_stream(request) => {
-                result.context("Failed to open command stream")?
-            }
-        };
-
-        let mut stream = response.into_inner();
-        self.metrics.counters.stream_creations.add(1, &[]);
-
-        loop {
-            let message = tokio::select! {
-                _ = self.cancel_token.cancelled() => {
-                    tracing::info!("Command stream cancelled");
-                    return Ok(());
-                }
-                _ = heartbeat_rx.changed() => {
-                    if !*heartbeat_rx.borrow() {
-                        self.metrics
-                            .counters
-                            .record_stream_disconnection("heartbeat_unhealthy");
-                        tracing::info!(executor_id = %self.identity.executor_id, "Heartbeat became unhealthy, disconnecting command stream");
-                        return Ok(());
-                    }
-                    continue;
-                }
-                result = tokio::time::timeout(STREAM_IDLE_TIMEOUT, stream.message()) => result
-            };
-
-            tracing::debug!(?message, "Received message");
-
-            match message {
-                Ok(Ok(Some(command))) => {
-                    self.handle_command(command).await;
-                }
-                Ok(Ok(None)) => {
-                    self.metrics
-                        .counters
-                        .record_stream_disconnection("server_closed");
-                    tracing::info!("Command stream closed by server");
-                    return Ok(());
-                }
-                Ok(Err(e)) => {
-                    return Err(e).context("Command stream error");
-                }
-                Err(_) => {
-                    self.metrics
-                        .counters
-                        .record_stream_disconnection("idle_timeout");
-                    tracing::warn!("Command stream idle timeout, reconnecting");
-                    return Ok(());
-                }
-            }
-        }
-    }
-
     // ---------------------------------------------------------------
-    // Allocation stream (bidi RPC for allocation traffic)
+    // Poll commands loop (replaces command stream)
     // ---------------------------------------------------------------
 
-    /// Outer reconnect loop for the allocation stream.
-    async fn run_allocation_stream_loop(&self) {
-        let mut heartbeat_rx = self.heartbeat_watch.subscribe();
+    async fn run_poll_commands_loop(&self) {
+        if !self.wait_for_ready("poll_commands").await {
+            return;
+        }
+        let mut client = ExecutorApiClient::new(self.channel.clone());
+        let mut retry_interval = Duration::from_secs(1);
+
         loop {
             if self.cancel_token.is_cancelled() {
-                tracing::info!("Allocation stream loop cancelled");
+                tracing::info!("Poll commands loop cancelled");
                 return;
             }
 
-            // Wait for heartbeat to become healthy
-            if heartbeat_rx.wait_for(|&healthy| healthy).await.is_err() {
-                tracing::info!(executor_id = %self.identity.executor_id, "Heartbeat watch closed, exiting allocation stream loop");
-                return;
-            }
-            tracing::info!(executor_id = %self.identity.executor_id, "Heartbeat healthy, connecting allocation stream");
-
-            if let Err(e) = self.run_allocation_stream(&mut heartbeat_rx).await {
-                tracing::warn!(error = %e, "Allocation stream ended");
-            }
-
-            // Small delay before reconnecting
-            tokio::select! {
-                _ = self.cancel_token.cancelled() => {
-                    tracing::info!("Allocation stream loop cancelled");
-                    return;
-                }
-                _ = tokio::time::sleep(Duration::from_secs(1)) => {}
-            }
-        }
-    }
-
-    /// Single connection for the allocation stream (bidi).
-    ///
-    /// The outbound side drains allocation activities (AllocationCompleted,
-    /// AllocationFailed, CallFunction log entries) from the state reporter
-    /// buffer and sends them to the server.
-    ///
-    /// The inbound side receives FunctionCallResult log entries from the
-    /// server for delivery to allocation runners.
-    async fn run_allocation_stream(&self, heartbeat_rx: &mut watch::Receiver<bool>) -> Result<()> {
-        let mut client = ExecutorApiClient::new(self.channel.clone());
-
-        // Create a channel for outbound messages. The drainer task sends
-        // items here; the ReceiverStream feeds them to the bidi stream.
-        let (outbound_tx, outbound_rx) = mpsc::channel::<AllocationStreamRequest>(64);
-
-        // Open the bidi stream
-        let response = tokio::select! {
-            _ = self.cancel_token.cancelled() => return Ok(()),
-            result = client.allocation_stream(ReceiverStream::new(outbound_rx)) => {
-                result.context("Failed to open allocation stream")?
-            }
-        };
-
-        let mut inbound = response.into_inner();
-
-        // Spawn a task to drain activities from state_reporter and send
-        // via outbound_tx. The task ends when the cancel token fires, the
-        // outbound_tx is dropped (stream closed), or the receiver side of
-        // outbound_tx is dropped (stream reconnecting).
-        let drainer_cancel = self.cancel_token.clone();
-        let drainer_reporter = self.state_reporter.clone();
-        let drainer_executor_id = self.identity.executor_id.clone();
-        let drainer_tx = outbound_tx.clone();
-        let drainer_handle = tokio::spawn(async move {
-            Self::drain_activities_to_stream(
-                drainer_reporter,
-                drainer_tx,
-                drainer_executor_id,
-                drainer_cancel,
-            )
-            .await;
-        });
-
-        // Main loop: read from inbound stream
-        let result = loop {
-            let message = tokio::select! {
-                _ = self.cancel_token.cancelled() => {
-                    break Ok(());
-                }
-                _ = heartbeat_rx.changed() => {
-                    if !*heartbeat_rx.borrow() {
-                        tracing::info!(executor_id = %self.identity.executor_id, "Heartbeat became unhealthy, disconnecting allocation stream");
-                        break Ok(());
-                    }
-                    continue;
-                }
-                result = tokio::time::timeout(STREAM_IDLE_TIMEOUT, inbound.message()) => result
+            let acked_seq = self.last_applied_command_seq.load(Ordering::SeqCst);
+            let request = proto_api::executor_api_pb::PollCommandsRequest {
+                executor_id: self.identity.executor_id.clone(),
+                acked_command_seq: if acked_seq > 0 { Some(acked_seq) } else { None },
             };
 
-            match message {
-                Ok(Ok(Some(response))) => {
-                    self.handle_allocation_stream_response(response);
-                }
-                Ok(Ok(None)) => {
-                    tracing::info!("Allocation stream closed by server");
-                    break Ok(());
-                }
-                Ok(Err(e)) => {
-                    break Err(e).context("Allocation stream error");
-                }
-                Err(_) => {
-                    tracing::warn!("Allocation stream idle timeout, reconnecting");
-                    break Ok(());
-                }
-            }
-        };
+            let rpc_result = tokio::select! {
+                _ = self.cancel_token.cancelled() => return,
+                result = client.poll_commands(request) => result,
+            };
 
-        // Drop the outbound sender to signal the drainer task to stop, and
-        // wait for it to finish.
-        drop(outbound_tx);
-        let _ = drainer_handle.await;
-
-        result
-    }
-
-    /// Background task: drain activities from the state reporter buffer and
-    /// forward them via the outbound channel to the bidi stream.
-    async fn drain_activities_to_stream(
-        reporter: Arc<StateReporter>,
-        tx: mpsc::Sender<AllocationStreamRequest>,
-        executor_id: String,
-        cancel_token: CancellationToken,
-    ) {
-        let activities_notify = reporter.activities_notify();
-
-        loop {
-            // Wait for activities to arrive
-            tokio::select! {
-                _ = cancel_token.cancelled() => {
-                    return;
-                }
-                _ = activities_notify.notified() => {}
-            }
-
-            // Drain all pending activities and send them
-            let items = reporter.drain_all_activities().await;
-            for mut item in items {
-                // Ensure executor_id is set on every outbound message
-                if item.executor_id.is_empty() {
-                    item.executor_id.clone_from(&executor_id);
-                }
-
-                if tx.send(item).await.is_err() {
-                    // Receiver dropped — stream is closing
-                    return;
-                }
-            }
-        }
-    }
-
-    /// Handle a single response from the allocation stream.
-    ///
-    /// Dispatches incoming `FunctionCallResult` entries to the allocation
-    /// runner handling the target allocation via the shared
-    /// `AllocationResultDispatcher`.
-    fn handle_allocation_stream_response(
-        &self,
-        response: proto_api::executor_api_pb::AllocationStreamResponse,
-    ) {
-        if let Some(ref log_entry) = response.log_entry {
-            let allocation_id = &log_entry.allocation_id;
-            match &log_entry.entry {
-                Some(
-                    proto_api::executor_api_pb::allocation_log_entry::Entry::FunctionCallResult(
-                        result,
-                    ),
-                ) => {
-                    tracing::debug!(
-                        allocation_id = %allocation_id,
-                        function_call_id = ?result.function_call_id,
-                        "Received FunctionCallResult from allocation stream"
-                    );
-                    let dispatcher = self.allocation_result_dispatcher.clone();
-                    let alloc_id = allocation_id.clone();
-                    let resp = response;
-                    tokio::spawn(async move {
-                        if !dispatcher.dispatch(&alloc_id, resp).await {
-                            tracing::warn!(
-                                allocation_id = %alloc_id,
-                                "No allocation runner registered for result dispatch"
-                            );
+            match rpc_result {
+                Ok(response) => {
+                    retry_interval = Duration::from_secs(1);
+                    for command in response.into_inner().commands {
+                        let seq = command.seq;
+                        // Skip commands already processed (re-delivery after lost ack)
+                        if seq <= self.last_applied_command_seq.load(Ordering::SeqCst) {
+                            continue;
                         }
-                    });
+                        self.handle_command(command).await;
+                        self.last_applied_command_seq
+                            .fetch_max(seq, Ordering::SeqCst);
+                    }
                 }
-                Some(proto_api::executor_api_pb::allocation_log_entry::Entry::CallFunction(_)) => {
-                    tracing::warn!(
-                        allocation_id = %allocation_id,
-                        "Unexpected CallFunction entry from server on allocation stream"
-                    );
-                }
-                None => {
-                    tracing::warn!(
-                        allocation_id = %allocation_id,
-                        "Received empty log entry on allocation stream"
-                    );
+                Err(e) => {
+                    tracing::warn!(error = %e, "poll_commands failed");
+                    tokio::select! {
+                        _ = self.cancel_token.cancelled() => return,
+                        _ = tokio::time::sleep(retry_interval) => {},
+                    }
+                    retry_interval = std::cmp::min(retry_interval * 2, Duration::from_secs(30));
                 }
             }
         }
     }
 
-    /// Handle a single Command from the command stream.
+    // ---------------------------------------------------------------
+    // Poll allocation results loop (replaces allocation stream)
+    // ---------------------------------------------------------------
+
+    async fn run_poll_results_loop(&self) {
+        if !self.wait_for_ready("poll_results").await {
+            return;
+        }
+        let mut client = ExecutorApiClient::new(self.channel.clone());
+        let mut retry_interval = Duration::from_secs(1);
+
+        loop {
+            if self.cancel_token.is_cancelled() {
+                tracing::info!("Poll results loop cancelled");
+                return;
+            }
+
+            let acked_seq = self.last_applied_result_seq.load(Ordering::SeqCst);
+            let request = proto_api::executor_api_pb::PollAllocationResultsRequest {
+                executor_id: self.identity.executor_id.clone(),
+                acked_result_seq: if acked_seq > 0 { Some(acked_seq) } else { None },
+            };
+
+            let rpc_result = tokio::select! {
+                _ = self.cancel_token.cancelled() => return,
+                result = client.poll_allocation_results(request) => result,
+            };
+
+            match rpc_result {
+                Ok(response) => {
+                    retry_interval = Duration::from_secs(1);
+                    for result in response.into_inner().results {
+                        let seq = result.seq;
+                        // Skip results already processed (re-delivery after lost ack)
+                        if seq <= self.last_applied_result_seq.load(Ordering::SeqCst) {
+                            continue;
+                        }
+                        if let Some(entry) = result.entry {
+                            self.dispatch_function_call_result(entry);
+                        }
+                        self.last_applied_result_seq
+                            .fetch_max(seq, Ordering::SeqCst);
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "poll_allocation_results failed");
+                    tokio::select! {
+                        _ = self.cancel_token.cancelled() => return,
+                        _ = tokio::time::sleep(retry_interval) => {},
+                    }
+                    retry_interval = std::cmp::min(retry_interval * 2, Duration::from_secs(30));
+                }
+            }
+        }
+    }
+
+    /// Dispatch a function call result from the poll results loop to the
+    /// allocation runner handling the target allocation.
+    fn dispatch_function_call_result(
+        &self,
+        log_entry: proto_api::executor_api_pb::AllocationLogEntry,
+    ) {
+        let allocation_id = log_entry.allocation_id.clone();
+        let dispatcher = self.allocation_result_dispatcher.clone();
+        tokio::spawn(async move {
+            if !dispatcher.dispatch(&allocation_id, log_entry).await {
+                tracing::warn!(
+                    allocation_id = %allocation_id,
+                    "No allocation runner for result dispatch"
+                );
+            }
+        });
+    }
+
+    /// Handle a single Command from the poll commands loop.
     async fn handle_command(&self, command: proto_api::executor_api_pb::Command) {
         let seq = command.seq;
 
         let Some(cmd) = command.command else {
             tracing::warn!(seq, "Received command with no payload, skipping");
-            self.command_stream_last_seq
-                .fetch_max(seq, Ordering::SeqCst);
             return;
         };
 
@@ -1176,9 +1060,6 @@ impl ServiceRuntime {
                 });
             }
         }
-
-        self.command_stream_last_seq
-            .fetch_max(seq, Ordering::SeqCst);
     }
 }
 
@@ -1264,21 +1145,6 @@ fn create_process_driver(config: &DataplaneConfig) -> Result<Arc<dyn ProcessDriv
             lvm_volume_group.clone(),
             lvm_thin_pool.clone(),
         )?)),
-    }
-}
-
-/// Create the blob store from config (S3/GCS URL or local filesystem).
-async fn create_blob_store(
-    config: &DataplaneConfig,
-    metrics: &Arc<DataplaneMetrics>,
-) -> Result<Arc<BlobStore>> {
-    match &config.function_executor.blob_store_url {
-        Some(url) => Ok(Arc::new(
-            BlobStore::from_uri(url, metrics.clone())
-                .await
-                .context("Failed to create blob store")?,
-        )),
-        None => Ok(Arc::new(BlobStore::new_local(metrics.clone()))),
     }
 }
 

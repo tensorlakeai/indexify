@@ -224,12 +224,16 @@ impl ExecutorManager {
         let peeked_deadline = {
             let new_deadline = ReverseInstant(Instant::now() + EXECUTOR_TIMEOUT);
 
-            info!(executor_id = executor_id.get(), "v2 heartbeat received");
-
             let mut state = self.heartbeat_deadline_queue.lock().await;
 
             if state.change_priority(executor_id, new_deadline).is_none() {
                 state.push(executor_id.clone(), new_deadline);
+                info!(
+                    executor_id = executor_id.get(),
+                    "v2 heartbeat received (first)"
+                );
+            } else {
+                trace!(executor_id = executor_id.get(), "v2 heartbeat received");
             }
 
             state
@@ -347,6 +351,13 @@ impl ExecutorManager {
             "Deregistering lapsed executor (heartbeat timeout)"
         );
         self.runtime_data.write().await.remove(&executor_id);
+
+        // Drop the ExecutorConnection — this drops the event sender, which
+        // causes any active command_stream_loop to exit via recv() → None.
+        self.indexify_state
+            .deregister_executor_connection(&executor_id)
+            .await;
+
         let last_state_change_id = self.indexify_state.state_change_id_seq.clone();
         let state_changes = tombstone_executor(&last_state_change_id, &executor_id)?;
         let sm_req = StateMachineUpdateRequest {

@@ -592,15 +592,15 @@ impl AllocationController {
                 ctx.output_blob_handles.is_empty() &&
                 ctx.fe_result.is_none()
             {
-                let activity = proto_convert::make_allocation_failed_stream_request(
+                let outcome = proto_convert::make_allocation_failed_outcome(
                     &alloc.allocation,
                     non_running_reason,
                     None,
                     None,
                     Some(fe_id.to_string()),
                 );
-                proto_convert::record_activity_metrics(&activity, &self.config.metrics.counters);
-                let _ = self.config.activity_tx.send(activity);
+                proto_convert::record_outcome_metrics(&outcome, &self.config.metrics.counters);
+                let _ = self.config.outcome_tx.send(outcome);
                 alloc.state = AllocationState::Done;
             } else {
                 let result =

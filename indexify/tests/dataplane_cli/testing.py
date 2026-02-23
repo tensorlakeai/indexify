@@ -1,9 +1,11 @@
 import os
+import selectors
 import shutil
 import signal
 import socket
 import subprocess
 import tempfile
+import threading
 import time
 from typing import Any, Dict
 
@@ -130,3 +132,146 @@ def wait_dataplane_startup(port: int):
         time.sleep(1)
 
     raise Exception(f"Dataplane failed to start at port {port}")
+
+
+class PartitionProxy:
+    """TCP proxy that can simulate network partitions.
+
+    Forwards all traffic between a listen port and a target (server gRPC).
+    When partitioned, closes all active connections and refuses new ones.
+    """
+
+    def __init__(self, target_host: str, target_port: int):
+        self.target = (target_host, target_port)
+        self.port = find_free_port()
+        self._partitioned = threading.Event()  # set = partitioned
+        self._server_socket = None
+        self._thread = None
+        self._connections = []
+        self._running = False
+        self._lock = threading.Lock()
+
+    def start(self):
+        """Start the proxy in a background thread."""
+        self._server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self._server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self._server_socket.settimeout(0.5)
+        self._server_socket.bind(("127.0.0.1", self.port))
+        self._server_socket.listen(128)
+        self._running = True
+        self._thread = threading.Thread(target=self._accept_loop, daemon=True)
+        self._thread.start()
+
+    def stop(self):
+        """Stop the proxy and close all connections."""
+        self._running = False
+        if self._thread:
+            self._thread.join(timeout=5)
+        if self._server_socket:
+            try:
+                self._server_socket.close()
+            except OSError:
+                pass
+        self._close_all_connections()
+
+    def partition(self):
+        """Simulate a network partition. Closes all active connections
+        and refuses new ones until heal() is called."""
+        self._partitioned.set()
+        self._close_all_connections()
+
+    def heal(self):
+        """Restore network connectivity."""
+        self._partitioned.clear()
+
+    def _close_all_connections(self):
+        """Close all active forwarding connections."""
+        with self._lock:
+            for client_sock, target_sock in self._connections:
+                try:
+                    client_sock.close()
+                except OSError:
+                    pass
+                try:
+                    target_sock.close()
+                except OSError:
+                    pass
+            self._connections.clear()
+
+    def _accept_loop(self):
+        """Main accept loop running in the background thread."""
+        while self._running:
+            try:
+                client_sock, addr = self._server_socket.accept()
+            except socket.timeout:
+                continue
+            except OSError:
+                break
+
+            if self._partitioned.is_set():
+                try:
+                    client_sock.close()
+                except OSError:
+                    pass
+                continue
+
+            try:
+                target_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                target_sock.connect(self.target)
+            except OSError:
+                try:
+                    client_sock.close()
+                except OSError:
+                    pass
+                continue
+
+            with self._lock:
+                self._connections.append((client_sock, target_sock))
+
+            fwd_thread = threading.Thread(
+                target=self._forward,
+                args=(client_sock, target_sock),
+                daemon=True,
+            )
+            fwd_thread.start()
+
+    def _forward(self, client_sock: socket.socket, target_sock: socket.socket):
+        """Bidirectionally forward bytes between client and target using selectors."""
+        sel = selectors.DefaultSelector()
+        try:
+            client_sock.setblocking(False)
+            target_sock.setblocking(False)
+            sel.register(client_sock, selectors.EVENT_READ, data="client")
+            sel.register(target_sock, selectors.EVENT_READ, data="target")
+
+            while self._running and not self._partitioned.is_set():
+                events = sel.select(timeout=0.5)
+                if not events:
+                    continue
+                for key, mask in events:
+                    try:
+                        data = key.fileobj.recv(65536)
+                    except (OSError, ConnectionError):
+                        return
+                    if not data:
+                        return
+                    dest = target_sock if key.data == "client" else client_sock
+                    try:
+                        dest.sendall(data)
+                    except (OSError, ConnectionError):
+                        return
+        finally:
+            sel.close()
+            try:
+                client_sock.close()
+            except OSError:
+                pass
+            try:
+                target_sock.close()
+            except OSError:
+                pass
+            with self._lock:
+                try:
+                    self._connections.remove((client_sock, target_sock))
+                except ValueError:
+                    pass

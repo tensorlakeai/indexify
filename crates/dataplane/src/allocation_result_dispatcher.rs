@@ -1,20 +1,19 @@
-//! Routes incoming FunctionCallResults from the allocation stream to the
+//! Routes incoming FunctionCallResults from the poll results loop to the
 //! allocation runner handling the target allocation.
 //!
 //! The dispatcher maintains a map of `allocation_id → channel sender`. Each
 //! allocation runner registers on start and deregisters on completion. The
-//! service's allocation stream handler calls `dispatch()` to forward results.
+//! service's poll results handler calls `dispatch()` to forward results.
 
 use std::{collections::HashMap, sync::Arc};
 
 use proto_api::executor_api_pb;
 use tokio::sync::{RwLock, mpsc};
 
-/// Routes incoming `AllocationStreamResponse` messages to the allocation runner
+/// Routes incoming `AllocationLogEntry` messages to the allocation runner
 /// handling each allocation.
 pub struct AllocationResultDispatcher {
-    senders:
-        RwLock<HashMap<String, mpsc::UnboundedSender<executor_api_pb::AllocationStreamResponse>>>,
+    senders: RwLock<HashMap<String, mpsc::UnboundedSender<executor_api_pb::AllocationLogEntry>>>,
 }
 
 impl AllocationResultDispatcher {
@@ -31,7 +30,7 @@ impl AllocationResultDispatcher {
     pub async fn register(
         &self,
         allocation_id: String,
-    ) -> mpsc::UnboundedReceiver<executor_api_pb::AllocationStreamResponse> {
+    ) -> mpsc::UnboundedReceiver<executor_api_pb::AllocationLogEntry> {
         let (tx, rx) = mpsc::unbounded_channel();
         self.senders.write().await.insert(allocation_id, tx);
         rx
@@ -50,14 +49,14 @@ impl AllocationResultDispatcher {
     /// Returns `true` if the result was delivered, `false` if no runner is
     /// registered for the allocation or the runner's channel is closed.
     ///
-    /// Called by the service's allocation stream handler.
+    /// Called by the service's poll results handler.
     pub async fn dispatch(
         &self,
         allocation_id: &str,
-        response: executor_api_pb::AllocationStreamResponse,
+        log_entry: executor_api_pb::AllocationLogEntry,
     ) -> bool {
         if let Some(tx) = self.senders.read().await.get(allocation_id) {
-            tx.send(response).is_ok()
+            tx.send(log_entry).is_ok()
         } else {
             false
         }

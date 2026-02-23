@@ -14,53 +14,6 @@ use opentelemetry::metrics::{Counter, Histogram};
 
 use crate::metrics::DataplaneMetrics;
 
-/// Lazily-initialized blob store that detects the backend (S3 vs local FS)
-/// from the URI scheme of the first request it sees.
-///
-/// The server sends full URIs (`s3://…` or `file://…`) with every snapshot
-/// command. `LazyBlobStore` uses the first URI to create the right
-/// [`BlobStore`] client and caches it for all subsequent calls.
-pub struct LazyBlobStore {
-    client: tokio::sync::OnceCell<BlobStore>,
-    metrics: Arc<DataplaneMetrics>,
-}
-
-impl LazyBlobStore {
-    /// Create a new lazy blob store. The underlying client will be initialized
-    /// on the first operation.
-    pub fn new(metrics: Arc<DataplaneMetrics>) -> Self {
-        Self {
-            client: tokio::sync::OnceCell::new(),
-            metrics,
-        }
-    }
-
-    /// Return the cached client, initializing it from `uri` on the first call.
-    async fn get_or_init(&self, uri: &str) -> Result<&BlobStore> {
-        self.client
-            .get_or_try_init(|| async { BlobStore::from_uri(uri, self.metrics.clone()).await })
-            .await
-    }
-
-    /// Write data from a stream to a blob.
-    pub async fn put(
-        &self,
-        uri: &str,
-        data: impl futures_util::Stream<Item = Result<Bytes>> + Send + Unpin,
-        options: indexify_blob_store::PutOptions,
-    ) -> Result<indexify_blob_store::PutResult> {
-        self.get_or_init(uri).await?.put(uri, data, options).await
-    }
-
-    /// Stream a blob's contents.
-    pub async fn get_stream(
-        &self,
-        uri: &str,
-    ) -> Result<futures_util::stream::BoxStream<'static, Result<Bytes>>> {
-        self.get_or_init(uri).await?.get_stream(uri).await
-    }
-}
-
 /// Optimal chunk size for S3 multipart uploads (100 MB).
 pub const BLOB_OPTIMAL_CHUNK_SIZE: u64 = 100 * 1024 * 1024;
 
@@ -91,33 +44,46 @@ async fn record_blob_op<T>(
     result
 }
 
-/// Metrics-instrumented blob store wrapping [`indexify_blob_store::BlobStore`].
+/// Metrics-instrumented blob store with dynamic URI-based backend dispatch.
+///
+/// Holds a local FS backend (always available, zero-cost) and a lazily
+/// initialized S3 backend. Each operation inspects the URI scheme and
+/// dispatches to the appropriate backend, mirroring the Python executor's
+/// dual-client pattern.
 #[derive(Clone)]
 pub struct BlobStore {
-    inner: indexify_blob_store::BlobStore,
+    local: indexify_blob_store::BlobStore,
+    s3: Arc<tokio::sync::OnceCell<indexify_blob_store::BlobStore>>,
     metrics: Arc<DataplaneMetrics>,
 }
 
 impl BlobStore {
-    /// Create a local filesystem blob store.
+    /// Create a new blob store with dynamic URI-based dispatch.
     ///
-    /// The base URL is not used for operations (the dataplane always passes
-    /// full URIs), but is required by the shared crate constructor.
-    pub fn new_local(metrics: Arc<DataplaneMetrics>) -> Self {
+    /// The local FS backend is always available. The S3 backend is lazily
+    /// initialized on the first S3 URI encountered.
+    pub fn new(metrics: Arc<DataplaneMetrics>) -> Self {
         Self {
-            inner: indexify_blob_store::BlobStore::new_local("file:///"),
+            local: indexify_blob_store::BlobStore::new_local("file:///"),
+            s3: Arc::new(tokio::sync::OnceCell::new()),
             metrics,
         }
     }
 
-    /// Auto-detect backend from a URI scheme.
-    pub async fn from_uri(uri: &str, metrics: Arc<DataplaneMetrics>) -> Result<Self> {
-        let inner = indexify_blob_store::BlobStore::from_uri(uri).await?;
-        Ok(Self { inner, metrics })
+    /// Return the backend appropriate for the given URI.
+    async fn backend_for(&self, uri: &str) -> Result<&indexify_blob_store::BlobStore> {
+        if indexify_blob_store::uri::is_file_uri(uri) {
+            Ok(&self.local)
+        } else {
+            self.s3
+                .get_or_try_init(|| async { indexify_blob_store::BlobStore::from_uri(uri).await })
+                .await
+        }
     }
 
     /// Get metadata (size) for a blob.
     pub async fn get_metadata(&self, uri: &str) -> Result<indexify_blob_store::BlobMetadata> {
+        let backend = self.backend_for(uri).await?;
         record_blob_op(
             &self.metrics.counters.blob_store_get_metadata_requests,
             &self
@@ -125,13 +91,14 @@ impl BlobStore {
                 .histograms
                 .blob_store_get_metadata_latency_seconds,
             &self.metrics.counters.blob_store_get_metadata_errors,
-            self.inner.get_metadata(uri),
+            backend.get_metadata(uri),
         )
         .await
     }
 
     /// Generate a presigned GET URL for reading a blob.
     pub async fn presign_get_uri(&self, uri: &str) -> Result<String> {
+        let backend = self.backend_for(uri).await?;
         record_blob_op(
             &self.metrics.counters.blob_store_presign_uri_requests,
             &self
@@ -139,18 +106,19 @@ impl BlobStore {
                 .histograms
                 .blob_store_presign_uri_latency_seconds,
             &self.metrics.counters.blob_store_presign_uri_errors,
-            self.inner.presign_get_uri(uri),
+            backend.presign_get_uri(uri),
         )
         .await
     }
 
     /// Download a blob and return its contents.
     pub async fn get(&self, uri: &str) -> Result<Bytes> {
+        let backend = self.backend_for(uri).await?;
         record_blob_op(
             &self.metrics.counters.blob_store_get_requests,
             &self.metrics.histograms.blob_store_get_latency_seconds,
             &self.metrics.counters.blob_store_get_errors,
-            self.inner.get(uri),
+            backend.get(uri),
         )
         .await
     }
@@ -162,11 +130,12 @@ impl BlobStore {
         data: impl futures_util::Stream<Item = Result<Bytes>> + Send + Unpin,
         options: indexify_blob_store::PutOptions,
     ) -> Result<indexify_blob_store::PutResult> {
+        let backend = self.backend_for(uri).await?;
         record_blob_op(
             &self.metrics.counters.blob_store_put_requests,
             &self.metrics.histograms.blob_store_put_latency_seconds,
             &self.metrics.counters.blob_store_put_errors,
-            self.inner.put(uri, data, options),
+            backend.put(uri, data, options),
         )
         .await
     }
@@ -176,17 +145,19 @@ impl BlobStore {
         &self,
         uri: &str,
     ) -> Result<futures_util::stream::BoxStream<'static, Result<Bytes>>> {
+        let backend = self.backend_for(uri).await?;
         record_blob_op(
             &self.metrics.counters.blob_store_get_requests,
             &self.metrics.histograms.blob_store_get_latency_seconds,
             &self.metrics.counters.blob_store_get_errors,
-            self.inner.get_stream(uri, None),
+            backend.get_stream(uri, None),
         )
         .await
     }
 
     /// Create a multipart upload session.
     pub async fn create_multipart_upload(&self, uri: &str) -> Result<MultipartUploadHandle> {
+        let backend = self.backend_for(uri).await?;
         record_blob_op(
             &self
                 .metrics
@@ -200,7 +171,7 @@ impl BlobStore {
                 .metrics
                 .counters
                 .blob_store_create_multipart_upload_errors,
-            self.inner.create_multipart_upload(uri),
+            backend.create_multipart_upload(uri),
         )
         .await
     }
@@ -212,9 +183,17 @@ impl BlobStore {
         part_number: i32,
         upload_id: &str,
     ) -> Result<String> {
-        self.inner
-            .presign_upload_part_uri(uri, part_number, upload_id)
-            .await
+        let backend = self.backend_for(uri).await?;
+        record_blob_op(
+            &self.metrics.counters.blob_store_presign_uri_requests,
+            &self
+                .metrics
+                .histograms
+                .blob_store_presign_uri_latency_seconds,
+            &self.metrics.counters.blob_store_presign_uri_errors,
+            backend.presign_upload_part_uri(uri, part_number, upload_id),
+        )
+        .await
     }
 
     /// Complete a multipart upload.
@@ -224,6 +203,7 @@ impl BlobStore {
         upload_id: &str,
         parts_etags: &[String],
     ) -> Result<()> {
+        let backend = self.backend_for(uri).await?;
         record_blob_op(
             &self
                 .metrics
@@ -237,14 +217,14 @@ impl BlobStore {
                 .metrics
                 .counters
                 .blob_store_complete_multipart_upload_errors,
-            self.inner
-                .complete_multipart_upload(uri, upload_id, parts_etags),
+            backend.complete_multipart_upload(uri, upload_id, parts_etags),
         )
         .await
     }
 
     /// Abort a multipart upload, cleaning up resources.
     pub async fn abort_multipart_upload(&self, uri: &str, upload_id: &str) -> Result<()> {
+        let backend = self.backend_for(uri).await?;
         record_blob_op(
             &self
                 .metrics
@@ -258,7 +238,7 @@ impl BlobStore {
                 .metrics
                 .counters
                 .blob_store_abort_multipart_upload_errors,
-            self.inner.abort_multipart_upload(uri, upload_id),
+            backend.abort_multipart_upload(uri, upload_id),
         )
         .await
     }
@@ -398,7 +378,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_local_presign_get_returns_same_uri() {
-        let store = BlobStore::new_local(test_metrics());
+        let store = BlobStore::new(test_metrics());
         let uri = "file:///tmp/test/blob.bin";
         let result = store.presign_get_uri(uri).await.unwrap();
         assert_eq!(result, uri);
@@ -408,7 +388,7 @@ mod tests {
     async fn test_local_create_and_abort_multipart() {
         let dir = tempfile::tempdir().unwrap();
         let uri = format!("file://{}/test_blob", dir.path().display());
-        let store = BlobStore::new_local(test_metrics());
+        let store = BlobStore::new(test_metrics());
 
         let handle = store.create_multipart_upload(&uri).await.unwrap();
         assert_eq!(handle.upload_id, "local-multipart-upload-id");
@@ -422,7 +402,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_presign_read_only_blob_chunks() {
-        let store = BlobStore::new_local(test_metrics());
+        let store = BlobStore::new(test_metrics());
         let uri = "file:///tmp/test.bin";
         let size = 250 * 1024 * 1024u64; // 250 MB → 3 chunks
 
@@ -441,7 +421,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_presign_write_only_blob_chunks() {
-        let store = BlobStore::new_local(test_metrics());
+        let store = BlobStore::new(test_metrics());
         let uri = "file:///tmp/test_output.bin";
         let size = 250 * 1024 * 1024u64; // 250 MB → 3 chunks
 
@@ -458,7 +438,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_presign_read_only_blob_zero_size() {
-        let store = BlobStore::new_local(test_metrics());
+        let store = BlobStore::new(test_metrics());
         let blob = presign_read_only_blob("empty", "file:///tmp/empty", 0, &store)
             .await
             .unwrap();
@@ -476,8 +456,49 @@ mod tests {
         let data = b"hello blob store";
         tokio::fs::write(&file_path, data).await.unwrap();
 
-        let store = BlobStore::new_local(test_metrics());
+        let store = BlobStore::new(test_metrics());
         let result = store.get(&uri).await.unwrap();
         assert_eq!(result.as_ref(), data);
+    }
+
+    #[tokio::test]
+    async fn test_s3_uri_triggers_s3_backend() {
+        let store = BlobStore::new(test_metrics());
+        // S3 OnceCell should be empty before any S3 operation
+        assert!(store.s3.get().is_none());
+        // An S3 URI should attempt to initialize the S3 backend.
+        // Without AWS credentials this will succeed (SDK creates a client
+        // eagerly) but the actual operation would fail. We just verify
+        // that backend_for populates the OnceCell.
+        let result = store.backend_for("s3://test-bucket/key").await;
+        assert!(result.is_ok());
+        assert!(store.s3.get().is_some());
+    }
+
+    #[tokio::test]
+    async fn test_s3_backend_is_reused_across_calls() {
+        let store = BlobStore::new(test_metrics());
+        let _ = store.backend_for("s3://bucket-a/key1").await.unwrap();
+        let _ = store.backend_for("s3://bucket-b/key2").await.unwrap();
+        // OnceCell initialized exactly once — both calls return the same backend
+        assert!(store.s3.get().is_some());
+    }
+
+    #[tokio::test]
+    async fn test_cloned_store_shares_s3_backend() {
+        let store = BlobStore::new(test_metrics());
+        let clone = store.clone();
+        // Initialize S3 via the original
+        let _ = store.backend_for("s3://bucket/key").await.unwrap();
+        // Clone should see the same initialized backend
+        assert!(clone.s3.get().is_some());
+    }
+
+    #[tokio::test]
+    async fn test_file_uri_uses_local_backend() {
+        let store = BlobStore::new(test_metrics());
+        let _ = store.backend_for("file:///tmp/test").await.unwrap();
+        // file:// URIs should not trigger S3 initialization
+        assert!(store.s3.get().is_none());
     }
 }

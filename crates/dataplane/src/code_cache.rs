@@ -232,7 +232,7 @@ mod tests {
         tokio::fs::write(&code_path, code_data).await.unwrap();
 
         let metrics = Arc::new(crate::metrics::DataplaneMetrics::new());
-        let blob_store = Arc::new(BlobStore::new_local(metrics.clone()));
+        let blob_store = Arc::new(BlobStore::new(metrics.clone()));
         let cache = CodeCache::new(cache_dir.clone(), blob_store, metrics);
 
         let code_uri = format!("file://{}", code_path.display());
@@ -268,7 +268,7 @@ mod tests {
         tokio::fs::write(&code_path, code_data).await.unwrap();
 
         let metrics = Arc::new(crate::metrics::DataplaneMetrics::new());
-        let blob_store = Arc::new(BlobStore::new_local(metrics.clone()));
+        let blob_store = Arc::new(BlobStore::new(metrics.clone()));
         let cache = CodeCache::new(dir.path().join("cache"), blob_store, metrics);
         let code_uri = format!("file://{}", code_path.display());
 
