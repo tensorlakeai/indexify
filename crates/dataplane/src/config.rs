@@ -87,6 +87,17 @@ pub enum DriverConfig {
         /// filesystem storage.
         #[serde(default)]
         binds: Vec<String>,
+        /// Root directory for the runsc (gVisor) container state.
+        /// This is the `--root` flag passed to `runsc` commands.
+        /// Default: `/var/run/docker/runtime-runc/moby`.
+        #[serde(default)]
+        runsc_root: Option<String>,
+        /// Local directory for storing gVisor snapshot overlay tars.
+        /// Restored overlay tars are written here and referenced by the
+        /// `dev.gvisor.tar.rootfs.upper` Docker annotation at container start.
+        /// Default: `/tmp/indexify-snapshots`.
+        #[serde(default)]
+        snapshot_local_dir: Option<String>,
     },
     #[cfg(feature = "firecracker")]
     Firecracker {

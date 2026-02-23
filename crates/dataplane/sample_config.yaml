@@ -39,10 +39,12 @@ driver:
   # For docker driver:
   # type: docker
   # address: "unix:///var/run/docker.sock"
-  # runtime: runsc     # OCI runtime (e.g., runsc for gVisor)
+  runtime: runsc     # OCI runtime (e.g., runsc for gVisor)
   # network: bridge    # Docker network mode
   # binds:             # Volume bind mounts for containers
   #   - "/host/path:/container/path:ro"
+  # runsc_root: /var/run/docker/runtime-runc/moby  # runsc container state directory (--root flag)
+  # snapshot_local_dir: /tmp/indexify-snapshots     # Local dir for gVisor snapshot overlay tars
 
   # For firecracker driver (requires --features firecracker):
   # type: firecracker

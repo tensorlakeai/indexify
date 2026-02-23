@@ -569,6 +569,13 @@ impl FunctionContainerManager {
         // Transition Running → Stopping.
         // We do NOT call `initiate_stop` because it spawns
         // `spawn_grace_period_kill` which would race with `docker export`.
+        //
+        // For gVisor (runsc): the in-memory overlay is destroyed when the
+        // container exits, so we must snapshot **before** stopping.
+        // For runc: `docker export` works on stopped containers, so we stop
+        // first to get a quiescent filesystem.
+        let snapshot_before_stop = snapshotter.requires_running_container();
+
         let docker_handle_id = {
             let mut containers = self.containers.write().await;
             let Some(container) = containers.get_mut(container_id) else {
@@ -585,7 +592,7 @@ impl FunctionContainerManager {
                 return;
             };
 
-            let (handle, _daemon_client) = match container
+            let (handle, daemon_client) = match container
                 .transition_to_stopping(ContainerTerminationReason::FunctionCancelled)
             {
                 Ok((h, dc)) => (h, dc),
@@ -604,6 +611,26 @@ impl FunctionContainerManager {
                 }
             };
 
+            let span = container.info().tracing_span();
+
+            if !snapshot_before_stop {
+                tracing::info!(
+                    parent: &span,
+                    event = "snapshot_stopping",
+                    "Sending stop signal before snapshot"
+                );
+                send_stop_signal(&*self.driver, &handle, daemon_client, &span).await;
+            } else {
+                tracing::info!(
+                    parent: &span,
+                    event = "snapshot_before_stop",
+                    "Snapshotting running container (gVisor)"
+                );
+                // Drop the daemon client — we'll stop the container after
+                // the snapshot completes.
+                drop(daemon_client);
+            }
+
             if let Err(e) = self.state_file.remove(container_id).await {
                 tracing::warn!(
                     container_id = %container_id,
@@ -618,29 +645,10 @@ impl FunctionContainerManager {
             handle.id.clone()
         };
 
-        // Stop the container via `docker stop` before exporting. This sends
-        // SIGTERM, waits for the process to exit, then SIGKILL if needed.
-        // Critically, stopping the container ensures the runtime (e.g. gVisor)
-        // flushes all filesystem writes to the overlay so `docker export`
-        // captures the complete state.
-        const SNAPSHOT_STOP_TIMEOUT_SECS: u64 = 10;
-        let stop_handle = ProcessHandle {
-            id: docker_handle_id.clone(),
-            daemon_addr: None,
-            http_addr: None,
-            container_ip: String::new(),
-        };
-        if let Err(e) = self
-            .driver
-            .stop(&stop_handle, SNAPSHOT_STOP_TIMEOUT_SECS)
-            .await
-        {
-            tracing::warn!(
-                container_id = %container_id,
-                docker_id = %docker_handle_id,
-                error = %e,
-                "Failed to stop container before snapshot, proceeding anyway"
-            );
+        if !snapshot_before_stop {
+            // Grace period for container processes to shut down.
+            const SNAPSHOT_SHUTDOWN_GRACE_SECS: u64 = 5;
+            tokio::time::sleep(Duration::from_secs(SNAPSHOT_SHUTDOWN_GRACE_SECS)).await;
         }
 
         // Create the snapshot using the Docker container name.

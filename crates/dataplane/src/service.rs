@@ -145,7 +145,7 @@ impl Service {
         // store client that matches the URI scheme. When snapshot_storage_uri is
         // configured, use that to pick the backend; otherwise default to local FS.
         let snapshotter: Option<Arc<dyn Snapshotter>> = match &config.driver {
-            DriverConfig::Docker { address, .. } => {
+            DriverConfig::Docker { address, runtime, runsc_root, snapshot_local_dir, .. } => {
                 let snapshot_blob_store = if let Some(ref uri) = config.snapshot_storage_uri {
                     BlobStore::from_uri(uri, metrics.clone())
                         .await
@@ -174,6 +174,9 @@ impl Service {
                         docker,
                         snapshot_blob_store,
                         metrics.clone(),
+                        runtime.clone(),
+                        runsc_root.clone(),
+                        snapshot_local_dir.clone(),
                     ),
                 ))
             }
@@ -1172,6 +1175,7 @@ fn create_process_driver(config: &DataplaneConfig) -> Result<Arc<dyn ProcessDriv
             runtime,
             network,
             binds,
+            ..
         } => match address {
             Some(addr) => Ok(Arc::new(DockerDriver::with_address(
                 addr,

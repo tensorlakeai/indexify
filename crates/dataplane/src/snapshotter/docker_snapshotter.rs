@@ -3,16 +3,21 @@
 //! **Snapshot**: docker export → streaming zstd compress → blob store put
 //! **Restore**: blob store streaming download → zstd decompress → docker import
 //!
+//! When the runtime is `runsc` (gVisor), snapshot creation uses
+//! `runsc tar rootfs-upper` instead of `docker export` to capture only the
+//! filesystem delta. Restore writes the tar to a local file and returns a
+//! `rootfs_overlay` path instead of importing a Docker image.
+//!
 //! Both pipelines are fully streaming with bounded memory usage.
 
-use std::{io::Write, sync::Arc, time::Duration};
+use std::{io::Write, path::PathBuf, sync::Arc, time::Duration};
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use bollard::{
     Docker,
     body_full,
-    query_parameters::{CreateImageOptionsBuilder, RemoveImageOptions},
+    query_parameters::{CreateImageOptionsBuilder, InspectContainerOptions, RemoveImageOptions},
 };
 use bytes::Bytes;
 use futures_util::StreamExt;
@@ -33,28 +38,65 @@ const COMPRESSED_CHUNK_SIZE: usize = 100 * 1024 * 1024;
 /// Prevents indefinite hangs if docker export stalls.
 const SNAPSHOT_TOTAL_TIMEOUT: Duration = Duration::from_secs(3600);
 
+/// Default directory for storing restored gVisor snapshot overlay tars.
+const DEFAULT_SNAPSHOT_LOCAL_DIR: &str = "/tmp/indexify-snapshots";
+
+/// Default runsc state root used by Docker's runtime integration.
+/// Docker stores container state under this path, which is root-only
+/// (`drwx------`), so we invoke `runsc` via `sudo`.
+const DEFAULT_RUNSC_ROOT: &str = "/var/run/docker/runtime-runc/moby";
+
 /// Docker-based snapshotter using `docker export` + zstd + blob store.
 ///
 /// Snapshot: docker export → zstd compress → blob store put (streaming)
 /// Restore:  blob store streaming download → zstd decompress → docker import
+///
+/// When `runtime` is `"runsc"`, uses gVisor-native commands instead.
 pub struct DockerSnapshotter {
     docker: Docker,
     blob_store: BlobStore,
     _metrics: Arc<DataplaneMetrics>,
+    /// OCI runtime name (e.g., `"runsc"` for gVisor). `None` means default
+    /// Docker runtime (runc).
+    runtime: Option<String>,
+    /// Root directory for runsc container state (`--root` flag).
+    runsc_root: String,
+    /// Local directory for storing restored gVisor overlay tars.
+    snapshot_local_dir: String,
 }
 
 impl DockerSnapshotter {
-    pub fn new(docker: Docker, blob_store: BlobStore, metrics: Arc<DataplaneMetrics>) -> Self {
+    pub fn new(
+        docker: Docker,
+        blob_store: BlobStore,
+        metrics: Arc<DataplaneMetrics>,
+        runtime: Option<String>,
+        runsc_root: Option<String>,
+        snapshot_local_dir: Option<String>,
+    ) -> Self {
         Self {
             docker,
             blob_store,
             _metrics: metrics,
+            runtime,
+            runsc_root: runsc_root.unwrap_or_else(|| DEFAULT_RUNSC_ROOT.to_string()),
+            snapshot_local_dir: snapshot_local_dir
+                .unwrap_or_else(|| DEFAULT_SNAPSHOT_LOCAL_DIR.to_string()),
         }
+    }
+
+    /// Whether this snapshotter is configured for gVisor (runsc).
+    fn is_gvisor(&self) -> bool {
+        self.runtime.as_deref() == Some("runsc")
     }
 }
 
 #[async_trait]
 impl Snapshotter for DockerSnapshotter {
+    fn requires_running_container(&self) -> bool {
+        self.is_gvisor()
+    }
+
     async fn create_snapshot(
         &self,
         container_id: &str,
@@ -65,12 +107,17 @@ impl Snapshotter for DockerSnapshotter {
             container_id = %container_id,
             snapshot_id = %snapshot_id,
             upload_uri = %upload_uri,
+            gvisor = self.is_gvisor(),
             "Starting streaming snapshot creation"
         );
 
-        // Build a stream that yields compressed chunks from docker export.
-        // The blob store's put() handles multipart upload, local FS writes,
-        // retries, and cleanup internally.
+        if self.is_gvisor() {
+            return self
+                .create_snapshot_gvisor(container_id, snapshot_id, upload_uri)
+                .await;
+        }
+
+        // runc path: docker export → zstd compress → blob store put
         let compressed_stream = self.build_compressed_export_stream(container_id);
 
         let result = match tokio::time::timeout(
@@ -108,51 +155,26 @@ impl Snapshotter for DockerSnapshotter {
         info!(
             snapshot_uri = %snapshot_uri,
             tag = %tag,
+            gvisor = self.is_gvisor(),
             "Starting snapshot restore"
         );
 
-        // Stream download from blob store → decompress → docker import.
-        let compressed_stream = self
-            .blob_store
-            .get_stream(snapshot_uri)
-            .await
-            .context("Failed to open snapshot stream")?;
+        // Download and decompress (shared between runc and gVisor paths).
+        let decompressed = self.download_and_decompress(snapshot_uri).await?;
 
-        // Collect the compressed data. We need the full blob in memory for
-        // zstd::decode_all, but streaming download avoids a second copy vs get().
-        let mut compressed = Vec::new();
-        futures_util::pin_mut!(compressed_stream);
-        while let Some(chunk) = compressed_stream.next().await {
-            let chunk = chunk.context("Failed to read snapshot stream")?;
-            compressed.extend_from_slice(&chunk);
+        if self.is_gvisor() {
+            return self
+                .restore_snapshot_gvisor(&tag, snapshot_uri, decompressed)
+                .await;
         }
 
-        info!(
-            snapshot_uri = %snapshot_uri,
-            compressed_size = compressed.len(),
-            "Downloaded snapshot, decompressing"
-        );
-
-        // Decompress in a blocking thread. Move `compressed` into the closure
-        // so it is dropped as soon as `decode_all` finishes.
-        let decompressed = tokio::task::spawn_blocking(move || {
-            zstd::decode_all(compressed.as_slice())
-            // `compressed` is dropped here after decode_all consumes it
-        })
-        .await
-        .context("zstd decompression task panicked")?
-        .context("Failed to decompress snapshot")?;
-
+        // runc path: docker import
         info!(
             snapshot_uri = %snapshot_uri,
             decompressed_size = decompressed.len(),
             "Decompressed snapshot, importing to Docker"
         );
 
-        // Import into Docker using `POST /images/create?fromSrc=-`
-        // (the `docker import` API). Note: bollard's `import_image` maps to
-        // `docker load` (`/images/load`), which expects Docker image format —
-        // not the raw filesystem tar from `docker export`.
         let image_tag = format!("indexify-snapshot:{}", tag);
 
         let options = CreateImageOptionsBuilder::default()
@@ -186,11 +208,29 @@ impl Snapshotter for DockerSnapshotter {
             "Snapshot restored as Docker image"
         );
 
-        Ok(RestoreResult { image: image_tag })
+        Ok(RestoreResult {
+            image: image_tag,
+            rootfs_overlay: None,
+        })
     }
 
     async fn cleanup_local(&self, snapshot_uri: &str) -> Result<()> {
         let tag = snapshot_tag_from_uri(snapshot_uri);
+
+        if self.is_gvisor() {
+            // gVisor path: delete the local overlay tar file.
+            let tar_path = PathBuf::from(&self.snapshot_local_dir).join(format!("{}.tar", tag));
+            if let Err(e) = tokio::fs::remove_file(&tar_path).await {
+                debug!(
+                    path = %tar_path.display(),
+                    error = %e,
+                    "Failed to remove gVisor overlay tar (may not exist)"
+                );
+            }
+            return Ok(());
+        }
+
+        // runc path: remove the imported Docker image.
         let image_tag = format!("indexify-snapshot:{}", tag);
         if let Err(e) = self
             .docker
@@ -207,7 +247,197 @@ impl Snapshotter for DockerSnapshotter {
     }
 }
 
+// ── gVisor-specific methods ──────────────────────────────────────────────
+
 impl DockerSnapshotter {
+    /// gVisor snapshot: use `runsc tar rootfs-upper` to capture only the
+    /// filesystem delta (copy-on-write upper layer).
+    async fn create_snapshot_gvisor(
+        &self,
+        container_id: &str,
+        snapshot_id: &str,
+        upload_uri: &str,
+    ) -> Result<SnapshotResult> {
+        // Resolve the Docker container name to the full hex container ID.
+        // `runsc` requires the full ID, not the friendly name.
+        let inspect = self
+            .docker
+            .inspect_container(container_id, None::<InspectContainerOptions>)
+            .await
+            .context("Failed to inspect container for gVisor snapshot")?;
+
+        let full_id = inspect
+            .id
+            .ok_or_else(|| anyhow::anyhow!("Container {} has no ID", container_id))?;
+
+        // Write the rootfs-upper tar to a temp file, then compress + upload.
+        let tmp_tar = format!("/tmp/indexify-gvisor-snap-{}.tar", snapshot_id);
+
+        info!(
+            container_id = %container_id,
+            full_id = %full_id,
+            tmp_tar = %tmp_tar,
+            "Running runsc tar rootfs-upper"
+        );
+
+        // The Docker runtime state directory is root-only, so `runsc` must
+        // run via `sudo` when the dataplane is not running as root.
+        let output = tokio::process::Command::new("sudo")
+            .arg("runsc")
+            .arg("--root")
+            .arg(&self.runsc_root)
+            .arg("tar")
+            .arg("rootfs-upper")
+            .arg("--file")
+            .arg(&tmp_tar)
+            .arg(&full_id)
+            .output()
+            .await
+            .context("Failed to execute runsc tar rootfs-upper")?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            // Clean up temp file on failure
+            let _ = tokio::fs::remove_file(&tmp_tar).await;
+            anyhow::bail!(
+                "runsc tar rootfs-upper failed (exit {}): {}",
+                output.status.code().unwrap_or(-1),
+                stderr
+            );
+        }
+
+        // Read the tar, compress with zstd, upload to blob store.
+        let raw_tar = tokio::fs::read(&tmp_tar)
+            .await
+            .context("Failed to read gVisor rootfs-upper tar")?;
+
+        // Clean up temp file immediately — we have the data in memory.
+        let _ = tokio::fs::remove_file(&tmp_tar).await;
+
+        let raw_size = raw_tar.len() as u64;
+
+        info!(
+            container_id = %container_id,
+            raw_size = raw_size,
+            "Compressing gVisor rootfs-upper tar"
+        );
+
+        let compressed = tokio::task::spawn_blocking(move || {
+            zstd::encode_all(raw_tar.as_slice(), 3)
+        })
+        .await
+        .context("zstd compression task panicked")?
+        .context("Failed to compress gVisor snapshot")?;
+
+        let compressed_size = compressed.len() as u64;
+
+        // Upload as a single-chunk stream. Box::pin required because
+        // blob_store.put() requires Unpin.
+        let stream = Box::pin(futures_util::stream::once(async {
+            Ok(Bytes::from(compressed))
+        }));
+
+        let result = match tokio::time::timeout(
+            SNAPSHOT_TOTAL_TIMEOUT,
+            self.blob_store
+                .put(upload_uri, stream, PutOptions::default()),
+        )
+        .await
+        {
+            Ok(result) => result.context("gVisor snapshot upload failed")?,
+            Err(_) => {
+                anyhow::bail!(
+                    "gVisor snapshot upload timed out after {}s",
+                    SNAPSHOT_TOTAL_TIMEOUT.as_secs()
+                );
+            }
+        };
+
+        info!(
+            container_id = %container_id,
+            snapshot_id = %snapshot_id,
+            upload_uri = %upload_uri,
+            raw_size = raw_size,
+            compressed_size = compressed_size,
+            blob_size = result.size_bytes,
+            "gVisor snapshot upload completed"
+        );
+
+        Ok(SnapshotResult {
+            snapshot_uri: upload_uri.to_string(),
+            size_bytes: result.size_bytes,
+        })
+    }
+
+    /// gVisor restore: write the decompressed tar to a local file and return
+    /// its path as `rootfs_overlay`. The Docker driver will pass it as a
+    /// `dev.gvisor.tar.rootfs.upper` annotation.
+    async fn restore_snapshot_gvisor(
+        &self,
+        tag: &str,
+        snapshot_uri: &str,
+        decompressed: Vec<u8>,
+    ) -> Result<RestoreResult> {
+        let tar_path = PathBuf::from(&self.snapshot_local_dir).join(format!("{}.tar", tag));
+
+        // Ensure the snapshot directory exists.
+        tokio::fs::create_dir_all(&self.snapshot_local_dir)
+            .await
+            .context("Failed to create gVisor snapshot directory")?;
+
+        tokio::fs::write(&tar_path, &decompressed)
+            .await
+            .context("Failed to write gVisor overlay tar")?;
+
+        info!(
+            snapshot_uri = %snapshot_uri,
+            tar_path = %tar_path.display(),
+            size = decompressed.len(),
+            "gVisor snapshot restored as overlay tar"
+        );
+
+        Ok(RestoreResult {
+            image: String::new(),
+            rootfs_overlay: Some(tar_path.to_string_lossy().to_string()),
+        })
+    }
+}
+
+// ── Shared helpers (runc path) ───────────────────────────────────────────
+
+impl DockerSnapshotter {
+    /// Download from blob store and decompress with zstd. Used by both runc
+    /// and gVisor restore paths.
+    async fn download_and_decompress(&self, snapshot_uri: &str) -> Result<Vec<u8>> {
+        let compressed_stream = self
+            .blob_store
+            .get_stream(snapshot_uri)
+            .await
+            .context("Failed to open snapshot stream")?;
+
+        let mut compressed = Vec::new();
+        futures_util::pin_mut!(compressed_stream);
+        while let Some(chunk) = compressed_stream.next().await {
+            let chunk = chunk.context("Failed to read snapshot stream")?;
+            compressed.extend_from_slice(&chunk);
+        }
+
+        info!(
+            snapshot_uri = %snapshot_uri,
+            compressed_size = compressed.len(),
+            "Downloaded snapshot, decompressing"
+        );
+
+        let decompressed = tokio::task::spawn_blocking(move || {
+            zstd::decode_all(compressed.as_slice())
+        })
+        .await
+        .context("zstd decompression task panicked")?
+        .context("Failed to decompress snapshot")?;
+
+        Ok(decompressed)
+    }
+
     /// Build an async stream that yields zstd-compressed chunks from a docker
     /// export.
     ///
@@ -310,3 +540,4 @@ fn snapshot_tag_from_uri(uri: &str) -> String {
         .unwrap_or("unknown")
         .to_string()
 }
+

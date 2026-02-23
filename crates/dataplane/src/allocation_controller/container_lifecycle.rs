@@ -734,6 +734,7 @@ async fn start_fe_process(
                 })
         },
         labels,
+        rootfs_overlay: None,
     };
 
     config.driver.start(process_config).await

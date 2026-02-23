@@ -162,7 +162,7 @@ impl Snapshotter for FirecrackerSnapshotter {
         .await
         .context("Snapshot restore task panicked")??;
 
-        Ok(RestoreResult { image: cow_path })
+        Ok(RestoreResult { image: cow_path, rootfs_overlay: None })
     }
 
     async fn cleanup_local(&self, snapshot_uri: &str) -> Result<()> {

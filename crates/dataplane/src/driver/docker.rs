@@ -503,6 +503,18 @@ impl DockerDriver {
             CONTAINER_DAEMON_PATH
         )]);
 
+        // When restoring a gVisor snapshot, apply the rootfs overlay via the
+        // `dev.gvisor.tar.rootfs.upper` annotation. gVisor reads this at
+        // container start and overlays the tar contents on top of the base image.
+        if let Some(ref overlay_path) = config.rootfs_overlay {
+            let mut annotations = HashMap::new();
+            annotations.insert(
+                "dev.gvisor.tar.rootfs.upper".to_string(),
+                overlay_path.clone(),
+            );
+            host_config.annotations = Some(annotations);
+        }
+
         let mut cmd: Vec<String> = vec![
             "--port".to_string(),
             DAEMON_GRPC_PORT.to_string(),
