@@ -77,7 +77,7 @@ tempfile = "3.24.0"
 mock_instant = "0.6.0"
 criterion = { version = "0.8.2", features = ["html_reports"] }
 vergen = { version = "9.1.0", features = ["build", "cargo", "rustc", "si"] }
-libc = "0.2.182"
+libc = "0.2.180"
 nix = { version = "0.31.1", features = ["signal", "process", "fs", "user"] }
 bollard = "0.20.1"
 futures-util = "0.3.32"
