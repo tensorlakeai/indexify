@@ -394,11 +394,6 @@ pub struct DataplaneConfig {
     /// image resolution service is configured.
     #[serde(default)]
     pub default_function_image: Option<String>,
-    /// Snapshot storage URI for container filesystem snapshots.
-    /// When set, enables snapshot create/restore via DockerSnapshotter.
-    /// Examples: "s3://my-bucket/snapshots", "file:///var/data/snapshots".
-    #[serde(default)]
-    pub snapshot_storage_uri: Option<String>,
 }
 
 /// Resource overrides to replace probed host resources.
@@ -467,7 +462,6 @@ impl Default for DataplaneConfig {
             monitoring: MonitoringConfig::default(),
             resource_overrides: None,
             default_function_image: None,
-            snapshot_storage_uri: None,
         }
     }
 }

@@ -14,6 +14,53 @@ use opentelemetry::metrics::{Counter, Histogram};
 
 use crate::metrics::DataplaneMetrics;
 
+/// Lazily-initialized blob store that detects the backend (S3 vs local FS)
+/// from the URI scheme of the first request it sees.
+///
+/// The server sends full URIs (`s3://…` or `file://…`) with every snapshot
+/// command. `LazyBlobStore` uses the first URI to create the right
+/// [`BlobStore`] client and caches it for all subsequent calls.
+pub struct LazyBlobStore {
+    client: tokio::sync::OnceCell<BlobStore>,
+    metrics: Arc<DataplaneMetrics>,
+}
+
+impl LazyBlobStore {
+    /// Create a new lazy blob store. The underlying client will be initialized
+    /// on the first operation.
+    pub fn new(metrics: Arc<DataplaneMetrics>) -> Self {
+        Self {
+            client: tokio::sync::OnceCell::new(),
+            metrics,
+        }
+    }
+
+    /// Return the cached client, initializing it from `uri` on the first call.
+    async fn get_or_init(&self, uri: &str) -> Result<&BlobStore> {
+        self.client
+            .get_or_try_init(|| async { BlobStore::from_uri(uri, self.metrics.clone()).await })
+            .await
+    }
+
+    /// Write data from a stream to a blob.
+    pub async fn put(
+        &self,
+        uri: &str,
+        data: impl futures_util::Stream<Item = Result<Bytes>> + Send + Unpin,
+        options: indexify_blob_store::PutOptions,
+    ) -> Result<indexify_blob_store::PutResult> {
+        self.get_or_init(uri).await?.put(uri, data, options).await
+    }
+
+    /// Stream a blob's contents.
+    pub async fn get_stream(
+        &self,
+        uri: &str,
+    ) -> Result<futures_util::stream::BoxStream<'static, Result<Bytes>>> {
+        self.get_or_init(uri).await?.get_stream(uri).await
+    }
+}
+
 /// Optimal chunk size for S3 multipart uploads (100 MB).
 pub const BLOB_OPTIMAL_CHUNK_SIZE: u64 = 100 * 1024 * 1024;
 

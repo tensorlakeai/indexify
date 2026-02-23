@@ -55,6 +55,7 @@ zstd.workspace = true
 firecracker = []
 
 [target.'cfg(unix)'.dependencies]
+libc.workspace = true
 nix.workspace = true
 
 [dev-dependencies]

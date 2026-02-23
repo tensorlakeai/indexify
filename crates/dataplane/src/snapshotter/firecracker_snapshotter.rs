@@ -19,7 +19,7 @@ use tracing::info;
 
 use super::{RestoreResult, SnapshotResult, Snapshotter};
 use crate::{
-    blob_ops::BlobStore,
+    blob_ops::LazyBlobStore,
     driver::firecracker::{api::FirecrackerApiClient, dm_snapshot, vm_state::VmMetadata},
     metrics::DataplaneMetrics,
 };
@@ -34,7 +34,7 @@ const COMPRESSED_CHUNK_SIZE: usize = 100 * 1024 * 1024;
 ///           (driver's create_snapshot_from_cow copies into thin LV)
 pub struct FirecrackerSnapshotter {
     state_dir: PathBuf,
-    blob_store: BlobStore,
+    blob_store: LazyBlobStore,
     _metrics: Arc<DataplaneMetrics>,
     lvm_config: dm_snapshot::LvmConfig,
 }
@@ -42,7 +42,7 @@ pub struct FirecrackerSnapshotter {
 impl FirecrackerSnapshotter {
     pub fn new(
         state_dir: PathBuf,
-        blob_store: BlobStore,
+        blob_store: LazyBlobStore,
         metrics: Arc<DataplaneMetrics>,
         lvm_config: dm_snapshot::LvmConfig,
     ) -> Self {
@@ -235,9 +235,19 @@ fn build_compressed_cow_stream(
 
     tokio::task::spawn_blocking(move || {
         let result = (|| -> Result<()> {
-            use std::io::Read;
+            use std::{io::Read, os::unix::io::AsRawFd};
             let file = std::fs::File::open(&cow_path)
                 .with_context(|| format!("Failed to open COW file {}", cow_path.display()))?;
+
+            // Drop page cache for this device before reading. The dm-snapshot
+            // target writes to the COW device through the kernel bio layer,
+            // which may bypass the page cache. Without this, buffered reads
+            // could return stale data (e.g. an empty persistent header),
+            // causing the restored snapshot to lose all exception entries.
+            unsafe {
+                libc::posix_fadvise(file.as_raw_fd(), 0, 0, libc::POSIX_FADV_DONTNEED);
+            }
+
             let mut reader = std::io::BufReader::new(file);
             let mut encoder = zstd::stream::Encoder::new(
                 Vec::with_capacity(COMPRESSED_CHUNK_SIZE + 4 * 1024 * 1024),

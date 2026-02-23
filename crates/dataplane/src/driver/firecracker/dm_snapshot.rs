@@ -320,10 +320,26 @@ pub fn create_snapshot_from_cow(
         )));
     }
 
+    // Log snapshot status for diagnostics — check if persistent exceptions
+    // were loaded from the restored COW data.
+    match run_cmd("dmsetup", &["status", &dm_name]) {
+        Ok(status) => tracing::info!(
+            dm_name = %dm_name,
+            status = %status.trim(),
+            "Restored dm-snapshot status"
+        ),
+        Err(e) => tracing::warn!(
+            dm_name = %dm_name,
+            error = ?e,
+            "Failed to query restored dm-snapshot status"
+        ),
+    }
+
     tracing::info!(
         dm_name = %dm_name,
         cow_device = %cow_device,
         lv_name = %lv_name,
+        cow_size_bytes = cow_size,
         "dm-snapshot created from restored COW file"
     );
 
@@ -425,6 +441,16 @@ pub fn destroy_snapshot_by_parts(
 /// After suspension the COW device is consistent and can be read
 /// directly. The device must be resumed or removed afterwards.
 pub fn suspend_snapshot(dm_name: &str) -> Result<()> {
+    // Log status before suspend to see how many sectors are allocated.
+    match run_cmd("dmsetup", &["status", dm_name]) {
+        Ok(status) => tracing::info!(
+            dm_name = %dm_name,
+            status = %status.trim(),
+            "dm-snapshot status before suspend"
+        ),
+        Err(e) => tracing::warn!(dm_name, error = ?e, "Failed to query dm-snapshot status"),
+    }
+
     run_cmd("dmsetup", &["suspend", dm_name])
         .with_context(|| format!("Failed to suspend dm device {}", dm_name))?;
     tracing::info!(dm_name = %dm_name, "dm-snapshot suspended (COW flushed)");

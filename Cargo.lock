@@ -2636,6 +2636,7 @@ dependencies = [
  "indexify-blob-store",
  "json-subscriber",
  "lazy_static",
+ "libc",
  "nix 0.31.1",
  "opentelemetry",
  "opentelemetry-otlp",

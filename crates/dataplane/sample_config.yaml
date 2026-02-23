@@ -101,17 +101,6 @@ driver:
 #   # log_dir: /var/log/indexify/firecracker     # VM log files
 
 # ---------------------------------------------------------------------------
-# Snapshots
-# ---------------------------------------------------------------------------
-# Snapshot storage URI for container filesystem snapshots.
-# Enables snapshot create/restore for both Docker and Firecracker drivers.
-#   Docker:      container filesystem -> zstd -> blob store
-#   Firecracker: dm-snapshot COW LV   -> zstd -> blob store
-#
-# snapshot_storage_uri: "s3://my-bucket/snapshots"
-# snapshot_storage_uri: "file:///var/data/snapshots"
-
-# ---------------------------------------------------------------------------
 # Function Executor
 # ---------------------------------------------------------------------------
 

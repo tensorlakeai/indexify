@@ -28,7 +28,7 @@ use tracing::Instrument;
 use crate::driver::FirecrackerDriver;
 use crate::{
     allocation_result_dispatcher::AllocationResultDispatcher,
-    blob_ops::BlobStore,
+    blob_ops::{BlobStore, LazyBlobStore},
     code_cache::CodeCache,
     config::{DataplaneConfig, DriverConfig},
     driver::{DockerDriver, ForkExecDriver, ProcessDriver},
@@ -140,9 +140,8 @@ impl Service {
         );
 
         // Create snapshotter for Docker driver. The server provides full
-        // upload/download URIs per-request, so the dataplane only needs a blob
-        // store client that matches the URI scheme. When snapshot_storage_uri is
-        // configured, use that to pick the backend; otherwise default to local FS.
+        // upload/download URIs per-request (`s3://…` or `file://…`), so the
+        // blob store client is lazily initialized from the first URI's scheme.
         let snapshotter: Option<Arc<dyn Snapshotter>> = match &config.driver {
             DriverConfig::Docker {
                 address,
@@ -151,13 +150,7 @@ impl Service {
                 snapshot_local_dir,
                 ..
             } => {
-                let snapshot_blob_store = if let Some(ref uri) = config.snapshot_storage_uri {
-                    BlobStore::from_uri(uri, metrics.clone())
-                        .await
-                        .context("Failed to create snapshot blob store")?
-                } else {
-                    BlobStore::new_local(metrics.clone())
-                };
+                let snapshot_blob_store = LazyBlobStore::new(metrics.clone());
                 let docker = match address {
                     Some(addr) => {
                         if addr.starts_with("http://") || addr.starts_with("tcp://") {
@@ -191,13 +184,7 @@ impl Service {
                 lvm_thin_pool,
                 ..
             } => {
-                let snapshot_blob_store = if let Some(ref uri) = config.snapshot_storage_uri {
-                    BlobStore::from_uri(uri, metrics.clone())
-                        .await
-                        .context("Failed to create snapshot blob store")?
-                } else {
-                    BlobStore::new_local(metrics.clone())
-                };
+                let snapshot_blob_store = LazyBlobStore::new(metrics.clone());
                 let state_dir_path = config.firecracker_state_dir();
                 let lvm_config = crate::driver::firecracker::dm_snapshot::LvmConfig {
                     volume_group: lvm_volume_group.clone(),
