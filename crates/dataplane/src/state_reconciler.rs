@@ -184,6 +184,12 @@ impl StateReconciler {
             .await;
     }
 
+    /// Access the underlying container manager (e.g. to spawn snapshot work
+    /// in a separate task).
+    pub fn container_manager(&self) -> &Arc<FunctionContainerManager> {
+        &self.container_manager
+    }
+
     /// Get the notify for waking up the heartbeat loop when state changes (FEs
     /// added/removed).
     pub fn state_change_notify(&self) -> Arc<Notify> {

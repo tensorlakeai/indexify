@@ -101,11 +101,30 @@ impl FirecrackerApiClient {
         self.put("/actions", &body).await
     }
 
+    /// Pause the VM (quiesces guest vCPUs and I/O).
+    pub async fn pause_vm(&self) -> Result<()> {
+        let body = serde_json::json!({
+            "state": "Paused",
+        });
+        self.patch("/vm", &body).await
+    }
+
+    /// Send a PATCH request to the Firecracker API.
+    async fn patch(&self, path: &str, body: &serde_json::Value) -> Result<()> {
+        self.request("PATCH", path, body).await
+    }
+
     /// Send a PUT request to the Firecracker API.
     async fn put(&self, path: &str, body: &serde_json::Value) -> Result<()> {
+        self.request("PUT", path, body).await
+    }
+
+    /// Send an HTTP request to the Firecracker API.
+    async fn request(&self, method: &str, path: &str, body: &serde_json::Value) -> Result<()> {
         let body_str = serde_json::to_string(body)?;
         let request = format!(
-            "PUT {} HTTP/1.1\r\nHost: localhost\r\nAccept: application/json\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+            "{} {} HTTP/1.1\r\nHost: localhost\r\nAccept: application/json\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+            method,
             path,
             body_str.len(),
             body_str
@@ -176,7 +195,8 @@ impl FirecrackerApiClient {
             // Extract body after the blank line
             let body = response.split("\r\n\r\n").nth(1).unwrap_or(&response);
             bail!(
-                "Firecracker API PUT {} failed with status {}: {}",
+                "Firecracker API {} {} failed with status {}: {}",
+                method,
                 path,
                 status_code,
                 body.trim()

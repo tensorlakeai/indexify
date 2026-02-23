@@ -186,7 +186,7 @@ impl Service {
                 Some(Arc::new(snapshotter))
             }
             #[cfg(feature = "firecracker")]
-            DriverConfig::Firecracker { state_dir, .. } => {
+            DriverConfig::Firecracker { .. } => {
                 let snapshot_blob_store = if let Some(ref uri) = config.snapshot_storage_uri {
                     BlobStore::from_uri(uri, metrics.clone())
                         .await
@@ -194,9 +194,7 @@ impl Service {
                 } else {
                     BlobStore::new_local(metrics.clone())
                 };
-                let state_dir_path = state_dir
-                    .as_deref()
-                    .unwrap_or("/var/lib/indexify/firecracker");
+                let state_dir_path = config.firecracker_state_dir();
                 tracing::info!("Snapshotter enabled (Firecracker driver)");
                 Some(Arc::new(
                     crate::snapshotter::firecracker_snapshotter::FirecrackerSnapshotter::new(
@@ -425,13 +423,34 @@ impl Service {
         tokio::select! {
             signal_name = wait_for_shutdown_signal() => {
                 tracing::info!(signal = signal_name, "Shutdown signal received");
-                cancel_token.cancel();
-                self.state_reconciler.lock().await.shutdown().await;
             }
             Some(result) = tasks.join_next() => {
-                if let Err(e) = result {
-                    tracing::error!(error = ?e, "Background task panicked");
+                match result {
+                    Ok(()) => tracing::warn!("Background task exited unexpectedly"),
+                    Err(e) => tracing::error!(error = ?e, "Background task panicked"),
                 }
+            }
+        }
+
+        // Always cancel all tasks and clean up, regardless of which branch triggered.
+        cancel_token.cancel();
+
+        // Graceful shutdown with force-exit fallback.
+        // After cancel_token fires, background tasks may still hold the
+        // state_reconciler lock while winding down.  A second Ctrl+C or a
+        // 30-second timeout lets the operator force-exit instead of hanging
+        // indefinitely.
+        tokio::select! {
+            _ = async {
+                self.state_reconciler.lock().await.shutdown().await;
+            } => {
+                tracing::info!("Graceful shutdown completed");
+            }
+            _ = tokio::signal::ctrl_c() => {
+                tracing::warn!("Second interrupt received during shutdown, forcing exit");
+            }
+            _ = tokio::time::sleep(Duration::from_secs(30)) => {
+                tracing::warn!("Shutdown timed out after 30s, forcing exit");
             }
         }
 
@@ -548,7 +567,11 @@ impl ServiceRuntime {
                         .add(1, &[]);
                 }
 
-                match client.report_command_responses(request).await {
+                let rpc_result = tokio::select! {
+                    _ = self.cancel_token.cancelled() => return,
+                    result = client.report_command_responses(request) => result,
+                };
+                match rpc_result {
                     Ok(_) => {
                         // Remove the sent items from the front of the buffer.
                         self.state_reporter.drain_sent(sent_count).await;
@@ -624,7 +647,11 @@ impl ServiceRuntime {
             *self.monitoring_state.last_reported_state.lock().await =
                 Some(format!("{:#?}", heartbeat_req));
 
-            match client.heartbeat(heartbeat_req).await {
+            let rpc_result = tokio::select! {
+                _ = self.cancel_token.cancelled() => return,
+                result = client.heartbeat(heartbeat_req) => result,
+            };
+            match rpc_result {
                 Ok(response) => {
                     self.metrics
                         .histograms
@@ -759,10 +786,12 @@ impl ServiceRuntime {
             last_seq,
         };
 
-        let response = client
-            .command_stream(request)
-            .await
-            .context("Failed to open command stream")?;
+        let response = tokio::select! {
+            _ = self.cancel_token.cancelled() => return Ok(()),
+            result = client.command_stream(request) => {
+                result.context("Failed to open command stream")?
+            }
+        };
 
         let mut stream = response.into_inner();
         self.metrics.counters.stream_creations.add(1, &[]);
@@ -872,10 +901,12 @@ impl ServiceRuntime {
         let (outbound_tx, outbound_rx) = mpsc::channel::<AllocationStreamRequest>(64);
 
         // Open the bidi stream
-        let response = client
-            .allocation_stream(ReceiverStream::new(outbound_rx))
-            .await
-            .context("Failed to open allocation stream")?;
+        let response = tokio::select! {
+            _ = self.cancel_token.cancelled() => return Ok(()),
+            result = client.allocation_stream(ReceiverStream::new(outbound_rx)) => {
+                result.context("Failed to open allocation stream")?
+            }
+        };
 
         let mut inbound = response.into_inner();
 
@@ -1139,14 +1170,18 @@ impl ServiceRuntime {
                     upload_uri = %snapshot.upload_uri,
                     "SnapshotContainer command"
                 );
-                let mut reconciler = self.state_reconciler.lock().await;
-                reconciler
-                    .snapshot_container(
-                        &snapshot.container_id,
-                        &snapshot.snapshot_id,
-                        &snapshot.upload_uri,
-                    )
-                    .await;
+                let reconciler = self.state_reconciler.lock().await;
+                let container_manager = reconciler.container_manager().clone();
+                drop(reconciler);
+                tokio::spawn(async move {
+                    container_manager
+                        .snapshot_container(
+                            &snapshot.container_id,
+                            &snapshot.snapshot_id,
+                            &snapshot.upload_uri,
+                        )
+                        .await;
+                });
             }
         }
 
@@ -1252,8 +1287,9 @@ async fn create_blob_store(
 }
 
 async fn create_channel(config: &DataplaneConfig) -> Result<Channel> {
-    let mut endpoint =
-        Endpoint::from_shared(config.server_addr.clone()).context("Invalid server address")?;
+    let mut endpoint = Endpoint::from_shared(config.server_addr.clone())
+        .context("Invalid server address")?
+        .connect_timeout(Duration::from_secs(10));
 
     if config.tls.enabled {
         let mut tls_config = ClientTlsConfig::new();

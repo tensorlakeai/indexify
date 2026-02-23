@@ -7,6 +7,7 @@
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
+    time::Duration,
 };
 
 use anyhow::{Context, Result};
@@ -75,6 +76,34 @@ impl VmProcess {
                 )
                 .context("Failed to kill recovered Firecracker process")?;
                 Ok(())
+            }
+        }
+    }
+
+    /// Wait for the process to exit after killing it.
+    ///
+    /// SIGKILL should terminate the process nearly instantly, but we add a
+    /// 5-second timeout to avoid blocking indefinitely.  This must be called
+    /// after `kill()` and before attempting to tear down the dm-snapshot
+    /// device, because the device cannot be removed while Firecracker still
+    /// has it open.
+    pub async fn wait_for_exit(&mut self) {
+        const EXIT_TIMEOUT: Duration = Duration::from_secs(5);
+        match self {
+            VmProcess::Owned(child) => {
+                let _ = tokio::time::timeout(EXIT_TIMEOUT, child.wait()).await;
+            }
+            VmProcess::Recovered { pid } => {
+                let pid = *pid;
+                let _ = tokio::time::timeout(EXIT_TIMEOUT, async {
+                    loop {
+                        if !Path::new(&format!("/proc/{}", pid)).exists() {
+                            break;
+                        }
+                        tokio::time::sleep(Duration::from_millis(50)).await;
+                    }
+                })
+                .await;
             }
         }
     }

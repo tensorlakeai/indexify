@@ -20,7 +20,7 @@ use tracing::info;
 use super::{RestoreResult, SnapshotResult, Snapshotter};
 use crate::{
     blob_ops::BlobStore,
-    driver::firecracker::vm_state::VmMetadata,
+    driver::firecracker::{api::FirecrackerApiClient, dm_snapshot, vm_state::VmMetadata},
     metrics::DataplaneMetrics,
 };
 
@@ -49,6 +49,14 @@ impl FirecrackerSnapshotter {
 
 #[async_trait]
 impl Snapshotter for FirecrackerSnapshotter {
+    fn requires_running_container(&self) -> bool {
+        // The VM must be running so we can pause it via the Firecracker API.
+        // Pausing quiesces the guest kernel, flushing dirty filesystem pages
+        // to the virtual block device (dm-snapshot COW). Without this, files
+        // written inside the VM but not yet fsynced would be lost.
+        true
+    }
+
     async fn create_snapshot(
         &self,
         container_id: &str,
@@ -79,6 +87,31 @@ impl Snapshotter for FirecrackerSnapshotter {
             );
         }
 
+        // Pause the VM to quiesce the guest kernel. This ensures all dirty
+        // filesystem pages are flushed to the virtual block device before we
+        // read the COW file.
+        let api_client = FirecrackerApiClient::new(&metadata.socket_path);
+        if let Err(e) = api_client.pause_vm().await {
+            tracing::warn!(
+                vm_id = %vm_id,
+                error = %e,
+                "Failed to pause VM before snapshot (VM may already be stopped)"
+            );
+        } else {
+            info!(vm_id = %vm_id, "VM paused for snapshot");
+        }
+
+        // Suspend the dm-snapshot device to flush all pending host-side I/O
+        // to the COW file on disk, ensuring it is consistent for reading.
+        if let Err(e) = dm_snapshot::suspend_snapshot_async(metadata.dm_name.clone()).await {
+            tracing::warn!(
+                vm_id = %vm_id,
+                dm_name = %metadata.dm_name,
+                error = %e,
+                "Failed to suspend dm-snapshot (continuing with snapshot)"
+            );
+        }
+
         info!(
             cow_file = %cow_path.display(),
             "Reading COW file for snapshot"
@@ -92,6 +125,17 @@ impl Snapshotter for FirecrackerSnapshotter {
             .put(upload_uri, compressed_stream, PutOptions::default())
             .await
             .context("Snapshot upload failed")?;
+
+        // Resume the dm-snapshot device so it can be cleanly removed during
+        // the subsequent cleanup. `dmsetup remove` fails on suspended devices.
+        if let Err(e) = dm_snapshot::resume_snapshot_async(metadata.dm_name.clone()).await {
+            tracing::warn!(
+                vm_id = %vm_id,
+                dm_name = %metadata.dm_name,
+                error = %e,
+                "Failed to resume dm-snapshot after snapshot (cleanup may fail)"
+            );
+        }
 
         info!(
             container_id = %container_id,
@@ -190,7 +234,7 @@ fn build_compressed_cow_stream(
             )
             .context("Failed to create zstd encoder")?;
 
-            let mut buf = [0u8; 4 * 1024 * 1024]; // 4MB read chunks
+            let mut buf = vec![0u8; 4 * 1024 * 1024];
             loop {
                 let n = reader.read(&mut buf).context("Failed to read COW file")?;
                 if n == 0 {

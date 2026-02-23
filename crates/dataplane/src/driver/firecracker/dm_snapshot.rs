@@ -332,6 +332,39 @@ pub fn destroy_snapshot_by_parts(dm_name: &str, loop_device: &str, cow_file: &st
     Ok(())
 }
 
+/// Suspend a dm-snapshot device, flushing all pending I/O to the COW file.
+///
+/// After suspension the COW file on disk is consistent and can be read
+/// directly. The device must be resumed or removed afterwards.
+pub fn suspend_snapshot(dm_name: &str) -> Result<()> {
+    run_cmd("dmsetup", &["suspend", dm_name])
+        .with_context(|| format!("Failed to suspend dm device {}", dm_name))?;
+    tracing::info!(dm_name = %dm_name, "dm-snapshot suspended (COW flushed)");
+    Ok(())
+}
+
+/// Async version of suspend_snapshot.
+pub async fn suspend_snapshot_async(dm_name: String) -> Result<()> {
+    tokio::task::spawn_blocking(move || suspend_snapshot(&dm_name))
+        .await
+        .context("suspend_snapshot task panicked")?
+}
+
+/// Resume a previously suspended dm-snapshot device.
+pub fn resume_snapshot(dm_name: &str) -> Result<()> {
+    run_cmd("dmsetup", &["resume", dm_name])
+        .with_context(|| format!("Failed to resume dm device {}", dm_name))?;
+    tracing::info!(dm_name = %dm_name, "dm-snapshot resumed");
+    Ok(())
+}
+
+/// Async version of resume_snapshot.
+pub async fn resume_snapshot_async(dm_name: String) -> Result<()> {
+    tokio::task::spawn_blocking(move || resume_snapshot(&dm_name))
+        .await
+        .context("resume_snapshot task panicked")?
+}
+
 /// Check if a dm-snapshot target exists for a VM.
 #[allow(dead_code)]
 pub fn snapshot_exists(vm_id: &str) -> bool {

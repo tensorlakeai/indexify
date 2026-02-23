@@ -6,7 +6,7 @@
 //! Uses dm-snapshot (not dm-thin) so each VM's COW data lives in a separate
 //! file on disk, making snapshot/restore trivial (the COW file IS the delta).
 
-mod api;
+pub(crate) mod api;
 mod cni;
 pub(crate) mod dm_snapshot;
 mod log_stream;
@@ -227,6 +227,12 @@ impl FirecrackerDriver {
             }
         }
 
+        // Collect active VM IDs before moving recovered_vms into the mutex.
+        let active_vm_ids: HashSet<String> = recovered_vms
+            .values()
+            .map(|vm| vm.metadata.vm_id.clone())
+            .collect();
+
         // Clean up dead VMs (those with metadata but whose process is gone).
         let driver = Self {
             firecracker_binary,
@@ -247,14 +253,6 @@ impl FirecrackerDriver {
         for metadata in &dead_vms {
             driver.cleanup_dead_vm(metadata);
         }
-
-        // Collect active VM IDs from recovered VMs for stale resource cleanup.
-        let active_vm_ids: HashSet<String> = {
-            // We need to block on the async lock here since new() is sync.
-            // The mutex is uncontended at this point so this is safe.
-            let vms = driver.vms.blocking_lock();
-            vms.values().map(|vm| vm.metadata.vm_id.clone()).collect()
-        };
 
         // Clean up leaked dm-snapshot devices from crashed VMs that lost
         // their metadata files (metadata gone, but kernel devices remain).
@@ -620,6 +618,10 @@ impl ProcessDriver for FirecrackerDriver {
                         "Failed to kill Firecracker process"
                     );
                 }
+                // Wait for the process to actually exit before releasing
+                // its dm-snapshot device.  Without this, `dmsetup remove`
+                // fails with "Device or resource busy".
+                vm.process.wait_for_exit().await;
                 (
                     vm.metadata.vm_id.clone(),
                     vm.metadata.dm_name.clone(),
