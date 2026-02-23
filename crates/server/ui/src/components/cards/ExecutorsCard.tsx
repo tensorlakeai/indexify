@@ -261,7 +261,7 @@ function ExecutorsContent({ executors }: ExecutorsCardProps) {
                   </>
                 )}
 
-              {executor.function_executors.length > 0 ? (
+              {executor.function_executors?.length > 0 ? (
                 <>
                   <TableRow
                     sx={{
@@ -319,7 +319,7 @@ function ExecutorsContent({ executors }: ExecutorsCardProps) {
                 </TableRow>
               )}
 
-              {executor.server_only_function_executors.length > 0 ? (
+              {executor.server_only_function_executors?.length > 0 ? (
                 <>
                   <TableRow
                     sx={{
