@@ -106,7 +106,7 @@ pub enum DriverConfig {
         firecracker_binary: Option<String>,
         /// Path to Linux kernel image (vmlinux).
         kernel_image_path: String,
-        /// Per-VM COW file size in bytes. Default: 1 GiB.
+        /// Per-VM COW LV size in bytes. Default: 1 GiB.
         #[serde(default)]
         default_rootfs_size_bytes: Option<u64>,
         /// Path to base guest OS rootfs ext4 image.
@@ -135,6 +135,10 @@ pub enum DriverConfig {
         /// Default: "/var/log/indexify/firecracker".
         #[serde(default)]
         log_dir: Option<String>,
+        /// LVM volume group for thin-provisioned COW devices.
+        lvm_volume_group: String,
+        /// LVM thin pool LV name within the volume group.
+        lvm_thin_pool: String,
     },
 }
 
@@ -810,6 +814,8 @@ driver:
   base_rootfs_image: "/opt/firecracker/rootfs.ext4"
   cni_network_name: "indexify-fc"
   guest_gateway: "192.168.30.1"
+  lvm_volume_group: "indexify-vg"
+  lvm_thin_pool: "thinpool"
 "#;
         let config = DataplaneConfig::from_yaml_str(yaml).unwrap();
         match &config.driver {
@@ -826,11 +832,15 @@ driver:
                 default_memory_mib,
                 state_dir,
                 log_dir,
+                lvm_volume_group,
+                lvm_thin_pool,
             } => {
                 assert_eq!(kernel_image_path, "/opt/firecracker/vmlinux");
                 assert_eq!(base_rootfs_image, "/opt/firecracker/rootfs.ext4");
                 assert_eq!(cni_network_name, "indexify-fc");
                 assert_eq!(guest_gateway, "192.168.30.1");
+                assert_eq!(lvm_volume_group, "indexify-vg");
+                assert_eq!(lvm_thin_pool, "thinpool");
                 // Defaults
                 assert!(firecracker_binary.is_none());
                 assert!(default_rootfs_size_bytes.is_none());
@@ -865,6 +875,8 @@ driver:
   default_memory_mib: 1024
   state_dir: "/var/lib/indexify/fc"
   log_dir: "/var/log/indexify/fc"
+  lvm_volume_group: "my-vg"
+  lvm_thin_pool: "my-pool"
 "#;
         let config = DataplaneConfig::from_yaml_str(yaml).unwrap();
         match &config.driver {
@@ -877,6 +889,8 @@ driver:
                 default_memory_mib,
                 state_dir,
                 log_dir,
+                lvm_volume_group,
+                lvm_thin_pool,
                 ..
             } => {
                 assert_eq!(
@@ -890,6 +904,8 @@ driver:
                 assert_eq!(*default_memory_mib, Some(1024));
                 assert_eq!(state_dir.as_deref(), Some("/var/lib/indexify/fc"));
                 assert_eq!(log_dir.as_deref(), Some("/var/log/indexify/fc"));
+                assert_eq!(lvm_volume_group, "my-vg");
+                assert_eq!(lvm_thin_pool, "my-pool");
             }
             _ => panic!("Expected Firecracker driver"),
         }
@@ -910,6 +926,8 @@ driver:
   base_rootfs_image: "/opt/firecracker/rootfs.ext4"
   cni_network_name: "indexify-fc"
   guest_gateway: "192.168.30.1"
+  lvm_volume_group: "indexify-vg"
+  lvm_thin_pool: "thinpool"
 "#;
         let config = DataplaneConfig::from_yaml_str(yaml).unwrap();
         assert_eq!(
@@ -943,6 +961,8 @@ driver:
   guest_gateway: "192.168.30.1"
   state_dir: "/custom/fc-state"
   log_dir: "/custom/fc-logs"
+  lvm_volume_group: "indexify-vg"
+  lvm_thin_pool: "thinpool"
 "#;
         let config = DataplaneConfig::from_yaml_str(yaml).unwrap();
         assert_eq!(

@@ -70,8 +70,8 @@ pub struct FirecrackerDriver {
     kernel_image_path: PathBuf,
     /// Origin (base rootfs) device handle.
     origin: OriginHandle,
-    /// Directory for per-VM COW overlay files.
-    overlay_dir: PathBuf,
+    /// LVM thin pool configuration for per-VM COW devices.
+    lvm_config: dm_snapshot::LvmConfig,
     /// CNI networking manager.
     cni: CniManager,
     /// Guest gateway IP address.
@@ -82,7 +82,7 @@ pub struct FirecrackerDriver {
     default_vcpu_count: u32,
     /// Default memory in MiB per VM.
     default_memory_mib: u64,
-    /// Per-VM COW file size in bytes.
+    /// Per-VM COW LV size in bytes.
     default_rootfs_size_bytes: u64,
     /// Directory for API sockets and VM metadata.
     state_dir: PathBuf,
@@ -110,6 +110,8 @@ impl FirecrackerDriver {
         default_memory_mib: Option<u64>,
         state_dir: PathBuf,
         log_dir: PathBuf,
+        lvm_volume_group: String,
+        lvm_thin_pool: String,
     ) -> Result<Self> {
         let firecracker_binary = firecracker_binary.unwrap_or_else(|| "firecracker".to_string());
         let kernel_path = PathBuf::from(&kernel_image_path);
@@ -134,9 +136,11 @@ impl FirecrackerDriver {
         std::fs::create_dir_all(&log_dir)
             .with_context(|| format!("Failed to create log dir {}", log_dir.display()))?;
 
-        let overlay_dir = state_dir.join("overlays");
-        std::fs::create_dir_all(&overlay_dir)
-            .with_context(|| format!("Failed to create overlay dir {}", overlay_dir.display()))?;
+        let lvm_config = dm_snapshot::LvmConfig {
+            volume_group: lvm_volume_group,
+            thin_pool: lvm_thin_pool,
+        };
+        dm_snapshot::validate_lvm_config(&lvm_config).context("LVM thin pool validation failed")?;
 
         let cni = CniManager::new(cni_network_name, cni_bin_path);
 
@@ -238,7 +242,7 @@ impl FirecrackerDriver {
             firecracker_binary,
             kernel_image_path: kernel_path,
             origin,
-            overlay_dir,
+            lvm_config,
             cni,
             guest_gateway,
             guest_netmask,
@@ -256,7 +260,7 @@ impl FirecrackerDriver {
 
         // Clean up leaked dm-snapshot devices from crashed VMs that lost
         // their metadata files (metadata gone, but kernel devices remain).
-        dm_snapshot::cleanup_stale_devices(&active_vm_ids);
+        dm_snapshot::cleanup_stale_devices(&active_vm_ids, &driver.lvm_config);
 
         // Clean up leaked network namespaces from crashed VMs.
         driver.cni.cleanup_orphaned_netns_sync(&active_vm_ids);
@@ -279,17 +283,17 @@ impl FirecrackerDriver {
                 .join(format!("fc-{}-serial.log", metadata.vm_id)),
         );
 
-        // dm-snapshot and COW file cleanup happen asynchronously.
+        // dm-snapshot and thin LV cleanup happen asynchronously.
         let dm_name = metadata.dm_name.clone();
-        let loop_device = metadata.loop_device.clone();
-        let cow_file = metadata.cow_file.clone();
+        let lv_name = metadata.lv_name.clone();
         let vm_id = metadata.vm_id.clone();
+        let lvm_config = self.lvm_config.clone();
         let cni_network_name = self.cni.network_name().to_string();
         let cni_bin_path = self.cni.cni_bin_path().to_string();
 
         tokio::spawn(async move {
             if let Err(e) =
-                dm_snapshot::destroy_snapshot_by_parts_async(dm_name, loop_device, cow_file).await
+                dm_snapshot::destroy_snapshot_by_parts_async(dm_name, lv_name, lvm_config).await
             {
                 tracing::warn!(
                     error = ?e,
@@ -309,8 +313,7 @@ impl FirecrackerDriver {
         handle_id: &str,
         vm_id: &str,
         dm_name: &str,
-        loop_device: &str,
-        cow_file: &str,
+        lv_name: &str,
         socket_path: &str,
     ) {
         // Cancel log streamer and remove from registry.
@@ -323,11 +326,11 @@ impl FirecrackerDriver {
             }
         }
 
-        // Destroy dm-snapshot, loop device, and COW file.
+        // Destroy dm-snapshot and remove COW thin LV.
         if let Err(e) = dm_snapshot::destroy_snapshot_by_parts_async(
             dm_name.to_string(),
-            loop_device.to_string(),
-            cow_file.to_string(),
+            lv_name.to_string(),
+            self.lvm_config.clone(),
         )
         .await
         {
@@ -366,6 +369,7 @@ impl ProcessDriver for FirecrackerDriver {
                     self.origin.device_path.clone(),
                     self.origin.size_sectors,
                     vm_id.clone(),
+                    self.lvm_config.clone(),
                     PathBuf::from(image),
                 )
                 .await
@@ -376,26 +380,26 @@ impl ProcessDriver for FirecrackerDriver {
                     )
                 })?
             } else {
-                // Normal path: create fresh COW file.
+                // Normal path: create fresh thin LV COW device.
                 dm_snapshot::create_snapshot_async(
                     self.origin.dm_name.clone(),
                     self.origin.device_path.clone(),
                     self.origin.size_sectors,
                     vm_id.clone(),
-                    self.overlay_dir.clone(),
+                    self.lvm_config.clone(),
                     self.default_rootfs_size_bytes,
                 )
                 .await
                 .with_context(|| format!("Failed to create dm-snapshot for VM {}", vm_id))?
             }
         } else {
-            // Normal path: create fresh COW file.
+            // Normal path: create fresh thin LV COW device.
             dm_snapshot::create_snapshot_async(
                 self.origin.dm_name.clone(),
                 self.origin.device_path.clone(),
                 self.origin.size_sectors,
                 vm_id.clone(),
-                self.overlay_dir.clone(),
+                self.lvm_config.clone(),
                 self.default_rootfs_size_bytes,
             )
             .await
@@ -411,7 +415,7 @@ impl ProcessDriver for FirecrackerDriver {
         if let Err(e) =
             rootfs::inject_rootfs(&snapshot.device_path, daemon_binary, &config.env, &vm_id).await
         {
-            let _ = dm_snapshot::destroy_snapshot_async(snapshot).await;
+            let _ = dm_snapshot::destroy_snapshot_async(snapshot, self.lvm_config.clone()).await;
             return Err(e.context("Failed to inject rootfs"));
         }
         tracing::info!(vm_id = %vm_id, "Rootfs injection complete, setting up CNI");
@@ -420,7 +424,8 @@ impl ProcessDriver for FirecrackerDriver {
         let cni_result = match self.cni.setup_network(&vm_id).await {
             Ok(result) => result,
             Err(e) => {
-                let _ = dm_snapshot::destroy_snapshot_async(snapshot).await;
+                let _ =
+                    dm_snapshot::destroy_snapshot_async(snapshot, self.lvm_config.clone()).await;
                 return Err(e.context("Failed to setup CNI networking"));
             }
         };
@@ -500,7 +505,8 @@ impl ProcessDriver for FirecrackerDriver {
             Ok(child) => child,
             Err(e) => {
                 self.cni.teardown_network(&vm_id).await;
-                let _ = dm_snapshot::destroy_snapshot_async(snapshot).await;
+                let _ =
+                    dm_snapshot::destroy_snapshot_async(snapshot, self.lvm_config.clone()).await;
                 return Err(anyhow::anyhow!("Failed to spawn firecracker: {}", e));
             }
         };
@@ -522,7 +528,7 @@ impl ProcessDriver for FirecrackerDriver {
             let mut child = child;
             let _ = child.kill().await;
             self.cni.teardown_network(&vm_id).await;
-            let _ = dm_snapshot::destroy_snapshot_async(snapshot).await;
+            let _ = dm_snapshot::destroy_snapshot_async(snapshot, self.lvm_config.clone()).await;
             let _ = std::fs::remove_file(&socket_path);
             return Err(e.context("Firecracker API socket not ready"));
         }
@@ -564,7 +570,7 @@ impl ProcessDriver for FirecrackerDriver {
             let mut child = child;
             let _ = child.kill().await;
             self.cni.teardown_network(&vm_id).await;
-            let _ = dm_snapshot::destroy_snapshot_async(snapshot).await;
+            let _ = dm_snapshot::destroy_snapshot_async(snapshot, self.lvm_config.clone()).await;
             let _ = std::fs::remove_file(&socket_path);
             return Err(e);
         }
@@ -578,8 +584,7 @@ impl ProcessDriver for FirecrackerDriver {
             handle_id: handle_id.clone(),
             vm_id: vm_id.clone(),
             pid: fc_pid,
-            cow_file: snapshot.cow_file.to_string_lossy().to_string(),
-            loop_device: snapshot.loop_device.clone(),
+            lv_name: snapshot.lv_name.clone(),
             dm_name: snapshot.dm_name.clone(),
             netns_name: cni_result.netns_name,
             guest_ip: cni_result.guest_ip.clone(),
@@ -618,7 +623,7 @@ impl ProcessDriver for FirecrackerDriver {
     }
 
     async fn kill(&self, handle: &ProcessHandle) -> Result<()> {
-        let (vm_id, dm_name, loop_device, cow_file, socket_path) = {
+        let (vm_id, dm_name, lv_name, socket_path) = {
             let mut vms = self.vms.lock().await;
             if let Some(vm) = vms.get_mut(&handle.id) {
                 // Kill the Firecracker process
@@ -636,8 +641,7 @@ impl ProcessDriver for FirecrackerDriver {
                 (
                     vm.metadata.vm_id.clone(),
                     vm.metadata.dm_name.clone(),
-                    vm.metadata.loop_device.clone(),
-                    vm.metadata.cow_file.clone(),
+                    vm.metadata.lv_name.clone(),
                     vm.metadata.socket_path.clone(),
                 )
             } else {
@@ -646,15 +650,8 @@ impl ProcessDriver for FirecrackerDriver {
         };
 
         // Clean up all resources
-        self.cleanup_vm(
-            &handle.id,
-            &vm_id,
-            &dm_name,
-            &loop_device,
-            &cow_file,
-            &socket_path,
-        )
-        .await;
+        self.cleanup_vm(&handle.id, &vm_id, &dm_name, &lv_name, &socket_path)
+            .await;
 
         Ok(())
     }

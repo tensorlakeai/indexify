@@ -108,7 +108,8 @@ impl FileManager {
 
         let mut file = fs::File::create(&path).await.map_err(|e| {
             FileError::Other(
-                anyhow::Error::from(e).context(format!("Failed to create file: {}", path.display())),
+                anyhow::Error::from(e)
+                    .context(format!("Failed to create file: {}", path.display())),
             )
         })?;
 
@@ -123,8 +124,7 @@ impl FileManager {
 
         file.sync_all().await.map_err(|e| {
             FileError::Other(
-                anyhow::Error::from(e)
-                    .context(format!("Failed to sync file: {}", path.display())),
+                anyhow::Error::from(e).context(format!("Failed to sync file: {}", path.display())),
             )
         })
     }

@@ -186,7 +186,11 @@ impl Service {
                 Some(Arc::new(snapshotter))
             }
             #[cfg(feature = "firecracker")]
-            DriverConfig::Firecracker { .. } => {
+            DriverConfig::Firecracker {
+                lvm_volume_group,
+                lvm_thin_pool,
+                ..
+            } => {
                 let snapshot_blob_store = if let Some(ref uri) = config.snapshot_storage_uri {
                     BlobStore::from_uri(uri, metrics.clone())
                         .await
@@ -195,12 +199,17 @@ impl Service {
                     BlobStore::new_local(metrics.clone())
                 };
                 let state_dir_path = config.firecracker_state_dir();
+                let lvm_config = crate::driver::firecracker::dm_snapshot::LvmConfig {
+                    volume_group: lvm_volume_group.clone(),
+                    thin_pool: lvm_thin_pool.clone(),
+                };
                 tracing::info!("Snapshotter enabled (Firecracker driver)");
                 Some(Arc::new(
                     crate::snapshotter::firecracker_snapshotter::FirecrackerSnapshotter::new(
                         PathBuf::from(state_dir_path),
                         snapshot_blob_store,
                         metrics.clone(),
+                        lvm_config,
                     ),
                 ))
             }
@@ -1253,6 +1262,8 @@ fn create_process_driver(config: &DataplaneConfig) -> Result<Arc<dyn ProcessDriv
             guest_netmask,
             default_vcpu_count,
             default_memory_mib,
+            lvm_volume_group,
+            lvm_thin_pool,
             ..
         } => Ok(Arc::new(FirecrackerDriver::new(
             firecracker_binary.clone(),
@@ -1267,6 +1278,8 @@ fn create_process_driver(config: &DataplaneConfig) -> Result<Arc<dyn ProcessDriv
             *default_memory_mib,
             config.firecracker_state_dir(),
             config.firecracker_log_dir(),
+            lvm_volume_group.clone(),
+            lvm_thin_pool.clone(),
         )?)),
     }
 }

@@ -139,6 +139,9 @@ fn create_test_driver() -> Result<FirecrackerDriver> {
     let state_dir = format!("/tmp/indexify-fc-test-{}/state", run_id);
     let log_dir = format!("/tmp/indexify-fc-test-{}/logs", run_id);
 
+    let lvm_vg = std::env::var("FC_LVM_VG").unwrap_or_else(|_| "indexify-vg".to_string());
+    let lvm_pool = std::env::var("FC_LVM_POOL").unwrap_or_else(|_| "thinpool".to_string());
+
     FirecrackerDriver::new(
         None,
         kernel,
@@ -152,6 +155,8 @@ fn create_test_driver() -> Result<FirecrackerDriver> {
         None,
         state_dir.into(),
         log_dir.into(),
+        lvm_vg,
+        lvm_pool,
     )
 }
 
@@ -646,6 +651,9 @@ async fn test_recovery_after_restart() {
     let cni_network = std::env::var("FC_CNI_NETWORK").unwrap_or_else(|_| "indexify-fc".to_string());
     let gateway = std::env::var("FC_GUEST_GATEWAY").unwrap_or_else(|_| "192.168.30.1".to_string());
 
+    let lvm_vg = std::env::var("FC_LVM_VG").unwrap_or_else(|_| "indexify-vg".to_string());
+    let lvm_pool = std::env::var("FC_LVM_POOL").unwrap_or_else(|_| "thinpool".to_string());
+
     let make_driver = || {
         FirecrackerDriver::new(
             None,
@@ -660,6 +668,8 @@ async fn test_recovery_after_restart() {
             None,
             state_dir.clone().into(),
             log_dir.clone().into(),
+            lvm_vg.clone(),
+            lvm_pool.clone(),
         )
     };
 

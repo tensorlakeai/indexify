@@ -136,6 +136,8 @@ driver:
   # base_rootfs_image: /opt/firecracker/rootfs.ext4
   # cni_network_name: indexify-fc
   # guest_gateway: "192.168.30.1"
+  # lvm_volume_group: indexify-vg    # required: LVM volume group for COW devices
+  # lvm_thin_pool: thinpool          # required: LVM thin pool name
 
 # Snapshot storage URI for container filesystem snapshots (optional).
 # Enables snapshot/restore for Docker (docker export) and Firecracker (COW file).
@@ -391,6 +393,242 @@ HTTP proxy request events include:
     "duration_ms": 45
   }
 }
+```
+
+## Firecracker on EC2
+
+The Firecracker driver runs microVMs with hardware virtualization and requires
+an EC2 instance with KVM support, an LVM thin pool for per-VM COW devices, and
+CNI networking. Firecracker supports both **x86_64** and **aarch64** (Graviton).
+
+See [`crates/dataplane/src/driver/firecracker/FIRECRACKER.md`](src/driver/firecracker/FIRECRACKER.md)
+for the full Firecracker driver reference.
+
+### EC2 instance requirements
+
+Firecracker requires `/dev/kvm`. All Nitro-based EC2 instances (both `.metal`
+and non-metal) expose KVM. The Firecracker project tests on these platforms:
+
+| Family | Instance types | CPU |
+|--------|----------------|-----|
+| Intel | `m5n.metal`, `m6i.metal`, `m7i.metal-24xl` | Cascade Lake, Ice Lake, Sapphire Rapids |
+| AMD | `m6a.metal`, `m7a.metal-48xl` | Milan, Genoa |
+| Graviton | `m6g.metal`, `m7g.metal`, `m8g.metal-24xl` | Graviton2/3/4 |
+
+Non-metal Nitro instances (e.g., `c5.xlarge`, `m6i.2xlarge`) also work for
+development. Avoid `m8i.metal` (Granite Rapids) unless running a 6.1 host
+kernel.
+
+| Requirement | Details |
+|-------------|---------|
+| Host OS | Amazon Linux 2023 (linux 6.1) recommended. AL2 (linux 5.10) also supported. Ubuntu 22.04/24.04 works. |
+| Storage | Root volume (gp3, 30+ GB) for OS and binaries. A second volume or instance store for the LVM thin pool. NVMe instance storage (e.g., `c5d`, `i3`) gives the best I/O performance for COW devices. |
+| Security group | Inbound: 8095 (HTTP proxy from sandbox-proxy). Outbound: 8901 (gRPC to control plane). |
+
+### Step 1: Launch the instance
+
+```bash
+# Example: c5d.2xlarge (NVMe instance storage for the thin pool)
+aws ec2 run-instances \
+  --image-id ami-0abcdef1234567890 \
+  --instance-type c5d.2xlarge \
+  --key-name my-key \
+  --block-device-mappings \
+    'DeviceName=/dev/xvda,Ebs={VolumeSize=30,VolumeType=gp3}'
+```
+
+Instance types with NVMe instance storage (`c5d`, `m5d`, `i3`, `i4i`, etc.)
+attach the local disk automatically as `/dev/nvme1n1`. For instance types
+without instance storage, add a second EBS volume:
+
+```bash
+aws ec2 run-instances \
+  --image-id ami-0abcdef1234567890 \
+  --instance-type m6i.2xlarge \
+  --key-name my-key \
+  --block-device-mappings \
+    'DeviceName=/dev/xvda,Ebs={VolumeSize=30,VolumeType=gp3}' \
+    'DeviceName=/dev/xvdb,Ebs={VolumeSize=200,VolumeType=gp3}'
+```
+
+### Step 2: Install system dependencies
+
+```bash
+# Amazon Linux 2023
+sudo dnf install -y lvm2 device-mapper iptables jq golang
+
+# Ubuntu 22.04/24.04
+sudo apt-get update
+sudo apt-get install -y lvm2 dmsetup iptables jq golang-go
+```
+
+### Step 3: Verify KVM access
+
+```bash
+# Check that the KVM kernel module is loaded
+lsmod | grep kvm
+
+# Verify /dev/kvm exists
+ls -l /dev/kvm
+
+# Grant your user access (Firecracker's recommended approach)
+sudo setfacl -m u:${USER}:rw /dev/kvm
+
+# Or: if running the dataplane as root, no extra permissions needed.
+```
+
+### Step 4: Set up the LVM thin pool
+
+Use the dedicated block device for the thin pool. Instance store NVMe
+(`/dev/nvme1n1`) or the extra EBS volume (`/dev/xvdb`) both work.
+
+```bash
+# Identify the block device
+lsblk
+
+# Create physical volume, volume group, and thin pool
+sudo pvcreate /dev/nvme1n1          # or /dev/xvdb for EBS
+sudo vgcreate indexify-vg /dev/nvme1n1
+sudo lvcreate -l 100%FREE -T indexify-vg/thinpool
+
+# Verify
+sudo vgs indexify-vg
+sudo lvs indexify-vg
+```
+
+> **Note:** Instance store volumes are ephemeral -- data is lost on
+> stop/terminate. This is fine for COW devices (VMs are recreated on restart),
+> but make sure snapshot data is stored in S3, not on the instance store.
+
+### Step 5: Install Firecracker and guest artifacts
+
+```bash
+ARCH="$(uname -m)"
+
+# Download the latest Firecracker release
+release_url="https://github.com/firecracker-microvm/firecracker/releases"
+latest=$(basename $(curl -fsSLI -o /dev/null -w %{url_effective} ${release_url}/latest))
+curl -L ${release_url}/download/${latest}/firecracker-${latest}-${ARCH}.tgz \
+  | tar -xz
+
+# Install the binary
+sudo mv release-${latest}-${ARCH}/firecracker-${latest}-${ARCH} /usr/local/bin/firecracker
+chmod +x /usr/local/bin/firecracker
+rm -rf release-${latest}-${ARCH}
+
+firecracker --version
+# Expected: Firecracker v1.14.1 (or later)
+```
+
+**Guest kernel and rootfs:** Firecracker provides CI-built kernels and Ubuntu
+rootfs images on S3. The easiest approach is to use the getting-started script
+from the Firecracker repo:
+
+```bash
+# Clone just the getting-started script
+git clone --depth 1 https://github.com/firecracker-microvm/firecracker.git /tmp/fc-src
+
+# Run the setup script (downloads kernel + Ubuntu 24.04 rootfs)
+/tmp/fc-src/docs/getting-started/setup.sh
+
+# Move artifacts to a permanent location
+sudo mkdir -p /opt/firecracker
+sudo mv vmlinux* /opt/firecracker/vmlinux
+sudo mv ubuntu-24.04.ext4 /opt/firecracker/rootfs.ext4
+
+rm -rf /tmp/fc-src
+```
+
+Alternatively, build your own rootfs or use any ext4 image. See the
+[Firecracker rootfs docs](https://github.com/firecracker-microvm/firecracker/blob/main/docs/rootfs-and-kernel-setup.md)
+for details.
+
+### Step 6: Install CNI plugins
+
+```bash
+ARCH="$(uname -m)"
+
+# Create the CNI bin directory
+sudo mkdir -p /opt/cni/bin
+
+# Install cnitool
+sudo GOBIN=/opt/cni/bin go install github.com/containernetworking/cni/cnitool@latest
+
+# Install standard CNI plugins (bridge, host-local, firewall, etc.)
+CNI_VERSION="v1.6.1"
+curl -fSL "https://github.com/containernetworking/plugins/releases/download/${CNI_VERSION}/cni-plugins-linux-${ARCH}-${CNI_VERSION}.tgz" \
+  | sudo tar -xz -C /opt/cni/bin
+
+# Install tc-redirect-tap (required for Firecracker TAP networking)
+sudo GOBIN=/opt/cni/bin go install github.com/awslabs/tc-redirect-tap/cmd/tc-redirect-tap@latest
+
+# Create CNI config
+sudo mkdir -p /etc/cni/net.d
+sudo tee /etc/cni/net.d/indexify-fc.conflist > /dev/null <<'EOF'
+{
+  "name": "indexify-fc",
+  "cniVersion": "0.4.0",
+  "plugins": [
+    {
+      "type": "bridge",
+      "bridge": "fc-br0",
+      "isGateway": true,
+      "ipMasq": true,
+      "ipam": {
+        "type": "host-local",
+        "subnet": "192.168.30.0/24",
+        "routes": [{ "dst": "0.0.0.0/0" }]
+      }
+    },
+    { "type": "firewall" },
+    { "type": "tc-redirect-tap" }
+  ]
+}
+EOF
+```
+
+### Step 7: Configure and start the dataplane
+
+```yaml
+# /etc/indexify/dataplane.yaml
+env: production
+server_addr: "http://control-plane.example.com:8901"
+driver:
+  type: firecracker
+  kernel_image_path: /opt/firecracker/vmlinux
+  base_rootfs_image: /opt/firecracker/rootfs.ext4
+  cni_network_name: indexify-fc
+  guest_gateway: "192.168.30.1"
+  lvm_volume_group: indexify-vg
+  lvm_thin_pool: thinpool
+http_proxy:
+  port: 8095
+  advertise_address: "<private-ip>:8095"
+```
+
+```bash
+# Build with Firecracker support
+cargo build --release -p indexify-dataplane --features firecracker
+
+# Run (requires root for dm-snapshot, LVM, and CNI operations)
+sudo ./target/release/indexify-dataplane --config /etc/indexify/dataplane.yaml
+```
+
+### Verifying the setup
+
+```bash
+# Check that VMs create thin LVs (not loop devices)
+sudo lvs indexify-vg
+# Should show indexify-cow-{vm_id} entries when VMs are running
+
+# Check dm-snapshot devices
+sudo dmsetup ls | grep indexify
+# indexify-base       (origin)
+# indexify-vm-{id}    (per-VM snapshots)
+
+# Confirm no COW loop devices (only the origin loop device should exist)
+losetup -l
+# Should show only one loop device for the base rootfs image
 ```
 
 ## Local Development

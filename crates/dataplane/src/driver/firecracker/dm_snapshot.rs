@@ -1,8 +1,7 @@
 //! dm-snapshot based volume management for Firecracker rootfs.
 //!
-//! Replaces dm-thin provisioning with dm-snapshot, which stores CoW data in
-//! an explicit COW file per VM. This makes snapshot/restore trivial — the COW
-//! file IS the delta.
+//! Uses LVM thin provisioning for per-VM COW devices. Each VM gets a thin LV
+//! as its COW device, eliminating file+loop overhead and loop device leaks.
 //!
 //! Architecture:
 //! ```text
@@ -11,9 +10,8 @@
 //!   → dmsetup create indexify-base  "0 $SZ linear /dev/loopN 0"
 //!
 //! Per-VM:
-//!   COW file: {overlay_dir}/{vm_id}.cow  (pre-allocated)
-//!   → losetup → /dev/loopM
-//!   → dmsetup create indexify-vm-{vm_id}  "0 $SZ snapshot /dev/mapper/indexify-base /dev/loopM P 8"
+//!   lvcreate -V {size} -T {vg}/{pool} -n indexify-cow-{vm_id}
+//!   → dmsetup create indexify-vm-{vm_id}  "0 $SZ snapshot /dev/mapper/indexify-base /dev/{vg}/indexify-cow-{vm_id} P 8"
 //! ```
 //!
 //! All device-mapper operations use `dmsetup` and `losetup` commands —
@@ -25,6 +23,15 @@ use std::{
 };
 
 use anyhow::{Context, Result, bail};
+
+/// LVM thin pool configuration for per-VM COW devices.
+#[derive(Debug, Clone)]
+pub struct LvmConfig {
+    /// LVM volume group name (e.g., "indexify-vg").
+    pub volume_group: String,
+    /// LVM thin pool LV name within the volume group (e.g., "thinpool").
+    pub thin_pool: String,
+}
 
 /// Handle to the shared origin (base rootfs) linear device.
 pub struct OriginHandle {
@@ -39,15 +46,16 @@ pub struct OriginHandle {
 }
 
 /// Handle to a per-VM dm-snapshot device.
+#[allow(dead_code)]
 pub struct SnapshotHandle {
     /// dm device name (e.g., "indexify-vm-abc123").
     pub dm_name: String,
     /// Full device path (e.g., "/dev/mapper/indexify-vm-abc123").
     pub device_path: PathBuf,
-    /// Path to the COW file on the host filesystem.
-    pub cow_file: PathBuf,
-    /// Loop device backing the COW file.
-    pub loop_device: String,
+    /// COW device path (e.g., "/dev/indexify-vg/indexify-cow-abc123").
+    pub cow_device: String,
+    /// LV name for the COW thin LV (e.g., "indexify-cow-abc123").
+    pub lv_name: String,
 }
 
 /// Status of a dm-snapshot target.
@@ -58,6 +66,54 @@ pub struct SnapshotStatus {
     pub sectors_allocated: u64,
     /// Total sectors available in the COW device.
     pub sectors_total: u64,
+}
+
+// ---------------------------------------------------------------------------
+// LVM thin provisioning helpers
+// ---------------------------------------------------------------------------
+
+/// Validate that the LVM volume group and thin pool exist.
+pub fn validate_lvm_config(config: &LvmConfig) -> Result<()> {
+    run_cmd("vgs", &[&config.volume_group])
+        .with_context(|| format!("LVM volume group '{}' not found", config.volume_group))?;
+
+    let pool_path = format!("{}/{}", config.volume_group, config.thin_pool);
+    run_cmd("lvs", &[&pool_path])
+        .with_context(|| format!("LVM thin pool '{}' not found", pool_path))?;
+
+    tracing::info!(
+        volume_group = %config.volume_group,
+        thin_pool = %config.thin_pool,
+        "LVM config validated"
+    );
+    Ok(())
+}
+
+/// Create a thin LV in the configured thin pool.
+fn create_thin_lv(config: &LvmConfig, lv_name: &str, size_bytes: u64) -> Result<()> {
+    let pool_path = format!("{}/{}", config.volume_group, config.thin_pool);
+    let size_arg = format!("{}B", size_bytes);
+    run_cmd(
+        "lvcreate",
+        &["-V", &size_arg, "-T", &pool_path, "-n", lv_name],
+    )
+    .with_context(|| {
+        format!(
+            "Failed to create thin LV {}/{}",
+            config.volume_group, lv_name
+        )
+    })?;
+    tracing::debug!(lv_name = %lv_name, size_bytes, "Thin LV created");
+    Ok(())
+}
+
+/// Remove a thin LV.
+fn remove_thin_lv(config: &LvmConfig, lv_name: &str) -> Result<()> {
+    let lv_path = format!("{}/{}", config.volume_group, lv_name);
+    run_cmd("lvremove", &["-f", &lv_path])
+        .with_context(|| format!("Failed to remove thin LV {}", lv_path))?;
+    tracing::debug!(lv_name = %lv_name, "Thin LV removed");
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -163,39 +219,20 @@ pub fn teardown_origin(handle: &OriginHandle) -> Result<()> {
 // Per-VM snapshot management
 // ---------------------------------------------------------------------------
 
-/// Create a new dm-snapshot for a VM.
-///
-/// Allocates a COW file, sets up a loop device for it, and creates a
-/// `snapshot` dm target that uses the origin as the base.
+/// Create a new dm-snapshot for a VM using a thin LV as the COW device.
 pub fn create_snapshot(
     origin: &OriginHandle,
     vm_id: &str,
-    overlay_dir: &Path,
+    lvm_config: &LvmConfig,
     cow_size_bytes: u64,
 ) -> Result<SnapshotHandle> {
     let dm_name = format!("indexify-vm-{}", vm_id);
     let device_path = PathBuf::from(format!("/dev/mapper/{}", dm_name));
-    let cow_file = overlay_dir.join(format!("{}.cow", vm_id));
+    let lv_name = format!("indexify-cow-{}", vm_id);
+    let cow_device = format!("/dev/{}/{}", lvm_config.volume_group, lv_name);
 
-    // Pre-allocate the COW file.
-    run_cmd(
-        "fallocate",
-        &[
-            "-l",
-            &cow_size_bytes.to_string(),
-            &cow_file.to_string_lossy(),
-        ],
-    )
-    .with_context(|| format!("Failed to allocate COW file {}", cow_file.display()))?;
-
-    // Create a loop device for the COW file.
-    let loop_device = run_cmd(
-        "losetup",
-        &["--find", "--show", &cow_file.to_string_lossy()],
-    )
-    .with_context(|| format!("Failed to create loop device for {}", cow_file.display()))?
-    .trim()
-    .to_string();
+    // Create a thin LV for the COW device.
+    create_thin_lv(lvm_config, &lv_name, cow_size_bytes)?;
 
     // Create the snapshot dm target.
     // Table: "0 <size> snapshot <origin_dev> <cow_dev> P <chunk_size>"
@@ -204,60 +241,79 @@ pub fn create_snapshot(
         "0 {} snapshot {} {} P 8",
         origin.size_sectors,
         origin.device_path.display(),
-        loop_device,
+        cow_device,
     );
     if let Err(e) = run_cmd_stdin("dmsetup", &["create", &dm_name], &table_line) {
-        // Clean up loop device and COW file on failure.
-        let _ = run_cmd("losetup", &["-d", &loop_device]);
-        let _ = std::fs::remove_file(&cow_file);
+        // Clean up thin LV on failure.
+        let _ = remove_thin_lv(lvm_config, &lv_name);
         return Err(e.context(format!("Failed to create dm-snapshot {}", dm_name)));
     }
 
     tracing::info!(
         dm_name = %dm_name,
-        cow_file = %cow_file.display(),
-        loop_device = %loop_device,
+        cow_device = %cow_device,
+        lv_name = %lv_name,
         "dm-snapshot created for VM"
     );
 
     Ok(SnapshotHandle {
         dm_name,
         device_path,
-        cow_file,
-        loop_device,
+        cow_device,
+        lv_name,
     })
 }
 
 /// Create a dm-snapshot from a restored COW file (snapshot restore path).
 ///
-/// The COW file already exists (downloaded from blob store). We just set up
-/// the loop device and dm target.
+/// Creates a thin LV, copies the restored COW data into it via `dd`,
+/// then creates the dm-snapshot target. The temporary COW file is deleted
+/// after the data is copied.
 pub fn create_snapshot_from_cow(
     origin: &OriginHandle,
     vm_id: &str,
+    lvm_config: &LvmConfig,
     cow_file: &Path,
 ) -> Result<SnapshotHandle> {
     let dm_name = format!("indexify-vm-{}", vm_id);
     let device_path = PathBuf::from(format!("/dev/mapper/{}", dm_name));
+    let lv_name = format!("indexify-cow-{}", vm_id);
+    let cow_device = format!("/dev/{}/{}", lvm_config.volume_group, lv_name);
 
-    // Create a loop device for the existing COW file.
-    let loop_device = run_cmd(
-        "losetup",
-        &["--find", "--show", &cow_file.to_string_lossy()],
-    )
-    .with_context(|| format!("Failed to create loop device for {}", cow_file.display()))?
-    .trim()
-    .to_string();
+    // Get the size of the COW file to create an appropriately sized thin LV.
+    let cow_size = std::fs::metadata(cow_file)
+        .with_context(|| format!("Failed to stat COW file {}", cow_file.display()))?
+        .len();
+
+    // Create the thin LV.
+    create_thin_lv(lvm_config, &lv_name, cow_size)?;
+
+    // Copy the COW data into the thin LV.
+    if let Err(e) = run_cmd(
+        "dd",
+        &[
+            &format!("if={}", cow_file.display()),
+            &format!("of={}", cow_device),
+            "bs=4M",
+            "conv=fdatasync",
+        ],
+    ) {
+        let _ = remove_thin_lv(lvm_config, &lv_name);
+        return Err(e.context(format!("Failed to dd COW data into {}", cow_device)));
+    }
+
+    // Delete the temp COW file now that data is in the LV.
+    let _ = std::fs::remove_file(cow_file);
 
     // Create the snapshot dm target.
     let table_line = format!(
         "0 {} snapshot {} {} P 8",
         origin.size_sectors,
         origin.device_path.display(),
-        loop_device,
+        cow_device,
     );
     if let Err(e) = run_cmd_stdin("dmsetup", &["create", &dm_name], &table_line) {
-        let _ = run_cmd("losetup", &["-d", &loop_device]);
+        let _ = remove_thin_lv(lvm_config, &lv_name);
         return Err(e.context(format!(
             "Failed to create dm-snapshot {} from restored COW",
             dm_name
@@ -266,40 +322,70 @@ pub fn create_snapshot_from_cow(
 
     tracing::info!(
         dm_name = %dm_name,
-        cow_file = %cow_file.display(),
-        loop_device = %loop_device,
+        cow_device = %cow_device,
+        lv_name = %lv_name,
         "dm-snapshot created from restored COW file"
     );
 
     Ok(SnapshotHandle {
         dm_name,
         device_path,
-        cow_file: cow_file.to_path_buf(),
-        loop_device,
+        cow_device,
+        lv_name,
     })
 }
 
-/// Destroy a VM's dm-snapshot and clean up loop device and COW file.
-pub fn destroy_snapshot(handle: &SnapshotHandle) -> Result<()> {
-    // Remove the dm device.
-    if Path::new(&handle.device_path).exists() {
-        run_cmd("dmsetup", &["remove", &handle.dm_name])
-            .with_context(|| format!("Failed to remove dm device {}", handle.dm_name))?;
-    }
+/// Maximum retries for `dmsetup remove` when the device is momentarily busy
+/// (e.g. kernel still releasing file descriptors after process kill).
+const DM_REMOVE_RETRIES: u32 = 5;
+const DM_REMOVE_RETRY_DELAY: std::time::Duration = std::time::Duration::from_millis(200);
 
-    // Detach the loop device.
-    if !handle.loop_device.is_empty() {
-        let _ = run_cmd("losetup", &["-d", &handle.loop_device]);
+/// Remove a dm device with retries for transient "Device or resource busy".
+fn dmsetup_remove_with_retry(dm_name: &str) -> Result<()> {
+    let device_path = format!("/dev/mapper/{}", dm_name);
+    if !Path::new(&device_path).exists() {
+        return Ok(());
     }
+    for attempt in 0..DM_REMOVE_RETRIES {
+        match run_cmd("dmsetup", &["remove", dm_name]) {
+            Ok(_) => return Ok(()),
+            Err(_e) if attempt + 1 < DM_REMOVE_RETRIES => {
+                tracing::debug!(
+                    dm_name,
+                    attempt = attempt + 1,
+                    "dmsetup remove busy, retrying"
+                );
+                std::thread::sleep(DM_REMOVE_RETRY_DELAY);
+                // Re-check existence in case another cleanup removed it.
+                if !Path::new(&device_path).exists() {
+                    return Ok(());
+                }
+                continue;
+            }
+            Err(e) => {
+                return Err(e).with_context(|| format!("Failed to remove dm device {}", dm_name));
+            }
+        }
+    }
+    Ok(())
+}
 
-    // Remove the COW file.
-    if handle.cow_file.exists() {
-        let _ = std::fs::remove_file(&handle.cow_file);
+/// Destroy a VM's dm-snapshot and remove the COW thin LV.
+pub fn destroy_snapshot(handle: &SnapshotHandle, lvm_config: &LvmConfig) -> Result<()> {
+    dmsetup_remove_with_retry(&handle.dm_name)?;
+
+    // Remove the COW thin LV.
+    if let Err(e) = remove_thin_lv(lvm_config, &handle.lv_name) {
+        tracing::warn!(
+            lv_name = %handle.lv_name,
+            error = ?e,
+            "Failed to remove COW thin LV"
+        );
     }
 
     tracing::info!(
         dm_name = %handle.dm_name,
-        cow_file = %handle.cow_file.display(),
+        lv_name = %handle.lv_name,
         "dm-snapshot destroyed"
     );
 
@@ -308,33 +394,35 @@ pub fn destroy_snapshot(handle: &SnapshotHandle) -> Result<()> {
 
 /// Destroy a VM's dm-snapshot by its metadata fields (used during recovery
 /// cleanup when we don't have a SnapshotHandle).
-pub fn destroy_snapshot_by_parts(dm_name: &str, loop_device: &str, cow_file: &str) -> Result<()> {
-    let device_path = format!("/dev/mapper/{}", dm_name);
-    if Path::new(&device_path).exists() {
-        run_cmd("dmsetup", &["remove", dm_name])
-            .with_context(|| format!("Failed to remove dm device {}", dm_name))?;
-    }
+pub fn destroy_snapshot_by_parts(
+    dm_name: &str,
+    lv_name: &str,
+    lvm_config: &LvmConfig,
+) -> Result<()> {
+    dmsetup_remove_with_retry(dm_name)?;
 
-    if !loop_device.is_empty() {
-        let _ = run_cmd("losetup", &["-d", loop_device]);
-    }
-
-    if !cow_file.is_empty() {
-        let _ = std::fs::remove_file(cow_file);
+    if !lv_name.is_empty() {
+        if let Err(e) = remove_thin_lv(lvm_config, lv_name) {
+            tracing::warn!(
+                lv_name = %lv_name,
+                error = ?e,
+                "Failed to remove COW thin LV (by parts)"
+            );
+        }
     }
 
     tracing::info!(
         dm_name = %dm_name,
-        cow_file = %cow_file,
+        lv_name = %lv_name,
         "dm-snapshot destroyed (by parts)"
     );
 
     Ok(())
 }
 
-/// Suspend a dm-snapshot device, flushing all pending I/O to the COW file.
+/// Suspend a dm-snapshot device, flushing all pending I/O to the COW device.
 ///
-/// After suspension the COW file on disk is consistent and can be read
+/// After suspension the COW device is consistent and can be read
 /// directly. The device must be resumed or removed afterwards.
 pub fn suspend_snapshot(dm_name: &str) -> Result<()> {
     run_cmd("dmsetup", &["suspend", dm_name])
@@ -404,16 +492,13 @@ pub fn snapshot_status(vm_id: &str) -> Result<SnapshotStatus> {
     })
 }
 
-/// Clean up stale `indexify-vm-*` dm devices from a previous run.
+/// Clean up stale `indexify-vm-*` dm devices and orphaned `indexify-cow-*`
+/// thin LVs from a previous run.
 ///
 /// Only removes VM snapshot devices whose VM ID is NOT in `active_vm_ids`.
-/// For each removed device, also detaches the COW loop device to prevent
-/// loop device leaks. Does NOT touch `indexify-base` — the origin is
-/// managed by `setup_origin()` / `teardown_origin()`.
-///
-/// Also removes legacy thin-provisioning devices (`indexify-tpool*`,
-/// `indexify-thin-*`) left over from older code.
-pub fn cleanup_stale_devices(active_vm_ids: &HashSet<String>) {
+/// Does NOT touch `indexify-base` — the origin is managed by
+/// `setup_origin()` / `teardown_origin()`.
+pub fn cleanup_stale_devices(active_vm_ids: &HashSet<String>, lvm_config: &LvmConfig) {
     // Clean up legacy thin-provisioning devices first (order matters:
     // thin volumes before pool, pool before data/meta).
     let legacy_prefixes = ["indexify-thin-", "indexify-tpool"];
@@ -435,6 +520,7 @@ pub fn cleanup_stale_devices(active_vm_ids: &HashSet<String>) {
         }
     }
 
+    // Clean up stale dm-snapshot devices.
     let mut stale_devs = Vec::new();
     if let Ok(output) = run_cmd("dmsetup", &["ls"]) {
         for line in output.lines() {
@@ -449,18 +535,6 @@ pub fn cleanup_stale_devices(active_vm_ids: &HashSet<String>) {
     }
 
     for name in &stale_devs {
-        // Parse dmsetup table to find the COW loop device before removing.
-        // Table format: "0 <size> snapshot <origin_dev> <cow_loop_dev> P <chunk>"
-        let cow_loop = run_cmd("dmsetup", &["table", name]).ok().and_then(|table| {
-            let parts: Vec<&str> = table.trim().split_whitespace().collect();
-            // For a snapshot target, the COW device is at index 4.
-            if parts.len() >= 5 && parts[2] == "snapshot" {
-                Some(parts[4].to_string())
-            } else {
-                None
-            }
-        });
-
         // Remove the dm device (retry up to 3 times for busy devices).
         let mut removed = false;
         for _ in 0..3 {
@@ -474,13 +548,8 @@ pub fn cleanup_stale_devices(active_vm_ids: &HashSet<String>) {
         }
 
         if removed {
-            // Detach the COW loop device to prevent leaks.
-            if let Some(ref loop_dev) = cow_loop {
-                let _ = run_cmd("losetup", &["-d", loop_dev]);
-            }
             tracing::info!(
                 dm_name = %name,
-                cow_loop = ?cow_loop,
                 "Cleaned up stale dm-snapshot device"
             );
         } else {
@@ -496,6 +565,30 @@ pub fn cleanup_stale_devices(active_vm_ids: &HashSet<String>) {
             count = stale_devs.len(),
             "Stale dm-snapshot cleanup complete"
         );
+    }
+
+    // Clean up orphaned indexify-cow-* thin LVs not associated with active VMs.
+    let vg = &lvm_config.volume_group;
+    if let Ok(output) = run_cmd("lvs", &["--noheadings", "-o", "lv_name", vg]) {
+        for line in output.lines() {
+            let lv_name = line.trim();
+            if let Some(vm_id) = lv_name.strip_prefix("indexify-cow-") {
+                if !active_vm_ids.contains(vm_id) {
+                    if let Err(e) = remove_thin_lv(lvm_config, lv_name) {
+                        tracing::warn!(
+                            lv_name = %lv_name,
+                            error = ?e,
+                            "Failed to remove orphaned COW thin LV"
+                        );
+                    } else {
+                        tracing::info!(
+                            lv_name = %lv_name,
+                            "Removed orphaned COW thin LV"
+                        );
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -571,7 +664,7 @@ pub async fn create_snapshot_async(
     origin_device_path: PathBuf,
     origin_size_sectors: u64,
     vm_id: String,
-    overlay_dir: PathBuf,
+    lvm_config: LvmConfig,
     cow_size_bytes: u64,
 ) -> Result<SnapshotHandle> {
     tokio::task::spawn_blocking(move || {
@@ -581,7 +674,7 @@ pub async fn create_snapshot_async(
             device_path: origin_device_path,
             size_sectors: origin_size_sectors,
         };
-        create_snapshot(&origin, &vm_id, &overlay_dir, cow_size_bytes)
+        create_snapshot(&origin, &vm_id, &lvm_config, cow_size_bytes)
     })
     .await
     .context("create_snapshot task panicked")?
@@ -593,6 +686,7 @@ pub async fn create_snapshot_from_cow_async(
     origin_device_path: PathBuf,
     origin_size_sectors: u64,
     vm_id: String,
+    lvm_config: LvmConfig,
     cow_file: PathBuf,
 ) -> Result<SnapshotHandle> {
     tokio::task::spawn_blocking(move || {
@@ -602,15 +696,15 @@ pub async fn create_snapshot_from_cow_async(
             device_path: origin_device_path,
             size_sectors: origin_size_sectors,
         };
-        create_snapshot_from_cow(&origin, &vm_id, &cow_file)
+        create_snapshot_from_cow(&origin, &vm_id, &lvm_config, &cow_file)
     })
     .await
     .context("create_snapshot_from_cow task panicked")?
 }
 
 /// Async version of destroy_snapshot.
-pub async fn destroy_snapshot_async(handle: SnapshotHandle) -> Result<()> {
-    tokio::task::spawn_blocking(move || destroy_snapshot(&handle))
+pub async fn destroy_snapshot_async(handle: SnapshotHandle, lvm_config: LvmConfig) -> Result<()> {
+    tokio::task::spawn_blocking(move || destroy_snapshot(&handle, &lvm_config))
         .await
         .context("destroy_snapshot task panicked")?
 }
@@ -618,12 +712,10 @@ pub async fn destroy_snapshot_async(handle: SnapshotHandle) -> Result<()> {
 /// Async version of destroy_snapshot_by_parts.
 pub async fn destroy_snapshot_by_parts_async(
     dm_name: String,
-    loop_device: String,
-    cow_file: String,
+    lv_name: String,
+    lvm_config: LvmConfig,
 ) -> Result<()> {
-    tokio::task::spawn_blocking(move || {
-        destroy_snapshot_by_parts(&dm_name, &loop_device, &cow_file)
-    })
-    .await
-    .context("destroy_snapshot_by_parts task panicked")?
+    tokio::task::spawn_blocking(move || destroy_snapshot_by_parts(&dm_name, &lv_name, &lvm_config))
+        .await
+        .context("destroy_snapshot_by_parts task panicked")?
 }

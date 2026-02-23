@@ -1,12 +1,12 @@
-//! Firecracker-based snapshotter using dm-snapshot COW files + zstd + blob
+//! Firecracker-based snapshotter using dm-snapshot COW LVs + zstd + blob
 //! store.
 //!
-//! **Snapshot**: read COW file → streaming zstd compress → blob store put
-//! **Restore**: blob store streaming download → zstd decompress → write COW
-//! file
+//! **Snapshot**: read COW LV device → streaming zstd compress → blob store put
+//! **Restore**: blob store streaming download → zstd decompress → write temp
+//! COW file (driver's create_snapshot_from_cow copies into thin LV)
 //!
-//! The COW file IS the delta — it contains only the blocks that differ from the
-//! base rootfs image. This makes snapshot/restore extremely efficient.
+//! The COW device contains only the blocks that differ from the base rootfs
+//! image. This makes snapshot/restore extremely efficient.
 
 use std::{io::Write, path::PathBuf, sync::Arc};
 
@@ -27,22 +27,30 @@ use crate::{
 /// Size of compressed chunks yielded to `blob_store.put()`.
 const COMPRESSED_CHUNK_SIZE: usize = 100 * 1024 * 1024;
 
-/// Firecracker snapshotter using dm-snapshot COW files.
+/// Firecracker snapshotter using dm-snapshot COW LVs.
 ///
-/// Snapshot: read COW file → zstd compress → blob store put (streaming)
+/// Snapshot: read COW LV device → zstd compress → blob store put (streaming)
 /// Restore:  blob store streaming download → zstd decompress → COW file
+///           (driver's create_snapshot_from_cow copies into thin LV)
 pub struct FirecrackerSnapshotter {
     state_dir: PathBuf,
     blob_store: BlobStore,
     _metrics: Arc<DataplaneMetrics>,
+    lvm_config: dm_snapshot::LvmConfig,
 }
 
 impl FirecrackerSnapshotter {
-    pub fn new(state_dir: PathBuf, blob_store: BlobStore, metrics: Arc<DataplaneMetrics>) -> Self {
+    pub fn new(
+        state_dir: PathBuf,
+        blob_store: BlobStore,
+        metrics: Arc<DataplaneMetrics>,
+        lvm_config: dm_snapshot::LvmConfig,
+    ) -> Self {
         Self {
             state_dir,
             blob_store,
             _metrics: metrics,
+            lvm_config,
         }
     }
 }
@@ -78,10 +86,13 @@ impl Snapshotter for FirecrackerSnapshotter {
         let metadata = VmMetadata::load(&metadata_path)
             .with_context(|| format!("Failed to load VM metadata for {}", vm_id))?;
 
-        let cow_path = PathBuf::from(&metadata.cow_file);
+        let cow_path = PathBuf::from(format!(
+            "/dev/{}/{}",
+            self.lvm_config.volume_group, metadata.lv_name
+        ));
         if !cow_path.exists() {
             anyhow::bail!(
-                "COW file not found for VM {}: {}",
+                "COW LV device not found for VM {}: {}",
                 vm_id,
                 cow_path.display()
             );
@@ -113,8 +124,8 @@ impl Snapshotter for FirecrackerSnapshotter {
         }
 
         info!(
-            cow_file = %cow_path.display(),
-            "Reading COW file for snapshot"
+            cow_device = %cow_path.display(),
+            "Reading COW device for snapshot"
         );
 
         // Build a compressed stream from the COW file.
