@@ -1930,9 +1930,9 @@ async fn spawn_command_generator(
                     info!(
                         executor_id = eid.get(),
                         container_id = %cid,
-                        namespace = ?tracked_desc.as_ref().and_then(|d| d.function.as_ref()).and_then(|f| f.namespace.as_deref()),
-                        app = ?tracked_desc.as_ref().and_then(|d| d.function.as_ref()).and_then(|f| f.application_name.as_deref()),
-                        "fn" = ?tracked_desc.as_ref().and_then(|d| d.function.as_ref()).and_then(|f| f.function_name.as_deref()),
+                        namespace = ?tracked_desc.as_ref().and_then(|d| d.function.as_ref()).and_then(|f| f.namespace.as_deref()).unwrap_or_default(),
+                        app = ?tracked_desc.as_ref().and_then(|d| d.function.as_ref()).and_then(|f| f.application_name.as_deref()).unwrap_or_default(),
+                        "fn" = ?tracked_desc.as_ref().and_then(|d| d.function.as_ref()).and_then(|f| f.function_name.as_deref()).unwrap_or_default(),
                         "command_generator: emitting RemoveContainer"
                     );
                     commands.push(cmd);
@@ -1950,8 +1950,8 @@ async fn spawn_command_generator(
                         info!(
                             executor_id = eid.get(),
                             container_id = container_id.get(),
-                            namespace = ?desc.and_then(|d| d.function.as_ref()).and_then(|f| f.namespace.as_deref()),
-                            sandbox_id = ?desc.and_then(|d| d.sandbox_metadata.as_ref()).and_then(|m| m.sandbox_id.as_deref()),
+                            namespace = ?desc.and_then(|d| d.function.as_ref()).and_then(|f| f.namespace.as_deref()).unwrap_or_default(),
+                            sandbox_id = ?desc.and_then(|d| d.sandbox_metadata.as_ref()).and_then(|m| m.sandbox_id.as_deref()).unwrap_or_default(),
                             "command_generator: emitting UpdateContainerDescription"
                         );
                         commands.push(cmd);
@@ -2061,7 +2061,7 @@ impl ExecutorApi for ExecutorAPIService {
                     )
                     .await
                     {
-                        warn!(error = %e, "heartbeat: process_allocation_completed failed");
+                        warn!(executor_id = executor_id.get(), error = %e, "heartbeat: process_allocation_completed failed");
                     }
                     if let Some(fc_id) = &fc_id {
                         try_route_result(
@@ -2083,7 +2083,7 @@ impl ExecutorApi for ExecutorAPIService {
                     )
                     .await
                     {
-                        warn!(error = %e, "heartbeat: process_allocation_failed failed");
+                        warn!(executor_id = executor_id.get(), error = %e, "heartbeat: process_allocation_failed failed");
                     }
                     if let Some(fc_id) = &fc_id {
                         try_route_failure(
@@ -2110,7 +2110,7 @@ impl ExecutorApi for ExecutorAPIService {
             )
             .await
             {
-                warn!(error = %e, "heartbeat: handle_log_entry_v2 failed");
+                warn!(executor_id = executor_id.get(), error = %e, "heartbeat: handle_log_entry_v2 failed");
             }
         }
 
