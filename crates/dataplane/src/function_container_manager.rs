@@ -826,7 +826,7 @@ impl FunctionContainerManager {
         }
 
         spawn_grace_period_kill(
-            id,
+            id.clone(),
             container_type.to_string(),
             self.containers.clone(),
             self.driver.clone(),
