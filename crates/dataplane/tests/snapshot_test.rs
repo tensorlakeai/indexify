@@ -126,7 +126,7 @@ async fn test_snapshot_create_and_restore() {
 
     let metrics = Arc::new(DataplaneMetrics::new());
     let blob_store = BlobStore::new_local(metrics.clone());
-    let snapshotter = DockerSnapshotter::new(docker.clone(), blob_store, metrics);
+    let snapshotter = DockerSnapshotter::new(docker.clone(), blob_store, metrics, None, None, None);
 
     // ── 1. Create and start a sandbox container ────────────────────────
     let container_name = format!("snapshot-test-{}", uuid::Uuid::new_v4());
