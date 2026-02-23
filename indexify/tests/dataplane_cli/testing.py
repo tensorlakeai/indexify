@@ -81,18 +81,26 @@ class DataplaneProcessContextManager:
         if self._process:
             # Kill the entire process group (dataplane + forked function
             # executors) so no orphans are left holding file descriptors.
-            pgid = os.getpgid(self._process.pid)
             try:
-                os.killpg(pgid, signal.SIGTERM)
+                pgid = os.getpgid(self._process.pid)
             except ProcessLookupError:
-                pass
-            try:
-                self._process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
+                pgid = None
+            if pgid is not None:
                 try:
-                    os.killpg(pgid, signal.SIGKILL)
+                    os.killpg(pgid, signal.SIGTERM)
                 except ProcessLookupError:
                     pass
+                try:
+                    self._process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    try:
+                        os.killpg(pgid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                    self._process.wait()
+            else:
+                # Process already exited — still need to reap it so
+                # Python's Popen doesn't emit a ResourceWarning.
                 self._process.wait()
 
         if self._temp_dir:

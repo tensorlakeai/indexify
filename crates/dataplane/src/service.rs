@@ -64,11 +64,11 @@ pub enum ConnectionState {
     Unhealthy,
 }
 
-/// Heartbeat retry backoff parameters (matches Python executor's
-/// state_reporter.py).
-const HEARTBEAT_MIN_RETRY_INTERVAL: Duration = Duration::from_secs(5);
-const HEARTBEAT_MAX_RETRY_INTERVAL: Duration = Duration::from_secs(300); // 5 minutes
-const HEARTBEAT_BACKOFF_MULTIPLIER: u32 = 3;
+/// Heartbeat retry backoff parameters. Keep these low so the dataplane
+/// recovers quickly from transient network partitions.
+const HEARTBEAT_MIN_RETRY_INTERVAL: Duration = Duration::from_secs(1);
+const HEARTBEAT_MAX_RETRY_INTERVAL: Duration = Duration::from_secs(10);
+const HEARTBEAT_BACKOFF_MULTIPLIER: u32 = 2;
 
 pub struct Service {
     config: DataplaneConfig,
@@ -698,6 +698,15 @@ impl ServiceRuntime {
                             // Mark monitoring as ready after first successful heartbeat
                             self.monitoring_state.ready.store(true, Ordering::SeqCst);
 
+                            // Reset seq counters whenever we sent full_state.
+                            // The server creates a fresh ExecutorConnection with new
+                            // command/result buffers on re-registration, so old
+                            // acked_seq values would incorrectly drain new data.
+                            if full_state.is_some() {
+                                self.last_applied_command_seq.store(0, Ordering::SeqCst);
+                                self.last_applied_result_seq.store(0, Ordering::SeqCst);
+                            }
+
                             // Only mark healthy when the server knows our executor
                             // (send_state == false). When the server asks for full state,
                             // the executor isn't registered in runtime_data yet, so the
@@ -709,8 +718,6 @@ impl ServiceRuntime {
                                     "server accepted registration",
                                 );
                             } else {
-                                // Server asked for full state — transition to Registering
-                                // if we were previously Ready (re-registration needed)
                                 self.transition_connection_state(
                                     ConnectionState::Registering,
                                     "server requested re-registration",
@@ -846,7 +853,7 @@ impl ServiceRuntime {
                         _ = self.cancel_token.cancelled() => return,
                         _ = tokio::time::sleep(retry_interval) => {},
                     }
-                    retry_interval = std::cmp::min(retry_interval * 2, Duration::from_secs(30));
+                    retry_interval = std::cmp::min(retry_interval * 2, Duration::from_secs(10));
                 }
             }
         }
@@ -902,7 +909,7 @@ impl ServiceRuntime {
                         _ = self.cancel_token.cancelled() => return,
                         _ = tokio::time::sleep(retry_interval) => {},
                     }
-                    retry_interval = std::cmp::min(retry_interval * 2, Duration::from_secs(30));
+                    retry_interval = std::cmp::min(retry_interval * 2, Duration::from_secs(10));
                 }
             }
         }
