@@ -837,6 +837,10 @@ impl IndexifyState {
         executor_id: ExecutorId,
     ) -> mpsc::UnboundedReceiver<ExecutorEvent> {
         let (tx, rx) = mpsc::unbounded_channel();
+        info!(
+            executor_id = executor_id.get(),
+            "registered executor event channel"
+        );
         self.executor_event_channels
             .write()
             .await
@@ -846,6 +850,10 @@ impl IndexifyState {
 
     /// Remove the event channel for an executor. Called on disconnect.
     pub async fn deregister_event_channel(&self, executor_id: &ExecutorId) {
+        info!(
+            executor_id = executor_id.get(),
+            "deregistered executor event channel"
+        );
         self.executor_event_channels
             .write()
             .await

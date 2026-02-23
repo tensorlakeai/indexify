@@ -1952,6 +1952,10 @@ async fn command_stream_loop(
         }
     }
 
+    info!(
+        executor_id = executor_id.get(),
+        "command_stream: executor disconnected, deregistering event channel"
+    );
     indexify_state.deregister_event_channel(&executor_id).await;
 }
 
@@ -2012,9 +2016,9 @@ impl ExecutorApi for ExecutorAPIService {
         let req = request.into_inner();
         let executor_id = ExecutorId::new(req.executor_id);
 
-        debug!(
+        info!(
             executor_id = executor_id.get(),
-            "Got command_stream request",
+            "command_stream: executor connected",
         );
 
         // Verify executor is registered before setting up the stream.

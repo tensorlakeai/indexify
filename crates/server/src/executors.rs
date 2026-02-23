@@ -224,7 +224,7 @@ impl ExecutorManager {
         let peeked_deadline = {
             let new_deadline = ReverseInstant(Instant::now() + EXECUTOR_TIMEOUT);
 
-            trace!(executor_id = executor_id.get(), "v2 heartbeat received");
+            info!(executor_id = executor_id.get(), "v2 heartbeat received");
 
             let mut state = self.heartbeat_deadline_queue.lock().await;
 
@@ -245,11 +245,20 @@ impl ExecutorManager {
     /// Register a new executor (used by v2 heartbeat full-state sync).
     pub async fn register_executor(&self, metadata: ExecutorMetadata) -> Result<()> {
         let mut runtime_data_write = self.runtime_data.write().await;
+        let is_new = !runtime_data_write.contains_key(&metadata.id);
         let state_hash = metadata.state_hash.clone();
         runtime_data_write
             .entry(metadata.id.clone())
             .and_modify(|data| data.update_state(state_hash.clone(), metadata.clock))
             .or_insert_with(|| ExecutorRuntimeData::new(state_hash, metadata.clock));
+        if is_new {
+            info!(executor_id = metadata.id.get(), "Executor registered");
+        } else {
+            info!(
+                executor_id = metadata.id.get(),
+                "Executor re-registered (full state sync)"
+            );
+        }
         Ok(())
     }
 
@@ -320,7 +329,9 @@ impl ExecutorManager {
             }
         }
 
-        trace!("Found {} lapsed executors", lapsed_executors.len());
+        if !lapsed_executors.is_empty() {
+            info!(count = lapsed_executors.len(), "Found lapsed executors");
+        }
 
         // 3. Deregister each lapsed executor without holding the lock
         for executor_id in lapsed_executors {
@@ -331,9 +342,9 @@ impl ExecutorManager {
     }
 
     async fn deregister_lapsed_executor(&self, executor_id: ExecutorId) -> Result<()> {
-        trace!(
+        info!(
             executor_id = executor_id.get(),
-            "Deregistering lapsed executor"
+            "Deregistering lapsed executor (heartbeat timeout)"
         );
         self.runtime_data.write().await.remove(&executor_id);
         let last_state_change_id = self.indexify_state.state_change_id_seq.clone();
