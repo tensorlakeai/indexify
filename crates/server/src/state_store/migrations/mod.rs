@@ -23,4 +23,5 @@ mod v13_reencode_json_as_bincode;
 mod v14_normalize_request_ctx;
 mod v15_split_container_pools;
 mod v16_sandbox_pending_reason;
+mod v17_sandbox_snapshot_field;
 mod v9_separate_executor_and_app_state_changes;

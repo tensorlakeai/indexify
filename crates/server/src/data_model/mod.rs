@@ -1333,10 +1333,10 @@ pub enum FunctionRunFailureReason {
     // Container startup internal error.
     ContainerStartupInternalError,
 
+    OutOfMemory,
+
     // Container startup failed due to bad/missing image.
     ContainerStartupBadImage,
-
-    OutOfMemory,
 }
 
 impl Display for FunctionRunFailureReason {
@@ -1807,7 +1807,6 @@ pub enum ContainerTerminationReason {
     StartupFailedInternalError,
     StartupFailedFunctionError,
     StartupFailedFunctionTimeout,
-    StartupFailedBadImage,
     Unhealthy,
     InternalError,
     FunctionError,
@@ -1817,6 +1816,7 @@ pub enum ContainerTerminationReason {
     ExecutorRemoved,
     Oom,
     ProcessCrash,
+    StartupFailedBadImage,
 }
 
 impl From<&ContainerTerminationReason> for FunctionRunFailureReason {
@@ -2626,10 +2626,10 @@ pub enum SandboxStatus {
     Pending { reason: SandboxPendingReason },
     /// Sandbox container is running
     Running,
-    /// Sandbox is being snapshotted; will be terminated after completion
-    Snapshotting { snapshot_id: SnapshotId },
     /// Sandbox container has terminated
     Terminated,
+    /// Sandbox is being snapshotted; will be terminated after completion
+    Snapshotting { snapshot_id: SnapshotId },
 }
 
 impl Default for SandboxStatus {

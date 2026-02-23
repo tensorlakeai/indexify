@@ -601,6 +601,11 @@ impl CommandEmitter {
 
     /// Diff the current desired state against what was previously seen and
     /// produce a batch of `Command` messages for the delta.
+    ///
+    /// **Important**: this does NOT update the emitter's tracking state.
+    /// Call [`commit_snapshot`] after all commands have been successfully
+    /// delivered to the client so that the tracking sets stay accurate if
+    /// delivery fails partway through.
     pub fn emit_commands(
         &mut self,
         snapshot: &ExecutorStateSnapshot,
@@ -675,15 +680,7 @@ impl CommandEmitter {
             });
         }
 
-        self.known_containers = current_containers;
-
         // --- Allocations ---
-        let current_allocations: HashSet<String> = snapshot
-            .allocations
-            .iter()
-            .filter_map(|a| a.allocation_id.clone())
-            .collect();
-
         // New allocations → RunAllocation
         for allocation in &snapshot.allocations {
             if let Some(id) = &allocation.allocation_id &&
@@ -701,13 +698,32 @@ impl CommandEmitter {
             }
         }
 
-        // Allocations that disappear are completed, not killed. We just stop tracking.
-        self.known_allocations = current_allocations;
-
         // Function call results are delivered via the AllocationEvent log
         // (get_allocation_events RPC), not via Commands.
 
         commands
+    }
+
+    /// Commit the snapshot to the emitter's tracking state.
+    ///
+    /// Call this only after all commands from [`emit_commands`] have been
+    /// successfully delivered to the client.  If delivery fails partway
+    /// through, skipping this call ensures the next full sync re-emits the
+    /// missing commands.
+    pub fn commit_snapshot(&mut self, snapshot: &ExecutorStateSnapshot) {
+        self.known_containers = snapshot
+            .containers
+            .iter()
+            .filter_map(|fe| fe.id.clone().map(|id| (id, fe.clone())))
+            .collect();
+
+        // Allocations that disappear are completed, not killed. We just stop
+        // tracking.
+        self.known_allocations = snapshot
+            .allocations
+            .iter()
+            .filter_map(|a| a.allocation_id.clone())
+            .collect();
     }
 }
 
@@ -1738,7 +1754,7 @@ async fn do_full_sync(
     grpc_tx: &tokio::sync::mpsc::Sender<Result<executor_api_pb::Command, Status>>,
 ) -> bool {
     let Some(snapshot) = executor_manager.get_executor_state(executor_id).await else {
-        trace!(
+        warn!(
             executor_id = executor_id.get(),
             "command_stream: executor state not available for full sync"
         );
@@ -1759,9 +1775,12 @@ async fn do_full_sync(
                 executor_id = executor_id.get(),
                 "command_stream: send failed, client disconnected"
             );
+            // Don't commit snapshot — next full sync will re-emit
             return false; // exit loop
         }
     }
+    // All commands delivered successfully — update tracking state
+    emitter.commit_snapshot(&snapshot);
     true // continue loop
 }
 
@@ -1952,6 +1971,10 @@ async fn command_stream_loop(
         }
     }
 
+    info!(
+        executor_id = executor_id.get(),
+        "command_stream: executor disconnected, deregistering event channel"
+    );
     indexify_state.deregister_event_channel(&executor_id).await;
 }
 
@@ -2012,9 +2035,9 @@ impl ExecutorApi for ExecutorAPIService {
         let req = request.into_inner();
         let executor_id = ExecutorId::new(req.executor_id);
 
-        debug!(
+        info!(
             executor_id = executor_id.get(),
-            "Got command_stream request",
+            "command_stream: executor connected",
         );
 
         // Verify executor is registered before setting up the stream.
@@ -2837,6 +2860,7 @@ mod tests {
         // First call — full sync
         let commands = emitter.emit_commands(&desired);
         assert_eq!(commands.len(), 2);
+        emitter.commit_snapshot(&desired);
 
         // Second call — same state → no commands
         let commands = emitter.emit_commands(&desired);
@@ -2854,6 +2878,7 @@ mod tests {
             clock: Some(1),
         };
         emitter.emit_commands(&desired1);
+        emitter.commit_snapshot(&desired1);
 
         // Second: container removed
         let desired2 = ExecutorStateSnapshot {
@@ -2881,6 +2906,7 @@ mod tests {
             clock: Some(1),
         };
         emitter.emit_commands(&desired1);
+        emitter.commit_snapshot(&desired1);
 
         // Second: same container, new allocation added
         let desired2 = ExecutorStateSnapshot {
@@ -2908,6 +2934,7 @@ mod tests {
             clock: Some(1),
         };
         emitter.emit_commands(&desired1);
+        emitter.commit_snapshot(&desired1);
 
         // Second: allocation completed (removed from desired state)
         let desired2 = ExecutorStateSnapshot {
@@ -2932,6 +2959,7 @@ mod tests {
         };
         let cmds1 = emitter.emit_commands(&desired1);
         assert_eq!(cmds1.last().unwrap().seq, 2);
+        emitter.commit_snapshot(&desired1);
 
         // Second batch: 1 command (seq 3)
         let desired2 = ExecutorStateSnapshot {

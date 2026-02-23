@@ -339,7 +339,9 @@ impl TestExecutor<'_> {
             .get_executor_state(&self.executor_id)
             .await
             .unwrap();
-        self.command_emitter.emit_commands(&snapshot)
+        let commands = self.command_emitter.emit_commands(&snapshot);
+        self.command_emitter.commit_snapshot(&snapshot);
+        commands
     }
 
     /// Receive pending commands from the CommandEmitter, categorized by type.

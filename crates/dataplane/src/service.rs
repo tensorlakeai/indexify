@@ -16,7 +16,7 @@ use proto_api::executor_api_pb::{
     executor_api_client::ExecutorApiClient,
 };
 use tokio::{
-    sync::{Mutex, Notify, mpsc},
+    sync::{Mutex, Notify, mpsc, watch},
     task::JoinSet,
 };
 use tokio_stream::wrappers::ReceiverStream;
@@ -327,7 +327,7 @@ impl Service {
 
         let cancel_token = CancellationToken::new();
         let heartbeat_healthy = self.monitoring_state.heartbeat_healthy.clone();
-        let stream_notify = Arc::new(Notify::new());
+        let (heartbeat_watch_tx, _) = watch::channel(false);
 
         let runtime = Arc::new(ServiceRuntime {
             channel: self.channel.clone(),
@@ -342,7 +342,7 @@ impl Service {
             state_reconciler: self.state_reconciler.clone(),
             state_reporter: self.state_reporter.clone(),
             heartbeat_healthy: heartbeat_healthy.clone(),
-            stream_notify: stream_notify.clone(),
+            heartbeat_watch: heartbeat_watch_tx,
             cancel_token: cancel_token.clone(),
             metrics: self.metrics.clone(),
             monitoring_state: self.monitoring_state.clone(),
@@ -492,7 +492,7 @@ struct ServiceRuntime {
     state_reconciler: Arc<Mutex<StateReconciler>>,
     state_reporter: Arc<StateReporter>,
     heartbeat_healthy: Arc<AtomicBool>,
-    stream_notify: Arc<Notify>,
+    heartbeat_watch: watch::Sender<bool>,
     cancel_token: CancellationToken,
     metrics: Arc<DataplaneMetrics>,
     monitoring_state: Arc<MonitoringState>,
@@ -589,6 +589,8 @@ impl ServiceRuntime {
                             "report_command_responses failed"
                         );
                         self.heartbeat_healthy.store(false, Ordering::SeqCst);
+                        self.heartbeat_watch.send(false).ok();
+                        tracing::info!(executor_id = %self.identity.executor_id, "Heartbeat failed, signaling streams to disconnect");
                         send_full_state = true;
                         results_failed = true;
                         break;
@@ -673,11 +675,9 @@ impl ServiceRuntime {
                     // the executor isn't registered in runtime_data yet, so the
                     // command stream would be rejected with "executor not found".
                     if !server_needs_state {
-                        let was_healthy = self.heartbeat_healthy.swap(true, Ordering::SeqCst);
-                        if !was_healthy {
-                            tracing::info!("Heartbeat succeeded, notifying stream to start");
-                            self.stream_notify.notify_waiters();
-                        }
+                        self.heartbeat_healthy.store(true, Ordering::SeqCst);
+                        let _ = self.heartbeat_watch.send(true);
+                        tracing::info!(executor_id = %self.identity.executor_id, "Heartbeat recovered, signaling streams to connect");
                     }
                 }
                 Err(e) => {
@@ -694,6 +694,8 @@ impl ServiceRuntime {
                         "Heartbeat failed, retrying with backoff"
                     );
                     self.heartbeat_healthy.store(false, Ordering::SeqCst);
+                    self.heartbeat_watch.send(false).ok();
+                    tracing::info!(executor_id = %self.identity.executor_id, "Heartbeat failed, signaling streams to disconnect");
                     send_full_state = true;
                     tokio::select! {
                         _ = self.cancel_token.cancelled() => return,
@@ -737,26 +739,21 @@ impl ServiceRuntime {
 
     /// Outer reconnect loop for the command stream.
     async fn run_command_stream_loop(&self) {
+        let mut heartbeat_rx = self.heartbeat_watch.subscribe();
         loop {
             if self.cancel_token.is_cancelled() {
                 tracing::info!("Command stream loop cancelled");
                 return;
             }
 
-            // Wait for heartbeat to be healthy before starting stream
-            while !self.heartbeat_healthy.load(Ordering::SeqCst) {
-                tracing::debug!("Command stream waiting for heartbeat to be healthy");
-                tokio::select! {
-                    _ = self.cancel_token.cancelled() => {
-                        tracing::info!("Command stream loop cancelled");
-                        return;
-                    }
-                    _ = self.stream_notify.notified() => {}
-                }
+            // Wait for heartbeat to become healthy
+            if heartbeat_rx.wait_for(|&healthy| healthy).await.is_err() {
+                tracing::info!(executor_id = %self.identity.executor_id, "Heartbeat watch closed, exiting command stream loop");
+                return;
             }
+            tracing::info!(executor_id = %self.identity.executor_id, "Heartbeat healthy, connecting command stream");
 
-            tracing::info!("Starting command stream");
-            if let Err(e) = self.run_command_stream().await {
+            if let Err(e) = self.run_command_stream(&mut heartbeat_rx).await {
                 self.metrics.counters.record_stream_disconnection("error");
                 tracing::warn!(error = ?e, "Command stream ended");
             }
@@ -773,7 +770,7 @@ impl ServiceRuntime {
     }
 
     /// Single connection for the command stream.
-    async fn run_command_stream(&self) -> Result<()> {
+    async fn run_command_stream(&self, heartbeat_rx: &mut watch::Receiver<bool>) -> Result<()> {
         let mut client = ExecutorApiClient::new(self.channel.clone());
         let last_seq = self.command_stream_last_seq.load(Ordering::SeqCst);
 
@@ -793,23 +790,20 @@ impl ServiceRuntime {
         self.metrics.counters.stream_creations.add(1, &[]);
 
         loop {
-            if self.cancel_token.is_cancelled() {
-                tracing::info!("Command stream cancelled");
-                return Ok(());
-            }
-
-            if !self.heartbeat_healthy.load(Ordering::SeqCst) {
-                self.metrics
-                    .counters
-                    .record_stream_disconnection("heartbeat_unhealthy");
-                tracing::warn!("Heartbeat unhealthy, disconnecting command stream");
-                return Ok(());
-            }
-
             let message = tokio::select! {
                 _ = self.cancel_token.cancelled() => {
                     tracing::info!("Command stream cancelled");
                     return Ok(());
+                }
+                _ = heartbeat_rx.changed() => {
+                    if !*heartbeat_rx.borrow() {
+                        self.metrics
+                            .counters
+                            .record_stream_disconnection("heartbeat_unhealthy");
+                        tracing::info!(executor_id = %self.identity.executor_id, "Heartbeat became unhealthy, disconnecting command stream");
+                        return Ok(());
+                    }
+                    continue;
                 }
                 result = tokio::time::timeout(STREAM_IDLE_TIMEOUT, stream.message()) => result
             };
@@ -847,26 +841,21 @@ impl ServiceRuntime {
 
     /// Outer reconnect loop for the allocation stream.
     async fn run_allocation_stream_loop(&self) {
+        let mut heartbeat_rx = self.heartbeat_watch.subscribe();
         loop {
             if self.cancel_token.is_cancelled() {
                 tracing::info!("Allocation stream loop cancelled");
                 return;
             }
 
-            // Wait for heartbeat to be healthy before starting stream
-            while !self.heartbeat_healthy.load(Ordering::SeqCst) {
-                tracing::debug!("Allocation stream waiting for heartbeat to be healthy");
-                tokio::select! {
-                    _ = self.cancel_token.cancelled() => {
-                        tracing::info!("Allocation stream loop cancelled");
-                        return;
-                    }
-                    _ = self.stream_notify.notified() => {}
-                }
+            // Wait for heartbeat to become healthy
+            if heartbeat_rx.wait_for(|&healthy| healthy).await.is_err() {
+                tracing::info!(executor_id = %self.identity.executor_id, "Heartbeat watch closed, exiting allocation stream loop");
+                return;
             }
+            tracing::info!(executor_id = %self.identity.executor_id, "Heartbeat healthy, connecting allocation stream");
 
-            tracing::info!("Starting allocation stream");
-            if let Err(e) = self.run_allocation_stream().await {
+            if let Err(e) = self.run_allocation_stream(&mut heartbeat_rx).await {
                 tracing::warn!(error = %e, "Allocation stream ended");
             }
 
@@ -889,7 +878,7 @@ impl ServiceRuntime {
     ///
     /// The inbound side receives FunctionCallResult log entries from the
     /// server for delivery to allocation runners.
-    async fn run_allocation_stream(&self) -> Result<()> {
+    async fn run_allocation_stream(&self, heartbeat_rx: &mut watch::Receiver<bool>) -> Result<()> {
         let mut client = ExecutorApiClient::new(self.channel.clone());
 
         // Create a channel for outbound messages. The drainer task sends
@@ -929,6 +918,13 @@ impl ServiceRuntime {
             let message = tokio::select! {
                 _ = self.cancel_token.cancelled() => {
                     break Ok(());
+                }
+                _ = heartbeat_rx.changed() => {
+                    if !*heartbeat_rx.borrow() {
+                        tracing::info!(executor_id = %self.identity.executor_id, "Heartbeat became unhealthy, disconnecting allocation stream");
+                        break Ok(());
+                    }
+                    continue;
                 }
                 result = tokio::time::timeout(STREAM_IDLE_TIMEOUT, inbound.message()) => result
             };
