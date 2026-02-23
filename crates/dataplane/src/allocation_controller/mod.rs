@@ -600,7 +600,9 @@ impl AllocationController {
                     Some(fe_id.to_string()),
                 );
                 proto_convert::record_outcome_metrics(&outcome, &self.config.metrics.counters);
-                let _ = self.config.outcome_tx.send(outcome);
+                if self.config.outcome_tx.send(outcome).is_err() {
+                    tracing::warn!("outcome_tx channel closed, allocation outcome lost");
+                }
                 alloc.state = AllocationState::Done;
             } else {
                 let result =

@@ -102,7 +102,9 @@ impl AllocationController {
                 );
                 // Send failure via outcome channel — no blobs to clean up.
                 proto_convert::record_outcome_metrics(&outcome, &self.config.metrics.counters);
-                let _ = self.config.outcome_tx.send(outcome);
+                if self.config.outcome_tx.send(outcome).is_err() {
+                    tracing::warn!("outcome_tx channel closed, allocation outcome lost");
+                }
                 let managed = ManagedAllocation {
                     allocation: allocation.clone(),
                     fe_id: fe_id.clone(),
@@ -756,7 +758,9 @@ impl AllocationController {
         // Record metrics and send result via outcome channel (guaranteed delivery)
         let outcome = proto_convert::allocation_result_to_outcome(&result, terminated_container_id);
         proto_convert::record_outcome_metrics(&outcome, &self.config.metrics.counters);
-        let _ = self.config.outcome_tx.send(outcome);
+        if self.config.outcome_tx.send(outcome).is_err() {
+            tracing::warn!("outcome_tx channel closed, allocation outcome lost");
+        }
 
         // Keep the allocation in Done state — do NOT remove it.
         // The server may re-send this allocation before it processes the
@@ -963,7 +967,9 @@ impl AllocationController {
                 let container_id = terminated_container_id.or_else(|| Some(alloc.fe_id.clone()));
                 let outcome = proto_convert::allocation_result_to_outcome(&result, container_id);
                 proto_convert::record_outcome_metrics(&outcome, &self.config.metrics.counters);
-                let _ = self.config.outcome_tx.send(outcome);
+                if self.config.outcome_tx.send(outcome).is_err() {
+                    tracing::warn!("outcome_tx channel closed, allocation outcome lost");
+                }
             }
         }
 
