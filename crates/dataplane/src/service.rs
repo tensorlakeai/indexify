@@ -169,7 +169,7 @@ impl Service {
                 }
                 .context("Failed to connect to Docker for snapshotter")?;
                 tracing::info!("Snapshotter enabled (Docker driver)");
-                Some(Arc::new(
+                let snapshotter =
                     crate::snapshotter::docker_snapshotter::DockerSnapshotter::new(
                         docker,
                         snapshot_blob_store,
@@ -177,8 +177,9 @@ impl Service {
                         runtime.clone(),
                         runsc_root.clone(),
                         snapshot_local_dir.clone(),
-                    ),
-                ))
+                    );
+                snapshotter.cleanup_stale_overlays().await;
+                Some(Arc::new(snapshotter))
             }
             #[cfg(feature = "firecracker")]
             DriverConfig::Firecracker { state_dir, .. } => {

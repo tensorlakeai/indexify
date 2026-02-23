@@ -22,7 +22,8 @@ use bollard::{
 use bytes::Bytes;
 use futures_util::StreamExt;
 use indexify_blob_store::PutOptions;
-use tracing::{debug, info};
+use nix::unistd::geteuid;
+use tracing::{debug, info, warn};
 
 use super::{RestoreResult, SnapshotResult, Snapshotter};
 use crate::{blob_ops::BlobStore, metrics::DataplaneMetrics};
@@ -88,6 +89,48 @@ impl DockerSnapshotter {
     /// Whether this snapshotter is configured for gVisor (runsc).
     fn is_gvisor(&self) -> bool {
         self.runtime.as_deref() == Some("runsc")
+    }
+
+    /// Remove stale overlay tars from `snapshot_local_dir`.
+    ///
+    /// Call this at startup to clean up any orphaned files from a previous
+    /// crash or unclean shutdown. Only affects `.tar` and `.tar.tmp` files
+    /// in the snapshot directory — other files are left untouched.
+    pub async fn cleanup_stale_overlays(&self) {
+        let dir = PathBuf::from(&self.snapshot_local_dir);
+        let mut entries = match tokio::fs::read_dir(&dir).await {
+            Ok(entries) => entries,
+            Err(_) => return, // Directory doesn't exist yet — nothing to clean.
+        };
+
+        let mut removed = 0u32;
+        while let Ok(Some(entry)) = entries.next_entry().await {
+            let path = entry.path();
+            let name = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or_default();
+
+            if name.ends_with(".tar") || name.ends_with(".tar.tmp") {
+                if let Err(e) = tokio::fs::remove_file(&path).await {
+                    warn!(
+                        path = %path.display(),
+                        error = %e,
+                        "Failed to remove stale overlay tar"
+                    );
+                } else {
+                    removed += 1;
+                }
+            }
+        }
+
+        if removed > 0 {
+            info!(
+                dir = %dir.display(),
+                removed = removed,
+                "Cleaned up stale overlay tars from previous run"
+            );
+        }
     }
 }
 
@@ -270,34 +313,56 @@ impl DockerSnapshotter {
             .id
             .ok_or_else(|| anyhow::anyhow!("Container {} has no ID", container_id))?;
 
-        // Write the rootfs-upper tar to a temp file, then compress + upload.
-        let tmp_tar = format!("/tmp/indexify-gvisor-snap-{}.tar", snapshot_id);
+        // Write the rootfs-upper tar to a temp file inside snapshot_local_dir,
+        // then compress + upload. Using the same directory avoids cross-device
+        // move issues and keeps temp files in one place.
+        tokio::fs::create_dir_all(&self.snapshot_local_dir)
+            .await
+            .context("Failed to create snapshot temp directory")?;
+
+        let tmp_tar = PathBuf::from(&self.snapshot_local_dir)
+            .join(format!("gvisor-snap-{}.tar.tmp", snapshot_id));
+        let tmp_tar_str = tmp_tar.to_string_lossy().to_string();
 
         info!(
             container_id = %container_id,
             full_id = %full_id,
-            tmp_tar = %tmp_tar,
+            tmp_tar = %tmp_tar_str,
             "Running runsc tar rootfs-upper"
         );
 
         // The Docker runtime state directory is root-only, so `runsc` must
         // run via `sudo` when the dataplane is not running as root.
-        let output = tokio::process::Command::new("sudo")
-            .arg("runsc")
-            .arg("--root")
+        let mut cmd = tokio::process::Command::new(if geteuid().is_root() {
+            "runsc"
+        } else {
+            "sudo"
+        });
+        if !geteuid().is_root() {
+            cmd.arg("runsc");
+        }
+        cmd.arg("--root")
             .arg(&self.runsc_root)
             .arg("tar")
             .arg("rootfs-upper")
             .arg("--file")
-            .arg(&tmp_tar)
-            .arg(&full_id)
-            .output()
-            .await
-            .context("Failed to execute runsc tar rootfs-upper")?;
+            .arg(&tmp_tar_str)
+            .arg(&full_id);
+
+        let output = match tokio::time::timeout(SNAPSHOT_TOTAL_TIMEOUT, cmd.output()).await {
+            Ok(result) => result.context("Failed to execute runsc tar rootfs-upper")?,
+            Err(_) => {
+                // Clean up temp file on timeout
+                let _ = tokio::fs::remove_file(&tmp_tar).await;
+                anyhow::bail!(
+                    "runsc tar rootfs-upper timed out after {}s",
+                    SNAPSHOT_TOTAL_TIMEOUT.as_secs()
+                );
+            }
+        };
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            // Clean up temp file on failure
             let _ = tokio::fs::remove_file(&tmp_tar).await;
             anyhow::bail!(
                 "runsc tar rootfs-upper failed (exit {}): {}",
