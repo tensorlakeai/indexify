@@ -159,6 +159,7 @@ impl CniManager {
     }
 
     /// List all network namespaces with the indexify-vm- prefix.
+    #[allow(dead_code)]
     pub async fn list_netns(&self) -> Result<Vec<String>> {
         let output = Command::new("ip")
             .args(["netns", "list"])

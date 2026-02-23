@@ -49,6 +49,7 @@ pub struct SnapshotHandle {
 
 /// Status of a dm-snapshot target.
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct SnapshotStatus {
     /// Number of sectors allocated (written) in the COW device.
     pub sectors_allocated: u64,
@@ -149,6 +150,7 @@ pub fn setup_origin(base_rootfs: &Path) -> Result<OriginHandle> {
 }
 
 /// Tear down the origin device and release its loop device.
+#[allow(dead_code)]
 pub fn teardown_origin(handle: &OriginHandle) -> Result<()> {
     if Path::new(&handle.device_path).exists() {
         run_cmd("dmsetup", &["remove", &handle.dm_name])
@@ -334,11 +336,13 @@ pub fn destroy_snapshot_by_parts(
 }
 
 /// Check if a dm-snapshot target exists for a VM.
+#[allow(dead_code)]
 pub fn snapshot_exists(vm_id: &str) -> bool {
     Path::new(&format!("/dev/mapper/indexify-vm-{}", vm_id)).exists()
 }
 
 /// Get the status of a dm-snapshot (sectors allocated / total).
+#[allow(dead_code)]
 pub fn snapshot_status(vm_id: &str) -> Result<SnapshotStatus> {
     let dm_name = format!("indexify-vm-{}", vm_id);
     let status = run_cmd("dmsetup", &["status", &dm_name])
@@ -371,6 +375,7 @@ pub fn snapshot_status(vm_id: &str) -> Result<SnapshotStatus> {
 /// Clean up any stale `indexify-*` dm devices from a previous run.
 ///
 /// Called on fresh startup to remove orphaned devices.
+#[allow(dead_code)]
 pub fn cleanup_stale_devices() {
     // Discover all stale indexify-* devices via dmsetup ls.
     let mut vm_devs = Vec::new();

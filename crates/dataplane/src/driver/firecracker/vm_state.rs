@@ -226,6 +226,7 @@ impl OriginMetadata {
     }
 
     /// Load origin metadata from `{state_dir}/fc-origin.json`.
+    #[allow(dead_code)]
     pub fn load(state_dir: &Path) -> Result<Option<Self>> {
         let path = state_dir.join("fc-origin.json");
         if !path.exists() {
@@ -239,6 +240,7 @@ impl OriginMetadata {
     }
 
     /// Remove the origin metadata file.
+    #[allow(dead_code)]
     pub fn remove(state_dir: &Path) {
         let path = state_dir.join("fc-origin.json");
         let _ = std::fs::remove_file(path);
