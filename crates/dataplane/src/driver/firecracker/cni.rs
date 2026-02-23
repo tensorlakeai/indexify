@@ -4,7 +4,7 @@
 //! The operator configures a CNI conflist at `/etc/cni/net.d/<name>.conflist`
 //! with plugins like `bridge` + `firewall` + `tc-redirect-tap`.
 
-use std::process::Stdio;
+use std::{collections::HashSet, process::Stdio};
 
 use anyhow::{Context, Result, bail};
 use tokio::process::Command;
@@ -76,7 +76,11 @@ impl CniManager {
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            bail!("Failed to create network namespace {}: {}", netns_name, stderr);
+            bail!(
+                "Failed to create network namespace {}: {}",
+                netns_name,
+                stderr
+            );
         }
 
         // 2. Invoke cnitool to add the network
@@ -102,8 +106,8 @@ impl CniManager {
         }
 
         // 3. Parse the JSON result from cnitool
-        let stdout = String::from_utf8(output.stdout)
-            .context("cnitool output is not valid UTF-8")?;
+        let stdout =
+            String::from_utf8(output.stdout).context("cnitool output is not valid UTF-8")?;
         let cni_output: serde_json::Value =
             serde_json::from_str(&stdout).context("Failed to parse cnitool JSON output")?;
 
@@ -115,11 +119,7 @@ impl CniManager {
             .context("No IP address in cnitool output")?;
 
         // Strip CIDR prefix if present (e.g., "192.168.30.2/24" -> "192.168.30.2")
-        let guest_ip = guest_ip
-            .split('/')
-            .next()
-            .unwrap_or(guest_ip)
-            .to_string();
+        let guest_ip = guest_ip.split('/').next().unwrap_or(guest_ip).to_string();
 
         // 4. Determine TAP device name
         // tc-redirect-tap creates a TAP device named "tap{index}" in the
@@ -186,6 +186,74 @@ impl CniManager {
         Ok(namespaces)
     }
 
+    /// Clean up orphaned `indexify-vm-*` network namespaces from a previous
+    /// run.
+    ///
+    /// Sync version using `std::process::Command` — needed because
+    /// `FirecrackerDriver::new()` is sync. Only removes namespaces whose
+    /// VM ID is NOT in `active_vm_ids`.
+    pub fn cleanup_orphaned_netns_sync(&self, active_vm_ids: &HashSet<String>) {
+        // List all network namespaces.
+        let output = match std::process::Command::new("ip")
+            .args(["netns", "list"])
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .output()
+        {
+            Ok(out) => out,
+            Err(e) => {
+                tracing::warn!(error = ?e, "Failed to list network namespaces for cleanup");
+                return;
+            }
+        };
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let mut cleaned = 0u32;
+
+        for line in stdout.lines() {
+            let name = match line.split_whitespace().next() {
+                Some(n) => n,
+                None => continue,
+            };
+
+            let vm_id = match name.strip_prefix("indexify-vm-") {
+                Some(id) => id,
+                None => continue,
+            };
+
+            if active_vm_ids.contains(vm_id) {
+                continue;
+            }
+
+            let netns_path = format!("/var/run/netns/{}", name);
+
+            // Run cnitool del to release IP allocations (tolerate errors).
+            let _ = std::process::Command::new("cnitool")
+                .args(["del", &self.network_name, &netns_path])
+                .env("CNI_PATH", &self.cni_bin_path)
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .output();
+
+            // Delete the network namespace (tolerate errors).
+            let _ = std::process::Command::new("ip")
+                .args(["netns", "del", name])
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .output();
+
+            tracing::info!(netns = %name, "Cleaned up orphaned network namespace");
+            cleaned += 1;
+        }
+
+        if cleaned > 0 {
+            tracing::info!(
+                count = cleaned,
+                "Orphaned network namespace cleanup complete"
+            );
+        }
+    }
+
     /// Find the TAP device created by tc-redirect-tap in the network namespace.
     async fn find_tap_device(&self, netns_name: &str) -> Result<String> {
         let output = Command::new("ip")
@@ -197,8 +265,7 @@ impl CniManager {
             .context("Failed to list interfaces in netns")?;
 
         let stdout = String::from_utf8(output.stdout)?;
-        let interfaces: Vec<serde_json::Value> = serde_json::from_str(&stdout)
-            .unwrap_or_default();
+        let interfaces: Vec<serde_json::Value> = serde_json::from_str(&stdout).unwrap_or_default();
 
         // Look for a TAP device (name starts with "tap")
         for iface in &interfaces {

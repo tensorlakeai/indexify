@@ -86,11 +86,17 @@ pub(super) async fn start_container_with_daemon(
         // Prefer image from sandbox_metadata (server-provided)
         (img.clone(), None)
     } else if let Some(ref pool_id) = desc.pool_id {
-        (image_resolver
-            .sandbox_image_for_pool(info.namespace, pool_id)
-            .await?, None)
+        (
+            image_resolver
+                .sandbox_image_for_pool(info.namespace, pool_id)
+                .await?,
+            None,
+        )
     } else if let Some(sid) = info.sandbox_id {
-        (image_resolver.sandbox_image(info.namespace, sid).await?, None)
+        (
+            image_resolver.sandbox_image(info.namespace, sid).await?,
+            None,
+        )
     } else {
         anyhow::bail!("Cannot determine image: no sandbox_metadata.image, pool_id, or sandbox_id")
     };

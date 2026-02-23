@@ -131,8 +131,7 @@ impl Service {
         let (activity_tx, activity_rx) = mpsc::unbounded_channel(); // AllocationStreamRequest (completed/failed)
 
         // Ensure the state directory exists
-        std::fs::create_dir_all(&config.state_dir)
-            .context("Failed to create state directory")?;
+        std::fs::create_dir_all(&config.state_dir).context("Failed to create state directory")?;
 
         let state_file = Arc::new(
             StateFile::new(&config.state_file_path())
@@ -145,7 +144,13 @@ impl Service {
         // store client that matches the URI scheme. When snapshot_storage_uri is
         // configured, use that to pick the backend; otherwise default to local FS.
         let snapshotter: Option<Arc<dyn Snapshotter>> = match &config.driver {
-            DriverConfig::Docker { address, runtime, runsc_root, snapshot_local_dir, .. } => {
+            DriverConfig::Docker {
+                address,
+                runtime,
+                runsc_root,
+                snapshot_local_dir,
+                ..
+            } => {
                 let snapshot_blob_store = if let Some(ref uri) = config.snapshot_storage_uri {
                     BlobStore::from_uri(uri, metrics.clone())
                         .await
@@ -169,15 +174,14 @@ impl Service {
                 }
                 .context("Failed to connect to Docker for snapshotter")?;
                 tracing::info!("Snapshotter enabled (Docker driver)");
-                let snapshotter =
-                    crate::snapshotter::docker_snapshotter::DockerSnapshotter::new(
-                        docker,
-                        snapshot_blob_store,
-                        metrics.clone(),
-                        runtime.clone(),
-                        runsc_root.clone(),
-                        snapshot_local_dir.clone(),
-                    );
+                let snapshotter = crate::snapshotter::docker_snapshotter::DockerSnapshotter::new(
+                    docker,
+                    snapshot_blob_store,
+                    metrics.clone(),
+                    runtime.clone(),
+                    runsc_root.clone(),
+                    snapshot_local_dir.clone(),
+                );
                 snapshotter.cleanup_stale_overlays().await;
                 Some(Arc::new(snapshotter))
             }
@@ -304,14 +308,25 @@ impl Service {
         }
 
         // Recover containers from previous run (AC function path)
-        let ac_known_handles = self.state_reconciler.lock().await.recover_ac_containers().await;
+        let ac_known_handles = self
+            .state_reconciler
+            .lock()
+            .await
+            .recover_ac_containers()
+            .await;
         if !ac_known_handles.is_empty() {
-            tracing::info!(recovered = ac_known_handles.len(), "Recovered AC containers from state file");
+            tracing::info!(
+                recovered = ac_known_handles.len(),
+                "Recovered AC containers from state file"
+            );
         }
 
         // Clean up orphaned containers (exist in Docker but not in state file).
         // Both FCM and AC recovered handles are excluded from cleanup.
-        let cleaned = self.container_manager.cleanup_orphans(&ac_known_handles).await;
+        let cleaned = self
+            .container_manager
+            .cleanup_orphans(&ac_known_handles)
+            .await;
         if cleaned > 0 {
             tracing::info!(cleaned, "Cleaned up orphaned containers");
         }
@@ -1167,7 +1182,8 @@ async fn wait_for_shutdown_signal() -> &'static str {
     }
 }
 
-/// Create the process driver based on config (ForkExec, Docker, or Firecracker).
+/// Create the process driver based on config (ForkExec, Docker, or
+/// Firecracker).
 fn create_process_driver(config: &DataplaneConfig) -> Result<Arc<dyn ProcessDriver>> {
     match &config.driver {
         DriverConfig::ForkExec => Ok(Arc::new(ForkExecDriver::new())),

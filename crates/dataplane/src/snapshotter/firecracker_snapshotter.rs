@@ -1,14 +1,14 @@
-//! Firecracker-based snapshotter using dm-snapshot COW files + zstd + blob store.
+//! Firecracker-based snapshotter using dm-snapshot COW files + zstd + blob
+//! store.
 //!
 //! **Snapshot**: read COW file → streaming zstd compress → blob store put
-//! **Restore**: blob store streaming download → zstd decompress → write COW file
+//! **Restore**: blob store streaming download → zstd decompress → write COW
+//! file
 //!
 //! The COW file IS the delta — it contains only the blocks that differ from the
 //! base rootfs image. This makes snapshot/restore extremely efficient.
 
-use std::io::Write;
-use std::path::PathBuf;
-use std::sync::Arc;
+use std::{io::Write, path::PathBuf, sync::Arc};
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
@@ -18,9 +18,11 @@ use sha2::{Digest, Sha256};
 use tracing::info;
 
 use super::{RestoreResult, SnapshotResult, Snapshotter};
-use crate::blob_ops::BlobStore;
-use crate::driver::firecracker::vm_state::VmMetadata;
-use crate::metrics::DataplaneMetrics;
+use crate::{
+    blob_ops::BlobStore,
+    driver::firecracker::vm_state::VmMetadata,
+    metrics::DataplaneMetrics,
+};
 
 /// Size of compressed chunks yielded to `blob_store.put()`.
 const COMPRESSED_CHUNK_SIZE: usize = 100 * 1024 * 1024;
@@ -36,11 +38,7 @@ pub struct FirecrackerSnapshotter {
 }
 
 impl FirecrackerSnapshotter {
-    pub fn new(
-        state_dir: PathBuf,
-        blob_store: BlobStore,
-        metrics: Arc<DataplaneMetrics>,
-    ) -> Self {
+    pub fn new(state_dir: PathBuf, blob_store: BlobStore, metrics: Arc<DataplaneMetrics>) -> Self {
         Self {
             state_dir,
             blob_store,
@@ -65,9 +63,7 @@ impl Snapshotter for FirecrackerSnapshotter {
         );
 
         // Parse vm_id from container_id (strip "fc-" prefix).
-        let vm_id = container_id
-            .strip_prefix("fc-")
-            .unwrap_or(container_id);
+        let vm_id = container_id.strip_prefix("fc-").unwrap_or(container_id);
 
         // Load VM metadata to find the COW file path.
         let metadata_path = self.state_dir.join(format!("fc-{}.json", vm_id));
@@ -146,12 +142,10 @@ impl Snapshotter for FirecrackerSnapshotter {
         // Decompress and write to COW file.
         let cow_path_clone = cow_path.clone();
         tokio::task::spawn_blocking(move || {
-            let decompressed = zstd::decode_all(compressed.as_slice())
-                .context("Failed to decompress snapshot")?;
+            let decompressed =
+                zstd::decode_all(compressed.as_slice()).context("Failed to decompress snapshot")?;
             std::fs::write(&cow_path_clone, &decompressed)
-                .with_context(|| {
-                    format!("Failed to write COW file {}", cow_path_clone)
-                })?;
+                .with_context(|| format!("Failed to write COW file {}", cow_path_clone))?;
             info!(
                 cow_path = %cow_path_clone,
                 decompressed_size = decompressed.len(),
@@ -162,7 +156,10 @@ impl Snapshotter for FirecrackerSnapshotter {
         .await
         .context("Snapshot restore task panicked")??;
 
-        Ok(RestoreResult { image: cow_path, rootfs_overlay: None })
+        Ok(RestoreResult {
+            image: cow_path,
+            rootfs_overlay: None,
+        })
     }
 
     async fn cleanup_local(&self, snapshot_uri: &str) -> Result<()> {
@@ -195,9 +192,7 @@ fn build_compressed_cow_stream(
 
             let mut buf = [0u8; 4 * 1024 * 1024]; // 4MB read chunks
             loop {
-                let n = reader
-                    .read(&mut buf)
-                    .context("Failed to read COW file")?;
+                let n = reader.read(&mut buf).context("Failed to read COW file")?;
                 if n == 0 {
                     break;
                 }

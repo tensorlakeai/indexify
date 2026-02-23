@@ -333,11 +333,8 @@ impl DockerSnapshotter {
 
         // The Docker runtime state directory is root-only, so `runsc` must
         // run via `sudo` when the dataplane is not running as root.
-        let mut cmd = tokio::process::Command::new(if geteuid().is_root() {
-            "runsc"
-        } else {
-            "sudo"
-        });
+        let mut cmd =
+            tokio::process::Command::new(if geteuid().is_root() { "runsc" } else { "sudo" });
         if !geteuid().is_root() {
             cmd.arg("runsc");
         }
@@ -387,12 +384,11 @@ impl DockerSnapshotter {
             "Compressing gVisor rootfs-upper tar"
         );
 
-        let compressed = tokio::task::spawn_blocking(move || {
-            zstd::encode_all(raw_tar.as_slice(), 3)
-        })
-        .await
-        .context("zstd compression task panicked")?
-        .context("Failed to compress gVisor snapshot")?;
+        let compressed =
+            tokio::task::spawn_blocking(move || zstd::encode_all(raw_tar.as_slice(), 3))
+                .await
+                .context("zstd compression task panicked")?
+                .context("Failed to compress gVisor snapshot")?;
 
         let compressed_size = compressed.len() as u64;
 
@@ -493,12 +489,11 @@ impl DockerSnapshotter {
             "Downloaded snapshot, decompressing"
         );
 
-        let decompressed = tokio::task::spawn_blocking(move || {
-            zstd::decode_all(compressed.as_slice())
-        })
-        .await
-        .context("zstd decompression task panicked")?
-        .context("Failed to decompress snapshot")?;
+        let decompressed =
+            tokio::task::spawn_blocking(move || zstd::decode_all(compressed.as_slice()))
+                .await
+                .context("zstd decompression task panicked")?
+                .context("Failed to decompress snapshot")?;
 
         Ok(decompressed)
     }
@@ -605,4 +600,3 @@ fn snapshot_tag_from_uri(uri: &str) -> String {
         .unwrap_or("unknown")
         .to_string()
 }
-

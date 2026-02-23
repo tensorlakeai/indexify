@@ -7,9 +7,11 @@
 //! All file I/O is performed inside `spawn_blocking` to avoid blocking the
 //! Tokio runtime.
 
-use std::collections::HashMap;
-use std::io::{self, BufRead, Seek, SeekFrom};
-use std::path::PathBuf;
+use std::{
+    collections::HashMap,
+    io::{self, BufRead, Seek, SeekFrom},
+    path::PathBuf,
+};
 
 use tokio_util::sync::CancellationToken;
 
@@ -33,8 +35,7 @@ pub fn spawn_log_streamer(
 
     let vm_id_for_panic = vm_id.clone();
     tokio::spawn(async move {
-        let result =
-            tokio::spawn(run_log_streamer(vm_id, log_dir, labels, cancel_clone)).await;
+        let result = tokio::spawn(run_log_streamer(vm_id, log_dir, labels, cancel_clone)).await;
         if let Err(e) = result {
             tracing::error!(
                 vm_id = %vm_id_for_panic,
@@ -76,10 +77,7 @@ async fn run_log_streamer(
         .get("indexify.namespace")
         .cloned()
         .unwrap_or_default();
-    let function = labels
-        .get("indexify.function")
-        .cloned()
-        .unwrap_or_default();
+    let function = labels.get("indexify.function").cloned().unwrap_or_default();
 
     let mut vmm_state: Option<TailState> = None;
     let mut serial_state: Option<TailState> = None;
@@ -376,11 +374,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let labels = HashMap::new();
 
-        let cancel = spawn_log_streamer(
-            "test-vm".to_string(),
-            dir.path().to_path_buf(),
-            labels,
-        );
+        let cancel = spawn_log_streamer("test-vm".to_string(), dir.path().to_path_buf(), labels);
 
         // Let it run briefly then cancel
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;

@@ -4,13 +4,15 @@
 //! JSON metadata file on disk. On driver startup, metadata files are scanned
 //! to recover state for VMs that survived a dataplane restart.
 
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use tokio_util::sync::CancellationToken;
 use tokio::process::Child;
+use tokio_util::sync::CancellationToken;
 
 /// Process handle for a Firecracker VM — either owned (we spawned it) or
 /// recovered (found a running process after restart).
@@ -82,8 +84,7 @@ impl VmProcess {
         let pid = self
             .pid()
             .context("Cannot send signal: process has no PID")?;
-        let sig = nix::sys::signal::Signal::try_from(signal)
-            .context("Invalid signal number")?;
+        let sig = nix::sys::signal::Signal::try_from(signal).context("Invalid signal number")?;
         nix::sys::signal::kill(nix::unistd::Pid::from_raw(pid as i32), sig)
             .with_context(|| format!("Failed to send signal {} to PID {}", signal, pid))?;
         Ok(())
@@ -139,8 +140,7 @@ impl VmMetadata {
     /// Write this metadata to a JSON file for recovery.
     pub fn save(&self, state_dir: &Path) -> Result<()> {
         let path = self.metadata_path(state_dir);
-        let json = serde_json::to_string_pretty(self)
-            .context("Failed to serialize VM metadata")?;
+        let json = serde_json::to_string_pretty(self).context("Failed to serialize VM metadata")?;
         std::fs::write(&path, json)
             .with_context(|| format!("Failed to write VM metadata to {}", path.display()))?;
         Ok(())
@@ -226,7 +226,6 @@ impl OriginMetadata {
     }
 
     /// Load origin metadata from `{state_dir}/fc-origin.json`.
-    #[allow(dead_code)]
     pub fn load(state_dir: &Path) -> Result<Option<Self>> {
         let path = state_dir.join("fc-origin.json");
         if !path.exists() {
@@ -240,7 +239,6 @@ impl OriginMetadata {
     }
 
     /// Remove the origin metadata file.
-    #[allow(dead_code)]
     pub fn remove(state_dir: &Path) {
         let path = state_dir.join("fc-origin.json");
         let _ = std::fs::remove_file(path);
@@ -469,7 +467,10 @@ mod tests {
         metadata.save(dir.path()).unwrap();
 
         let expected_path = dir.path().join("fc-origin.json");
-        assert!(expected_path.exists(), "Origin metadata file should be created");
+        assert!(
+            expected_path.exists(),
+            "Origin metadata file should be created"
+        );
 
         let loaded = OriginMetadata::load(dir.path()).unwrap().unwrap();
         assert_eq!(loaded.base_image_path, "/opt/rootfs.ext4");

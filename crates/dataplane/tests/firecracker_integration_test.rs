@@ -7,15 +7,15 @@
 //! 1. **Unit-level tests** (always run): exercise config parsing, metadata
 //!    serialization, MAC generation, API request formatting, init script
 //!    validation, and rootfs injection — no Firecracker infrastructure needed.
-//!    These live inside each module's `#[cfg(test)]` block and run via
-//!    `cargo test -p indexify-dataplane --features firecracker`.
+//!    These live inside each module's `#[cfg(test)]` block and run via `cargo
+//!    test -p indexify-dataplane --features firecracker`.
 //!
 //! 2. **Full VM lifecycle tests** (this file): create real VMs, verify the
 //!    container daemon starts, test health checks, multi-VM isolation, signal
 //!    handling, cleanup, recovery, and log retrieval. These require Firecracker
-//!    infrastructure (binary, kernel, rootfs image, CNI).
-//!    They check prerequisites at runtime and **skip gracefully** if the
-//!    infrastructure is missing.
+//!    infrastructure (binary, kernel, rootfs image, CNI). They check
+//!    prerequisites at runtime and **skip gracefully** if the infrastructure is
+//!    missing.
 //!
 //! ## Running full lifecycle tests
 //!
@@ -42,7 +42,12 @@ use std::time::Duration;
 
 use anyhow::Result;
 use indexify_dataplane::driver::{
-    FirecrackerDriver, ProcessConfig, ProcessDriver, ProcessHandle, ProcessType, ResourceLimits,
+    FirecrackerDriver,
+    ProcessConfig,
+    ProcessDriver,
+    ProcessHandle,
+    ProcessType,
+    ResourceLimits,
 };
 
 /// Ensure tests run one at a time. The dm-snapshot origin uses a fixed device
@@ -126,10 +131,8 @@ fn create_test_driver() -> Result<FirecrackerDriver> {
 
     let kernel = std::env::var("FC_KERNEL_IMAGE")?;
     let rootfs = std::env::var("FC_BASE_ROOTFS")?;
-    let cni_network =
-        std::env::var("FC_CNI_NETWORK").unwrap_or_else(|_| "indexify-fc".to_string());
-    let gateway =
-        std::env::var("FC_GUEST_GATEWAY").unwrap_or_else(|_| "192.168.30.1".to_string());
+    let cni_network = std::env::var("FC_CNI_NETWORK").unwrap_or_else(|_| "indexify-fc".to_string());
+    let gateway = std::env::var("FC_GUEST_GATEWAY").unwrap_or_else(|_| "192.168.30.1".to_string());
 
     // Use unique temp dirs per test run to avoid cross-contamination.
     let run_id = uuid::Uuid::new_v4();
@@ -187,10 +190,7 @@ async fn test_vm_boots_and_is_alive() {
     assert!(handle.id.starts_with("fc-"), "handle ID has fc- prefix");
     assert!(handle.daemon_addr.is_some(), "daemon_addr is set");
     assert!(handle.http_addr.is_some(), "http_addr is set");
-    assert!(
-        !handle.container_ip.is_empty(),
-        "container_ip is non-empty"
-    );
+    assert!(!handle.container_ip.is_empty(), "container_ip is non-empty");
 
     // Give the VM time to stabilize
     tokio::time::sleep(Duration::from_secs(2)).await;
@@ -231,22 +231,21 @@ async fn test_daemon_grpc_health_check() {
 
     // Connect to the daemon with retry (the VM needs time to boot and start
     // the daemon binary inside the guest).
-    let mut client =
-        match indexify_dataplane::DaemonClient::connect_with_retry(
-            daemon_addr,
-            Duration::from_secs(30),
-        )
-        .await
-        {
-            Ok(c) => c,
-            Err(e) => {
-                // Collect VM logs for debugging before failing
-                let logs = driver.get_logs(&handle, 50).await.unwrap_or_default();
-                eprintln!("VM logs:\n{}", logs);
-                driver.kill(&handle).await.ok();
-                panic!("Failed to connect to daemon at {}: {}", daemon_addr, e);
-            }
-        };
+    let mut client = match indexify_dataplane::DaemonClient::connect_with_retry(
+        daemon_addr,
+        Duration::from_secs(30),
+    )
+    .await
+    {
+        Ok(c) => c,
+        Err(e) => {
+            // Collect VM logs for debugging before failing
+            let logs = driver.get_logs(&handle, 50).await.unwrap_or_default();
+            eprintln!("VM logs:\n{}", logs);
+            driver.kill(&handle).await.ok();
+            panic!("Failed to connect to daemon at {}: {}", daemon_addr, e);
+        }
+    };
 
     // Wait for daemon to report healthy
     client
@@ -290,7 +289,11 @@ async fn test_daemon_http_port_reachable() {
         }
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
-    assert!(connected, "Should connect to daemon HTTP port at {}", http_addr);
+    assert!(
+        connected,
+        "Should connect to daemon HTTP port at {}",
+        http_addr
+    );
 
     driver.kill(&handle).await.expect("kill");
 }
@@ -310,7 +313,7 @@ async fn test_custom_resource_limits() {
     let mut config = sandbox_config("resources-1");
     config.resources = Some(ResourceLimits {
         memory_bytes: Some(256 * 1024 * 1024), // 256 MiB
-        cpu_millicores: Some(1000),              // 1 vCPU
+        cpu_millicores: Some(1000),            // 1 vCPU
         gpu_device_ids: None,
     });
 
@@ -386,7 +389,10 @@ async fn test_env_vars_injected() {
     let driver = create_test_driver().expect("driver creation");
     let mut config = sandbox_config("env-1");
     config.env = vec![
-        ("INDEXIFY_TEST_KEY".to_string(), "hello_firecracker".to_string()),
+        (
+            "INDEXIFY_TEST_KEY".to_string(),
+            "hello_firecracker".to_string(),
+        ),
         ("RUST_LOG".to_string(), "debug".to_string()),
     ];
 
@@ -395,11 +401,9 @@ async fn test_env_vars_injected() {
 
     // If the daemon starts successfully, the env was loaded (the init script
     // sources /etc/indexify-env before exec-ing the daemon).
-    let connect_result = indexify_dataplane::DaemonClient::connect_with_retry(
-        daemon_addr,
-        Duration::from_secs(30),
-    )
-    .await;
+    let connect_result =
+        indexify_dataplane::DaemonClient::connect_with_retry(daemon_addr, Duration::from_secs(30))
+            .await;
     assert!(
         connect_result.is_ok(),
         "Daemon should start with injected env vars"
@@ -454,7 +458,10 @@ async fn test_cleanup_on_kill() {
     );
 
     // A second kill should be idempotent (no error)
-    driver.kill(&handle).await.expect("second kill should be idempotent");
+    driver
+        .kill(&handle)
+        .await
+        .expect("second kill should be idempotent");
 }
 
 // ---------------------------------------------------------------------------
@@ -481,14 +488,8 @@ async fn test_list_containers() {
     tokio::time::sleep(Duration::from_secs(1)).await;
 
     let containers = driver.list_containers().await.unwrap();
-    assert!(
-        containers.contains(&h1.id),
-        "list should include first VM"
-    );
-    assert!(
-        containers.contains(&h2.id),
-        "list should include second VM"
-    );
+    assert!(containers.contains(&h1.id), "list should include first VM");
+    assert!(containers.contains(&h2.id), "list should include second VM");
 
     // Kill one, verify it's removed from the list
     driver.kill(&h1).await.expect("kill h1");
@@ -529,17 +530,12 @@ async fn test_get_logs() {
 
     let logs = driver.get_logs(&handle, 0).await.expect("get_logs full");
     // Firecracker writes at least some boot log
-    // (may be empty if --log-path isn't producing output yet, so just verify no error)
-    assert!(
-        logs.len() >= 0,
-        "get_logs should return without error"
-    );
+    // (may be empty if --log-path isn't producing output yet, so just verify no
+    // error)
+    assert!(logs.len() >= 0, "get_logs should return without error");
 
     // Tail should return at most N lines
-    let tail_logs = driver
-        .get_logs(&handle, 5)
-        .await
-        .expect("get_logs tail");
+    let tail_logs = driver.get_logs(&handle, 5).await.expect("get_logs tail");
     assert!(
         tail_logs.lines().count() <= 5,
         "tail=5 should return at most 5 lines"
@@ -647,10 +643,8 @@ async fn test_recovery_after_restart() {
 
     let kernel = std::env::var("FC_KERNEL_IMAGE").unwrap();
     let rootfs = std::env::var("FC_BASE_ROOTFS").unwrap();
-    let cni_network =
-        std::env::var("FC_CNI_NETWORK").unwrap_or_else(|_| "indexify-fc".to_string());
-    let gateway =
-        std::env::var("FC_GUEST_GATEWAY").unwrap_or_else(|_| "192.168.30.1".to_string());
+    let cni_network = std::env::var("FC_CNI_NETWORK").unwrap_or_else(|_| "indexify-fc".to_string());
+    let gateway = std::env::var("FC_GUEST_GATEWAY").unwrap_or_else(|_| "192.168.30.1".to_string());
 
     let make_driver = || {
         FirecrackerDriver::new(
@@ -697,7 +691,10 @@ async fn test_recovery_after_restart() {
     );
 
     // Clean up through driver2
-    driver2.kill(&handle).await.expect("kill via recovered driver");
+    driver2
+        .kill(&handle)
+        .await
+        .expect("kill via recovered driver");
 
     // Clean up temp dirs
     let _ = std::fs::remove_dir_all(format!("/tmp/indexify-fc-recovery-{}", run_id));

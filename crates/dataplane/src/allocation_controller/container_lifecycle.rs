@@ -692,11 +692,7 @@ async fn start_fe_process(
         .and_then(|m| m.sandbox_id.as_deref())
         .unwrap_or("")
         .to_string();
-    let pool_id = description
-        .pool_id
-        .as_deref()
-        .unwrap_or("")
-        .to_string();
+    let pool_id = description.pool_id.as_deref().unwrap_or("").to_string();
 
     let labels = vec![
         ("indexify.container_id".to_string(), fe_id.clone()),

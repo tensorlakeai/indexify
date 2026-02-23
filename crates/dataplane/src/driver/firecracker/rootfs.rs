@@ -5,8 +5,7 @@
 //! container-daemon binary, an init script, and environment variables so
 //! the VM boots directly into the Indexify daemon.
 
-use std::path::Path;
-use std::process::Stdio;
+use std::{path::Path, process::Stdio};
 
 use anyhow::{Context, Result, bail};
 use tokio::process::Command;
@@ -188,8 +187,9 @@ fn set_executable(path: &Path) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::os::unix::fs::PermissionsExt;
+
+    use super::*;
 
     #[test]
     fn test_init_script_is_valid_shell() {
@@ -277,11 +277,7 @@ mod tests {
         let daemon_dest = dir.path().join("indexify-daemon");
         assert!(daemon_dest.exists(), "Daemon binary should be copied");
         let perms = std::fs::metadata(&daemon_dest).unwrap().permissions();
-        assert_eq!(
-            perms.mode() & 0o777,
-            0o755,
-            "Daemon should be executable"
-        );
+        assert_eq!(perms.mode() & 0o777, 0o755, "Daemon should be executable");
 
         // Check init script was written
         let init_dest = dir.path().join("sbin/indexify-init");

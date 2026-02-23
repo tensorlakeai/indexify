@@ -8,8 +8,10 @@
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::UnixStream;
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::UnixStream,
+};
 
 /// Client for the Firecracker API over a Unix socket.
 pub struct FirecrackerApiClient {
@@ -172,10 +174,7 @@ impl FirecrackerApiClient {
             Ok(())
         } else {
             // Extract body after the blank line
-            let body = response
-                .split("\r\n\r\n")
-                .nth(1)
-                .unwrap_or(&response);
+            let body = response.split("\r\n\r\n").nth(1).unwrap_or(&response);
             bail!(
                 "Firecracker API PUT {} failed with status {}: {}",
                 path,
@@ -188,8 +187,9 @@ impl FirecrackerApiClient {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use tokio::net::UnixListener;
+
+    use super::*;
 
     #[tokio::test]
     async fn test_wait_for_socket_success() {

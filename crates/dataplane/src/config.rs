@@ -522,7 +522,9 @@ impl DataplaneConfig {
                 return PathBuf::from(dir);
             }
         }
-        PathBuf::from(&self.state_dir).join("firecracker").join("logs")
+        PathBuf::from(&self.state_dir)
+            .join("firecracker")
+            .join("logs")
     }
 
     pub fn structured_logging(&self) -> bool {

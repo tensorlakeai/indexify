@@ -19,7 +19,10 @@
 //! All device-mapper operations use `dmsetup` and `losetup` commands —
 //! no `libdevmapper-dev` build dependency needed.
 
-use std::path::{Path, PathBuf};
+use std::{
+    collections::HashSet,
+    path::{Path, PathBuf},
+};
 
 use anyhow::{Context, Result, bail};
 
@@ -107,12 +110,7 @@ pub fn setup_origin(base_rootfs: &Path) -> Result<OriginHandle> {
             &base_rootfs.to_string_lossy(),
         ],
     )
-    .with_context(|| {
-        format!(
-            "Failed to create loop device for {}",
-            base_rootfs.display()
-        )
-    })?
+    .with_context(|| format!("Failed to create loop device for {}", base_rootfs.display()))?
     .trim()
     .to_string();
 
@@ -150,7 +148,6 @@ pub fn setup_origin(base_rootfs: &Path) -> Result<OriginHandle> {
 }
 
 /// Tear down the origin device and release its loop device.
-#[allow(dead_code)]
 pub fn teardown_origin(handle: &OriginHandle) -> Result<()> {
     if Path::new(&handle.device_path).exists() {
         run_cmd("dmsetup", &["remove", &handle.dm_name])
@@ -183,7 +180,11 @@ pub fn create_snapshot(
     // Pre-allocate the COW file.
     run_cmd(
         "fallocate",
-        &["-l", &cow_size_bytes.to_string(), &cow_file.to_string_lossy()],
+        &[
+            "-l",
+            &cow_size_bytes.to_string(),
+            &cow_file.to_string_lossy(),
+        ],
     )
     .with_context(|| format!("Failed to allocate COW file {}", cow_file.display()))?;
 
@@ -307,11 +308,7 @@ pub fn destroy_snapshot(handle: &SnapshotHandle) -> Result<()> {
 
 /// Destroy a VM's dm-snapshot by its metadata fields (used during recovery
 /// cleanup when we don't have a SnapshotHandle).
-pub fn destroy_snapshot_by_parts(
-    dm_name: &str,
-    loop_device: &str,
-    cow_file: &str,
-) -> Result<()> {
+pub fn destroy_snapshot_by_parts(dm_name: &str, loop_device: &str, cow_file: &str) -> Result<()> {
     let device_path = format!("/dev/mapper/{}", dm_name);
     if Path::new(&device_path).exists() {
         run_cmd("dmsetup", &["remove", dm_name])
@@ -361,9 +358,11 @@ pub fn snapshot_status(vm_id: &str) -> Result<SnapshotStatus> {
         bail!("Cannot parse snapshot fraction: {}", fraction);
     }
 
-    let sectors_allocated: u64 = slash_parts[0].parse()
+    let sectors_allocated: u64 = slash_parts[0]
+        .parse()
         .with_context(|| format!("Invalid allocated sectors: {}", slash_parts[0]))?;
-    let sectors_total: u64 = slash_parts[1].parse()
+    let sectors_total: u64 = slash_parts[1]
+        .parse()
         .with_context(|| format!("Invalid total sectors: {}", slash_parts[1]))?;
 
     Ok(SnapshotStatus {
@@ -372,36 +371,74 @@ pub fn snapshot_status(vm_id: &str) -> Result<SnapshotStatus> {
     })
 }
 
-/// Clean up any stale `indexify-*` dm devices from a previous run.
+/// Clean up stale `indexify-vm-*` dm devices from a previous run.
 ///
-/// Called on fresh startup to remove orphaned devices.
-#[allow(dead_code)]
-pub fn cleanup_stale_devices() {
-    // Discover all stale indexify-* devices via dmsetup ls.
-    let mut vm_devs = Vec::new();
+/// Only removes VM snapshot devices whose VM ID is NOT in `active_vm_ids`.
+/// For each removed device, also detaches the COW loop device to prevent
+/// loop device leaks. Does NOT touch `indexify-base` — the origin is
+/// managed by `setup_origin()` / `teardown_origin()`.
+pub fn cleanup_stale_devices(active_vm_ids: &HashSet<String>) {
+    let mut stale_devs = Vec::new();
     if let Ok(output) = run_cmd("dmsetup", &["ls"]) {
         for line in output.lines() {
             if let Some(name) = line.split_whitespace().next() {
-                if name.starts_with("indexify-vm-") {
-                    vm_devs.push(name.to_string());
+                if let Some(vm_id) = name.strip_prefix("indexify-vm-") {
+                    if !active_vm_ids.contains(vm_id) {
+                        stale_devs.push(name.to_string());
+                    }
                 }
             }
         }
     }
 
-    // Remove in dependency order: VM snapshots first, then base.
-    for name in &vm_devs {
+    for name in &stale_devs {
+        // Parse dmsetup table to find the COW loop device before removing.
+        // Table format: "0 <size> snapshot <origin_dev> <cow_loop_dev> P <chunk>"
+        let cow_loop = run_cmd("dmsetup", &["table", name]).ok().and_then(|table| {
+            let parts: Vec<&str> = table.trim().split_whitespace().collect();
+            // For a snapshot target, the COW device is at index 4.
+            if parts.len() >= 5 && parts[2] == "snapshot" {
+                Some(parts[4].to_string())
+            } else {
+                None
+            }
+        });
+
+        // Remove the dm device (retry up to 3 times for busy devices).
+        let mut removed = false;
         for _ in 0..3 {
             match run_cmd("dmsetup", &["remove", name]) {
-                Ok(_) => break,
+                Ok(_) => {
+                    removed = true;
+                    break;
+                }
                 Err(_) => std::thread::sleep(std::time::Duration::from_millis(100)),
             }
         }
+
+        if removed {
+            // Detach the COW loop device to prevent leaks.
+            if let Some(ref loop_dev) = cow_loop {
+                let _ = run_cmd("losetup", &["-d", loop_dev]);
+            }
+            tracing::info!(
+                dm_name = %name,
+                cow_loop = ?cow_loop,
+                "Cleaned up stale dm-snapshot device"
+            );
+        } else {
+            tracing::warn!(
+                dm_name = %name,
+                "Failed to remove stale dm-snapshot device after retries"
+            );
+        }
     }
 
-    // Remove the base device if it exists.
-    if Path::new("/dev/mapper/indexify-base").exists() {
-        let _ = run_cmd("dmsetup", &["remove", "indexify-base"]);
+    if !stale_devs.is_empty() {
+        tracing::info!(
+            count = stale_devs.len(),
+            "Stale dm-snapshot cleanup complete"
+        );
     }
 }
 

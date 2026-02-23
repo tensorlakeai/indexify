@@ -13,24 +13,38 @@ mod log_stream;
 mod rootfs;
 pub(crate) mod vm_state;
 
-use std::collections::HashMap;
-use std::path::PathBuf;
-use std::process::Stdio;
-use std::sync::Arc;
-use std::time::Duration;
+use std::{
+    collections::{HashMap, HashSet},
+    path::PathBuf,
+    process::Stdio,
+    sync::Arc,
+    time::Duration,
+};
 
 use anyhow::{Context, Result, bail};
 use async_trait::async_trait;
 use tokio::sync::Mutex;
 
-use self::api::FirecrackerApiClient;
-use self::cni::CniManager;
-use self::dm_snapshot::OriginHandle;
-use self::vm_state::{
-    OriginMetadata, VmMetadata, VmProcess, VmState, is_firecracker_process, scan_metadata_files,
+use self::{
+    api::FirecrackerApiClient,
+    cni::CniManager,
+    dm_snapshot::OriginHandle,
+    vm_state::{
+        OriginMetadata,
+        VmMetadata,
+        VmProcess,
+        VmState,
+        is_firecracker_process,
+        scan_metadata_files,
+    },
 };
 use super::{
-    DAEMON_GRPC_PORT, DAEMON_HTTP_PORT, ExitStatus, ProcessConfig, ProcessDriver, ProcessHandle,
+    DAEMON_GRPC_PORT,
+    DAEMON_HTTP_PORT,
+    ExitStatus,
+    ProcessConfig,
+    ProcessDriver,
+    ProcessHandle,
 };
 
 /// Default rootfs size in bytes (1 GiB).
@@ -108,16 +122,10 @@ impl FirecrackerDriver {
 
         // Validate paths
         if !kernel_path.exists() {
-            bail!(
-                "Kernel image not found: {}",
-                kernel_path.display()
-            );
+            bail!("Kernel image not found: {}", kernel_path.display());
         }
         if !rootfs_path.exists() {
-            bail!(
-                "Base rootfs image not found: {}",
-                rootfs_path.display()
-            );
+            bail!("Base rootfs image not found: {}", rootfs_path.display());
         }
 
         // Create directories
@@ -137,8 +145,31 @@ impl FirecrackerDriver {
         // The origin is a read-only linear dm device backed by the base rootfs
         // file via a loop device. Each per-VM volume is a dm-snapshot of this
         // origin, with CoW data stored in a separate file.
-        let origin = dm_snapshot::setup_origin(&rootfs_path)
-            .context("Failed to set up origin device")?;
+        //
+        // If the base image path has changed since last run, tear down the old
+        // origin first so setup_origin() creates a fresh one.
+        if let Ok(Some(old_meta)) = OriginMetadata::load(&state_dir) &&
+            old_meta.base_image_path != base_rootfs_image
+        {
+            tracing::info!(
+                old_image = %old_meta.base_image_path,
+                new_image = %base_rootfs_image,
+                "Base rootfs image changed, tearing down old origin"
+            );
+            let old_handle = dm_snapshot::OriginHandle {
+                dm_name: old_meta.dm_name,
+                loop_device: old_meta.loop_device,
+                device_path: PathBuf::from("/dev/mapper/indexify-base"),
+                size_sectors: 0, // not needed for teardown
+            };
+            if let Err(e) = dm_snapshot::teardown_origin(&old_handle) {
+                tracing::warn!(error = ?e, "Failed to tear down old origin (continuing)");
+            }
+            OriginMetadata::remove(&state_dir);
+        }
+
+        let origin =
+            dm_snapshot::setup_origin(&rootfs_path).context("Failed to set up origin device")?;
 
         // Persist origin metadata for recovery.
         let origin_meta = OriginMetadata {
@@ -196,6 +227,7 @@ impl FirecrackerDriver {
             }
         }
 
+        // Clean up dead VMs (those with metadata but whose process is gone).
         let driver = Self {
             firecracker_binary,
             kernel_image_path: kernel_path,
@@ -212,10 +244,24 @@ impl FirecrackerDriver {
             vms: Arc::new(Mutex::new(recovered_vms)),
         };
 
-        // Clean up dead VMs
         for metadata in &dead_vms {
             driver.cleanup_dead_vm(metadata);
         }
+
+        // Collect active VM IDs from recovered VMs for stale resource cleanup.
+        let active_vm_ids: HashSet<String> = {
+            // We need to block on the async lock here since new() is sync.
+            // The mutex is uncontended at this point so this is safe.
+            let vms = driver.vms.blocking_lock();
+            vms.values().map(|vm| vm.metadata.vm_id.clone()).collect()
+        };
+
+        // Clean up leaked dm-snapshot devices from crashed VMs that lost
+        // their metadata files (metadata gone, but kernel devices remain).
+        dm_snapshot::cleanup_stale_devices(&active_vm_ids);
+
+        // Clean up leaked network namespaces from crashed VMs.
+        driver.cni.cleanup_orphaned_netns_sync(&active_vm_ids);
 
         Ok(driver)
     }
@@ -230,8 +276,10 @@ impl FirecrackerDriver {
 
         // Remove log files
         let _ = std::fs::remove_file(self.log_dir.join(format!("fc-{}.log", metadata.vm_id)));
-        let _ =
-            std::fs::remove_file(self.log_dir.join(format!("fc-{}-serial.log", metadata.vm_id)));
+        let _ = std::fs::remove_file(
+            self.log_dir
+                .join(format!("fc-{}-serial.log", metadata.vm_id)),
+        );
 
         // dm-snapshot and COW file cleanup happen asynchronously.
         let dm_name = metadata.dm_name.clone();
@@ -310,8 +358,8 @@ impl ProcessDriver for FirecrackerDriver {
         let vm_id = config.id.clone();
         let handle_id = format!("fc-{}", vm_id);
 
-        // 1. Create dm-snapshot for this VM.
-        //    Check if config.image points to a .cow file (restore path).
+        // 1. Create dm-snapshot for this VM. Check if config.image points to a .cow
+        //    file (restore path).
         let snapshot = if let Some(ref image) = config.image {
             if image.ends_with(".cow") {
                 // Restore path: use existing COW file from snapshotter.
@@ -324,7 +372,10 @@ impl ProcessDriver for FirecrackerDriver {
                 )
                 .await
                 .with_context(|| {
-                    format!("Failed to create dm-snapshot from COW file for VM {}", vm_id)
+                    format!(
+                        "Failed to create dm-snapshot from COW file for VM {}",
+                        vm_id
+                    )
                 })?
             } else {
                 // Normal path: create fresh COW file.
@@ -337,9 +388,7 @@ impl ProcessDriver for FirecrackerDriver {
                     self.default_rootfs_size_bytes,
                 )
                 .await
-                .with_context(|| {
-                    format!("Failed to create dm-snapshot for VM {}", vm_id)
-                })?
+                .with_context(|| format!("Failed to create dm-snapshot for VM {}", vm_id))?
             }
         } else {
             // Normal path: create fresh COW file.
@@ -356,8 +405,8 @@ impl ProcessDriver for FirecrackerDriver {
         };
 
         // 2. Get the daemon binary path
-        let daemon_binary = crate::daemon_binary::get_daemon_path()
-            .context("Daemon binary not available")?;
+        let daemon_binary =
+            crate::daemon_binary::get_daemon_path().context("Daemon binary not available")?;
 
         // 3. Inject daemon, init script, and env vars into the snapshot.
         if let Err(e) =
@@ -413,22 +462,26 @@ impl ProcessDriver for FirecrackerDriver {
         // Remove stale socket if present
         let _ = std::fs::remove_file(&socket_path);
 
-        let serial_path = self
-            .log_dir
-            .join(format!("fc-{}-serial.log", vm_id));
-        let serial_file = std::fs::File::create(&serial_path).or_else(|_| {
-            std::fs::File::create("/dev/null")
-        }).with_context(|| format!(
-            "Failed to create serial log file {} or /dev/null fallback",
-            serial_path.display()
-        ))?;
+        let serial_path = self.log_dir.join(format!("fc-{}-serial.log", vm_id));
+        let serial_file = std::fs::File::create(&serial_path)
+            .or_else(|_| std::fs::File::create("/dev/null"))
+            .with_context(|| {
+                format!(
+                    "Failed to create serial log file {} or /dev/null fallback",
+                    serial_path.display()
+                )
+            })?;
 
         let child = match tokio::process::Command::new("ip")
             .args([
-                "netns", "exec", &cni_result.netns_name,
+                "netns",
+                "exec",
+                &cni_result.netns_name,
                 &self.firecracker_binary,
-                "--api-sock", &socket_path,
-                "--log-path", &log_path,
+                "--api-sock",
+                &socket_path,
+                "--log-path",
+                &log_path,
             ])
             .stdout(serial_file)
             .stderr(Stdio::null())
@@ -439,10 +492,7 @@ impl ProcessDriver for FirecrackerDriver {
             Err(e) => {
                 self.cni.teardown_network(&vm_id).await;
                 let _ = dm_snapshot::destroy_snapshot_async(snapshot).await;
-                return Err(anyhow::anyhow!(
-                    "Failed to spawn firecracker: {}",
-                    e
-                ));
+                return Err(anyhow::anyhow!("Failed to spawn firecracker: {}", e));
             }
         };
 
@@ -450,11 +500,8 @@ impl ProcessDriver for FirecrackerDriver {
 
         // 8. Spawn log streamer
         let labels: HashMap<String, String> = config.labels.into_iter().collect();
-        let log_cancel = log_stream::spawn_log_streamer(
-            vm_id.clone(),
-            self.log_dir.clone(),
-            labels.clone(),
-        );
+        let log_cancel =
+            log_stream::spawn_log_streamer(vm_id.clone(), self.log_dir.clone(), labels.clone());
 
         // 9. Wait for API socket
         let api_client = FirecrackerApiClient::new(&socket_path);
@@ -627,10 +674,7 @@ impl ProcessDriver for FirecrackerDriver {
 
     async fn list_containers(&self) -> Result<Vec<String>> {
         let metadata_list = scan_metadata_files(&self.state_dir)?;
-        Ok(metadata_list
-            .into_iter()
-            .map(|m| m.handle_id)
-            .collect())
+        Ok(metadata_list.into_iter().map(|m| m.handle_id).collect())
     }
 
     async fn get_logs(&self, handle: &ProcessHandle, tail: u32) -> Result<String> {

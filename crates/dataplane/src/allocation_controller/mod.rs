@@ -400,15 +400,16 @@ impl AllocationController {
 
         tokio::spawn(async move {
             let result = tokio::spawn(async move {
-                if let Some(reason) = crate::function_executor::health_checker::run_health_check_loop(
-                    health_client,
-                    health_driver,
-                    health_handle,
-                    health_cancel_clone,
-                    &health_fe_id,
-                    health_metrics,
-                )
-                .await
+                if let Some(reason) =
+                    crate::function_executor::health_checker::run_health_check_loop(
+                        health_client,
+                        health_driver,
+                        health_handle,
+                        health_cancel_clone,
+                        &health_fe_id,
+                        health_metrics,
+                    )
+                    .await
                 {
                     let _ = event_tx.send(ACEvent::ContainerTerminated {
                         fe_id: health_fe_id,
