@@ -66,7 +66,7 @@ pub enum ConnectionState {
 /// Heartbeat retry backoff parameters. Keep these low so the dataplane
 /// recovers quickly from transient network partitions.
 const HEARTBEAT_MIN_RETRY_INTERVAL: Duration = Duration::from_secs(1);
-const HEARTBEAT_MAX_RETRY_INTERVAL: Duration = Duration::from_secs(10);
+const HEARTBEAT_MAX_RETRY_INTERVAL: Duration = Duration::from_secs(5);
 const HEARTBEAT_BACKOFF_MULTIPLIER: u32 = 2;
 
 pub struct Service {
@@ -742,7 +742,9 @@ impl ServiceRuntime {
                             ConnectionState::Unhealthy,
                             "heartbeat RPC failed",
                         );
-                        send_full_state = true;
+                        // Don't set send_full_state here. The server will
+                        // request it via send_state=true once connectivity
+                        // is restored and the server sees an unknown executor.
                         heartbeat_failed = true;
                         break;
                     }
