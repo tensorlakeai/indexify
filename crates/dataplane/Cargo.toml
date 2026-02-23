@@ -39,6 +39,7 @@ hostname.workspace = true
 bytes.workspace = true
 sysinfo.workspace = true
 bollard = { workspace = true }
+docker_credential = { workspace = true }
 futures-util = { workspace = true }
 lazy_static = { workspace = true }
 pingora.workspace = true
