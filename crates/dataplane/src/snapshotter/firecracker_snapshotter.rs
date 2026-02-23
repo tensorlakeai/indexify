@@ -19,7 +19,7 @@ use tracing::info;
 
 use super::{RestoreResult, SnapshotResult, Snapshotter};
 use crate::{
-    blob_ops::LazyBlobStore,
+    blob_ops::BlobStore,
     driver::firecracker::{api::FirecrackerApiClient, dm_snapshot, vm_state::VmMetadata},
     metrics::DataplaneMetrics,
 };
@@ -34,7 +34,7 @@ const COMPRESSED_CHUNK_SIZE: usize = 100 * 1024 * 1024;
 ///           (driver's create_snapshot_from_cow copies into thin LV)
 pub struct FirecrackerSnapshotter {
     state_dir: PathBuf,
-    blob_store: LazyBlobStore,
+    blob_store: BlobStore,
     _metrics: Arc<DataplaneMetrics>,
     lvm_config: dm_snapshot::LvmConfig,
 }
@@ -42,7 +42,7 @@ pub struct FirecrackerSnapshotter {
 impl FirecrackerSnapshotter {
     pub fn new(
         state_dir: PathBuf,
-        blob_store: LazyBlobStore,
+        blob_store: BlobStore,
         metrics: Arc<DataplaneMetrics>,
         lvm_config: dm_snapshot::LvmConfig,
     ) -> Self {

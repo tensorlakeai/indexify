@@ -26,7 +26,7 @@ use nix::unistd::geteuid;
 use tracing::{debug, info, warn};
 
 use super::{RestoreResult, SnapshotResult, Snapshotter};
-use crate::{blob_ops::LazyBlobStore, metrics::DataplaneMetrics};
+use crate::{blob_ops::BlobStore, metrics::DataplaneMetrics};
 
 /// Size of compressed chunks yielded to `blob_store.put()`.
 ///
@@ -55,7 +55,7 @@ const DEFAULT_RUNSC_ROOT: &str = "/var/run/docker/runtime-runc/moby";
 /// When `runtime` is `"runsc"`, uses gVisor-native commands instead.
 pub struct DockerSnapshotter {
     docker: Docker,
-    blob_store: LazyBlobStore,
+    blob_store: BlobStore,
     _metrics: Arc<DataplaneMetrics>,
     /// OCI runtime name (e.g., `"runsc"` for gVisor). `None` means default
     /// Docker runtime (runc).
@@ -69,7 +69,7 @@ pub struct DockerSnapshotter {
 impl DockerSnapshotter {
     pub fn new(
         docker: Docker,
-        blob_store: LazyBlobStore,
+        blob_store: BlobStore,
         metrics: Arc<DataplaneMetrics>,
         runtime: Option<String>,
         runsc_root: Option<String>,

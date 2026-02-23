@@ -416,10 +416,6 @@ pub struct FunctionExecutorConfig {
     /// Path to cache application code. Defaults to /tmp/indexify_code_cache.
     #[serde(default = "default_code_cache_path")]
     pub code_cache_path: String,
-    /// Blob store URL (e.g., "s3://bucket" or "file:///path").
-    /// If not set, uses local filesystem.
-    #[serde(default)]
-    pub blob_store_url: Option<String>,
     /// Path to the function-executor binary.
     /// If not set, searches PATH.
     #[serde(default)]
@@ -434,7 +430,6 @@ impl Default for FunctionExecutorConfig {
     fn default() -> Self {
         Self {
             code_cache_path: default_code_cache_path(),
-            blob_store_url: None,
             fe_binary_path: None,
         }
     }

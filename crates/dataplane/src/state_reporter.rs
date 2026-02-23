@@ -1,23 +1,27 @@
-//! State reporter that collects command responses and allocation activities
-//! for inclusion in `report_command_responses` and
-//! `report_allocation_activities` RPCs.
+//! State reporter that collects command responses, allocation log entries,
+//! and allocation outcomes for inclusion in heartbeat RPCs.
 //!
 //! Command responses (ContainerStarted/ContainerTerminated,
 //! AllocationScheduled) are buffered as `CommandResponse` messages.
 //!
+//! Allocation log entries (CallFunction) are buffered as `AllocationLogEntry`
+//! messages and sent via the heartbeat's `allocation_log_entries` field.
+//!
 //! Allocation outcomes (AllocationCompleted/AllocationFailed) are buffered as
-//! `AllocationStreamRequest` messages and sent via the dedicated
-//! `report_allocation_activities` RPC.
+//! `AllocationOutcome` messages and sent via the heartbeat's
+//! `allocation_outcomes` field.
+//!
+//! All buffers use the same safe collect/drain_sent pattern: items are
+//! **cloned** on collect and only removed after successful delivery. This
+//! prevents data loss when a heartbeat RPC fails.
 //!
 //! Message size limiting: items are fragmented across multiple RPCs if the
-//! total message would exceed 10 MB. Items are drained from the buffer on
-//! collect and only re-added on RPC failure, eliminating race conditions
-//! between the drain task and the heartbeat loop.
+//! total message would exceed 10 MB.
 
 use std::sync::Arc;
 
 use prost::Message;
-use proto_api::executor_api_pb::{AllocationStreamRequest, CommandResponse};
+use proto_api::executor_api_pb::{AllocationLogEntry, AllocationOutcome, CommandResponse};
 use tokio::sync::{Mutex, Notify, mpsc};
 use tracing::debug;
 
@@ -135,33 +139,41 @@ impl<T: Message + Clone + Send + 'static> PendingBuffer<T> {
 // StateReporter
 // ---------------------------------------------------------------------------
 
-/// Collects command responses and allocation activities for reporting.
+/// Collects command responses, allocation activities, and allocation outcomes
+/// for reporting.
 pub struct StateReporter {
     responses: PendingBuffer<CommandResponse>,
-    activities: PendingBuffer<AllocationStreamRequest>,
+    activities: PendingBuffer<AllocationLogEntry>,
+    /// Allocation outcomes (AllocationCompleted/AllocationFailed) sent via the
+    /// heartbeat's `allocation_outcomes` field for guaranteed delivery.
+    outcomes: PendingBuffer<AllocationOutcome>,
 }
 
 impl StateReporter {
     /// Create a new state reporter and spawn background tasks that drain
-    /// the response, container response, and activity channels and notify
-    /// the respective loops.
+    /// the response, container response, activity, and outcome channels and
+    /// notify the respective loops.
     pub fn new(
         response_rx: mpsc::UnboundedReceiver<CommandResponse>,
         container_response_rx: mpsc::UnboundedReceiver<CommandResponse>,
-        activity_rx: mpsc::UnboundedReceiver<AllocationStreamRequest>,
+        activity_rx: mpsc::UnboundedReceiver<AllocationLogEntry>,
+        outcome_rx: mpsc::UnboundedReceiver<AllocationOutcome>,
     ) -> Self {
         let responses = PendingBuffer::new();
         let activities = PendingBuffer::new();
+        let outcomes = PendingBuffer::new();
 
         // Two drainers feed the same response buffer (acks + container events).
         responses.spawn_drainer(response_rx);
         responses.spawn_drainer(container_response_rx);
 
         activities.spawn_drainer(activity_rx);
+        outcomes.spawn_drainer(outcome_rx);
 
         Self {
             responses,
             activities,
+            outcomes,
         }
     }
 
@@ -196,17 +208,56 @@ impl StateReporter {
     }
 
     // ---------------------------------------------------------------
-    // Allocation activities (report_allocation_activities)
+    // Allocation log entries (heartbeat)
     // ---------------------------------------------------------------
 
-    /// Drain all pending activities from the buffer and return them.
+    /// Collect allocation log entries that fit within the message size limit.
     ///
-    /// Used by the allocation stream loop to take items out of the buffer
-    /// and forward them via the bidi stream. Items are removed immediately
-    /// (no separate drain step needed).
-    pub async fn drain_all_activities(&self) -> Vec<AllocationStreamRequest> {
-        let mut pending = self.activities.items.lock().await;
-        std::mem::take(&mut *pending)
+    /// Items are **cloned** from the buffer. On successful delivery, call
+    /// [`drain_sent_log_entries`] with the returned `count` to remove them.
+    /// On failure, do nothing — items stay in the buffer for retry.
+    pub async fn collect_log_entries(
+        &self,
+        base_message_size: usize,
+    ) -> (Vec<AllocationLogEntry>, usize, bool) {
+        self.activities
+            .collect(base_message_size, "allocation_log_entries")
+            .await
+    }
+
+    /// Remove the first `count` log entries from the buffer after a successful
+    /// heartbeat RPC.
+    pub async fn drain_sent_log_entries(&self, count: usize) {
+        self.activities.drain_sent(count).await;
+    }
+
+    // ---------------------------------------------------------------
+    // Allocation outcomes (report_allocation_activities)
+    // ---------------------------------------------------------------
+
+    /// Get a handle to the notify for waking up the outcome report loop.
+    pub fn outcomes_notify(&self) -> Arc<Notify> {
+        self.outcomes.notify.clone()
+    }
+
+    /// Collect allocation outcomes that fit within the message size limit.
+    ///
+    /// Items are **cloned** from the buffer. On successful delivery, call
+    /// [`drain_sent_outcomes`] with the returned `count` to remove them.
+    /// On failure, do nothing — items stay in the buffer for retry.
+    pub async fn collect_outcomes(
+        &self,
+        base_message_size: usize,
+    ) -> (Vec<AllocationOutcome>, usize, bool) {
+        self.outcomes
+            .collect(base_message_size, "allocation_outcomes")
+            .await
+    }
+
+    /// Remove the first `count` outcomes from the buffer after a successful
+    /// RPC.
+    pub async fn drain_sent_outcomes(&self, count: usize) {
+        self.outcomes.drain_sent(count).await;
     }
 }
 
@@ -219,8 +270,9 @@ mod tests {
     async fn setup_reporter(responses: Vec<CommandResponse>) -> StateReporter {
         let (_tx, rx) = mpsc::unbounded_channel::<CommandResponse>();
         let (_cs_tx, cs_rx) = mpsc::unbounded_channel::<CommandResponse>();
-        let (_act_tx, act_rx) = mpsc::unbounded_channel::<AllocationStreamRequest>();
-        let reporter = StateReporter::new(rx, cs_rx, act_rx);
+        let (_act_tx, act_rx) = mpsc::unbounded_channel::<AllocationLogEntry>();
+        let (_out_tx, out_rx) = mpsc::unbounded_channel::<AllocationOutcome>();
+        let reporter = StateReporter::new(rx, cs_rx, act_rx, out_rx);
         {
             let mut pending = reporter.responses.items.lock().await;
             pending.extend(responses);
@@ -441,8 +493,9 @@ mod tests {
     async fn test_drain_from_channel() {
         let (tx, rx) = mpsc::unbounded_channel::<CommandResponse>();
         let (_cs_tx, cs_rx) = mpsc::unbounded_channel::<CommandResponse>();
-        let (_act_tx, act_rx) = mpsc::unbounded_channel::<AllocationStreamRequest>();
-        let reporter = StateReporter::new(rx, cs_rx, act_rx);
+        let (_act_tx, act_rx) = mpsc::unbounded_channel::<AllocationLogEntry>();
+        let (_out_tx, out_rx) = mpsc::unbounded_channel::<AllocationOutcome>();
+        let reporter = StateReporter::new(rx, cs_rx, act_rx, out_rx);
 
         // Send responses through the channel
         tx.send(make_response("c1")).unwrap();

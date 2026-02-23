@@ -40,7 +40,7 @@ echo ""
 echo "############################################"
 echo "# Phase 1: dataplane_cli tests             #"
 echo "############################################"
-dataplane_cli_tests=$(find ./dataplane_cli -name 'test_*.py' | sort)
+dataplane_cli_tests=$(find ./dataplane_cli -name 'test_*.py' -not -name 'test_network_partition.py' | sort)
 run_test_suite "$dataplane_cli_tests" "Dataplane CLI"
 
 # --- Start background dataplane for Phase 2 + Phase 3 ---

@@ -4,7 +4,7 @@ use std::collections::HashSet;
 
 use prost::Message as _;
 use proto_api::{
-    executor_api_pb::{self, Allocation as ServerAllocation, AllocationStreamRequest},
+    executor_api_pb::{self, Allocation as ServerAllocation, AllocationLogEntry},
     function_executor_pb::{self, AllocationFunctionCallCreationResult, AllocationState},
 };
 use tokio::sync::mpsc;
@@ -29,7 +29,7 @@ pub(super) async fn reconcile_function_calls(
     client: &mut FunctionExecutorGrpcClient,
     allocation_id: &str,
     allocation: &ServerAllocation,
-    stream_tx: &mpsc::UnboundedSender<AllocationStreamRequest>,
+    stream_tx: &mpsc::UnboundedSender<AllocationLogEntry>,
     seen_function_call_ids: &mut HashSet<String>,
     seen_op_ids: &mut HashSet<String>,
     metrics: &crate::metrics::DataplaneMetrics,
@@ -37,7 +37,7 @@ pub(super) async fn reconcile_function_calls(
     uri_prefix: &str,
     output_blob_handles: &[MultipartUploadHandle],
     blob_store: &BlobStore,
-    executor_id: &str,
+    _executor_id: &str,
 ) {
     for fc in &state.function_calls {
         let fc_id = fc.id.as_deref().unwrap_or("");
@@ -207,23 +207,14 @@ pub(super) async fn reconcile_function_calls(
                 continue;
             }
 
-            // Wrap the FunctionCallRequest in an AllocationStreamRequest
-            // with an AllocationLogEntry containing a call_function entry.
-            let stream_request = AllocationStreamRequest {
-                executor_id: executor_id.to_string(),
-                message: Some(
-                    executor_api_pb::allocation_stream_request::Message::LogEntry(
-                        executor_api_pb::AllocationLogEntry {
-                            allocation_id: allocation.allocation_id.clone().unwrap_or_default(),
-                            clock: 0,
-                            entry: Some(
-                                executor_api_pb::allocation_log_entry::Entry::CallFunction(
-                                    fc_request,
-                                ),
-                            ),
-                        },
-                    ),
-                ),
+            // Send the AllocationLogEntry containing the call_function entry
+            // directly via the activity channel (included in heartbeat).
+            let stream_request = AllocationLogEntry {
+                allocation_id: allocation.allocation_id.clone().unwrap_or_default(),
+                clock: 0,
+                entry: Some(executor_api_pb::allocation_log_entry::Entry::CallFunction(
+                    fc_request,
+                )),
             };
 
             let creation_result =
@@ -284,10 +275,10 @@ async fn send_fc_validation_error(
     let _ = client.send_allocation_update(update).await;
 }
 
-/// Send an execution update via the allocation stream channel.
+/// Send an allocation log entry via the activity channel.
 async fn send_execution_update_with_retry(
-    stream_tx: &mpsc::UnboundedSender<AllocationStreamRequest>,
-    request: AllocationStreamRequest,
+    stream_tx: &mpsc::UnboundedSender<AllocationLogEntry>,
+    request: AllocationLogEntry,
     metrics: &crate::metrics::DataplaneMetrics,
 ) -> Result<(), String> {
     let msg_size = prost::Message::encoded_len(&request);
