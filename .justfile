@@ -23,13 +23,13 @@ fmt-rust: nightly-toolchain
     rustup run nightly cargo fmt
 
 # Reformat Indexify
-[working-directory: 'indexify']
+[working-directory('indexify')]
 fmt-indexify:
     poetry run black .
     poetry run isort . --profile black
 
 # Reformat Tensorlake
-[working-directory: 'tensorlake']
+[working-directory('tensorlake')]
 fmt-tensorlake:
     poetry run black .
     poetry run isort . --profile black
@@ -42,13 +42,13 @@ check-rust: nightly-toolchain
     rustup run nightly cargo fmt -- --check
 
 # Check formatting of Indexify
-[working-directory: 'indexify']
+[working-directory('indexify')]
 check-indexify:
     poetry run black --check .
     poetry run isort . --check-only --profile black
 
 # Check formatting of Tensorlake
-[working-directory: 'tensorlake']
+[working-directory('tensorlake')]
 check-tensorlake:
     poetry run black --check .
     poetry run isort . --check-only --profile black
@@ -61,12 +61,12 @@ build-rust:
     cargo build
 
 # Build Indexify
-[working-directory: 'indexify']
+[working-directory('indexify')]
 build-indexify:
     make
 
 # Build Tensorlake
-[working-directory: 'tensorlake']
+[working-directory('tensorlake')]
 build-tensorlake:
     make
 
@@ -85,12 +85,12 @@ test-rust:
     cargo nextest run
 
 # Test Indexify
-[working-directory: 'indexify/tests']
+[working-directory('indexify/tests')]
 test-indexify:
     ./run_tests.sh
 
 # Test Tensorlake
-[working-directory: 'tensorlake/tests']
+[working-directory('tensorlake/tests')]
 test-tensorlake:
     ./run_tests.sh
 
@@ -110,7 +110,7 @@ run-server-with-flamegraph:
     cargo flamegraph -p indexify-server
 
 # Run a dev Indexify executor
-[working-directory: 'indexify']
+[working-directory('indexify')]
 run-executor:
     poetry run indexify-cli executor --grpc-server-addr localhost:8901 --verbose
 
@@ -133,10 +133,10 @@ run-jaeger:
       cr.jaegertracing.io/jaegertracing/jaeger:2.13.0
 
 # Run Tensorlake benchmarks
-[working-directory: 'indexify']
+[working-directory('indexify')]
 run-tl-benchmarks:
     poetry run python3 benchmarks/map_reduce/main.py --maps-count 500 --num-requests 1 --failure-threshold-seconds 900
 
 # Build a Docker image for the Indexify server
 build-server-image TAG="latest":
-    docker build -t indexify-server:{{TAG}} -f dockerfiles/Dockerfile.server .
+    docker build -t indexify-server:{{ TAG }} -f dockerfiles/Dockerfile.server .
