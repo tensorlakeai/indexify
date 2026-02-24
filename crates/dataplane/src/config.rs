@@ -351,9 +351,12 @@ pub struct DataplaneConfig {
     /// Telemetry configuration.
     #[serde(default)]
     pub telemetry: TelemetryConfig,
-    /// Process driver configuration.
+    /// Process driver for function executor containers.
     #[serde(default)]
-    pub driver: DriverConfig,
+    pub function_driver: DriverConfig,
+    /// Process driver for sandbox containers.
+    #[serde(default)]
+    pub sandbox_driver: DriverConfig,
     /// Directory for all dataplane state files (container state, driver
     /// metadata, logs). Defaults to `./dataplane-state/` in the current
     /// working directory.
@@ -447,7 +450,8 @@ impl Default for DataplaneConfig {
             server_addr: "http://localhost:8901".to_string(),
             tls: TlsConfig::default(),
             telemetry: TelemetryConfig::default(),
-            driver: DriverConfig::default(),
+            function_driver: DriverConfig::default(),
+            sandbox_driver: DriverConfig::default(),
             state_dir: "./dataplane-state".to_string(),
             http_proxy: HttpProxyConfig::default(),
             daemon_binary_extract_path: None,
@@ -496,8 +500,8 @@ impl DataplaneConfig {
     /// Uses the driver's explicit `state_dir` if set, otherwise
     /// `{state_dir}/firecracker/`.
     #[cfg(feature = "firecracker")]
-    pub fn firecracker_state_dir(&self) -> PathBuf {
-        if let DriverConfig::Firecracker { state_dir, .. } = &self.driver {
+    pub fn firecracker_state_dir(&self, driver: &DriverConfig) -> PathBuf {
+        if let DriverConfig::Firecracker { state_dir, .. } = driver {
             if let Some(dir) = state_dir {
                 return PathBuf::from(dir);
             }
@@ -509,8 +513,8 @@ impl DataplaneConfig {
     /// Uses the driver's explicit `log_dir` if set, otherwise
     /// `{state_dir}/firecracker/logs/`.
     #[cfg(feature = "firecracker")]
-    pub fn firecracker_log_dir(&self) -> PathBuf {
-        if let DriverConfig::Firecracker { log_dir, .. } = &self.driver {
+    pub fn firecracker_log_dir(&self, driver: &DriverConfig) -> PathBuf {
+        if let DriverConfig::Firecracker { log_dir, .. } = driver {
             if let Some(dir) = log_dir {
                 return PathBuf::from(dir);
             }
@@ -727,12 +731,12 @@ resource_overrides:
         let yaml = r#"
 env: local
 server_addr: "http://localhost:8901"
-driver:
+function_driver:
   type: docker
   runtime: runsc
 "#;
         let config = DataplaneConfig::from_yaml_str(yaml).unwrap();
-        match &config.driver {
+        match &config.function_driver {
             DriverConfig::Docker {
                 runtime, network, ..
             } => {
@@ -748,12 +752,12 @@ driver:
         let yaml = r#"
 env: local
 server_addr: "http://localhost:8901"
-driver:
+function_driver:
   type: docker
   network: host
 "#;
         let config = DataplaneConfig::from_yaml_str(yaml).unwrap();
-        match &config.driver {
+        match &config.function_driver {
             DriverConfig::Docker {
                 network, runtime, ..
             } => {
@@ -769,14 +773,14 @@ driver:
         let yaml = r#"
 env: local
 server_addr: "http://localhost:8901"
-driver:
+function_driver:
   type: docker
   address: "unix:///var/run/docker.sock"
   runtime: runsc
   network: my-network
 "#;
         let config = DataplaneConfig::from_yaml_str(yaml).unwrap();
-        match &config.driver {
+        match &config.function_driver {
             DriverConfig::Docker {
                 address,
                 runtime,
@@ -791,13 +795,48 @@ driver:
         }
     }
 
+    #[test]
+    fn test_mixed_drivers() {
+        // Different drivers for functions and sandboxes
+        let yaml = r#"
+env: local
+server_addr: "http://localhost:8901"
+function_driver:
+  type: docker
+  runtime: runsc
+sandbox_driver:
+  type: fork_exec
+"#;
+        let config = DataplaneConfig::from_yaml_str(yaml).unwrap();
+        match &config.function_driver {
+            DriverConfig::Docker { runtime, .. } => {
+                assert_eq!(runtime.as_deref(), Some("runsc"));
+            }
+            _ => panic!("Expected Docker driver for function_driver"),
+        }
+        assert!(matches!(config.sandbox_driver, DriverConfig::ForkExec));
+    }
+
+    #[test]
+    fn test_default_drivers_are_forkexec() {
+        let config = DataplaneConfig::default();
+        assert!(matches!(
+            config.function_driver,
+            DriverConfig::ForkExec
+        ));
+        assert!(matches!(
+            config.sandbox_driver,
+            DriverConfig::ForkExec
+        ));
+    }
+
     #[cfg(feature = "firecracker")]
     #[test]
     fn test_firecracker_driver_config() {
         let yaml = r#"
 env: local
 server_addr: "http://localhost:8901"
-driver:
+sandbox_driver:
   type: firecracker
   kernel_image_path: "/opt/firecracker/vmlinux"
   base_rootfs_image: "/opt/firecracker/rootfs.ext4"
@@ -807,7 +846,7 @@ driver:
   lvm_thin_pool: "thinpool"
 "#;
         let config = DataplaneConfig::from_yaml_str(yaml).unwrap();
-        match &config.driver {
+        match &config.sandbox_driver {
             DriverConfig::Firecracker {
                 kernel_image_path,
                 base_rootfs_image,
@@ -850,7 +889,7 @@ driver:
         let yaml = r#"
 env: local
 server_addr: "http://localhost:8901"
-driver:
+sandbox_driver:
   type: firecracker
   firecracker_binary: "/usr/local/bin/firecracker"
   kernel_image_path: "/opt/firecracker/vmlinux"
@@ -868,7 +907,7 @@ driver:
   lvm_thin_pool: "my-pool"
 "#;
         let config = DataplaneConfig::from_yaml_str(yaml).unwrap();
-        match &config.driver {
+        match &config.sandbox_driver {
             DriverConfig::Firecracker {
                 firecracker_binary,
                 default_rootfs_size_bytes,
@@ -909,7 +948,7 @@ driver:
 env: local
 server_addr: "http://localhost:8901"
 state_dir: "/data/indexify"
-driver:
+sandbox_driver:
   type: firecracker
   kernel_image_path: "/opt/firecracker/vmlinux"
   base_rootfs_image: "/opt/firecracker/rootfs.ext4"
@@ -919,12 +958,13 @@ driver:
   lvm_thin_pool: "thinpool"
 "#;
         let config = DataplaneConfig::from_yaml_str(yaml).unwrap();
+        let sandbox_driver = &config.sandbox_driver;
         assert_eq!(
-            config.firecracker_state_dir(),
+            config.firecracker_state_dir(&sandbox_driver),
             PathBuf::from("/data/indexify/firecracker")
         );
         assert_eq!(
-            config.firecracker_log_dir(),
+            config.firecracker_log_dir(&sandbox_driver),
             PathBuf::from("/data/indexify/firecracker/logs")
         );
         assert_eq!(
@@ -942,7 +982,7 @@ driver:
 env: local
 server_addr: "http://localhost:8901"
 state_dir: "/data/indexify"
-driver:
+sandbox_driver:
   type: firecracker
   kernel_image_path: "/opt/firecracker/vmlinux"
   base_rootfs_image: "/opt/firecracker/rootfs.ext4"
@@ -954,12 +994,13 @@ driver:
   lvm_thin_pool: "thinpool"
 "#;
         let config = DataplaneConfig::from_yaml_str(yaml).unwrap();
+        let sandbox_driver = &config.sandbox_driver;
         assert_eq!(
-            config.firecracker_state_dir(),
+            config.firecracker_state_dir(&sandbox_driver),
             PathBuf::from("/custom/fc-state")
         );
         assert_eq!(
-            config.firecracker_log_dir(),
+            config.firecracker_log_dir(&sandbox_driver),
             PathBuf::from("/custom/fc-logs")
         );
     }

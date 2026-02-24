@@ -45,19 +45,23 @@ tls:
 #   instance_id: "dataplane-1"
 
 # ---------------------------------------------------------------------------
-# Process Driver
+# Process Drivers
 # ---------------------------------------------------------------------------
-# Determines how function containers are launched.
-# Options: "fork_exec" (default), "docker", "firecracker"
+# Separate drivers for function executors and sandbox containers.
+# This allows using different isolation backends (e.g., gVisor for functions
+# and Firecracker for sandboxes).
 #
-# Uncomment ONE of the driver sections below.
+# Options: "fork_exec" (default), "docker", "firecracker"
 
 # --- fork_exec (default — no configuration needed) ---
-driver:
+function_driver:
+  type: fork_exec
+
+sandbox_driver:
   type: fork_exec
 
 # --- Docker driver ---
-# driver:
+# function_driver:
 #   type: docker
 #   address: "unix:///var/run/docker.sock"     # Docker daemon address
 #   runtime: runsc                             # OCI runtime (e.g., runsc for gVisor)
@@ -68,11 +72,11 @@ driver:
 #   snapshot_local_dir: /tmp/indexify-snapshots      # gVisor snapshot overlay tars
 
 # --- Firecracker driver (requires --features firecracker) ---
-# Launches each function in an isolated microVM using Firecracker + KVM.
+# Launches each sandbox in an isolated microVM using Firecracker + KVM.
 # Requires: firecracker binary, Linux kernel image, base rootfs, CNI network,
 # and an LVM thin pool for per-VM copy-on-write block devices.
 #
-# driver:
+# sandbox_driver:
 #   type: firecracker
 #
 #   # -- Required ----------------------------------------------------------
@@ -99,6 +103,19 @@ driver:
 #   # default_memory_mib: 512               # Memory per VM in MiB
 #   # state_dir: /var/lib/indexify/firecracker   # VM metadata, sockets
 #   # log_dir: /var/log/indexify/firecracker     # VM log files
+#
+# --- Mixed example: gVisor for functions, Firecracker for sandboxes ---
+# function_driver:
+#   type: docker
+#   runtime: runsc
+# sandbox_driver:
+#   type: firecracker
+#   kernel_image_path: /opt/firecracker/vmlinux-6.1
+#   base_rootfs_image: /opt/firecracker/rootfs.ext4
+#   cni_network_name: indexify-fc
+#   guest_gateway: "192.168.30.1"
+#   lvm_volume_group: indexify-vg
+#   lvm_thin_pool: thinpool
 
 # ---------------------------------------------------------------------------
 # Function Executor
