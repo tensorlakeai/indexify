@@ -25,6 +25,7 @@ use crate::{
     metrics::{self, Timer},
     state_store::{
         driver::{IterOptions, RangeOptionsBuilder, Reader, rocksdb::RocksDBDriver},
+        request_events::PersistedRequestStateChangeEvent,
         serializer::{StateStoreEncode, StateStoreEncoder},
     },
     utils::get_epoch_time_in_ms,
@@ -253,6 +254,35 @@ impl StateReader {
                 &[],
                 cursor,
                 IndexifyObjectsColumns::AllocationUsage,
+                Some(MAX_FETCH_LIMIT),
+            )
+            .await?;
+
+        Ok((events, cursor))
+    }
+
+    /// Fetch pending request state change events with pagination support.
+    /// Returns up to 100 records at a time.
+    ///
+    /// `cursor`: Optional cursor to start fetching from (exclusive).
+    ///
+    /// Returns a tuple containing:
+    /// - A vector of `PersistedRequestStateChangeEvent` records.
+    /// - An optional cursor for the next page (if more records are available).
+    pub async fn pending_request_state_change_events(
+        &self,
+        cursor: Option<&Vec<u8>>,
+    ) -> Result<(Vec<PersistedRequestStateChangeEvent>, Option<Vec<u8>>)> {
+        let kvs = &[KeyValue::new("op", "pending_request_state_change_events")];
+        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
+
+        let cursor = cursor.map(|c| c.as_slice());
+
+        let (events, cursor) = self
+            .get_rows_from_cf_with_limits::<PersistedRequestStateChangeEvent>(
+                &[],
+                cursor,
+                IndexifyObjectsColumns::RequestStateChangeEvents,
                 Some(MAX_FETCH_LIMIT),
             )
             .await?;

@@ -2,7 +2,7 @@ use std::{sync::Arc, time::Duration};
 
 use async_broadcast::Receiver;
 use opentelemetry::metrics::{Counter, Histogram, ObservableGauge};
-use tokio::sync::watch;
+use tokio::sync::{Notify, watch};
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::{error, info, instrument, warn};
 
@@ -10,11 +10,14 @@ use crate::{
     cloud_events,
     metrics::{Timer, low_latency_boundaries},
     queue::Queue,
-    state_store::{IndexifyState, request_events::RequestStateChangeEvent},
+    state_store::{IndexifyState, request_events::RequestStateChangeEvent, state_machine},
 };
 
 // Constants
 const GRACEFUL_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(30);
+const MAX_REMOVE_ATTEMPTS: u8 = 10;
+/// Backoff delay when the external queue is unreachable.
+const QUEUE_SEND_FAILURE_BACKOFF: Duration = Duration::from_secs(5);
 
 pub struct RequestStateChangeProcessor {
     indexify_state: Arc<IndexifyState>,
@@ -88,7 +91,7 @@ impl RequestStateChangeProcessor {
         // Subscribe to request state change events from the broadcast channel
         let sse_rx = self.indexify_state.subscribe_request_state_changes();
 
-        // Spawn SSE delivery worker
+        // Spawn SSE delivery worker (best-effort, broadcast channel)
         tracker.spawn({
             let state = self.indexify_state.clone();
             let latency = self.sse_processing_latency.clone();
@@ -99,15 +102,16 @@ impl RequestStateChangeProcessor {
             }
         });
 
-        // Spawn queue export worker (if queue is configured)
+        // Spawn queue export worker (at-least-once, RocksDB outbox)
         if let Some(queue) = queue {
-            let queue_rx = self.indexify_state.subscribe_request_state_changes();
+            let mut rx = self.indexify_state.request_queue_events_rx.clone();
+            let state = self.indexify_state.clone();
             let latency = self.queue_processing_latency.clone();
             let counter = self.queue_events_counter.clone();
             let errors = self.queue_send_errors.clone();
             let token = cancel_token.child_token();
             tracker.spawn(async move {
-                queue_export_worker(queue_rx, queue, latency, counter, errors, token).await;
+                queue_export_worker(&mut rx, queue, state, latency, counter, errors, token).await;
             });
         } else {
             info!("Queue export worker disabled - no queue configured");
@@ -177,55 +181,148 @@ async fn sse_delivery_worker(
     }
 }
 
-/// Queue export worker - sends events individually to an external message
-/// queue. No local persistence or batching; events are sent as they arrive.
+/// Queue export worker - reads persisted events from RocksDB outbox and sends
+/// them to the external queue. Follows the UsageProcessor pattern for
+/// at-least-once delivery.
 async fn queue_export_worker(
-    mut rx: Receiver<RequestStateChangeEvent>,
+    rx: &mut watch::Receiver<()>,
     queue: Arc<Queue>,
+    state: Arc<IndexifyState>,
     latency: Histogram<f64>,
     counter: Counter<u64>,
     errors: Counter<u64>,
     cancel_token: CancellationToken,
 ) {
-    info!("Queue export worker started");
+    info!("Queue export worker started (at-least-once delivery)");
+
+    let mut cursor: Option<Vec<u8>> = None;
+    let notify = Arc::new(Notify::new());
 
     loop {
-        let event = tokio::select! {
-            result = rx.recv() => match result {
-                Ok(event) => event,
-                Err(async_broadcast::RecvError::Closed) => {
-                    info!("Queue export worker: channel closed, shutting down");
-                    return;
+        tokio::select! {
+            _ = rx.changed() => {
+                rx.borrow_and_update();
+                if let Err(error) = process_batch(
+                    &queue, &state, &mut cursor, &notify,
+                    &latency, &counter, &errors,
+                ).await {
+                    error!(%error, "error processing request state change events batch");
                 }
-                Err(async_broadcast::RecvError::Overflowed(n)) => {
-                    warn!("Queue export worker: channel overflowed, lost {} events", n);
-                    continue;
+            }
+            _ = notify.notified() => {
+                if let Err(error) = process_batch(
+                    &queue, &state, &mut cursor, &notify,
+                    &latency, &counter, &errors,
+                ).await {
+                    error!(%error, "error processing request state change events batch");
                 }
-            },
+            }
             _ = cancel_token.cancelled() => {
                 info!("Queue export worker shutting down");
-                return;
+                break;
             }
-        };
+        }
+    }
+}
 
+/// Process a batch of persisted request state change events from the RocksDB
+/// outbox. Follows the UsageProcessor::process_allocation_usage_events pattern.
+async fn process_batch(
+    queue: &Arc<Queue>,
+    state: &Arc<IndexifyState>,
+    cursor: &mut Option<Vec<u8>>,
+    notify: &Arc<Notify>,
+    latency: &Histogram<f64>,
+    counter: &Counter<u64>,
+    errors: &Counter<u64>,
+) -> anyhow::Result<()> {
+    let (events, new_cursor) = state
+        .reader()
+        .pending_request_state_change_events(cursor.as_ref())
+        .await?;
+
+    if events.is_empty() {
+        return Ok(());
+    }
+
+    let has_more_pages = new_cursor.is_some();
+
+    let mut failed_submission_cursor: Option<Vec<u8>> = None;
+    let mut processed_events = Vec::new();
+    let mut sent_count: u64 = 0;
+
+    for persisted_event in events {
         let request = match cloud_events::create_batched_export_request(std::slice::from_ref(
-            &event,
+            &persisted_event.event,
         )) {
             Ok(req) => req,
             Err(e) => {
                 errors.add(1, &[]);
-                error!(%e, event_type = event.message(), "Failed to build export request for queue");
+                error!(
+                    %e,
+                    event_id = %persisted_event.id,
+                    event_type = persisted_event.event.message(),
+                    "Failed to build export request for queue"
+                );
+                // Skip this event — it will never succeed, so treat it as processed
+                // to avoid blocking the queue.
+                processed_events.push(persisted_event);
                 continue;
             }
         };
 
-        let _timer = Timer::start_with_labels(&latency, &[]);
+        let _timer = Timer::start_with_labels(latency, &[]);
         match queue.send_json(&request).await {
-            Ok(_) => counter.add(1, &[]),
+            Ok(_) => {
+                sent_count += 1;
+                processed_events.push(persisted_event);
+            }
             Err(e) => {
                 errors.add(1, &[]);
-                error!(%e, event_type = event.message(), "Failed to send event to queue");
+                error!(
+                    %e,
+                    event_id = %persisted_event.id,
+                    event_type = persisted_event.event.message(),
+                    "Failed to send event to queue"
+                );
+                if failed_submission_cursor.is_none() {
+                    failed_submission_cursor = Some(persisted_event.key().to_vec());
+                }
+                // Backoff before retrying to avoid hammering a failing queue
+                tokio::time::sleep(QUEUE_SEND_FAILURE_BACKOFF).await;
+                break;
             }
         }
     }
+
+    // Fix #1: Only count events actually sent to the queue
+    counter.add(sent_count, &[]);
+
+    if !processed_events.is_empty() {
+        let events = Arc::new(processed_events);
+        crate::state_store::remove_and_commit_with_backoff(&state.db, MAX_REMOVE_ATTEMPTS, |txn| {
+            let events = events.clone();
+            Box::pin(async move {
+                state_machine::remove_request_state_change_events(txn, events.as_slice()).await
+            })
+        })
+        .await?;
+    }
+
+    // Fix #2: Reset cursor after successful processing so we don't skip
+    // events inserted while we were processing. On failure, resume from the
+    // failed event.
+    let had_failure = failed_submission_cursor.is_some();
+    if let Some(failed_cursor) = failed_submission_cursor {
+        cursor.replace(failed_cursor);
+    } else {
+        *cursor = None;
+    }
+
+    // Fix #6: Only re-trigger if there is actually more work to do.
+    if has_more_pages || had_failure {
+        notify.notify_one();
+    }
+
+    Ok(())
 }

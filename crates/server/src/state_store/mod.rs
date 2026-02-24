@@ -1,11 +1,14 @@
 use std::{
     collections::{HashMap, HashSet},
     fs,
+    future::Future,
     path::PathBuf,
+    pin::Pin,
     sync::{
         Arc,
         atomic::{self, AtomicU64},
     },
+    time::Duration,
 };
 
 use anyhow::{Result, anyhow};
@@ -285,8 +288,12 @@ pub struct IndexifyState {
     pub change_events_rx: watch::Receiver<()>,
     pub usage_events_tx: watch::Sender<()>,
     pub usage_events_rx: watch::Receiver<()>,
-    /// Broadcast channel for request state change events.
-    /// SSE worker and HTTP export worker both subscribe to this channel.
+    /// Watch channel for request state change queue export worker.
+    pub request_queue_events_tx: watch::Sender<()>,
+    pub request_queue_events_rx: watch::Receiver<()>,
+    /// Broadcast channel for request state change events (best-effort).
+    /// Only the SSE worker subscribes; the queue export worker reads from
+    /// the RocksDB outbox via the watch channel above.
     pub request_events_tx: async_broadcast::Sender<RequestStateChangeEvent>,
     /// Keep the initial receiver alive to prevent channel from being closed.
     /// New receivers are created via sender.new_receiver() which clone from
@@ -334,7 +341,8 @@ struct PersistentWriteResult {
     current_state_id: u64,
     should_notify_usage_reporter: bool,
     new_state_changes: Vec<StateChange>,
-    /// Request state change events to broadcast (not persisted to DB anymore)
+    /// Request state change events persisted to the outbox and broadcast to
+    /// SSE.
     request_state_changes: Vec<RequestStateChangeEvent>,
 }
 
@@ -369,6 +377,7 @@ impl IndexifyState {
 
         let (change_events_tx, change_events_rx) = tokio::sync::watch::channel(());
         let (usage_events_tx, usage_events_rx) = tokio::sync::watch::channel(());
+        let (request_queue_events_tx, request_queue_events_rx) = tokio::sync::watch::channel(());
 
         let (mut request_events_tx, request_events_rx) =
             async_broadcast::broadcast::<RequestStateChangeEvent>(REQUEST_EVENT_CHANNEL_CAPACITY);
@@ -396,12 +405,35 @@ impl IndexifyState {
         let indexes = Arc::new(RwLock::new(in_memory_state));
         let in_memory_store_gauges = InMemoryStoreGauges::new(indexes.clone());
 
+        // Fix request_event_id_seq on startup: scan RequestStateChangeEvents
+        // column for max key so we never reuse an ID from orphaned outbox entries
+        // (crash between persist and metadata write).
+        // Keys are big-endian u64, so RocksDB stores them in ascending order —
+        // the last element of the last page is the max.
+        let request_event_id_start = {
+            let mut max_outbox_id: u64 = 0;
+            let mut cursor: Option<Vec<u8>> = None;
+            loop {
+                let (events, next_cursor) = state_reader
+                    .pending_request_state_change_events(cursor.as_ref())
+                    .await?;
+                if let Some(last) = events.last() {
+                    max_outbox_id = last.id.value() + 1;
+                }
+                if next_cursor.is_none() || events.is_empty() {
+                    break;
+                }
+                cursor = next_cursor;
+            }
+            std::cmp::max(sm_meta.last_request_event_idx, max_outbox_id)
+        };
+
         let s = Arc::new(Self {
             db,
             db_version: sm_meta.db_version,
             state_change_id_seq: Arc::new(AtomicU64::new(sm_meta.last_change_idx)),
             usage_event_id_seq: Arc::new(AtomicU64::new(sm_meta.last_usage_idx)),
-            request_event_id_seq: Arc::new(AtomicU64::new(sm_meta.last_request_event_idx)),
+            request_event_id_seq: Arc::new(AtomicU64::new(request_event_id_start)),
             executor_states: RwLock::new(HashMap::new()),
             metrics: state_store_metrics,
             change_events_tx,
@@ -410,6 +442,8 @@ impl IndexifyState {
             container_scheduler,
             usage_events_tx,
             usage_events_rx,
+            request_queue_events_tx,
+            request_queue_events_rx,
             request_events_tx,
             _request_events_rx,
             executor_connections: RwLock::new(HashMap::new()),
@@ -624,7 +658,12 @@ impl IndexifyState {
                 error!("failed to notify of usage event, ignoring: {err:?}",);
             }
 
-            // Broadcast request state change events to SSE and HTTP export workers
+            // Notify queue export worker via watch channel (at-least-once delivery)
+            if !write_result.request_state_changes.is_empty() {
+                let _ = self.request_queue_events_tx.send(());
+            }
+
+            // Broadcast request state change events to SSE worker (best-effort)
             for event in write_result.request_state_changes {
                 if let Err(err) = self.request_events_tx.broadcast(event).await {
                     error!("failed to broadcast request state change event, ignoring: {err:?}",);
@@ -897,6 +936,15 @@ impl IndexifyState {
             state_machine::save_state_changes(&txn, &new_state_changes, current_clock).await?;
         }
 
+        if !request_state_changes.is_empty() {
+            state_machine::persist_request_state_change_events(
+                &txn,
+                &request_state_changes,
+                &self.request_event_id_seq,
+            )
+            .await?;
+        }
+
         let current_state_id = self.state_change_id_seq.load(atomic::Ordering::Relaxed);
         let current_usage_sequence_id = self.usage_event_id_seq.load(atomic::Ordering::Relaxed);
         let current_request_event_id = self.request_event_id_seq.load(atomic::Ordering::Relaxed);
@@ -1082,6 +1130,58 @@ pub async fn write_sm_meta(txn: &Transaction, sm_meta: &StateMachineMetadata) ->
     )
     .await?;
     Ok(())
+}
+
+/// Remove events from the database and commit the transaction, retrying with
+/// exponential backoff on failure. Shared by both the usage processor and the
+/// request state change processor.
+pub(crate) async fn remove_and_commit_with_backoff<F>(
+    db: &RocksDBDriver,
+    max_attempts: u8,
+    remove_fn: F,
+) -> Result<()>
+where
+    F: for<'a> Fn(&'a Transaction) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>>,
+{
+    for attempt in 1..=max_attempts {
+        let txn = db.transaction();
+
+        if let Err(error) = remove_fn(&txn).await {
+            error!(
+                %error,
+                attempt,
+                "error removing events from outbox, retrying..."
+            );
+
+            if attempt == max_attempts {
+                return Err(error);
+            }
+
+            let delay = Duration::from_secs(attempt as u64);
+            tokio::time::sleep(delay).await;
+            continue;
+        }
+
+        match txn.commit().await {
+            Ok(_) => return Ok(()),
+            Err(commit_error) => {
+                error!(
+                    %commit_error,
+                    attempt,
+                    "error committing outbox removal transaction, retrying..."
+                );
+
+                if attempt == max_attempts {
+                    return Err(anyhow::Error::new(commit_error));
+                }
+
+                let delay = Duration::from_secs(attempt as u64);
+                tokio::time::sleep(delay).await;
+            }
+        }
+    }
+
+    Err(anyhow!("Failed to remove and commit events"))
 }
 
 #[cfg(test)]

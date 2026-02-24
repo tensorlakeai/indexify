@@ -11,7 +11,14 @@ use rocksdb::ErrorKind;
 use strum::AsRefStr;
 use tracing::{debug, info, trace, warn};
 
-use super::serializer::{StateStoreEncode, StateStoreEncoder};
+use super::{
+    request_events::{
+        PersistedRequestStateChangeEvent,
+        RequestStateChangeEvent,
+        RequestStateChangeEventId,
+    },
+    serializer::{StateStoreEncode, StateStoreEncoder},
+};
 use crate::{
     data_model::{
         Allocation,
@@ -957,5 +964,42 @@ pub(crate) async fn remove_allocation_usage_events(
             .await?;
     }
 
+    Ok(())
+}
+
+pub(crate) async fn persist_request_state_change_events(
+    txn: &Transaction,
+    events: &[RequestStateChangeEvent],
+    id_seq: &AtomicU64,
+) -> Result<()> {
+    for event in events {
+        let id = RequestStateChangeEventId::new(id_seq.fetch_add(1, Ordering::Relaxed));
+        let persisted = PersistedRequestStateChangeEvent::new(id, event.clone());
+        let serialized = StateStoreEncoder::encode(&persisted)?;
+        txn.put(
+            IndexifyObjectsColumns::RequestStateChangeEvents.as_ref(),
+            &persisted.key(),
+            &serialized,
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+pub(crate) async fn remove_request_state_change_events(
+    txn: &Transaction,
+    events: &[PersistedRequestStateChangeEvent],
+) -> Result<()> {
+    for event in events {
+        trace!(
+            event_id = %event.id,
+            "removing request state change event"
+        );
+        txn.delete(
+            IndexifyObjectsColumns::RequestStateChangeEvents.as_ref(),
+            &event.key(),
+        )
+        .await?;
+    }
     Ok(())
 }

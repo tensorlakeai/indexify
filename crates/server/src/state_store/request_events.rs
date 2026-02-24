@@ -14,6 +14,10 @@ impl RequestStateChangeEventId {
     pub fn new(seq: u64) -> Self {
         Self(seq)
     }
+
+    pub fn value(&self) -> u64 {
+        self.0
+    }
 }
 
 impl std::fmt::Display for RequestStateChangeEventId {
@@ -44,6 +48,17 @@ pub trait RequestEventMetadata {
 pub struct PersistedRequestStateChangeEvent {
     pub id: RequestStateChangeEventId,
     pub event: RequestStateChangeEvent,
+}
+
+impl PersistedRequestStateChangeEvent {
+    pub fn new(id: RequestStateChangeEventId, event: RequestStateChangeEvent) -> Self {
+        Self { id, event }
+    }
+
+    /// Returns the RocksDB key for this event (big-endian u64).
+    pub fn key(&self) -> [u8; 8] {
+        self.id.value().to_be_bytes()
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

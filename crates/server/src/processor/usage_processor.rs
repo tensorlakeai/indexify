@@ -1,7 +1,6 @@
 use std::{
     collections::HashMap,
     sync::{Arc, RwLock},
-    time::Duration,
 };
 
 use anyhow::{Result, anyhow};
@@ -25,7 +24,7 @@ use crate::{
     },
     metrics::{Timer, low_latency_boundaries},
     queue::Queue,
-    state_store::{IndexifyState, driver::Writer, state_machine},
+    state_store::{IndexifyState, state_machine},
 };
 
 #[derive(Debug, Clone, PartialEq, PartialOrd, Ord, Eq, Hash)]
@@ -234,8 +233,18 @@ impl UsageProcessor {
         }
 
         if !processed_events.is_empty() {
-            self.remove_and_commit_with_backoff(processed_events)
-                .await?;
+            let events = Arc::new(processed_events);
+            crate::state_store::remove_and_commit_with_backoff(
+                &self.indexify_state.db,
+                self.max_attempts,
+                |txn| {
+                    let events = events.clone();
+                    Box::pin(async move {
+                        state_machine::remove_allocation_usage_events(txn, events.as_slice()).await
+                    })
+                },
+            )
+            .await?;
         }
 
         if let Some(failed_cursor) = failed_submission_cursor {
@@ -245,54 +254,6 @@ impl UsageProcessor {
         notify.notify_one();
 
         Ok(())
-    }
-
-    async fn remove_and_commit_with_backoff(
-        &self,
-        processed_events: Vec<AllocationUsageEvent>,
-    ) -> Result<()> {
-        for attempt in 1..=self.max_attempts {
-            let txn = self.indexify_state.db.transaction();
-
-            if let Err(error) =
-                state_machine::remove_allocation_usage_events(&txn, processed_events.as_slice())
-                    .await
-            {
-                error!(
-                    %error,
-                    attempt,
-                    "error removing processed allocation usage events, retrying..."
-                );
-
-                if attempt == self.max_attempts {
-                    return Err(error);
-                }
-
-                let delay = Duration::from_secs(attempt as u64);
-                tokio::time::sleep(delay).await;
-                continue; // Retry the loop instead of falling through to commit
-            }
-
-            match txn.commit().await {
-                Ok(_) => return Ok(()),
-                Err(commit_error) => {
-                    error!(
-                        %commit_error,
-                        attempt,
-                        "error committing transaction to remove processed allocation usage events, retrying..."
-                    );
-
-                    if attempt == self.max_attempts {
-                        return Err(anyhow::Error::new(commit_error));
-                    }
-
-                    let delay = Duration::from_secs(attempt as u64);
-                    tokio::time::sleep(delay).await;
-                }
-            }
-        }
-
-        Err(anyhow::anyhow!("Failed to remove and commit events"))
     }
 
     async fn send_to_queue(&self, event: AllocationUsageEvent) -> Result<()> {
