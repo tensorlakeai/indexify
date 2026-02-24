@@ -10,7 +10,7 @@ server_addr: "http://localhost:8901"
 
 state_dir: /var/lib/indexify
 
-driver:
+sandbox_driver:
   type: firecracker
   kernel_image_path: /home/diptanuc/Projects/firecracker/vmlinux-6.1.155
   base_rootfs_image: /home/diptanuc/Projects/firecracker/ubuntu-24.04.ext4
