@@ -144,6 +144,8 @@ impl FunctionRunCreator {
             fn = alloc_finished_event.function,
             fn_run_id = alloc_finished_event.function_call_id.to_string(),
             allocation_id = alloc_finished_event.allocation_id.to_string(),
+            outcome=alloc_finished_event.allocation_outcome.to_string(),
+            executor_id=alloc_finished_event.allocation_target.executor_id.get(),
             "handling allocation ingestion",
         );
         let mut scheduler_update = SchedulerUpdateRequest::default();

@@ -53,22 +53,21 @@ const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ConnectionState {
     /// Initial state. Heartbeat running, waiting for server to accept
-    /// registration. Streams should not connect yet.
+    /// registration. Poll loops should not start yet.
     Registering,
     /// Server accepted registration (send_state=false).
-    /// Streams can connect. Heartbeat continues for liveness.
+    /// Poll loops can connect. Heartbeat continues for liveness.
     Ready,
-    /// Heartbeat failed. Since heartbeat and streams share the same
-    /// gRPC channel, streams will also fail and reconnect on their own.
-    /// This state is for observability, not for stream control.
+    /// Heartbeat failed. Poll loops will also fail and reconnect on
+    /// their own. This state is for observability.
     Unhealthy,
 }
 
-/// Heartbeat retry backoff parameters (matches Python executor's
-/// state_reporter.py).
-const HEARTBEAT_MIN_RETRY_INTERVAL: Duration = Duration::from_secs(5);
-const HEARTBEAT_MAX_RETRY_INTERVAL: Duration = Duration::from_secs(300); // 5 minutes
-const HEARTBEAT_BACKOFF_MULTIPLIER: u32 = 3;
+/// Heartbeat retry backoff parameters. Keep these low so the dataplane
+/// recovers quickly from transient network partitions.
+const HEARTBEAT_MIN_RETRY_INTERVAL: Duration = Duration::from_secs(1);
+const HEARTBEAT_MAX_RETRY_INTERVAL: Duration = Duration::from_secs(5);
+const HEARTBEAT_BACKOFF_MULTIPLIER: u32 = 2;
 
 pub struct Service {
     config: DataplaneConfig,
@@ -491,7 +490,7 @@ async fn run_metrics_update_loop(metrics: Arc<DataplaneMetrics>, cancel_token: C
     }
 }
 
-/// Static identity fields for this executor, used in heartbeats and stream
+/// Static identity fields for this executor, used in heartbeats and poll
 /// requests.
 struct ExecutorIdentity {
     executor_id: String,
@@ -502,7 +501,7 @@ struct ExecutorIdentity {
     server_addr: String,
 }
 
-/// Shared runtime context for heartbeat and stream loops.
+/// Shared runtime context for heartbeat and poll loops.
 struct ServiceRuntime {
     channel: Channel,
     identity: ExecutorIdentity,
@@ -511,7 +510,7 @@ struct ServiceRuntime {
     heartbeat_healthy: Arc<AtomicBool>,
     /// Explicit connection state machine. Replaces the old `heartbeat_watch:
     /// watch::Sender<bool>`. Transitions are logged in the heartbeat loop;
-    /// streams observe via `subscribe()`.
+    /// poll loops observe via `subscribe()`.
     connection_state: watch::Sender<ConnectionState>,
     cancel_token: CancellationToken,
     metrics: Arc<DataplaneMetrics>,
@@ -545,7 +544,7 @@ impl ServiceRuntime {
 
     /// Wait for the connection state to become `Ready`. Returns `true` if
     /// ready, `false` if the channel closed (should exit the loop).
-    async fn wait_for_ready(&self, stream_name: &str) -> bool {
+    async fn wait_for_ready(&self, loop_name: &str) -> bool {
         let mut state_rx = self.connection_state.subscribe();
         if state_rx
             .wait_for(|s| *s == ConnectionState::Ready)
@@ -554,15 +553,15 @@ impl ServiceRuntime {
         {
             tracing::info!(
                 executor_id = %self.identity.executor_id,
-                stream = stream_name,
-                "Connection state channel closed, exiting stream loop"
+                loop_name,
+                "Connection state channel closed, exiting poll loop"
             );
             return false;
         }
         tracing::info!(
             executor_id = %self.identity.executor_id,
-            stream = stream_name,
-            "Connection ready, connecting stream"
+            loop_name,
+            "Connection ready, starting poll loop"
         );
         true
     }
@@ -698,6 +697,15 @@ impl ServiceRuntime {
                             // Mark monitoring as ready after first successful heartbeat
                             self.monitoring_state.ready.store(true, Ordering::SeqCst);
 
+                            // Reset seq counters whenever we sent full_state.
+                            // The server creates a fresh ExecutorConnection with new
+                            // command/result buffers on re-registration, so old
+                            // acked_seq values would incorrectly drain new data.
+                            if full_state.is_some() {
+                                self.last_applied_command_seq.store(0, Ordering::SeqCst);
+                                self.last_applied_result_seq.store(0, Ordering::SeqCst);
+                            }
+
                             // Only mark healthy when the server knows our executor
                             // (send_state == false). When the server asks for full state,
                             // the executor isn't registered in runtime_data yet, so the
@@ -709,8 +717,6 @@ impl ServiceRuntime {
                                     "server accepted registration",
                                 );
                             } else {
-                                // Server asked for full state — transition to Registering
-                                // if we were previously Ready (re-registration needed)
                                 self.transition_connection_state(
                                     ConnectionState::Registering,
                                     "server requested re-registration",
@@ -736,7 +742,9 @@ impl ServiceRuntime {
                             ConnectionState::Unhealthy,
                             "heartbeat RPC failed",
                         );
-                        send_full_state = true;
+                        // Don't set send_full_state here. The server will
+                        // request it via send_state=true once connectivity
+                        // is restored and the server sees an unknown executor.
                         heartbeat_failed = true;
                         break;
                     }
@@ -846,7 +854,7 @@ impl ServiceRuntime {
                         _ = self.cancel_token.cancelled() => return,
                         _ = tokio::time::sleep(retry_interval) => {},
                     }
-                    retry_interval = std::cmp::min(retry_interval * 2, Duration::from_secs(30));
+                    retry_interval = std::cmp::min(retry_interval * 2, Duration::from_secs(10));
                 }
             }
         }
@@ -902,7 +910,7 @@ impl ServiceRuntime {
                         _ = self.cancel_token.cancelled() => return,
                         _ = tokio::time::sleep(retry_interval) => {},
                     }
-                    retry_interval = std::cmp::min(retry_interval * 2, Duration::from_secs(30));
+                    retry_interval = std::cmp::min(retry_interval * 2, Duration::from_secs(10));
                 }
             }
         }
