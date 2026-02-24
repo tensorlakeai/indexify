@@ -820,14 +820,8 @@ sandbox_driver:
     #[test]
     fn test_default_drivers_are_forkexec() {
         let config = DataplaneConfig::default();
-        assert!(matches!(
-            config.function_driver,
-            DriverConfig::ForkExec
-        ));
-        assert!(matches!(
-            config.sandbox_driver,
-            DriverConfig::ForkExec
-        ));
+        assert!(matches!(config.function_driver, DriverConfig::ForkExec));
+        assert!(matches!(config.sandbox_driver, DriverConfig::ForkExec));
     }
 
     #[cfg(feature = "firecracker")]
