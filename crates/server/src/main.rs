@@ -16,6 +16,7 @@ mod indexify_ui;
 mod metrics;
 mod middleware;
 mod processor;
+mod proto_convert;
 mod routes;
 mod routes_internal;
 mod routes_v1;
