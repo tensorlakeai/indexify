@@ -405,35 +405,12 @@ impl IndexifyState {
         let indexes = Arc::new(RwLock::new(in_memory_state));
         let in_memory_store_gauges = InMemoryStoreGauges::new(indexes.clone());
 
-        // Fix request_event_id_seq on startup: scan RequestStateChangeEvents
-        // column for max key so we never reuse an ID from orphaned outbox entries
-        // (crash between persist and metadata write).
-        // Keys are big-endian u64, so RocksDB stores them in ascending order —
-        // the last element of the last page is the max.
-        let request_event_id_start = {
-            let mut max_outbox_id: u64 = 0;
-            let mut cursor: Option<Vec<u8>> = None;
-            loop {
-                let (events, next_cursor) = state_reader
-                    .pending_request_state_change_events(cursor.as_ref())
-                    .await?;
-                if let Some(last) = events.last() {
-                    max_outbox_id = last.id.value() + 1;
-                }
-                if next_cursor.is_none() || events.is_empty() {
-                    break;
-                }
-                cursor = next_cursor;
-            }
-            std::cmp::max(sm_meta.last_request_event_idx, max_outbox_id)
-        };
-
         let s = Arc::new(Self {
             db,
             db_version: sm_meta.db_version,
             state_change_id_seq: Arc::new(AtomicU64::new(sm_meta.last_change_idx)),
             usage_event_id_seq: Arc::new(AtomicU64::new(sm_meta.last_usage_idx)),
-            request_event_id_seq: Arc::new(AtomicU64::new(request_event_id_start)),
+            request_event_id_seq: Arc::new(AtomicU64::new(sm_meta.last_request_event_idx)),
             executor_states: RwLock::new(HashMap::new()),
             metrics: state_store_metrics,
             change_events_tx,
