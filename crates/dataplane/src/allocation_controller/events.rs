@@ -1,10 +1,13 @@
 //! Commands and events for the AllocationController.
 
+use std::collections::HashSet;
+
 use proto_api::executor_api_pb::{
     Allocation as ServerAllocation,
     ContainerDescription,
     ContainerTerminationReason,
 };
+use tokio::sync::oneshot;
 
 use crate::{
     driver::ProcessHandle,
@@ -27,6 +30,11 @@ pub enum ACCommand {
         removed_fe_ids: Vec<String>,
         /// (fe_id, allocation, command_seq) tuples to route.
         new_allocations: Vec<(String, ServerAllocation, u64)>,
+    },
+    /// Recover containers from the state file on startup.
+    /// Returns the set of recovered handle IDs via the oneshot channel.
+    Recover {
+        reply: oneshot::Sender<HashSet<String>>,
     },
     /// Graceful shutdown of the entire controller.
     Shutdown,

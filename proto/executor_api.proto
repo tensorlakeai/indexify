@@ -143,6 +143,9 @@ message SandboxMetadata {
     // The sandbox this container is serving (if any).
     // Unset for warm pool containers, set when claimed by a sandbox.
     optional string sandbox_id = 14;
+    // URI of the snapshot to restore from (e.g. "s3://bucket/snap.tar.zst").
+    // When set, the dataplane restores this snapshot instead of using the base image.
+    optional string snapshot_uri = 16;
 }
 
 // Describes a container managed by the dataplane.
@@ -403,20 +406,22 @@ message FunctionCallResponse {
 }
 
 // ════════════════════════════════════════════
-// HEARTBEAT (liveness + optional state)
+// HEARTBEAT (liveness + state sync + batched reports)
 // ════════════════════════════════════════════
 
-// Heartbeat serves dual purpose: liveness AND initial/periodic state sync.
+// Heartbeat serves triple purpose: liveness, state sync, AND batched reporting.
 //
 // Flow:
 //   1. First contact: executor sends heartbeat with no state
 //   2. Server responds with send_state=true (unknown executor)
 //   3. Executor sends next heartbeat with full_state (identity + all containers)
-//   4. Steady state: heartbeats are tiny (~50 bytes, no state)
+//   4. Steady state: heartbeats carry batched reports (command responses,
+//      allocation outcomes, log entries)
 //   5. Every 5 min: executor includes full_state (drift healing)
 //
-// Container state changes are reported via report_allocation_results and
-// report_sandbox_status RPCs, not via heartbeat deltas.
+// Batched reports (command_responses, allocation_outcomes, allocation_log_entries)
+// are collected from dataplane buffers and included in every heartbeat.
+// Items are only removed from buffers after the heartbeat RPC succeeds.
 message HeartbeatRequest {
     optional string executor_id = 1;
     optional ExecutorStatus status = 3;
@@ -424,6 +429,11 @@ message HeartbeatRequest {
     // Full state: sent on first registration (after server asks) and
     // every 5 min for drift healing. Not sent on most heartbeats.
     optional DataplaneStateFullSync full_state = 5;
+
+    // Batched reports (executor → server, guaranteed via collect/drain)
+    repeated CommandResponse command_responses = 6;
+    repeated AllocationOutcome allocation_outcomes = 7;
+    repeated AllocationLogEntry allocation_log_entries = 8;
 }
 
 message HeartbeatResponse {
@@ -465,13 +475,8 @@ message ContainerStateUpdate {
 }
 
 // ════════════════════════════════════════════
-// COMMAND STREAM: Server → Dataplane
+// COMMANDS: Server → Dataplane (delivered via poll_commands)
 // ════════════════════════════════════════════
-
-message GetCommandStreamRequest {
-    string executor_id = 1;
-    uint64 last_seq = 2;  // Resume point. 0 = new connection.
-}
 
 // Server → Dataplane: discrete action to execute.
 message Command {
@@ -482,8 +487,18 @@ message Command {
         RunAllocation run_allocation = 4;
         KillAllocation kill_allocation = 5;
         UpdateContainerDescription update_container_description = 7;
+        SnapshotContainer snapshot_container = 8;
     }
     reserved 6; // was DeliverResult — results now delivered via AllocationEvent log
+}
+
+// Server → Dataplane: snapshot a container's filesystem.
+// The container should be stopped before the snapshot is taken.
+message SnapshotContainer {
+    string container_id = 1;
+    string snapshot_id = 2;
+    // URI where the snapshot should be uploaded (e.g. "s3://bucket/snap.tar.zst").
+    string upload_uri = 3;
 }
 
 message UpdateContainerDescription {
@@ -532,13 +547,13 @@ enum ContainerTerminationReason {
 // Executor → Server: command responses
 // ════════════════════════════════════════════
 
-// Typed response to a command received via command_stream.
+// Typed response to a command received via poll_commands.
 // command_seq is 0 for unsolicited events (e.g. container crashes)
 // that are not responses to any specific command.
 //
 // V2 protocol contract:
 // - The dataplane sends individual AllocationFailed/AllocationCompleted messages
-//   for each allocation with the correct failure reason via the allocation stream.
+//   for each allocation with the correct failure reason via heartbeat.
 // - ContainerTerminated is a container-lifecycle-only event. The server uses it
 //   to update container state but does NOT derive allocation outcomes from it.
 // - AllocationScheduled is a fast ack confirming the dataplane accepted the allocation.
@@ -548,8 +563,27 @@ message CommandResponse {
         ContainerStarted container_started = 2;
         ContainerTerminated container_terminated = 3;
         AllocationScheduled allocation_scheduled = 6;
+        SnapshotCompleted snapshot_completed = 7;
+        SnapshotFailed snapshot_failed = 8;
     }
     reserved 4, 5;
+}
+
+// Dataplane → Server: snapshot completed successfully.
+message SnapshotCompleted {
+    string container_id = 1;
+    string snapshot_id = 2;
+    // URI where the snapshot was stored.
+    string snapshot_uri = 3;
+    // Size of the snapshot in bytes.
+    uint64 size_bytes = 4;
+}
+
+// Dataplane → Server: snapshot failed.
+message SnapshotFailed {
+    string container_id = 1;
+    string snapshot_id = 2;
+    string error_message = 3;
 }
 
 message AllocationScheduled {
@@ -597,14 +631,14 @@ message AllocationFailed {
     optional string container_id = 8;
 }
 
-// Executor reports outcomes of commands received via command_stream.
-// Also refreshes executor liveness (counts as a heartbeat).
-message ReportCommandResponsesRequest {
-    string executor_id = 1;
-    repeated CommandResponse responses = 2;
+// A single allocation outcome: either completed or failed.
+// Sent via heartbeat's allocation_outcomes field for guaranteed delivery.
+message AllocationOutcome {
+    oneof outcome {
+        AllocationCompleted completed = 1;
+        AllocationFailed failed = 2;
+    }
 }
-
-message ReportCommandResponsesResponse {}
 
 // ════════════════════════════════════════════
 // ALLOCATION LOG (deterministic event log)
@@ -635,24 +669,56 @@ message GetAllocationLogResponse {
 }
 
 // ════════════════════════════════════════════
-// ALLOCATION STREAM (per-executor live bidi)
+// LONG-POLL RPCs (replace streaming RPCs)
 // ════════════════════════════════════════════
 
-// Executor → Server messages on the allocation stream.
-// Live traffic only — no replay, no mode switching.
-message AllocationStreamRequest {
+// Long-poll for pending commands (server holds request open until
+// commands available or timeout, ~5 min).
+//
+// Each poll carries the ack for data processed from the previous poll.
+// The server drains acked items first, then returns new data.
+message PollCommandsRequest {
     string executor_id = 1;
-    oneof message {
-        AllocationLogEntry log_entry = 2;            // SDK actions (call_function entries)
-        AllocationCompleted completed = 3;           // Allocation finished successfully (final)
-        AllocationFailed failed = 4;                 // Allocation failed (final)
-    }
+    // Drain commands with seq <= this value. Set to the highest seq
+    // successfully processed from the previous poll response.
+    optional uint64 acked_command_seq = 2;
 }
 
-// Server → Executor messages on the allocation stream.
-message AllocationStreamResponse {
-    AllocationLogEntry log_entry = 1;                // Function call results (live)
+message PollCommandsResponse {
+    repeated Command commands = 1;
 }
+
+// Long-poll for pending function call results (server holds request
+// open until results available or timeout, ~5 min).
+//
+// Same ack pattern as poll_commands.
+message PollAllocationResultsRequest {
+    string executor_id = 1;
+    // Drain results with seq <= this value.
+    optional uint64 acked_result_seq = 2;
+}
+
+message PollAllocationResultsResponse {
+    repeated SequencedAllocationResult results = 1;
+}
+
+// Wrapper that adds a per-executor monotonic seq to each buffered result.
+// The seq is assigned by the server when push_result() buffers the entry.
+message SequencedAllocationResult {
+    uint64 seq = 1;
+    AllocationLogEntry entry = 2;
+}
+
+// ════════════════════════════════════════════
+// REMOVED MESSAGES (kept as reserved comments)
+// ════════════════════════════════════════════
+
+// GetCommandStreamRequest removed — replaced by PollCommandsRequest.
+// ReportCommandResponsesRequest/Response removed — folded into HeartbeatRequest.
+// ReportAllocationActivitiesRequest/Response removed — folded into HeartbeatRequest.
+// AllocationStreamRequest removed — log entries folded into HeartbeatRequest,
+//   results delivered via PollAllocationResultsResponse.
+// AllocationStreamResponse removed — replaced by PollAllocationResultsResponse.
 
 // Internal API for scheduling and running allocations on Executors. Executors are acting as clients of this API.
 // Server is responsible for scheduling allocations on Executors and Executors are responsible for running the allocations.
@@ -661,21 +727,19 @@ message AllocationStreamResponse {
 // might use the service name in it HTTP2 path based routing rules. See how gRPC uses service names in its HTTP2 paths
 // at https://github.com/grpc/grpc/blob/master/doc/PROTOCOL-HTTP2.md.
 service ExecutorAPI {
-    // Heartbeat (liveness + optional state sync)
+    // Heartbeat: liveness + optional state sync + batched reports
+    // (command responses, allocation outcomes, log entries).
     rpc heartbeat(HeartbeatRequest) returns (HeartbeatResponse) {}
 
-    // Server → dataplane: command stream
-    rpc command_stream(GetCommandStreamRequest) returns (stream Command) {}
+    // Long-poll for pending commands. Server holds request open until
+    // commands are available or ~5 min timeout.
+    rpc poll_commands(PollCommandsRequest) returns (PollCommandsResponse) {}
 
-    // Dataplane → server: command responses (container state, allocation acks)
-    rpc report_command_responses(ReportCommandResponsesRequest) returns (ReportCommandResponsesResponse) {}
+    // Long-poll for pending function call results. Server holds request
+    // open until results are available or ~5 min timeout.
+    rpc poll_allocation_results(PollAllocationResultsRequest)
+        returns (PollAllocationResultsResponse) {}
 
     // Fetch historical allocation log entries for deterministic replay.
     rpc get_allocation_log(GetAllocationLogRequest) returns (GetAllocationLogResponse) {}
-
-    // Per-executor bidirectional stream for live allocation execution traffic.
-    // Multiplexes all allocations on a single stream, tagged by allocation_id.
-    // Executor sends SDK actions (call_function) and allocation outcomes.
-    // Server pushes function call results as they complete.
-    rpc allocation_stream(stream AllocationStreamRequest) returns (stream AllocationStreamResponse) {}
 }

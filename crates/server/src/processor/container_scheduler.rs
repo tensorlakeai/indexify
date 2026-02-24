@@ -662,6 +662,7 @@ impl ContainerScheduler {
     pub fn create_container_for_sandbox(
         &mut self,
         sandbox: &Sandbox,
+        snapshot_uri: Option<&str>,
     ) -> Result<Option<SchedulerUpdateRequest>> {
         let resources = FunctionResources {
             cpu_ms_per_sec: sandbox.resources.cpu_ms_per_sec,
@@ -706,6 +707,7 @@ impl ContainerScheduler {
             .network_policy(sandbox.network_policy.clone())
             .sandbox_id(Some(sandbox.id.clone()))
             .pool_id(pool_id)
+            .snapshot_uri(snapshot_uri.map(|s| s.to_string()))
             .build()?;
 
         self.create_container(
@@ -906,6 +908,7 @@ impl ContainerScheduler {
             desired_state: ContainerState::Running,
             container_type,
             allocations: std::collections::HashSet::new(),
+            idle_since: Some(tokio::time::Instant::now()),
         };
 
         let mut update = SchedulerUpdateRequest::default();
@@ -1164,6 +1167,130 @@ impl ContainerScheduler {
         update.containers.insert(container_id.clone(), fc.clone());
 
         Ok(Some(update))
+    }
+
+    /// Perform periodic cluster vacuum: find idle containers, mark them
+    /// terminated, apply locally, and return the update for persistence.
+    ///
+    /// Returns an empty update if nothing was vacuumed.
+    #[tracing::instrument(skip_all)]
+    pub fn periodic_vacuum(
+        &mut self,
+        max_idle_age: std::time::Duration,
+    ) -> Result<SchedulerUpdateRequest> {
+        let candidates = self.periodic_vacuum_candidates(max_idle_age);
+        if candidates.is_empty() {
+            return Ok(SchedulerUpdateRequest::default());
+        }
+
+        info!(
+            num_candidates = candidates.len(),
+            "cluster vacuum: terminating idle containers"
+        );
+
+        // Follow the same pattern as the reactive vacuum in create_container():
+        // mark containers as terminated and include executor state so the
+        // executor gets notified — but do NOT free resources. Resources are
+        // freed later when the executor confirms termination.
+        let now = tokio::time::Instant::now();
+        let mut scheduler_update = SchedulerUpdateRequest::default();
+        for (container_id, fc) in &candidates {
+            let mut terminated = fc.clone();
+            terminated.desired_state = ContainerState::Terminated {
+                reason: ContainerTerminationReason::DesiredStateRemoved,
+            };
+            scheduler_update
+                .containers
+                .insert(container_id.clone(), Box::new(terminated));
+
+            if let Some(executor_state) = self.executor_states.get(&fc.executor_id) {
+                scheduler_update
+                    .updated_executor_states
+                    .insert(fc.executor_id.clone(), executor_state.clone());
+            }
+
+            info!(
+                container_id = container_id.get(),
+                executor_id = fc.executor_id.get(),
+                namespace = fc.function_container.namespace,
+                application = fc.function_container.application_name,
+                function = fc.function_container.function_name,
+                version = fc.function_container.version,
+                idle_secs = fc
+                    .idle_since
+                    .map(|t| now.duration_since(t).as_secs())
+                    .unwrap_or(0),
+                "cluster vacuum: marking idle container for termination"
+            );
+        }
+
+        self.update(&RequestPayload::SchedulerUpdate(
+            SchedulerUpdatePayload::new(scheduler_update.clone()),
+        ))?;
+
+        Ok(scheduler_update)
+    }
+
+    /// Return containers eligible for periodic cluster vacuum.
+    ///
+    /// A container is eligible when:
+    /// - It is not already terminated
+    /// - It is idle (`idle_since` is `Some`) for longer than `max_idle_age`
+    /// - It passes `fe_can_be_removed` (Function type, no allocations, not on
+    ///   an executor allowlist — this also excludes all Sandbox containers)
+    /// - Removing it would not drop the pool below `min_containers`
+    fn periodic_vacuum_candidates(
+        &self,
+        max_idle_age: std::time::Duration,
+    ) -> Vec<(ContainerId, ContainerServerMetadata)> {
+        let now = tokio::time::Instant::now();
+        let mut candidates = Vec::new();
+        // Track evictions per pool to respect min_containers
+        let mut evicted_from_pool: imbl::HashMap<ContainerPoolKey, u32> = imbl::HashMap::new();
+
+        for (container_id, fc) in &self.function_containers {
+            // Skip already-terminated containers
+            if matches!(fc.desired_state, ContainerState::Terminated { .. }) {
+                continue;
+            }
+
+            // Skip busy containers (idle_since is None)
+            let idle_since = match fc.idle_since {
+                Some(t) => t,
+                None => continue,
+            };
+
+            // Skip containers not idle long enough
+            if now.duration_since(idle_since) < max_idle_age {
+                continue;
+            }
+
+            // Skip containers that can't be removed: sandbox types, containers
+            // with active allocations, and containers on executor allowlists.
+            if !self.fe_can_be_removed(fc) {
+                continue;
+            }
+
+            // Respect min_containers per pool
+            if let Some(pool_key) = fc.function_container.pool_key() {
+                let already_evicted = evicted_from_pool.get(&pool_key).copied().unwrap_or(0);
+                let effective_count = self
+                    .pool_container_count(&pool_key)
+                    .saturating_sub(already_evicted);
+                let min = self
+                    .get_pool(&pool_key)
+                    .and_then(|p| p.min_containers)
+                    .unwrap_or(0);
+                if effective_count <= min {
+                    continue;
+                }
+                *evicted_from_pool.entry(pool_key).or_insert(0) += 1;
+            }
+
+            candidates.push((container_id.clone(), *fc.clone()));
+        }
+
+        candidates
     }
 
     // ====================================

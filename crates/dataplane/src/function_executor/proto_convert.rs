@@ -6,7 +6,7 @@
 
 use proto_api::{
     executor_api_pb,
-    executor_api_pb::{AllocationStreamRequest, CommandResponse},
+    executor_api_pb::{AllocationOutcome, CommandResponse},
     function_executor_pb,
 };
 
@@ -276,20 +276,19 @@ pub fn make_allocation_scheduled_response(
 }
 
 // ---------------------------------------------------------------------------
-// AllocationStreamRequest builders (outcomes via allocation stream)
+// AllocationOutcome builders (outcomes via unary RPC)
 // ---------------------------------------------------------------------------
 
-/// Build an `AllocationStreamRequest` wrapping an `AllocationFailed`.
-pub fn make_allocation_failed_stream_request(
+/// Build an `AllocationOutcome` wrapping an `AllocationFailed`.
+pub fn make_allocation_failed_outcome(
     allocation: &executor_api_pb::Allocation,
     failure_reason: executor_api_pb::AllocationFailureReason,
     request_error: Option<executor_api_pb::DataPayload>,
     execution_duration_ms: Option<u64>,
     container_id: Option<String>,
-) -> AllocationStreamRequest {
-    AllocationStreamRequest {
-        executor_id: String::new(),
-        message: Some(executor_api_pb::allocation_stream_request::Message::Failed(
+) -> AllocationOutcome {
+    AllocationOutcome {
+        outcome: Some(executor_api_pb::allocation_outcome::Outcome::Failed(
             executor_api_pb::AllocationFailed {
                 allocation_id: allocation.allocation_id.clone().unwrap_or_default(),
                 reason: failure_reason.into(),
@@ -304,44 +303,37 @@ pub fn make_allocation_failed_stream_request(
     }
 }
 
-/// Convert a server `AllocationResult` into an `AllocationStreamRequest`.
+/// Convert a server `AllocationResult` into an `AllocationOutcome`.
 ///
 /// Success results become `AllocationCompleted`; failures become
 /// `AllocationFailed`.
-pub fn allocation_result_to_stream_request(
+pub fn allocation_result_to_outcome(
     result: &executor_api_pb::AllocationResult,
     container_id: Option<String>,
-) -> AllocationStreamRequest {
+) -> AllocationOutcome {
     let outcome_code = result.outcome_code.unwrap_or(0);
     if outcome_code == executor_api_pb::AllocationOutcomeCode::Success as i32 {
-        AllocationStreamRequest {
-            executor_id: String::new(),
-            message: Some(
-                executor_api_pb::allocation_stream_request::Message::Completed(
-                    executor_api_pb::AllocationCompleted {
-                        allocation_id: result.allocation_id.clone().unwrap_or_default(),
-                        function: result.function.clone(),
-                        function_call_id: result.function_call_id.clone(),
-                        request_id: result.request_id.clone(),
-                        return_value: result.return_value.as_ref().map(|rv| match rv {
-                            executor_api_pb::allocation_result::ReturnValue::Value(dp) => {
-                                executor_api_pb::allocation_completed::ReturnValue::Value(
-                                    dp.clone(),
-                                )
-                            }
-                            executor_api_pb::allocation_result::ReturnValue::Updates(u) => {
-                                executor_api_pb::allocation_completed::ReturnValue::Updates(
-                                    u.clone(),
-                                )
-                            }
-                        }),
-                        execution_duration_ms: result.execution_duration_ms,
-                    },
-                ),
-            ),
+        AllocationOutcome {
+            outcome: Some(executor_api_pb::allocation_outcome::Outcome::Completed(
+                executor_api_pb::AllocationCompleted {
+                    allocation_id: result.allocation_id.clone().unwrap_or_default(),
+                    function: result.function.clone(),
+                    function_call_id: result.function_call_id.clone(),
+                    request_id: result.request_id.clone(),
+                    return_value: result.return_value.as_ref().map(|rv| match rv {
+                        executor_api_pb::allocation_result::ReturnValue::Value(dp) => {
+                            executor_api_pb::allocation_completed::ReturnValue::Value(dp.clone())
+                        }
+                        executor_api_pb::allocation_result::ReturnValue::Updates(u) => {
+                            executor_api_pb::allocation_completed::ReturnValue::Updates(u.clone())
+                        }
+                    }),
+                    execution_duration_ms: result.execution_duration_ms,
+                },
+            )),
         }
     } else {
-        // Build a minimal Allocation to reuse make_allocation_failed_stream_request.
+        // Build a minimal Allocation to reuse make_allocation_failed_outcome.
         let alloc = executor_api_pb::Allocation {
             allocation_id: result.allocation_id.clone(),
             function: result.function.clone(),
@@ -355,7 +347,7 @@ pub fn allocation_result_to_stream_request(
                 .unwrap_or(executor_api_pb::AllocationFailureReason::InternalError as i32),
         )
         .unwrap_or(executor_api_pb::AllocationFailureReason::InternalError);
-        make_allocation_failed_stream_request(
+        make_allocation_failed_outcome(
             &alloc,
             failure_reason,
             result.request_error.clone(),
@@ -366,21 +358,21 @@ pub fn allocation_result_to_stream_request(
 }
 
 // ---------------------------------------------------------------------------
-// Metrics for AllocationStreamRequest
+// Metrics for AllocationOutcome
 // ---------------------------------------------------------------------------
 
-/// Record allocation outcome metrics from an `AllocationStreamRequest`.
-pub fn record_activity_metrics(
-    activity: &AllocationStreamRequest,
+/// Record allocation outcome metrics from an `AllocationOutcome`.
+pub fn record_outcome_metrics(
+    outcome: &AllocationOutcome,
     counters: &crate::metrics::DataplaneCounters,
 ) {
-    use executor_api_pb::allocation_stream_request::Message;
+    use executor_api_pb::allocation_outcome::Outcome;
 
-    match &activity.message {
-        Some(Message::Completed(c)) => {
+    match &outcome.outcome {
+        Some(Outcome::Completed(c)) => {
             counters.record_allocation_completed("success", None, c.execution_duration_ms);
         }
-        Some(Message::Failed(f)) => {
+        Some(Outcome::Failed(f)) => {
             let failure_reason = executor_api_pb::AllocationFailureReason::try_from(f.reason)
                 .ok()
                 .map(|reason| format!("{:?}", reason));

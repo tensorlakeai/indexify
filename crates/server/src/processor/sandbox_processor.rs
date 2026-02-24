@@ -105,6 +105,13 @@ impl SandboxProcessor {
             return Ok(update);
         }
 
+        // Skip if a container has already been scheduled for this sandbox.
+        // It is waiting for the container to report Running and should not
+        // be re-allocated — doing so would claim a duplicate pool slot.
+        if sandbox.has_scheduled() {
+            return Ok(update);
+        }
+
         // If sandbox has a pool_id, try to claim from pool first
         if let Some(pool_id) = &sandbox.pool_id {
             let container_pool_key = ContainerPoolKey::new(&sandbox.namespace, pool_id);
@@ -147,8 +154,17 @@ impl SandboxProcessor {
             // Fall through to create on-demand
         }
 
+        // Resolve snapshot URI if the sandbox was created from a snapshot
+        let snapshot_uri = sandbox.snapshot_id.as_ref().and_then(|snap_id| {
+            let key = crate::data_model::SnapshotKey::new(&sandbox.namespace, snap_id.get());
+            in_memory_state
+                .snapshots
+                .get(&key)
+                .and_then(|s| s.snapshot_uri.clone())
+        });
+
         // Try to create a container for the sandbox using consolidated method
-        match container_scheduler.create_container_for_sandbox(sandbox) {
+        match container_scheduler.create_container_for_sandbox(sandbox, snapshot_uri.as_deref()) {
             Ok(Some(container_update)) => {
                 // Find the newly placed container, skipping any vacuum-marked
                 // containers that have Terminated desired state.

@@ -18,8 +18,8 @@ use std::{
 use proto_api::{
     executor_api_pb::{
         Allocation as ServerAllocation,
+        AllocationLogEntry,
         AllocationResult as ServerAllocationResult,
-        AllocationStreamRequest,
     },
     function_executor_pb::{self, AllocationState, AllocationUpdate, CreateAllocationRequest},
 };
@@ -52,7 +52,7 @@ pub struct AllocationContext {
     pub driver: Arc<dyn crate::driver::ProcessDriver>,
     pub process_handle: crate::driver::ProcessHandle,
     pub executor_id: String,
-    pub stream_tx: mpsc::UnboundedSender<AllocationStreamRequest>,
+    pub stream_tx: mpsc::UnboundedSender<AllocationLogEntry>,
     pub allocation_result_dispatcher: Arc<AllocationResultDispatcher>,
 }
 
@@ -122,7 +122,7 @@ struct AllocationRunner {
     // the correct watcher_id that the FE expects.
     watcher_map: HashMap<String, String>,
     // Results that arrived before the FE created a matching watcher.
-    pending_results: Vec<proto_api::executor_api_pb::AllocationStreamResponse>,
+    pending_results: Vec<AllocationLogEntry>,
 }
 
 impl AllocationRunner {
@@ -237,15 +237,12 @@ impl AllocationRunner {
 
     /// Top-level execution flow: create allocation on FE, open stream, run
     /// reconciliation loop, convert result.
+    #[tracing::instrument(skip_all, fields(allocation_id = %self.allocation_id, executor_id = %self.ctx.executor_id, request_id = ?self.allocation.request_id, function_call_id = ?self.allocation.function_call_id))]
     async fn run(&mut self, prepared: PreparedAllocation) -> AllocationOutcome {
         let start_time = Instant::now();
 
         let func_ref = self.allocation.function.as_ref();
         info!(
-            allocation_id = %self.allocation_id,
-            executor_id = %self.ctx.executor_id,
-            request_id = ?self.allocation.request_id,
-            function_call_id = ?self.allocation.function_call_id,
             namespace = ?func_ref.and_then(|f| f.namespace.as_deref()),
             app = ?func_ref.and_then(|f| f.application_name.as_deref()),
             "fn" = ?func_ref.and_then(|f| f.function_name.as_deref()),
@@ -281,7 +278,8 @@ impl AllocationRunner {
         };
 
         if let Err(e) = self.client.create_allocation(create_request).await {
-            error!(error = %e, "Failed to create allocation on FE");
+            error!(
+                error = ?e, "Failed to create allocation on FE");
             self.ctx
                 .allocation_result_dispatcher
                 .deregister(&self.allocation_id)
@@ -308,7 +306,7 @@ impl AllocationRunner {
         {
             Ok(s) => s,
             Err(e) => {
-                error!(error = %e, "Failed to open allocation state stream");
+                error!(error = ?e, "Failed to open allocation state stream");
                 self.ctx
                     .allocation_result_dispatcher
                     .deregister(&self.allocation_id)
@@ -429,7 +427,7 @@ impl AllocationRunner {
                                 tonic::Code::Unavailable | tonic::Code::Internal | tonic::Code::Unknown
                             );
                             error!(
-                                error = %e,
+                                error = ?e,
                                 code = ?e.code(),
                                 likely_fe_crash = likely_fe_crash,
                                 "Allocation state stream error"
@@ -479,7 +477,7 @@ impl AllocationRunner {
             let execution_duration_ms = start_time.elapsed().as_millis() as u64;
 
             if let Err(e) = self.client.delete_allocation(&self.allocation_id).await {
-                warn!(error = %e, "Failed to delete allocation from FE");
+                warn!(error = ?e, "Failed to delete allocation from FE");
             }
 
             let server_result = convert_fe_result_to_server(
@@ -507,7 +505,7 @@ impl AllocationRunner {
         })
     }
 
-    /// Deliver a FunctionCallResult from the allocation stream to the FE.
+    /// Deliver a FunctionCallResult from the poll results loop to the FE.
     ///
     /// Converts the server-side `FunctionCallResult` into an FE-side
     /// `AllocationFunctionCallResult` and sends it via
@@ -516,11 +514,8 @@ impl AllocationRunner {
     /// If no matching watcher exists yet (the FE hasn't registered it),
     /// the result is buffered in `pending_results` and delivered later
     /// when the watcher appears during reconciliation.
-    async fn deliver_function_call_result(
-        &mut self,
-        response: proto_api::executor_api_pb::AllocationStreamResponse,
-    ) {
-        let fc_id = Self::extract_function_call_id(&response);
+    async fn deliver_function_call_result(&mut self, log_entry: AllocationLogEntry) {
+        let fc_id = Self::extract_function_call_id(&log_entry);
 
         // Look up watcher_id from the map (keyed by function_call_id which
         // equals the watcher's root_function_call_id for blocking calls).
@@ -535,24 +530,20 @@ impl AllocationRunner {
                 function_call_id = ?fc_id,
                 "Buffering function call result (no watcher yet)"
             );
-            self.pending_results.push(response);
+            self.pending_results.push(log_entry);
             return;
         }
 
-        self.deliver_function_call_result_inner(response, watcher_id)
+        self.deliver_function_call_result_inner(log_entry, watcher_id)
             .await;
     }
 
     /// Actually deliver a result to the FE with the resolved watcher_id.
     async fn deliver_function_call_result_inner(
         &mut self,
-        response: proto_api::executor_api_pb::AllocationStreamResponse,
+        log_entry: AllocationLogEntry,
         watcher_id: Option<String>,
     ) {
-        let Some(log_entry) = response.log_entry else {
-            return;
-        };
-
         let Some(proto_api::executor_api_pb::allocation_log_entry::Entry::FunctionCallResult(
             fc_result,
         )) = log_entry.entry
@@ -635,8 +626,8 @@ impl AllocationRunner {
             let pending = std::mem::take(&mut self.pending_results);
             let mut still_pending = Vec::new();
 
-            for response in pending {
-                let fc_id = Self::extract_function_call_id(&response);
+            for log_entry in pending {
+                let fc_id = Self::extract_function_call_id(&log_entry);
 
                 let watcher_id = fc_id
                     .as_deref()
@@ -644,10 +635,10 @@ impl AllocationRunner {
                     .cloned();
 
                 if watcher_id.is_some() {
-                    self.deliver_function_call_result_inner(response, watcher_id)
+                    self.deliver_function_call_result_inner(log_entry, watcher_id)
                         .await;
                 } else {
-                    still_pending.push(response);
+                    still_pending.push(log_entry);
                 }
             }
 
@@ -655,21 +646,14 @@ impl AllocationRunner {
         }
     }
 
-    /// Extract the function_call_id from an AllocationStreamResponse, if
-    /// present.
-    fn extract_function_call_id(
-        response: &proto_api::executor_api_pb::AllocationStreamResponse,
-    ) -> Option<String> {
-        response
-            .log_entry
-            .as_ref()
-            .and_then(|e| e.entry.as_ref())
-            .and_then(|entry| match entry {
-                proto_api::executor_api_pb::allocation_log_entry::Entry::FunctionCallResult(r) => {
-                    r.function_call_id.clone()
-                }
-                _ => None,
-            })
+    /// Extract the function_call_id from an AllocationLogEntry, if present.
+    fn extract_function_call_id(log_entry: &AllocationLogEntry) -> Option<String> {
+        log_entry.entry.as_ref().and_then(|entry| match entry {
+            proto_api::executor_api_pb::allocation_log_entry::Entry::FunctionCallResult(r) => {
+                r.function_call_id.clone()
+            }
+            _ => None,
+        })
     }
 
     /// Delegate reconciliation to the focused modules.

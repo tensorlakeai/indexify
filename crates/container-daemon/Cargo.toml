@@ -5,6 +5,10 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 
+[lib]
+name = "indexify_container_daemon"
+path = "src/lib.rs"
+
 [[bin]]
 name = "indexify-container-daemon"
 path = "src/main.rs"
@@ -28,6 +32,8 @@ async-stream.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 chrono.workspace = true
+pty-process.workspace = true
+rand.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 nix.workspace = true
@@ -35,6 +41,8 @@ nix.workspace = true
 [dev-dependencies]
 tempfile.workspace = true
 tower = { version = "0.5", features = ["util"] }
-hyper.workspace = true
+hyper = { workspace = true, features = ["client", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
 futures.workspace = true
 http-body-util = "0.1"
+tokio-tungstenite = "0.28"

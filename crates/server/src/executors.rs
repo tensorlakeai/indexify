@@ -224,12 +224,16 @@ impl ExecutorManager {
         let peeked_deadline = {
             let new_deadline = ReverseInstant(Instant::now() + EXECUTOR_TIMEOUT);
 
-            trace!(executor_id = executor_id.get(), "v2 heartbeat received");
-
             let mut state = self.heartbeat_deadline_queue.lock().await;
 
             if state.change_priority(executor_id, new_deadline).is_none() {
                 state.push(executor_id.clone(), new_deadline);
+                info!(
+                    executor_id = executor_id.get(),
+                    "v2 heartbeat received (first)"
+                );
+            } else {
+                trace!(executor_id = executor_id.get(), "v2 heartbeat received");
             }
 
             state
@@ -245,11 +249,20 @@ impl ExecutorManager {
     /// Register a new executor (used by v2 heartbeat full-state sync).
     pub async fn register_executor(&self, metadata: ExecutorMetadata) -> Result<()> {
         let mut runtime_data_write = self.runtime_data.write().await;
+        let is_new = !runtime_data_write.contains_key(&metadata.id);
         let state_hash = metadata.state_hash.clone();
         runtime_data_write
             .entry(metadata.id.clone())
             .and_modify(|data| data.update_state(state_hash.clone(), metadata.clock))
             .or_insert_with(|| ExecutorRuntimeData::new(state_hash, metadata.clock));
+        if is_new {
+            info!(executor_id = metadata.id.get(), "Executor registered");
+        } else {
+            info!(
+                executor_id = metadata.id.get(),
+                "Executor re-registered (full state sync)"
+            );
+        }
         Ok(())
     }
 
@@ -320,7 +333,9 @@ impl ExecutorManager {
             }
         }
 
-        trace!("Found {} lapsed executors", lapsed_executors.len());
+        if !lapsed_executors.is_empty() {
+            info!(count = lapsed_executors.len(), "Found lapsed executors");
+        }
 
         // 3. Deregister each lapsed executor without holding the lock
         for executor_id in lapsed_executors {
@@ -331,11 +346,18 @@ impl ExecutorManager {
     }
 
     async fn deregister_lapsed_executor(&self, executor_id: ExecutorId) -> Result<()> {
-        trace!(
+        info!(
             executor_id = executor_id.get(),
-            "Deregistering lapsed executor"
+            "Deregistering lapsed executor (heartbeat timeout)"
         );
         self.runtime_data.write().await.remove(&executor_id);
+
+        // Drop the ExecutorConnection — this drops the event sender, which
+        // causes any active command_stream_loop to exit via recv() → None.
+        self.indexify_state
+            .deregister_executor_connection(&executor_id)
+            .await;
+
         let last_state_change_id = self.indexify_state.state_change_id_seq.clone();
         let state_changes = tombstone_executor(&last_state_change_id, &executor_id)?;
         let sm_req = StateMachineUpdateRequest {
@@ -369,6 +391,7 @@ impl ExecutorManager {
         } else {
             return None;
         }
+
         let Some(executor_server_metadata) = container_scheduler.executor_states.get(executor_id)
         else {
             info!(
@@ -471,6 +494,7 @@ impl ExecutorManager {
                 sandbox_timeout_secs: fe.timeout_secs,
                 entrypoint: fe.entrypoint.clone(),
                 network_policy: fe.network_policy.clone(),
+                snapshot_uri: fe.snapshot_uri.clone(),
             };
 
             function_executors.push(Box::new(desired_fc));
@@ -497,14 +521,14 @@ impl ExecutorManager {
     }
 
     /// Get the desired state for an executor
+    ///
+    /// Function call results are delivered via the allocation_stream RPC,
+    /// not included in the executor state snapshot.
     pub async fn get_executor_state(
         &self,
         executor_id: &ExecutorId,
     ) -> Option<ExecutorStateSnapshot> {
         let desired_executor_state = self.desired_state(executor_id).await?;
-
-        // Function call results are delivered via the allocation_stream RPC,
-        // not included in the executor state snapshot.
 
         let mut containers_pb = vec![];
         let mut allocations_pb = vec![];
@@ -563,6 +587,7 @@ impl ExecutorManager {
                     entrypoint: desired_state_fe.entrypoint.clone(),
                     network_policy: network_policy_pb,
                     sandbox_id: fe.sandbox_id.as_ref().map(|s| s.get().to_string()),
+                    snapshot_uri: desired_state_fe.snapshot_uri.clone(),
                 })
             } else {
                 None

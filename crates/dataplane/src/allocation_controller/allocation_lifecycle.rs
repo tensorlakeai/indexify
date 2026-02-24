@@ -93,16 +93,18 @@ impl AllocationController {
                         _ => None,
                     })
                     .unwrap_or(AllocationFailureReason::ContainerTerminated);
-                let activity = proto_convert::make_allocation_failed_stream_request(
+                let outcome = proto_convert::make_allocation_failed_outcome(
                     &allocation,
                     failure_reason,
                     None,
                     None,
                     Some(fe_id.clone()),
                 );
-                // Send failure via activity channel — no blobs to clean up.
-                proto_convert::record_activity_metrics(&activity, &self.config.metrics.counters);
-                let _ = self.config.activity_tx.send(activity);
+                // Send failure via outcome channel — no blobs to clean up.
+                proto_convert::record_outcome_metrics(&outcome, &self.config.metrics.counters);
+                if self.config.outcome_tx.send(outcome).is_err() {
+                    tracing::warn!("outcome_tx channel closed, allocation outcome lost");
+                }
                 let managed = ManagedAllocation {
                     allocation: allocation.clone(),
                     fe_id: fe_id.clone(),
@@ -242,6 +244,11 @@ impl AllocationController {
                             "Allocation prepared: Preparing -> WaitingForSlot"
                         );
                         alloc.state = AllocationState::WaitingForSlot;
+                        self.config
+                            .metrics
+                            .up_down_counters
+                            .runnable_allocations
+                            .add(1, &[]);
                         self.waiting_queue
                             .entry(fe_id)
                             .or_default()
@@ -274,6 +281,11 @@ impl AllocationController {
                             "Allocation prepared, container not ready: Preparing -> WaitingForContainer"
                         );
                         alloc.state = AllocationState::WaitingForContainer;
+                        self.config
+                            .metrics
+                            .up_down_counters
+                            .runnable_allocations
+                            .add(1, &[]);
                         self.waiting_queue
                             .entry(fe_id)
                             .or_default()
@@ -342,7 +354,7 @@ impl AllocationController {
                     allocation_id = %allocation_id,
                     request_id = %lctx.request_id,
                     container_id = %alloc.fe_id,
-                    error = %e,
+                    error = ?e,
                     "Allocation preparation failed: Preparing -> Finalizing(failure)"
                 );
                 let result = proto_convert::make_failure_result(
@@ -429,6 +441,11 @@ impl AllocationController {
                         .up_down_counters
                         .allocations_finalizing
                         .add(1, &[]);
+                    self.config
+                        .metrics
+                        .up_down_counters
+                        .runnable_allocations
+                        .add(-1, &[]);
                     self.spawn_finalization_task(&alloc_id, FinalizationContext::default());
                     continue;
                 };
@@ -468,6 +485,11 @@ impl AllocationController {
                     .up_down_counters
                     .allocation_runs_in_progress
                     .add(1, &[]);
+                self.config
+                    .metrics
+                    .up_down_counters
+                    .runnable_allocations
+                    .add(-1, &[]);
 
                 let event_tx = self.event_tx.clone();
                 let alloc_id_clone = alloc_id.clone();
@@ -588,6 +610,14 @@ impl AllocationController {
         let mut fe_termination_reason =
             proto_api::executor_api_pb::ContainerTerminationReason::Unhealthy;
 
+        if matches!(outcome, AllocationOutcome::Failed { .. }) {
+            self.config
+                .metrics
+                .counters
+                .allocation_run_errors
+                .add(1, &[]);
+        }
+
         let server_result = match outcome {
             AllocationOutcome::Completed {
                 result,
@@ -627,7 +657,7 @@ impl AllocationController {
                 if likely_fe_crash {
                     warn!(
                         allocation_id = %allocation_id,
-                        error = %error_message,
+                        error = ?error_message,
                         termination_reason = ?termination_reason,
                         "Allocation failed due to likely FE crash"
                     );
@@ -637,7 +667,25 @@ impl AllocationController {
                     );
                 }
                 ctx.output_blob_handles = output_blob_handles;
-                proto_convert::make_failure_result(&alloc.allocation, reason)
+
+                // If the container is already known to be terminated (e.g. the health
+                // checker fired before this outcome was processed), prefer the container's
+                // known termination reason over the runner's reason.  This handles the race
+                // where determine_crash_reason() inspects Docker before the OOMKilled flag
+                // is set, but the health checker subsequently detects OOM and updates
+                // container state first.
+                let effective_reason = self
+                    .containers
+                    .get(&fe_id)
+                    .and_then(|fe| match &fe.state {
+                        ContainerState::Terminated { reason, .. } => {
+                            Some(proto_convert::termination_to_failure_reason(*reason))
+                        }
+                        _ => None,
+                    })
+                    .unwrap_or(reason);
+
+                proto_convert::make_failure_result(&alloc.allocation, effective_reason)
             }
         };
 
@@ -707,11 +755,12 @@ impl AllocationController {
             );
         }
 
-        // Record metrics and send result as AllocationActivity
-        let activity =
-            proto_convert::allocation_result_to_stream_request(&result, terminated_container_id);
-        proto_convert::record_activity_metrics(&activity, &self.config.metrics.counters);
-        let _ = self.config.activity_tx.send(activity);
+        // Record metrics and send result via outcome channel (guaranteed delivery)
+        let outcome = proto_convert::allocation_result_to_outcome(&result, terminated_container_id);
+        proto_convert::record_outcome_metrics(&outcome, &self.config.metrics.counters);
+        if self.config.outcome_tx.send(outcome).is_err() {
+            tracing::warn!("outcome_tx channel closed, allocation outcome lost");
+        }
 
         // Keep the allocation in Done state — do NOT remove it.
         // The server may re-send this allocation before it processes the
@@ -879,16 +928,10 @@ impl AllocationController {
             self.start_finalization(&alloc_id, result, ctx, None);
         }
 
-        // Kill all running containers and return GPUs
+        // Release GPUs but do NOT kill containers — they will be
+        // adopted on next startup via the state file.
         let gpu_allocator = self.config.gpu_allocator.clone();
         for fe in self.containers.values_mut() {
-            if let ContainerState::Running { handle, .. } = &fe.state {
-                let driver = self.config.driver.clone();
-                let handle = handle.clone();
-                tokio::spawn(async move {
-                    let _ = driver.kill(&handle).await;
-                });
-            }
             Self::return_gpus(&gpu_allocator, &mut fe.allocated_gpu_uuids);
         }
 
@@ -922,10 +965,11 @@ impl AllocationController {
                 // During shutdown all containers are dying, so include
                 // container_id if it wasn't already set.
                 let container_id = terminated_container_id.or_else(|| Some(alloc.fe_id.clone()));
-                let activity =
-                    proto_convert::allocation_result_to_stream_request(&result, container_id);
-                proto_convert::record_activity_metrics(&activity, &self.config.metrics.counters);
-                let _ = self.config.activity_tx.send(activity);
+                let outcome = proto_convert::allocation_result_to_outcome(&result, container_id);
+                proto_convert::record_outcome_metrics(&outcome, &self.config.metrics.counters);
+                if self.config.outcome_tx.send(outcome).is_err() {
+                    tracing::warn!("outcome_tx channel closed, allocation outcome lost");
+                }
             }
         }
 

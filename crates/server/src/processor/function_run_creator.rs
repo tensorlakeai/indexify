@@ -144,6 +144,8 @@ impl FunctionRunCreator {
             fn = alloc_finished_event.function,
             fn_run_id = alloc_finished_event.function_call_id.to_string(),
             allocation_id = alloc_finished_event.allocation_id.to_string(),
+            outcome=alloc_finished_event.allocation_outcome.to_string(),
+            executor_id=alloc_finished_event.allocation_target.executor_id.get(),
             "handling allocation ingestion",
         );
         let mut scheduler_update = SchedulerUpdateRequest::default();
@@ -152,6 +154,9 @@ impl FunctionRunCreator {
             .get_mut(&alloc_finished_event.allocation_target.container_id)
         {
             fc.allocations.remove(&alloc_finished_event.allocation_id);
+            if fc.allocations.is_empty() {
+                fc.idle_since = Some(tokio::time::Instant::now());
+            }
             scheduler_update.containers.insert(
                 alloc_finished_event.allocation_target.container_id.clone(),
                 fc.clone(),

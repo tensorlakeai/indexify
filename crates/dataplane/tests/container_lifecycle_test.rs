@@ -75,8 +75,8 @@ impl ImageResolver for TestImageResolver {
         _app: &str,
         _function: &str,
         _version: &str,
-    ) -> anyhow::Result<String> {
-        Ok("test-image:latest".to_string())
+    ) -> anyhow::Result<Option<String>> {
+        Ok(Some("test-image:latest".to_string()))
     }
 }
 
@@ -302,6 +302,7 @@ fn create_test_fe_description(id: &str) -> ContainerDescription {
             entrypoint: vec![],
             network_policy: None,
             sandbox_id: None,
+            snapshot_uri: None,
         }),
         container_type: None,
         pool_id: None,
@@ -372,6 +373,7 @@ async fn test_add_creates_container_with_daemon() {
         state_file,
         "test-executor".to_string(),
         container_state_tx,
+        None,
     );
 
     // Initially no containers
@@ -447,6 +449,7 @@ async fn test_remove_deletes_container() {
         state_file,
         "test-executor".to_string(),
         container_state_tx,
+        None,
     );
 
     // Create a container
@@ -510,6 +513,7 @@ async fn test_health_check_detects_container_death() {
         state_file,
         "test-executor".to_string(),
         container_state_tx,
+        None,
     );
 
     // Create a container
@@ -600,6 +604,7 @@ async fn test_multiple_containers_lifecycle() {
         state_file,
         "test-executor".to_string(),
         container_state_tx,
+        None,
     );
 
     // Create multiple containers using delta operations
@@ -669,6 +674,7 @@ async fn test_add_or_update_idempotent() {
         state_file,
         "test-executor".to_string(),
         container_state_tx,
+        None,
     );
 
     let desc = create_test_fe_description("fe-idempotent");

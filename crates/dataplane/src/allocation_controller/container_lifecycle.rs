@@ -25,6 +25,7 @@ use crate::{
         fe_client::FunctionExecutorGrpcClient,
         health_checker,
     },
+    state_file::PersistedContainer,
 };
 
 /// Timeout for connecting to the FE after spawning the process.
@@ -139,6 +140,12 @@ impl AllocationController {
                 health_checker_cancel.cancel();
                 self.kill_process_fire_and_forget(handle.clone());
             }
+            // Remove from state file
+            let state_file = self.state_file.clone();
+            let id = fe_id.to_string();
+            tokio::spawn(async move {
+                let _ = state_file.remove(&id).await;
+            });
         } else if is_starting {
             info!(container_id = %fe_id, "Removing Starting container, marking Terminated");
         }
@@ -347,6 +354,7 @@ impl AllocationController {
                 let health_handle = handle.clone();
                 let health_fe_id = fe_id.clone();
                 let panic_fe_id = fe_id.clone();
+                let health_metrics = self.config.metrics.clone();
 
                 tokio::spawn(async move {
                     let result = tokio::spawn(async move {
@@ -356,6 +364,7 @@ impl AllocationController {
                             health_handle,
                             health_cancel_clone,
                             &health_fe_id,
+                            health_metrics,
                         )
                         .await
                         {
@@ -381,10 +390,32 @@ impl AllocationController {
 
                 let fe = self.containers.get_mut(&fe_id).unwrap();
                 fe.state = ContainerState::Running {
-                    handle,
+                    handle: handle.clone(),
                     client: Box::new(client),
                     health_checker_cancel: health_cancel,
                 };
+
+                // Persist to state file for recovery after restart
+                let persisted = PersistedContainer {
+                    container_id: fe_id.clone(),
+                    handle_id: handle.id.clone(),
+                    daemon_addr: handle.daemon_addr.clone().unwrap_or_default(),
+                    http_addr: handle.http_addr.clone().unwrap_or_default(),
+                    container_ip: handle.container_ip.clone(),
+                    started_at: std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_millis() as u64)
+                        .unwrap_or(0),
+                    description_proto: Some(PersistedContainer::encode_description(
+                        &fe.description,
+                    )),
+                };
+                let state_file = self.state_file.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = state_file.upsert(persisted).await {
+                        tracing::warn!(error = ?e, "Failed to persist AC container state");
+                    }
+                });
 
                 // Notify the server so it can update container state.
                 let response =
@@ -407,7 +438,7 @@ impl AllocationController {
                     container_id = %fe_id,
                     sandbox_id = %ctx.sandbox_id,
                     pool_id = %ctx.pool_id,
-                    error = %e,
+                    error = ?e,
                     "Container startup failed: Starting -> Terminated"
                 );
                 self.config
@@ -518,11 +549,23 @@ impl AllocationController {
         let fe = self.containers.get_mut(&fe_id).unwrap();
         Self::return_gpus(&gpu_allocator, &mut fe.allocated_gpu_uuids);
 
+        // Remove from state file
+        let state_file = self.state_file.clone();
+        let id = fe_id.clone();
+        tokio::spawn(async move {
+            let _ = state_file.remove(&id).await;
+        });
+
         self.config
             .metrics
             .up_down_counters
             .containers_count
             .add(-1, &[]);
+        self.config
+            .metrics
+            .counters
+            .function_executor_destroys
+            .add(1, &[]);
 
         // Notify result pipeline so container termination is merged with
         // allocation results in the next report_results RPC.
@@ -562,7 +605,17 @@ async fn start_fe_process_and_initialize(
     // Start the FE process
     info!(container_id = %fe_id, "Starting function executor process");
     let start_time = Instant::now();
-    let handle = start_fe_process(&config, &description, &gpu_uuids).await?;
+    let handle = match start_fe_process(&config, &description, &gpu_uuids).await {
+        Ok(handle) => handle,
+        Err(e) => {
+            tracing::error!(error = ?e, %fe_id, "Failed to start function executor process");
+            metrics
+                .counters
+                .function_executor_create_server_errors
+                .add(1, &[]);
+            return Err(e);
+        }
+    };
     metrics
         .histograms
         .function_executor_create_server_latency_seconds
@@ -599,11 +652,14 @@ async fn start_fe_process(
         .unwrap_or("");
 
     // Resolve image
+    tracing::debug!(%namespace, %app, %function, %version, "Resolving function image");
     let image = config
         .image_resolver
         .function_image(namespace, app, function, version)
         .await
-        .ok();
+        .inspect_err(|err| {
+            tracing::error!(%namespace, %app, %function, %version, error = ?err, "Failed to resolve function image");
+        })?;
 
     info!(
         container_id = %fe_id,
@@ -629,6 +685,23 @@ async fn start_fe_process(
     for (k, v) in secrets {
         env.push((k, v));
     }
+
+    let sandbox_id = description
+        .sandbox_metadata
+        .as_ref()
+        .and_then(|m| m.sandbox_id.as_deref())
+        .unwrap_or("")
+        .to_string();
+    let pool_id = description.pool_id.as_deref().unwrap_or("").to_string();
+
+    let labels = vec![
+        ("indexify.container_id".to_string(), fe_id.clone()),
+        ("indexify.namespace".to_string(), namespace.to_string()),
+        ("indexify.application".to_string(), app.to_string()),
+        ("indexify.function".to_string(), function.to_string()),
+        ("indexify.sandbox_id".to_string(), sandbox_id),
+        ("indexify.pool_id".to_string(), pool_id),
+    ];
 
     let process_config = ProcessConfig {
         id: fe_id.clone(),
@@ -656,7 +729,8 @@ async fn start_fe_process(
                     gpu_device_ids,
                 })
         },
-        labels: vec![],
+        labels,
+        rootfs_overlay: None,
     };
 
     config.driver.start(process_config).await
@@ -688,7 +762,9 @@ async fn connect_to_fe(
     let driver = config.driver.clone();
     let process_handle = Some(handle.clone());
     let addr_owned = addr.to_string();
-    let mut client = crate::retry::retry_until_deadline(
+
+    let connect_start = Instant::now();
+    let connect_result = crate::retry::retry_until_deadline(
         FE_READY_TIMEOUT,
         Duration::from_millis(100),
         &format!("connecting to function executor at {}", addr),
@@ -711,10 +787,47 @@ async fn connect_to_fe(
             }
         },
     )
-    .await?;
+    .await;
+    config
+        .metrics
+        .histograms
+        .function_executor_establish_channel_latency_seconds
+        .record(connect_start.elapsed().as_secs_f64(), &[]);
+    if connect_result.is_err() {
+        config
+            .metrics
+            .counters
+            .function_executor_establish_channel_errors
+            .add(1, &[]);
+    }
+    let mut client = connect_result?;
 
     // Verify connectivity
-    let info = client.get_info().await?;
+    let info_start = Instant::now();
+    let info_result = client.get_info().await;
+    config
+        .metrics
+        .histograms
+        .function_executor_get_info_rpc_latency_seconds
+        .record(info_start.elapsed().as_secs_f64(), &[]);
+    match &info_result {
+        Ok(info) => {
+            config.metrics.counters.record_function_executor_info(
+                info.version.as_deref().unwrap_or(""),
+                info.sdk_version.as_deref().unwrap_or(""),
+                info.sdk_language.as_deref().unwrap_or(""),
+                info.sdk_language_version.as_deref().unwrap_or(""),
+            );
+        }
+        Err(_) => {
+            config
+                .metrics
+                .counters
+                .function_executor_get_info_rpc_errors
+                .add(1, &[]);
+        }
+    }
+    let info = info_result?;
     info!(
         version = ?info.version,
         sdk_version = ?info.sdk_version,
@@ -748,20 +861,35 @@ async fn initialize_fe(
     let timeout_ms = description.initialization_timeout_ms.unwrap_or(0);
     let init_future = client.initialize(init_request);
 
-    let init_response = if timeout_ms > 0 {
-        tokio::time::timeout(Duration::from_millis(timeout_ms as u64), init_future)
-            .await
-            .map_err(|_| InitTimedOut(timeout_ms as u64))?
-            .map_err(|e| {
-                error!(error = %e, "FE initialize RPC call failed");
-                e
-            })?
+    let init_start = Instant::now();
+    let init_result: Result<_> = if timeout_ms > 0 {
+        match tokio::time::timeout(Duration::from_millis(timeout_ms as u64), init_future).await {
+            Err(_) => Err(anyhow::Error::from(InitTimedOut(timeout_ms as u64))),
+            Ok(Err(e)) => {
+                error!(error = ?e, "FE initialize RPC call failed");
+                Err(e)
+            }
+            Ok(Ok(resp)) => Ok(resp),
+        }
     } else {
         init_future.await.map_err(|e| {
-            error!(error = %e, "FE initialize RPC call failed");
+            error!(error = ?e, "FE initialize RPC call failed");
             e
-        })?
+        })
     };
+    config
+        .metrics
+        .histograms
+        .function_executor_initialize_rpc_latency_seconds
+        .record(init_start.elapsed().as_secs_f64(), &[]);
+    if init_result.is_err() {
+        config
+            .metrics
+            .counters
+            .function_executor_initialize_rpc_errors
+            .add(1, &[]);
+    }
+    let init_response = init_result?;
 
     use proto_api::function_executor_pb::InitializationOutcomeCode;
     match init_response.outcome_code() {

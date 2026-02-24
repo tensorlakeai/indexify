@@ -1,27 +1,11 @@
-use std::{env, fmt::Debug, ops::Range, sync::Arc};
+use std::{env, ops::Range};
 
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use bytes::Bytes;
-#[cfg(test)]
-use bytes::BytesMut;
-use futures::{StreamExt, stream::BoxStream};
-use object_store::{
-    GetOptions,
-    ObjectStore,
-    ObjectStoreExt,
-    ObjectStoreScheme,
-    WriteMultipart,
-    aws::{AmazonS3Builder, S3ConditionalPut},
-    parse_url,
-    path::Path,
-};
+use futures::stream::BoxStream;
+use indexify_blob_store::uri;
 use opentelemetry::KeyValue;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
-use tokio::sync::mpsc;
-use tokio_stream::wrappers::UnboundedReceiverStream;
-use tracing::debug;
-use url::Url;
 
 use crate::metrics::{Timer, blob_storage};
 
@@ -62,61 +46,43 @@ pub struct PutResult {
     pub sha256_hash: String,
 }
 
+/// Blob storage backed by [`indexify_blob_store::BlobStore`].
+///
+/// This wrapper translates between the server's stored-path convention
+/// (relative paths as kept in the database) and the full URIs that the
+/// shared blob store crate expects.
 pub struct BlobStorage {
-    object_store: Arc<dyn ObjectStore>,
-    url_scheme: String,
-    url: String,
-    path: Path,
+    inner: indexify_blob_store::BlobStore,
     metrics: blob_storage::Metrics,
 }
 
 impl BlobStorage {
-    pub fn new(config: BlobStorageConfig) -> Result<Self> {
-        let url = &config.path.clone();
-        debug!("using blob store path: {}", url);
-        let (object_store, path) = Self::build_object_store(url, config.region.clone())?;
+    pub async fn new(config: BlobStorageConfig) -> Result<Self> {
+        let url = &config.path;
+        tracing::debug!("using blob store path: {}", url);
+        let inner = if indexify_blob_store::uri::is_s3_uri(url) {
+            indexify_blob_store::BlobStore::new_s3(url, config.region).await?
+        } else {
+            indexify_blob_store::BlobStore::new_local(url)
+        };
         Ok(Self {
-            object_store: Arc::new(object_store),
-            url_scheme: url.parse::<Url>()?.scheme().to_string(),
-            url: url.clone(),
-            path,
+            inner,
             metrics: blob_storage::Metrics::new(),
         })
     }
 
-    pub fn build_object_store(
-        url_str: &str,
-        region: Option<String>,
-    ) -> Result<(Box<dyn ObjectStore>, Path)> {
-        let url = &url_str.parse::<Url>()?;
-        let (scheme, _) = ObjectStoreScheme::parse(url)?;
-        match scheme {
-            ObjectStoreScheme::AmazonS3 => {
-                // inject AWS environment variables to prioritize keys over instance metadata
-                // credentials.
-                let mut s3_builder = AmazonS3Builder::from_env()
-                    .with_url(url_str)
-                    .with_allow_http(true)
-                    .with_conditional_put(S3ConditionalPut::ETagMatch);
-
-                if let Some(region) = region {
-                    s3_builder = s3_builder.with_region(region);
-                }
-
-                let obj_store = s3_builder.build().expect("failed to create object store");
-                let (_, path) = parse_url(url)?;
-                Ok((Box::new(obj_store), path))
-            }
-            _ => Ok(parse_url(url)?),
-        }
-    }
-
     pub fn get_url(&self) -> String {
-        self.url.clone()
+        self.inner.base_url().to_string()
     }
 
     pub fn get_url_scheme(&self) -> String {
-        self.url_scheme.clone()
+        self.inner.url_scheme().to_string()
+    }
+
+    /// Convert a stored path to a full URI using the blob store's scheme and
+    /// base URL.
+    fn stored_path_to_uri(&self, path: &str) -> String {
+        uri::blob_store_path_to_url(path, self.inner.url_scheme(), self.inner.base_url())
     }
 
     pub async fn put(
@@ -126,36 +92,43 @@ impl BlobStorage {
     ) -> Result<PutResult, anyhow::Error> {
         let timer_kvs = &[KeyValue::new("op", "put")];
         let _timer = Timer::start_with_labels(&self.metrics.operations, timer_kvs);
-        let mut hasher = Sha256::new();
-        let mut hashed_stream = data.map(|item| {
-            item.inspect(|bytes| {
-                hasher.update(bytes);
-            })
-        });
 
-        let path = self.path.child(key);
-        let m = self.object_store.put_multipart(&path).await?;
-        let mut w = WriteMultipart::new(m);
-        let mut size_bytes = 0;
-        while let Some(chunk) = hashed_stream.next().await {
-            w.wait_for_capacity(1).await?;
-            let chunk = chunk?;
-            size_bytes += chunk.len() as u64;
-            w.write(&chunk);
-        }
-        w.finish().await?;
+        // Construct the full URI from the base URL and key.
+        let full_uri = format!(
+            "{}/{}",
+            self.inner.base_url().trim_end_matches('/'),
+            key.trim_start_matches('/')
+        );
 
-        let hash = format!("{:x}", hasher.finalize());
+        let result = self
+            .inner
+            .put(
+                &full_uri,
+                data,
+                indexify_blob_store::PutOptions {
+                    compute_sha256: true,
+                },
+            )
+            .await?;
+
+        // Convert the full URI back to a stored path.
+        let stored_path = uri::blob_store_url_to_path(
+            &result.uri,
+            self.inner.url_scheme(),
+            self.inner.base_url(),
+        );
+
         Ok(PutResult {
-            url: path.to_string(),
-            size_bytes,
-            sha256_hash: hash,
+            url: stored_path,
+            size_bytes: result.size_bytes,
+            sha256_hash: result.sha256_hash.unwrap_or_default(),
         })
     }
 
-    // Get an object from the blob storage.
-    // If `range` is provided, it will return a stream of bytes for the specified
-    // range. If `range` is None, it will return the entire object.
+    /// Get an object from blob storage as a stream.
+    ///
+    /// `path` is a stored path (as returned by `put`). If `range` is provided,
+    /// returns only the specified byte range.
     pub async fn get(
         &self,
         path: &str,
@@ -163,36 +136,28 @@ impl BlobStorage {
     ) -> Result<BoxStream<'static, Result<Bytes>>> {
         let timer_kvs = &[KeyValue::new("op", "get")];
         let _timer = Timer::start_with_labels(&self.metrics.operations, timer_kvs);
-        let client_clone = self.object_store.clone();
-        let (tx, rx) = mpsc::unbounded_channel();
-        let options = GetOptions {
-            range: range.map(object_store::GetRange::Bounded),
-            ..Default::default()
-        };
-        let get_result = client_clone
-            .get_opts(&path.into(), options)
-            .await
-            .map_err(|e| anyhow!("can't get s3 object {path:?}: {e:?}"))?;
-        let path = path.to_string();
-        tokio::spawn(async move {
-            let mut stream = get_result.into_stream();
-            while let Some(chunk) = stream.next().await {
-                let _ =
-                    tx.send(chunk.map_err(|e| anyhow!("error reading s3 object {path:?}: {e:?}")));
-            }
-        });
-        Ok(Box::pin(UnboundedReceiverStream::new(rx)))
+        let full_uri = self.stored_path_to_uri(path);
+        self.inner.get_stream(&full_uri, range).await
     }
 
-    pub async fn _delete(&self, key: &str) -> Result<()> {
-        self.object_store
-            .delete(&object_store::path::Path::from(key))
-            .await?;
-        Ok(())
+    /// Delete a blob by its stored path.
+    #[allow(dead_code)]
+    pub async fn delete(&self, key: &str) -> Result<()> {
+        let full_uri = self.stored_path_to_uri(key);
+        self.inner.delete(&full_uri).await
+    }
+
+    /// Delete a blob by its full URI (e.g., for snapshot URIs that are already
+    /// full URIs from the dataplane).
+    pub async fn delete_by_uri(&self, uri: &str) -> Result<()> {
+        self.inner.delete(uri).await
     }
 
     #[cfg(test)]
     pub async fn _read_bytes(&self, key: &str) -> Result<Bytes> {
+        use bytes::BytesMut;
+        use futures::StreamExt;
+
         let mut reader = self.get(key, None).await?;
         let mut bytes = BytesMut::new();
         while let Some(chunk) = reader.next().await {

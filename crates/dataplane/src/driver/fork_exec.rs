@@ -237,6 +237,7 @@ mod tests {
             working_dir: None,
             resources: None,
             labels: vec![],
+            rootfs_overlay: None,
         };
 
         let handle = driver.start(config).await.unwrap();
@@ -264,6 +265,7 @@ mod tests {
             working_dir: None,
             resources: None,
             labels: vec![],
+            rootfs_overlay: None,
         };
 
         let handle = driver.start(config).await.unwrap();
@@ -289,6 +291,7 @@ mod tests {
             working_dir: None,
             resources: None,
             labels: vec![],
+            rootfs_overlay: None,
         };
 
         let handle = driver.start(config).await.unwrap();
@@ -317,6 +320,7 @@ mod tests {
             working_dir: None,
             resources: None,
             labels: vec![],
+            rootfs_overlay: None,
         };
 
         let handle = driver.start(config).await.unwrap();
@@ -342,6 +346,7 @@ mod tests {
             working_dir: None,
             resources: None,
             labels: vec![],
+            rootfs_overlay: None,
         };
 
         let result = driver.start(config).await;
@@ -363,6 +368,7 @@ mod tests {
             working_dir: None,
             resources: None,
             labels: vec![],
+            rootfs_overlay: None,
         };
 
         let handle = driver.start(config).await.unwrap();

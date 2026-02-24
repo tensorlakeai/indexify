@@ -33,6 +33,7 @@ use crate::{
     metrics::DataplaneMetrics,
     network_rules,
     secrets::SecretsProvider,
+    snapshotter::Snapshotter,
     state_file::StateFile,
 };
 
@@ -51,9 +52,12 @@ pub struct FunctionContainerManager {
     /// Feeds into the same `report_command_responses` pipeline as allocation
     /// results.
     container_state_tx: mpsc::UnboundedSender<CommandResponse>,
+    /// Optional snapshotter for creating/restoring filesystem snapshots.
+    snapshotter: Option<Arc<dyn Snapshotter>>,
 }
 
 impl FunctionContainerManager {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         driver: Arc<dyn ProcessDriver>,
         image_resolver: Arc<dyn ImageResolver>,
@@ -62,6 +66,7 @@ impl FunctionContainerManager {
         state_file: Arc<StateFile>,
         executor_id: String,
         container_state_tx: mpsc::UnboundedSender<CommandResponse>,
+        snapshotter: Option<Arc<dyn Snapshotter>>,
     ) -> Self {
         Self {
             driver,
@@ -72,6 +77,7 @@ impl FunctionContainerManager {
             state_file,
             executor_id,
             container_state_tx,
+            snapshotter,
         }
     }
 
@@ -128,7 +134,7 @@ impl FunctionContainerManager {
                 tracing::warn!(
                     container_id = %entry.container_id,
                     handle_id = %entry.handle_id,
-                    error = %e,
+                    error = ?e,
                     "Failed to check container status, removing from state"
                 );
                 let _ = self.state_file.remove(&entry.container_id).await;
@@ -148,7 +154,7 @@ impl FunctionContainerManager {
                 tracing::warn!(
                     container_id = %entry.container_id,
                     handle_id = %entry.handle_id,
-                    error = %e,
+                    error = ?e,
                     "Failed to reconnect to daemon, removing from state"
                 );
                 let _ = self.state_file.remove(&entry.container_id).await;
@@ -203,8 +209,11 @@ impl FunctionContainerManager {
     /// This handles containers that were created but the dataplane crashed
     /// before saving them to the state file, or containers left behind when
     /// the server terminated a sandbox while the dataplane was down.
-    pub async fn cleanup_orphans(&self) -> usize {
-        let known_handles: HashSet<String> = {
+    ///
+    /// `additional_known` contains handle IDs from other execution paths
+    /// (e.g. AllocationController) that should not be killed.
+    pub async fn cleanup_orphans(&self, additional_known: &HashSet<String>) -> usize {
+        let mut known_handles: HashSet<String> = {
             let containers = self.containers.read().await;
             containers
                 .values()
@@ -215,11 +224,12 @@ impl FunctionContainerManager {
                 })
                 .collect()
         };
+        known_handles.extend(additional_known.iter().cloned());
 
         let all_containers = match self.driver.list_containers().await {
             Ok(containers) => containers,
             Err(e) => {
-                tracing::warn!(error = %e, "Failed to list containers for orphan cleanup");
+                tracing::warn!(error = ?e, "Failed to list containers for orphan cleanup");
                 return 0;
             }
         };
@@ -242,7 +252,7 @@ impl FunctionContainerManager {
                 if let Err(e) = self.driver.kill(&handle).await {
                     tracing::warn!(
                         container_id = %container_id,
-                        error = %e,
+                        error = ?e,
                         "Failed to remove orphaned container"
                     );
                 } else {
@@ -303,6 +313,7 @@ impl FunctionContainerManager {
         let driver = self.driver.clone();
         let image_resolver = self.image_resolver.clone();
         let secrets_provider = self.secrets_provider.clone();
+        let snapshotter = self.snapshotter.clone();
         let containers_ref = self.containers.clone();
         let metrics = self.metrics.clone();
         let state_file = self.state_file.clone();
@@ -316,8 +327,10 @@ impl FunctionContainerManager {
                     &driver,
                     &image_resolver,
                     &secrets_provider,
+                    &snapshotter,
                     &executor_id,
                     &desc,
+                    &metrics,
                 )
                 .await;
                 lifecycle::handle_container_startup_result(
@@ -441,6 +454,7 @@ impl FunctionContainerManager {
                 "Warm container claimed by sandbox"
             );
             container.sandbox_claimed_at = Some(Instant::now());
+            self.metrics.counters.sandbox_warm_pool_claims.add(1, &[]);
             if matches!(container.state, ContainerState::Running { .. }) {
                 Self::send_container_started(&self.container_state_tx, id);
             }
@@ -462,7 +476,12 @@ impl FunctionContainerManager {
     fn send_container_started(tx: &mpsc::UnboundedSender<CommandResponse>, container_id: &str) {
         let response =
             crate::function_executor::proto_convert::make_container_started_response(container_id);
-        let _ = tx.send(response);
+        if tx.send(response).is_err() {
+            tracing::warn!(
+                container_id = %container_id,
+                "Failed to send ContainerStarted: channel closed"
+            );
+        }
     }
 
     /// Remove a single container by ID (delta operation).
@@ -498,6 +517,234 @@ impl FunctionContainerManager {
             }
         }
         update_container_counts(&containers, &self.metrics).await;
+    }
+
+    /// Snapshot a container's filesystem.
+    ///
+    /// Stops the container's processes, exports the filesystem via the
+    /// snapshotter, compresses and uploads to the blob store, then kills
+    /// and removes the Docker container.
+    ///
+    /// Unlike normal container stop, this does NOT use `initiate_stop` /
+    /// `spawn_grace_period_kill` because those would race with `docker export`:
+    /// the grace-period kill destroys the Docker container after 10s while the
+    /// export may still be in progress. Instead we manage the full lifecycle
+    /// manually:
+    ///   1. Transition to Stopping (prevents other interactions)
+    ///   2. Send SIGTERM to processes inside the container
+    ///   3. Wait for graceful shutdown
+    ///   4. `docker export` using the Docker handle ID (not the logical
+    ///      container ID)
+    ///   5. Kill + remove the Docker container
+    ///   6. Transition to Terminated
+    pub async fn snapshot_container(
+        &self,
+        container_id: &str,
+        snapshot_id: &str,
+        upload_uri: &str,
+    ) {
+        use proto_api::executor_api_pb::{
+            SnapshotCompleted,
+            SnapshotFailed,
+            command_response::Response,
+        };
+
+        let snapshotter = match &self.snapshotter {
+            Some(s) => s.clone(),
+            None => {
+                tracing::warn!(
+                    container_id = %container_id,
+                    snapshot_id = %snapshot_id,
+                    "SnapshotContainer: snapshots not configured"
+                );
+                self.send_snapshot_response(Response::SnapshotFailed(SnapshotFailed {
+                    container_id: container_id.to_string(),
+                    snapshot_id: snapshot_id.to_string(),
+                    error_message: "snapshots not configured on this dataplane".to_string(),
+                }));
+                return;
+            }
+        };
+
+        // Transition Running → Stopping.
+        // We do NOT call `initiate_stop` because it spawns
+        // `spawn_grace_period_kill` which would race with `docker export`.
+        //
+        // For gVisor (runsc): the in-memory overlay is destroyed when the
+        // container exits, so we must snapshot **before** stopping.
+        // For runc: `docker export` works on stopped containers, so we stop
+        // first to get a quiescent filesystem.
+        let snapshot_before_stop = snapshotter.requires_running_container();
+
+        let docker_handle_id = {
+            let mut containers = self.containers.write().await;
+            let Some(container) = containers.get_mut(container_id) else {
+                tracing::warn!(
+                    container_id = %container_id,
+                    snapshot_id = %snapshot_id,
+                    "SnapshotContainer: container not found"
+                );
+                self.send_snapshot_response(Response::SnapshotFailed(SnapshotFailed {
+                    container_id: container_id.to_string(),
+                    snapshot_id: snapshot_id.to_string(),
+                    error_message: "container not found".to_string(),
+                }));
+                return;
+            };
+
+            let (handle, daemon_client) = match container
+                .transition_to_stopping(ContainerTerminationReason::FunctionCancelled)
+            {
+                Ok((h, dc)) => (h, dc),
+                Err(_) => {
+                    tracing::warn!(
+                        container_id = %container_id,
+                        snapshot_id = %snapshot_id,
+                        "SnapshotContainer: container not in Running state"
+                    );
+                    self.send_snapshot_response(Response::SnapshotFailed(SnapshotFailed {
+                        container_id: container_id.to_string(),
+                        snapshot_id: snapshot_id.to_string(),
+                        error_message: "container not in running state".to_string(),
+                    }));
+                    return;
+                }
+            };
+
+            let span = container.info().tracing_span();
+
+            if !snapshot_before_stop {
+                tracing::info!(
+                    parent: &span,
+                    event = "snapshot_stopping",
+                    "Sending stop signal before snapshot"
+                );
+                send_stop_signal(&*self.driver, &handle, daemon_client, &span).await;
+            } else {
+                tracing::info!(
+                    parent: &span,
+                    event = "snapshot_before_stop",
+                    "Snapshotting running container (gVisor)"
+                );
+                // Drop the daemon client — we'll stop the container after
+                // the snapshot completes.
+                drop(daemon_client);
+            }
+
+            if let Err(e) = self.state_file.remove(container_id).await {
+                tracing::warn!(
+                    container_id = %container_id,
+                    error = %e,
+                    "Failed to remove container from state file"
+                );
+            }
+
+            // Return the Docker handle ID — this is the actual Docker
+            // container name (e.g. "indexify-sandbox-<id>") needed by
+            // `docker export`. The logical `container_id` would fail.
+            handle.id.clone()
+        };
+
+        if !snapshot_before_stop {
+            // Grace period for container processes to shut down.
+            const SNAPSHOT_SHUTDOWN_GRACE_SECS: u64 = 5;
+            tokio::time::sleep(Duration::from_secs(SNAPSHOT_SHUTDOWN_GRACE_SECS)).await;
+        }
+
+        // Create the snapshot using the Docker container name.
+        let snapshot_result = snapshotter
+            .create_snapshot(&docker_handle_id, snapshot_id, upload_uri)
+            .await;
+
+        // Kill and remove the Docker container now that export is done
+        // (or failed). We also need to remove network rules before killing.
+        {
+            let containers = self.containers.read().await;
+            if let Some(container) = containers.get(container_id) &&
+                let ContainerState::Stopping { handle, .. } = &container.state &&
+                let Err(e) = network_rules::remove_rules(&handle.id, &handle.container_ip)
+            {
+                tracing::warn!(error = ?e, "Failed to remove network rules");
+            }
+        }
+        let kill_handle = ProcessHandle {
+            id: docker_handle_id.clone(),
+            daemon_addr: None,
+            http_addr: None,
+            container_ip: String::new(),
+        };
+        if let Err(e) = self.driver.kill(&kill_handle).await {
+            tracing::warn!(
+                container_id = %container_id,
+                docker_id = %docker_handle_id,
+                error = %e,
+                "Failed to kill container after snapshot"
+            );
+        }
+
+        // Transition to Terminated and clean up
+        {
+            let mut containers = self.containers.write().await;
+            if let Some(container) = containers.get_mut(container_id) &&
+                container
+                    .transition_to_terminated(ContainerTerminationReason::FunctionCancelled)
+                    .is_ok()
+            {
+                Self::send_container_terminated(
+                    &self.container_state_tx,
+                    container_id,
+                    ContainerTerminationReason::FunctionCancelled,
+                );
+            }
+            containers.remove(container_id);
+            update_container_counts(&containers, &self.metrics).await;
+        }
+
+        // Send snapshot result
+        match snapshot_result {
+            Ok(result) => {
+                tracing::info!(
+                    container_id = %container_id,
+                    snapshot_id = %snapshot_id,
+                    snapshot_uri = %result.snapshot_uri,
+                    size_bytes = result.size_bytes,
+                    "Snapshot created successfully"
+                );
+                self.send_snapshot_response(Response::SnapshotCompleted(SnapshotCompleted {
+                    container_id: container_id.to_string(),
+                    snapshot_id: snapshot_id.to_string(),
+                    snapshot_uri: result.snapshot_uri,
+                    size_bytes: result.size_bytes,
+                }));
+            }
+            Err(e) => {
+                tracing::error!(
+                    container_id = %container_id,
+                    snapshot_id = %snapshot_id,
+                    error = %e,
+                    "Snapshot creation failed"
+                );
+                self.send_snapshot_response(Response::SnapshotFailed(SnapshotFailed {
+                    container_id: container_id.to_string(),
+                    snapshot_id: snapshot_id.to_string(),
+                    error_message: e.to_string(),
+                }));
+            }
+        }
+    }
+
+    /// Send a snapshot response via the container state channel.
+    fn send_snapshot_response(
+        &self,
+        response: proto_api::executor_api_pb::command_response::Response,
+    ) {
+        let msg = CommandResponse {
+            command_seq: None,
+            response: Some(response),
+        };
+        if self.container_state_tx.send(msg).is_err() {
+            tracing::warn!("Failed to send snapshot response: channel closed");
+        }
     }
 
     /// Update an existing container's description.
@@ -540,7 +787,13 @@ impl FunctionContainerManager {
             self.metrics
                 .counters
                 .record_container_terminated(container_type, "cancelled_pending");
-            if container.transition_to_terminated(reason).is_ok() {
+            if container
+                .transition_to_terminated(reason)
+                .inspect_err(
+                    |error| tracing::warn!(container_id = %id, ?error, "Invalid state transition"),
+                )
+                .is_ok()
+            {
                 Self::send_container_terminated(&self.container_state_tx, &id, reason);
             }
             return;
@@ -567,13 +820,13 @@ impl FunctionContainerManager {
         if let Err(e) = self.state_file.remove(&id).await {
             tracing::warn!(
                 parent: &span,
-                error = %e,
+                error = ?e,
                 "Failed to remove container from state file"
             );
         }
 
         spawn_grace_period_kill(
-            id,
+            id.clone(),
             container_type.to_string(),
             self.containers.clone(),
             self.driver.clone(),
@@ -594,7 +847,12 @@ impl FunctionContainerManager {
             container_id,
             reason,
         );
-        let _ = tx.send(response);
+        if tx.send(response).is_err() {
+            tracing::warn!(
+                container_id = %container_id,
+                "Failed to send ContainerTerminated: channel closed"
+            );
+        }
     }
 
     /// Get the current state of all containers for reporting to the server.
@@ -649,13 +907,13 @@ async fn send_stop_signal(
         if let Err(e) = client.send_signal(15).await {
             tracing::info!(
                 parent: span,
-                error = %e,
+                error = ?e,
                 "No process to signal via daemon, falling back to container signal"
             );
             if let Err(e) = driver.send_sig(handle, 15).await {
                 tracing::warn!(
                     parent: span,
-                    error = %e,
+                    error = ?e,
                     "Failed to send signal to container"
                 );
             }
@@ -663,13 +921,14 @@ async fn send_stop_signal(
     } else if let Err(e) = driver.send_sig(handle, 15).await {
         tracing::warn!(
             parent: span,
-            error = %e,
+            error = ?e,
             "Failed to send signal to container"
         );
     }
 }
 
 /// Spawn a task that kills a container after the grace period expires.
+#[tracing::instrument(skip_all, fields(container_id = %container_id, container_type = %container_type))]
 fn spawn_grace_period_kill(
     container_id: String,
     container_type: String,
@@ -695,18 +954,17 @@ fn spawn_grace_period_kill(
                     .unwrap_or(0);
 
                 tracing::info!(
-                    container_type = %container_type,
-                    run_duration_ms = %run_duration_ms,
+                    %run_duration_ms,
                     event = "container_killing",
                     "Killing container after grace period"
                 );
 
                 if let Err(e) = network_rules::remove_rules(&handle.id, &handle.container_ip) {
-                    tracing::warn!(error = %e, "Failed to remove network rules");
+                    tracing::warn!(error = ?e, "Failed to remove network rules");
                 }
 
                 if let Err(e) = driver.kill(&handle).await {
-                    tracing::warn!(error = %e, "Failed to kill container");
+                    tracing::warn!(error = ?e, "Failed to kill container");
                 }
 
                 metrics
@@ -714,7 +972,6 @@ fn spawn_grace_period_kill(
                     .record_container_terminated(&container_type, "grace_period_kill");
 
                 tracing::info!(
-                    container_type = %container_type,
                     run_duration_ms = %run_duration_ms,
                     event = "container_terminated",
                     "Container terminated"
@@ -722,6 +979,9 @@ fn spawn_grace_period_kill(
 
                 if container
                     .transition_to_terminated(termination_reason)
+                    .inspect_err(|error| {
+                        tracing::warn!(?error, "Invalid state transition in grace period kill")
+                    })
                     .is_ok()
                 {
                     FunctionContainerManager::send_container_terminated(
@@ -918,14 +1178,11 @@ mod tests {
                 .contains("No image configured")
         );
 
-        let result = resolver.function_image("ns", "app", "fn", "v1").await;
-        assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("No image configured")
-        );
+        let result = resolver
+            .function_image("ns", "app", "fn", "v1")
+            .await
+            .unwrap();
+        assert!(result.is_none());
     }
 
     #[test]
@@ -993,6 +1250,7 @@ mod tests {
             state_file,
             "test-executor".to_string(),
             container_state_tx,
+            None,
         );
         (driver, manager)
     }
@@ -1092,6 +1350,7 @@ mod tests {
             entrypoint: vec![],
             network_policy: None,
             sandbox_id: None,
+            snapshot_uri: None,
         });
         desc
     }

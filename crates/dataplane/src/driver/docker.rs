@@ -1,9 +1,10 @@
-use std::{collections::HashMap, time::Instant};
+use std::{collections::HashMap, path::PathBuf, time::Instant};
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use bollard::{
     Docker,
+    auth::DockerCredentials,
     models::{
         ContainerCreateBody,
         ContainerStateStatusEnum,
@@ -19,6 +20,7 @@ use bollard::{
         KillContainerOptions,
         RemoveContainerOptions,
         StartContainerOptions,
+        StopContainerOptionsBuilder,
     },
 };
 use futures_util::StreamExt;
@@ -120,6 +122,12 @@ impl DockerDriver {
         })
     }
 
+    /// Get a reference to the underlying Docker client.
+    /// Used by DockerSnapshotter for export/import operations.
+    pub fn docker_client(&self) -> &Docker {
+        &self.docker
+    }
+
     /// Check if an image exists locally.
     async fn image_exists(&self, image: &str) -> Result<bool> {
         match self.docker.inspect_image(image).await {
@@ -172,7 +180,8 @@ impl DockerDriver {
             ..Default::default()
         };
 
-        let mut stream = self.docker.create_image(Some(options), None, None);
+        let auth = get_docker_credentials(image);
+        let mut stream = self.docker.create_image(Some(options), None, auth);
 
         while let Some(result) = stream.next().await {
             match result {
@@ -196,7 +205,7 @@ impl DockerDriver {
                     tracing::error!(
                         image = %image,
                         duration_ms = %duration_ms,
-                        error = %e,
+                        error = ?e,
                         is_not_found = is_not_found,
                         event = "image_pull_failed",
                         "Failed to pull Docker image"
@@ -219,6 +228,161 @@ impl DockerDriver {
 
         Ok(())
     }
+}
+
+// ---------------------------------------------------------------------------
+// Docker registry credential resolution
+// ---------------------------------------------------------------------------
+
+/// Parsed representation of `~/.docker/config.json`.
+#[derive(Default)]
+struct DockerConfig {
+    /// Default credential store (e.g. "ecr-login", "desktop").
+    creds_store: Option<String>,
+    /// Per-registry credential helpers.
+    cred_helpers: HashMap<String, String>,
+}
+
+/// Return the path to the Docker config file, respecting `$DOCKER_CONFIG`.
+fn docker_config_path() -> Option<PathBuf> {
+    if let Ok(dir) = std::env::var("DOCKER_CONFIG") {
+        return Some(PathBuf::from(dir).join("config.json"));
+    }
+    let home = std::env::var("HOME").ok()?;
+    Some(PathBuf::from(home).join(".docker").join("config.json"))
+}
+
+/// Read and parse the Docker config file.
+fn read_docker_config() -> Option<DockerConfig> {
+    let path = docker_config_path()?;
+    let data = std::fs::read_to_string(&path).ok()?;
+    let json: serde_json::Value = serde_json::from_str(&data).ok()?;
+
+    let creds_store = json
+        .get("credsStore")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    let cred_helpers = json
+        .get("credHelpers")
+        .and_then(|v| v.as_object())
+        .map(|obj| {
+            obj.iter()
+                .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    Some(DockerConfig {
+        creds_store,
+        cred_helpers,
+    })
+}
+
+/// Extract the registry hostname from a Docker image reference.
+fn extract_registry(image: &str) -> Option<String> {
+    // Strip tag or digest
+    let without_tag = image.split('@').next().unwrap_or(image);
+    let without_tag = without_tag.split(':').next().unwrap_or(without_tag);
+
+    // The first path component is the registry if it contains a '.' or ':'
+    let first_component = without_tag.split('/').next()?;
+    if first_component.contains('.') || first_component.contains(':') {
+        Some(first_component.to_string())
+    } else {
+        None
+    }
+}
+
+/// Invoke `docker-credential-<helper> get` with the server URL on stdin and
+/// parse the JSON response.
+fn call_credential_helper(helper: &str, registry: &str) -> Option<DockerCredentials> {
+    let binary = format!("docker-credential-{}", helper);
+    // Credential helpers expect the full URL with scheme for most registries.
+    let server_url = if registry.starts_with("https://") || registry.starts_with("http://") {
+        registry.to_string()
+    } else {
+        format!("https://{}", registry)
+    };
+
+    let output = std::process::Command::new(&binary)
+        .arg("get")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .and_then(|mut child| {
+            use std::io::Write;
+            if let Some(ref mut stdin) = child.stdin {
+                stdin.write_all(server_url.as_bytes())?;
+            }
+            child.wait_with_output()
+        });
+
+    let output = match output {
+        Ok(o) if o.status.success() => o,
+        Ok(o) => {
+            tracing::error!(
+                helper = %binary,
+                registry = %registry,
+                stderr = %String::from_utf8_lossy(&o.stderr),
+                "Credential helper returned non-zero exit code"
+            );
+            return None;
+        }
+        Err(e) => {
+            tracing::error!(
+                helper = %binary,
+                registry = %registry,
+                error = %e,
+                "Failed to run credential helper"
+            );
+            return None;
+        }
+    };
+
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).ok()?;
+    let username = json
+        .get("Username")
+        .and_then(|v| v.as_str())
+        .map(String::from);
+    let secret = json
+        .get("Secret")
+        .and_then(|v| v.as_str())
+        .map(String::from);
+
+    // Some helpers return a token instead of username/password
+    if username.as_deref() == Some("<token>") {
+        return Some(DockerCredentials {
+            identitytoken: secret,
+            ..Default::default()
+        });
+    }
+
+    Some(DockerCredentials {
+        username,
+        password: secret,
+        ..Default::default()
+    })
+}
+
+/// Resolve Docker credentials for the given image reference by reading
+/// `~/.docker/config.json` and invoking credential helpers as needed.
+fn get_docker_credentials(image: &str) -> Option<DockerCredentials> {
+    let registry = extract_registry(image)?;
+    let config = read_docker_config()?;
+
+    // 1. Check credHelpers for a registry-specific helper
+    if let Some(helper) = config.cred_helpers.get(&registry) {
+        return call_credential_helper(helper, &registry);
+    }
+
+    // 2. Fall back to the default credsStore
+    if let Some(ref store) = config.creds_store {
+        return call_credential_helper(store, &registry);
+    }
+
+    None
 }
 
 impl Default for DockerDriver {
@@ -473,7 +637,7 @@ impl DockerDriver {
         };
 
         ContainerSpec {
-            container_name: format!("indexify-{}", config.id),
+            container_name: format!("indexify-function-{}", config.id),
             image: image.to_string(),
             entrypoint,
             cmd,
@@ -496,6 +660,18 @@ impl DockerDriver {
             CONTAINER_DAEMON_PATH
         )]);
 
+        // When restoring a gVisor snapshot, apply the rootfs overlay via the
+        // `dev.gvisor.tar.rootfs.upper` annotation. gVisor reads this at
+        // container start and overlays the tar contents on top of the base image.
+        if let Some(ref overlay_path) = config.rootfs_overlay {
+            let mut annotations = HashMap::new();
+            annotations.insert(
+                "dev.gvisor.tar.rootfs.upper".to_string(),
+                overlay_path.clone(),
+            );
+            host_config.annotations = Some(annotations);
+        }
+
         let mut cmd: Vec<String> = vec![
             "--port".to_string(),
             DAEMON_GRPC_PORT.to_string(),
@@ -512,7 +688,7 @@ impl DockerDriver {
         }
 
         Ok(ContainerSpec {
-            container_name: format!("indexify-{}", config.id),
+            container_name: format!("indexify-sandbox-{}", config.id),
             image: image.to_string(),
             entrypoint: Some(vec![CONTAINER_DAEMON_PATH.to_string()]),
             cmd,
@@ -595,6 +771,17 @@ impl ProcessDriver for DockerDriver {
             .await
             .context("Failed to send signal to container")?;
 
+        Ok(())
+    }
+
+    async fn stop(&self, handle: &ProcessHandle, timeout_secs: u64) -> Result<()> {
+        let options = StopContainerOptionsBuilder::default()
+            .t(timeout_secs as i32)
+            .build();
+        self.docker
+            .stop_container(&handle.id, Some(options))
+            .await
+            .context("Failed to stop container")?;
         Ok(())
     }
 

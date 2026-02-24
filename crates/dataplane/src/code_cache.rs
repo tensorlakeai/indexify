@@ -2,6 +2,7 @@
 //!
 //! Downloads and caches application code blobs from the blob store,
 //! using atomic file operations for thread-safe shared access.
+//! Downloads are streamed to disk to avoid buffering large blobs in memory.
 
 use std::{
     path::{Path, PathBuf},
@@ -10,7 +11,9 @@ use std::{
 
 use anyhow::{Context, Result};
 use bytes::Bytes;
+use futures_util::StreamExt;
 use sha2::{Digest, Sha256};
+use tokio::io::AsyncWriteExt;
 use tracing::{debug, info, warn};
 
 use crate::blob_ops::BlobStore;
@@ -41,9 +44,9 @@ impl CodeCache {
 
     /// Get application code, using cache if available.
     ///
-    /// Returns the raw bytes of the serialized application code.
-    /// Downloads from the blob store on cache miss, and writes to cache
-    /// asynchronously.
+    /// Returns the path to the cached file on disk. On cache miss, streams
+    /// the download from the blob store directly to a temp file (verifying
+    /// SHA-256 along the way), then atomically renames it into the cache.
     pub async fn get_or_download(
         &self,
         namespace: &str,
@@ -74,7 +77,7 @@ impl CodeCache {
             return Ok(data);
         }
 
-        // Cache miss — download and verify
+        // Cache miss — stream download to temp file, verify, and cache
         info!(
             namespace = %namespace,
             app_name = %app_name,
@@ -82,47 +85,115 @@ impl CodeCache {
             code_uri = %code_uri,
             "Downloading application code"
         );
-        let data = self.download_and_verify(code_uri, expected_sha256).await?;
+        self.stream_download_to_cache(code_uri, expected_sha256, &cache_path)
+            .await?;
 
-        // Write to cache asynchronously (atomic via temp file + rename)
-        spawn_cache_write(self.cache_dir.clone(), cache_path, data.clone());
-
-        Ok(data)
+        // Read the cached file into memory for the caller
+        let data = tokio::fs::read(&cache_path)
+            .await
+            .with_context(|| format!("Failed to read cached file: {}", cache_path.display()))?;
+        Ok(Bytes::from(data))
     }
 
-    /// Download application code from blob store and verify integrity.
-    async fn download_and_verify(
+    /// Stream download from blob store to a temp file, verify SHA-256, and
+    /// atomically move into the cache.
+    async fn stream_download_to_cache(
         &self,
         code_uri: &str,
         expected_sha256: Option<&str>,
-    ) -> Result<Bytes> {
+        cache_path: &Path,
+    ) -> Result<()> {
         let counters = &self.metrics.counters;
         let histograms = &self.metrics.histograms;
 
         counters.application_downloads.add(1, &[]);
         let download_start = std::time::Instant::now();
 
-        let data = match self.blob_store.get(code_uri).await {
-            Ok(data) => {
-                histograms
-                    .application_download_latency_seconds
-                    .record(download_start.elapsed().as_secs_f64(), &[]);
-                data
-            }
-            Err(e) => {
-                histograms
-                    .application_download_latency_seconds
-                    .record(download_start.elapsed().as_secs_f64(), &[]);
-                counters.application_download_errors.add(1, &[]);
-                return Err(e).context("Failed to download application code");
-            }
-        };
+        // Ensure temp directory exists (same filesystem as cache for atomic rename)
+        let temp_dir = self.cache_dir.join("tmp_download");
+        tokio::fs::create_dir_all(&temp_dir)
+            .await
+            .with_context(|| format!("Failed to create temp dir: {}", temp_dir.display()))?;
 
-        if let Some(expected) = expected_sha256 {
-            verify_sha256(&data, expected)?;
+        let temp_path = temp_dir.join(format!("dl-{}", uuid::Uuid::new_v4()));
+
+        // Stream from blob store → temp file, computing SHA-256 as we go
+        let result = self
+            .stream_to_file(code_uri, &temp_path, expected_sha256)
+            .await;
+
+        histograms
+            .application_download_latency_seconds
+            .record(download_start.elapsed().as_secs_f64(), &[]);
+
+        if let Err(e) = &result {
+            counters.application_download_errors.add(1, &[]);
+            // Clean up temp file on failure
+            let _ = tokio::fs::remove_file(&temp_path).await;
+            return Err(anyhow::anyhow!("{e:#}")).context("Failed to download application code");
         }
 
-        Ok(data)
+        // Ensure cache parent directory exists
+        if let Some(parent) = cache_path.parent() {
+            tokio::fs::create_dir_all(parent).await.with_context(|| {
+                format!("Failed to create cache directory: {}", parent.display())
+            })?;
+        }
+
+        // Atomic rename into cache
+        tokio::fs::rename(&temp_path, cache_path)
+            .await
+            .with_context(|| {
+                format!(
+                    "Failed to rename {} to {}",
+                    temp_path.display(),
+                    cache_path.display()
+                )
+            })?;
+
+        debug!(path = %cache_path.display(), "Cached application code");
+        Ok(())
+    }
+
+    /// Stream blob content to a file, optionally verifying SHA-256.
+    async fn stream_to_file(
+        &self,
+        code_uri: &str,
+        dest: &Path,
+        expected_sha256: Option<&str>,
+    ) -> Result<()> {
+        let mut stream = self.blob_store.get_stream(code_uri).await?;
+        let mut file = tokio::fs::File::create(dest)
+            .await
+            .with_context(|| format!("Failed to create temp file: {}", dest.display()))?;
+
+        let mut hasher = expected_sha256.map(|_| Sha256::new());
+
+        while let Some(chunk_result) = stream.next().await {
+            let chunk: Bytes = chunk_result?;
+            if let Some(h) = &mut hasher {
+                h.update(&chunk);
+            }
+            file.write_all(&chunk)
+                .await
+                .with_context(|| format!("Failed to write to temp file: {}", dest.display()))?;
+        }
+
+        file.flush().await?;
+
+        // Verify SHA-256 if expected
+        if let (Some(hasher), Some(expected)) = (hasher, expected_sha256) {
+            let actual = format!("{:x}", hasher.finalize());
+            if actual != expected {
+                anyhow::bail!(
+                    "SHA256 mismatch for application code: expected {}, got {}",
+                    expected,
+                    actual
+                );
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -135,76 +206,13 @@ async fn try_read_cache(cache_path: &Path) -> Option<Bytes> {
         Ok(data) => Some(Bytes::from(data)),
         Err(e) => {
             warn!(
-                error = %e,
+                error = ?e,
                 cache_path = %cache_path.display(),
                 "Cache read failed, will download"
             );
             None
         }
     }
-}
-
-/// Verify SHA256 hash of downloaded data.
-fn verify_sha256(data: &[u8], expected: &str) -> Result<()> {
-    let mut hasher = Sha256::new();
-    hasher.update(data);
-    let actual = format!("{:x}", hasher.finalize());
-    if actual != expected {
-        anyhow::bail!(
-            "SHA256 mismatch for application code: expected {}, got {}",
-            expected,
-            actual
-        );
-    }
-    Ok(())
-}
-
-/// Spawn an async task to write data to the cache atomically.
-fn spawn_cache_write(cache_dir: PathBuf, cache_path: PathBuf, data: Bytes) {
-    tokio::spawn(async move {
-        if let Err(e) = write_cache_atomically(&cache_dir, &cache_path, &data).await {
-            warn!(
-                error = %e,
-                path = %cache_path.display(),
-                "Failed to write application code to cache"
-            );
-        }
-    });
-}
-
-/// Write data to cache path atomically using a temp file and rename.
-async fn write_cache_atomically(cache_dir: &Path, target: &Path, data: &[u8]) -> Result<()> {
-    // Ensure parent directories exist
-    if let Some(parent) = target.parent() {
-        tokio::fs::create_dir_all(parent)
-            .await
-            .with_context(|| format!("Failed to create cache directory: {}", parent.display()))?;
-    }
-
-    // Write to temp file in the cache root (same filesystem for atomic rename)
-    let temp_dir = cache_dir.join("task_application_cache");
-    tokio::fs::create_dir_all(&temp_dir)
-        .await
-        .with_context(|| format!("Failed to create temp dir: {}", temp_dir.display()))?;
-
-    let temp_file = temp_dir.join(format!("tmp-{}", uuid::Uuid::new_v4()));
-    tokio::fs::write(&temp_file, data)
-        .await
-        .with_context(|| format!("Failed to write temp file: {}", temp_file.display()))?;
-
-    // Atomic rename to target path
-    tokio::fs::rename(&temp_file, target)
-        .await
-        .with_context(|| {
-            format!(
-                "Failed to rename {} to {}",
-                temp_file.display(),
-                target.display()
-            )
-        })?;
-
-    debug!(path = %target.display(), "Cached application code");
-    Ok(())
 }
 
 #[cfg(test)]
@@ -224,22 +232,19 @@ mod tests {
         tokio::fs::write(&code_path, code_data).await.unwrap();
 
         let metrics = Arc::new(crate::metrics::DataplaneMetrics::new());
-        let blob_store = Arc::new(BlobStore::new_local(metrics.clone()));
+        let blob_store = Arc::new(BlobStore::new(metrics.clone()));
         let cache = CodeCache::new(cache_dir.clone(), blob_store, metrics);
 
         let code_uri = format!("file://{}", code_path.display());
 
-        // First call: cache miss, downloads
+        // First call: cache miss, streams download to cache
         let result = cache
             .get_or_download("test-ns", "my-app", "v1", &code_uri, None)
             .await
             .unwrap();
         assert_eq!(result.as_ref(), code_data);
 
-        // Wait for async cache write
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-
-        // Verify cache file exists
+        // Verify cache file exists (written synchronously now, no sleep needed)
         let cached_path = cache_dir
             .join("application_cache")
             .join("test-ns")
@@ -263,7 +268,7 @@ mod tests {
         tokio::fs::write(&code_path, code_data).await.unwrap();
 
         let metrics = Arc::new(crate::metrics::DataplaneMetrics::new());
-        let blob_store = Arc::new(BlobStore::new_local(metrics.clone()));
+        let blob_store = Arc::new(BlobStore::new(metrics.clone()));
         let cache = CodeCache::new(dir.path().join("cache"), blob_store, metrics);
         let code_uri = format!("file://{}", code_path.display());
 
@@ -277,10 +282,14 @@ mod tests {
             .await;
         assert!(result.is_ok());
 
-        // Wrong hash
+        // Wrong hash — should fail and NOT cache the file
         let result = cache
             .get_or_download("ns", "app", "v2", &code_uri, Some("wrong_hash"))
             .await;
         assert!(result.is_err());
+
+        // Verify the bad file was cleaned up
+        let bad_cache_path = dir.path().join("cache/application_cache/ns/app/v2");
+        assert!(!bad_cache_path.exists());
     }
 }

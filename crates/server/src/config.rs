@@ -120,6 +120,22 @@ pub struct ServerConfig {
     /// local dev.
     #[serde_inline_default("http".to_string())]
     pub sandbox_proxy_scheme: String,
+    /// Interval in seconds for the periodic cluster vacuum. 0 disables it.
+    #[serde_inline_default(60u64)]
+    pub cluster_vacuum_interval_secs: u64,
+    /// Containers idle longer than this (seconds) are terminated. Respects
+    /// min_containers.
+    #[serde_inline_default(300u64)]
+    pub cluster_vacuum_max_idle_age_secs: u64,
+    /// Base path/URI for snapshot storage. Snapshot files are stored under
+    /// `{snapshot_storage_path}/snapshots/{namespace}/{snapshot_id}.tar.zst`.
+    /// Defaults to the blob_storage path if not set.
+    #[serde(default)]
+    pub snapshot_storage_path: Option<String>,
+    /// Timeout in seconds for snapshots stuck in InProgress state. Snapshots
+    /// older than this are automatically failed by the vacuum. 0 disables.
+    #[serde_inline_default(600u64)]
+    pub snapshot_timeout_secs: u64,
 }
 
 impl Default for ServerConfig {
@@ -141,6 +157,10 @@ impl Default for ServerConfig {
             default_sandbox_image: DEFAULT_SANDBOX_IMAGE.to_string(),
             sandbox_proxy_domain: Some("127.0.0.1.nip.io".to_string()),
             sandbox_proxy_scheme: "http".to_string(),
+            cluster_vacuum_interval_secs: 60,
+            cluster_vacuum_max_idle_age_secs: 300,
+            snapshot_storage_path: None,
+            snapshot_timeout_secs: 600,
         }
     }
 }

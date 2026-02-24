@@ -9,18 +9,19 @@
 //! - HTTP server (port 9501): User-facing Sandbox API for interactive process
 //!   execution
 
-mod file_manager;
-mod grpc_server;
-mod http_models;
-mod http_server;
-mod pid1;
-mod process_manager;
-
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use clap::Parser;
-use file_manager::FileManager;
+use indexify_container_daemon::{
+    file_manager::FileManager,
+    grpc_server,
+    http_models,
+    http_server,
+    pid1,
+    process_manager,
+    pty_manager,
+};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
@@ -86,6 +87,9 @@ async fn main() -> Result<()> {
     // Create the file manager
     let file_manager = FileManager::new();
 
+    // Create the PTY manager
+    let pty_manager = pty_manager::PtyManager::new(cancel_token.clone());
+
     // Start the gRPC server
     let grpc_server_handle = {
         let process_manager = process_manager.clone();
@@ -103,13 +107,19 @@ async fn main() -> Result<()> {
     let http_server_handle = {
         let process_manager = process_manager.clone();
         let file_manager = file_manager.clone();
+        let pty_manager = pty_manager.clone();
         let port = args.http_port;
         let cancel_token = cancel_token.clone();
 
         tokio::spawn(async move {
-            if let Err(e) =
-                http_server::run_http_server(port, process_manager, file_manager, cancel_token)
-                    .await
+            if let Err(e) = http_server::run_http_server(
+                port,
+                process_manager,
+                file_manager,
+                pty_manager,
+                cancel_token,
+            )
+            .await
             {
                 error!(error = %e, "HTTP server error");
             }
@@ -170,6 +180,9 @@ async fn main() -> Result<()> {
         timeout_secs = args.shutdown_timeout_secs,
         "Initiating graceful shutdown"
     );
+
+    // Stop all PTY sessions
+    pty_manager.stop_all_sessions().await;
 
     // Signal child processes to stop
     if let Err(e) = process_manager

@@ -86,6 +86,12 @@ impl FileManager {
     }
 
     /// Write content to a file, creating parent directories if needed.
+    ///
+    /// The write is followed by `sync_all()` to ensure data reaches the
+    /// underlying block device. This is required for Firecracker VMs where
+    /// the rootfs is a dm-snapshot COW — without fsync, data may remain in
+    /// the guest page cache and be lost when the COW file is read for
+    /// snapshotting.
     pub async fn write_file(&self, path: &str, content: Vec<u8>) -> Result<(), FileError> {
         let path = self.validate_path(path)?;
         debug!(path = %path.display(), size = content.len(), "Writing file");
@@ -100,9 +106,25 @@ impl FileManager {
             })?;
         }
 
-        fs::write(&path, content).await.map_err(|e| {
+        let mut file = fs::File::create(&path).await.map_err(|e| {
             FileError::Other(
-                anyhow::Error::from(e).context(format!("Failed to write file: {}", path.display())),
+                anyhow::Error::from(e)
+                    .context(format!("Failed to create file: {}", path.display())),
+            )
+        })?;
+
+        tokio::io::AsyncWriteExt::write_all(&mut file, &content)
+            .await
+            .map_err(|e| {
+                FileError::Other(
+                    anyhow::Error::from(e)
+                        .context(format!("Failed to write file: {}", path.display())),
+                )
+            })?;
+
+        file.sync_all().await.map_err(|e| {
+            FileError::Other(
+                anyhow::Error::from(e).context(format!("Failed to sync file: {}", path.display())),
             )
         })
     }

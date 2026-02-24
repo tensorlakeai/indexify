@@ -11,6 +11,7 @@ use crate::state_store::migrations::{
     v14_normalize_request_ctx::V14NormalizeRequestCtx,
     v15_split_container_pools::V15SplitContainerPools,
     v16_sandbox_pending_reason::V16SandboxPendingReason,
+    v17_sandbox_snapshot_field::V17SandboxSnapshotField,
 };
 // Import all migration implementations
 
@@ -38,6 +39,7 @@ impl MigrationRegistry {
         registry.register(Box::new(V14NormalizeRequestCtx));
         registry.register(Box::new(V15SplitContainerPools));
         registry.register(Box::new(V16SandboxPendingReason));
+        registry.register(Box::new(V17SandboxSnapshotField));
 
         // Sort and validate migrations
         registry.sort_and_validate()?;

@@ -6,7 +6,15 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use crate::{
-    data_model::{self, Sandbox, SandboxBuilder, SandboxId, SandboxStatus},
+    data_model::{
+        self,
+        Sandbox,
+        SandboxBuilder,
+        SandboxId,
+        SandboxStatus,
+        SnapshotId,
+        SnapshotStatus,
+    },
     http_objects::{ContainerResources, ContainerResourcesInfo, IndexifyAPIError},
     routes::routes_state::RouteState,
     state_store::requests::{
@@ -62,6 +70,12 @@ pub struct CreateSandboxRequest {
     /// Network access control settings (optional).
     #[serde(default)]
     pub network: Option<NetworkAccessControl>,
+    /// Snapshot ID to restore from. When set, the sandbox will be created
+    /// from the snapshot's filesystem state. Image, resources, entrypoint,
+    /// and secrets are inherited from the snapshot unless explicitly
+    /// overridden.
+    #[serde(default)]
+    pub snapshot_id: Option<String>,
 }
 
 /// Response after creating a sandbox
@@ -139,6 +153,7 @@ impl SandboxInfo {
                 ("pending".to_string(), Some(reason.to_string()))
             }
             data_model::SandboxStatus::Running => ("running".to_string(), None),
+            data_model::SandboxStatus::Snapshotting { .. } => ("snapshotting".to_string(), None),
             data_model::SandboxStatus::Terminated => ("terminated".to_string(), None),
         };
 
@@ -187,24 +202,65 @@ pub async fn create_sandbox(
     State(state): State<RouteState>,
     Json(request): Json<CreateSandboxRequest>,
 ) -> Result<Json<CreateSandboxResponse>, IndexifyAPIError> {
-    // Apply config defaults for image and timeout
-    let image = request
-        .image
-        .unwrap_or_else(|| state.config.default_sandbox_image.clone());
+    // If snapshot_id is set, look up the snapshot and inherit defaults
+    let snapshot = if let Some(ref snap_id) = request.snapshot_id {
+        let reader = state.indexify_state.reader();
+        let s = reader
+            .get_snapshot(&namespace, snap_id)
+            .await
+            .map_err(IndexifyAPIError::internal_error)?
+            .ok_or_else(|| IndexifyAPIError::not_found("Snapshot not found"))?;
+        if s.status != SnapshotStatus::Completed {
+            return Err(IndexifyAPIError::bad_request("Snapshot is not completed"));
+        }
+        Some(s)
+    } else {
+        None
+    };
+
+    // Apply config defaults for image and timeout, inheriting from snapshot
+    let image = request.image.unwrap_or_else(|| {
+        snapshot
+            .as_ref()
+            .map(|s| s.base_image.clone())
+            .unwrap_or_else(|| state.config.default_sandbox_image.clone())
+    });
     let timeout_secs = request
         .timeout_secs
         .unwrap_or(state.config.default_sandbox_timeout_secs);
 
     let sandbox_id = SandboxId::default();
-    let sandbox = SandboxBuilder::default()
-        .id(sandbox_id.clone())
-        .namespace(namespace.clone())
-        .image(image)
-        .status(SandboxStatus::Pending {
-            reason: data_model::SandboxPendingReason::Scheduling,
-        })
-        .creation_time_ns(get_epoch_time_in_ns())
-        .resources(data_model::ContainerResources {
+
+    // Use snapshot resources as defaults if available
+    let resources = if let Some(ref snap) = snapshot {
+        data_model::ContainerResources {
+            cpu_ms_per_sec: if request.resources.cpus > 0.0 {
+                (request.resources.cpus * 1000.0).ceil() as u32
+            } else {
+                snap.resources.cpu_ms_per_sec
+            },
+            memory_mb: if request.resources.memory_mb > 0 {
+                request.resources.memory_mb
+            } else {
+                snap.resources.memory_mb
+            },
+            ephemeral_disk_mb: if request.resources.ephemeral_disk_mb > 0 {
+                request.resources.ephemeral_disk_mb
+            } else {
+                snap.resources.ephemeral_disk_mb
+            },
+            gpu: request
+                .resources
+                .gpu_configs
+                .first()
+                .map(|g| data_model::GPUResources {
+                    count: g.count,
+                    model: g.model.clone(),
+                })
+                .or(snap.resources.gpu.clone()),
+        }
+    } else {
+        data_model::ContainerResources {
             cpu_ms_per_sec: (request.resources.cpus * 1000.0).ceil() as u32,
             memory_mb: request.resources.memory_mb,
             ephemeral_disk_mb: request.resources.ephemeral_disk_mb,
@@ -216,10 +272,36 @@ pub async fn create_sandbox(
                     count: g.count,
                     model: g.model.clone(),
                 }),
+        }
+    };
+
+    let entrypoint = request
+        .entrypoint
+        .or_else(|| snapshot.as_ref().and_then(|s| s.entrypoint.clone()));
+
+    let secret_names = if request.secret_names.is_empty() {
+        snapshot
+            .as_ref()
+            .map(|s| s.secret_names.clone())
+            .unwrap_or_default()
+    } else {
+        request.secret_names.clone()
+    };
+
+    let snapshot_id_field = request.snapshot_id.map(SnapshotId::from);
+    let sandbox = SandboxBuilder::default()
+        .id(sandbox_id.clone())
+        .namespace(namespace.clone())
+        .image(image)
+        .status(SandboxStatus::Pending {
+            reason: data_model::SandboxPendingReason::Scheduling,
         })
-        .secret_names(request.secret_names.clone())
+        .creation_time_ns(get_epoch_time_in_ns())
+        .resources(resources)
+        .secret_names(secret_names)
         .timeout_secs(timeout_secs)
-        .entrypoint(request.entrypoint.clone())
+        .entrypoint(entrypoint)
+        .snapshot_id(snapshot_id_field)
         .network_policy(request.network.map(|n| data_model::NetworkPolicy {
             allow_internet_access: n.allow_internet_access,
             allow_out: n.allow_out,

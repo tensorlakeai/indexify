@@ -134,7 +134,7 @@ impl RequestStateHandler {
                     Err(e) => {
                         warn!(
                             operation_id = %op_id,
-                            error = %e,
+                            error = ?e,
                             "Failed to presign read blob for state operation"
                         );
                         (allocation_runner::error_status(13, ""), None)
@@ -148,7 +148,7 @@ impl RequestStateHandler {
         if let Err(e) = client.send_allocation_update(update).await {
             warn!(
                 operation_id = %op_id,
-                error = %e,
+                error = ?e,
                 "Failed to send state read operation result"
             );
         }
@@ -199,7 +199,7 @@ impl RequestStateHandler {
                     Err(e) => {
                         warn!(
                             operation_id = %op_id,
-                            error = %e,
+                            error = ?e,
                             "Failed to presign write blob for state operation"
                         );
                         let _ = blob_store
@@ -212,7 +212,7 @@ impl RequestStateHandler {
             Err(e) => {
                 warn!(
                     operation_id = %op_id,
-                    error = %e,
+                    error = ?e,
                     "Failed to create multipart upload for state operation"
                 );
                 (allocation_runner::error_status(13, ""), None)
@@ -223,7 +223,7 @@ impl RequestStateHandler {
         if let Err(e) = client.send_allocation_update(update).await {
             warn!(
                 operation_id = %op_id,
-                error = %e,
+                error = ?e,
                 "Failed to send state write operation result"
             );
         }
@@ -266,7 +266,7 @@ impl RequestStateHandler {
                     Err(e) => {
                         warn!(
                             operation_id = %op_id,
-                            error = %e,
+                            error = ?e,
                             "Failed to complete multipart upload for state operation"
                         );
                         allocation_runner::error_status(13, "")
@@ -283,7 +283,7 @@ impl RequestStateHandler {
         if let Err(e) = client.send_allocation_update(update).await {
             warn!(
                 operation_id = %op_id,
-                error = %e,
+                error = ?e,
                 "Failed to send state commit operation result"
             );
         }

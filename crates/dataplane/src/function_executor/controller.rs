@@ -2,7 +2,7 @@
 
 use std::{sync::Arc, time::Instant};
 
-use proto_api::executor_api_pb::{AllocationStreamRequest, CommandResponse};
+use proto_api::executor_api_pb::{AllocationLogEntry, AllocationOutcome, CommandResponse};
 use tokio::sync::mpsc;
 use tonic::transport::Channel;
 
@@ -12,6 +12,7 @@ use crate::{
     driver::ProcessDriver,
     function_container_manager::ImageResolver,
     secrets::SecretsProvider,
+    state_file::StateFile,
 };
 
 /// Shared configuration for spawning function executor controllers.
@@ -28,14 +29,19 @@ pub struct FESpawnConfig {
     /// (ContainerTerminated/ContainerStarted).
     pub container_state_tx: mpsc::UnboundedSender<CommandResponse>,
     /// Channel for allocation outcomes (AllocationCompleted/AllocationFailed),
-    /// sent via the allocation stream.
-    pub activity_tx: mpsc::UnboundedSender<AllocationStreamRequest>,
+    /// sent via the unary report_allocation_activities RPC for guaranteed
+    /// delivery.
+    pub outcome_tx: mpsc::UnboundedSender<AllocationOutcome>,
+    /// Channel for allocation log entries (CallFunction),
+    /// sent via the heartbeat's allocation_log_entries field.
+    pub activity_tx: mpsc::UnboundedSender<AllocationLogEntry>,
     pub server_channel: Channel,
     pub blob_store: Arc<BlobStore>,
     pub code_cache: Arc<CodeCache>,
     pub executor_id: String,
     pub fe_binary_path: String,
     pub metrics: Arc<crate::metrics::DataplaneMetrics>,
+    pub state_file: Arc<StateFile>,
 }
 
 /// Time an async phase, recording latency and adjusting in-progress/error

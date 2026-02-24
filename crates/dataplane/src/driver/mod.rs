@@ -1,9 +1,13 @@
 mod docker;
+#[cfg(feature = "firecracker")]
+pub(crate) mod firecracker;
 mod fork_exec;
 
 use anyhow::Result;
 use async_trait::async_trait;
 pub use docker::{DockerDriver, ImageError};
+#[cfg(feature = "firecracker")]
+pub use firecracker::FirecrackerDriver;
 pub use fork_exec::ForkExecDriver;
 
 /// Container port for the daemon gRPC server (internal API).
@@ -55,6 +59,10 @@ pub struct ProcessConfig {
     pub resources: Option<ResourceLimits>,
     /// Labels to attach to the container (for Docker driver).
     pub labels: Vec<(String, String)>,
+    /// Path to a local tar file containing the rootfs overlay (upper layer).
+    /// When set, the Docker driver applies this as a gVisor annotation
+    /// (`dev.gvisor.tar.rootfs.upper`) during container creation.
+    pub rootfs_overlay: Option<String>,
 }
 
 /// Handle to a running process.
@@ -91,6 +99,15 @@ pub trait ProcessDriver: Send + Sync {
 
     /// Send a signal to a process.
     async fn send_sig(&self, handle: &ProcessHandle, signal: i32) -> Result<()>;
+
+    /// Gracefully stop a process (SIGTERM + wait + SIGKILL).
+    /// Unlike `kill`, this waits for the process to exit cleanly, which
+    /// ensures gVisor flushes filesystem writes to the overlay before the
+    /// container is removed.
+    async fn stop(&self, handle: &ProcessHandle, _timeout_secs: u64) -> Result<()> {
+        // Default implementation: just kill
+        self.kill(handle).await
+    }
 
     /// Kill a process.
     async fn kill(&self, handle: &ProcessHandle) -> Result<()>;

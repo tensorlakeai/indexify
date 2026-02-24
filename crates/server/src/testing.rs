@@ -339,7 +339,9 @@ impl TestExecutor<'_> {
             .get_executor_state(&self.executor_id)
             .await
             .unwrap();
-        self.command_emitter.emit_commands(&snapshot)
+        let commands = self.command_emitter.emit_commands(&snapshot);
+        self.command_emitter.commit_snapshot(&snapshot);
+        commands
     }
 
     /// Receive pending commands from the CommandEmitter, categorized by type.
@@ -552,48 +554,46 @@ impl TestExecutor<'_> {
         Ok(function_call_id)
     }
 
-    /// Process allocation stream requests through the internal
+    /// Process allocation outcomes through the internal
     /// `process_allocation_completed` / `process_allocation_failed` paths.
     pub async fn report_allocation_activities(
         &self,
-        messages: Vec<executor_api_pb::AllocationStreamRequest>,
+        outcomes: Vec<executor_api_pb::AllocationOutcome>,
     ) -> Result<()> {
-        for msg in messages {
-            if let Some(message) = msg.message {
-                match message {
-                    executor_api_pb::allocation_stream_request::Message::Completed(c) => {
-                        crate::executor_api::process_allocation_completed(
-                            &self.test_service.service.indexify_state,
-                            &self.test_service.service.blob_storage_registry,
-                            &self.executor_id,
-                            c,
-                        )
-                        .await?;
-                    }
-                    executor_api_pb::allocation_stream_request::Message::Failed(f) => {
-                        crate::executor_api::process_allocation_failed(
-                            &self.test_service.service.indexify_state,
-                            &self.test_service.service.blob_storage_registry,
-                            &self.executor_id,
-                            f,
-                        )
-                        .await?;
-                    }
-                    _ => {}
+        for item in outcomes {
+            match item.outcome {
+                Some(executor_api_pb::allocation_outcome::Outcome::Completed(c)) => {
+                    crate::executor_api::process_allocation_completed(
+                        &self.test_service.service.indexify_state,
+                        &self.test_service.service.blob_storage_registry,
+                        &self.executor_id,
+                        c,
+                    )
+                    .await?;
                 }
+                Some(executor_api_pb::allocation_outcome::Outcome::Failed(f)) => {
+                    crate::executor_api::process_allocation_failed(
+                        &self.test_service.service.indexify_state,
+                        &self.test_service.service.blob_storage_registry,
+                        &self.executor_id,
+                        f,
+                    )
+                    .await?;
+                }
+                None => {}
             }
         }
         Ok(())
     }
 
-    /// Build an `AllocationCompleted` wrapped in `AllocationStreamRequest`
+    /// Build an `AllocationCompleted` wrapped in `AllocationOutcome`
     /// from test data.
     pub fn make_allocation_completed(
         allocation: &AllocationPb,
         graph_updates: Option<RequestUpdates>,
         data_payload: Option<DataPayload>,
         execution_duration_ms: Option<u64>,
-    ) -> executor_api_pb::AllocationStreamRequest {
+    ) -> executor_api_pb::AllocationOutcome {
         let function = allocation.function.clone();
         // Extract namespace from the allocation's FunctionRef for child compute ops
         let namespace = function
@@ -630,22 +630,21 @@ impl TestExecutor<'_> {
             execution_duration_ms,
         };
 
-        executor_api_pb::AllocationStreamRequest {
-            executor_id: String::new(),
-            message: Some(
-                executor_api_pb::allocation_stream_request::Message::Completed(completed),
-            ),
+        executor_api_pb::AllocationOutcome {
+            outcome: Some(executor_api_pb::allocation_outcome::Outcome::Completed(
+                completed,
+            )),
         }
     }
 
-    /// Build an `AllocationFailed` wrapped in `AllocationStreamRequest`
+    /// Build an `AllocationFailed` wrapped in `AllocationOutcome`
     /// from test data.
     pub fn make_allocation_failed(
         allocation: &AllocationPb,
         reason: FunctionRunFailureReason,
         request_error: Option<DataPayload>,
         execution_duration_ms: Option<u64>,
-    ) -> executor_api_pb::AllocationStreamRequest {
+    ) -> executor_api_pb::AllocationOutcome {
         let function = allocation.function.clone();
         let proto_reason = internal_failure_reason_to_proto(&reason);
 
@@ -660,11 +659,8 @@ impl TestExecutor<'_> {
             container_id: None,
         };
 
-        executor_api_pb::AllocationStreamRequest {
-            executor_id: String::new(),
-            message: Some(executor_api_pb::allocation_stream_request::Message::Failed(
-                failed,
-            )),
+        executor_api_pb::AllocationOutcome {
+            outcome: Some(executor_api_pb::allocation_outcome::Outcome::Failed(failed)),
         }
     }
 }

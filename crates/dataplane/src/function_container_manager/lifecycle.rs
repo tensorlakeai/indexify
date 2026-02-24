@@ -3,7 +3,10 @@
 //! Handles image resolution, container creation, daemon connection,
 //! network rule application, and post-startup result handling.
 
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use proto_api::executor_api_pb::{
     CommandResponse,
@@ -21,6 +24,7 @@ use crate::{
     driver::{ProcessConfig, ProcessDriver, ProcessHandle},
     metrics::DataplaneMetrics,
     secrets::SecretsProvider,
+    snapshotter::Snapshotter,
     state_file::{PersistedContainer, StateFile},
 };
 
@@ -31,22 +35,68 @@ pub(super) async fn start_container_with_daemon(
     driver: &Arc<dyn ProcessDriver>,
     image_resolver: &Arc<dyn ImageResolver>,
     secrets_provider: &Arc<dyn SecretsProvider>,
+    snapshotter: &Option<Arc<dyn Snapshotter>>,
     executor_id: &str,
     desc: &ContainerDescription,
+    metrics: &Arc<DataplaneMetrics>,
 ) -> anyhow::Result<(ProcessHandle, DaemonClient)> {
     let info = ContainerInfo::from_description(desc, executor_id);
 
-    // Prefer image from sandbox_metadata (server-provided)
-    let image = if let Some(ref meta) = desc.sandbox_metadata &&
+    // Check if this container should be restored from a snapshot
+    let snapshot_uri = desc
+        .sandbox_metadata
+        .as_ref()
+        .and_then(|m| m.snapshot_uri.clone())
+        .filter(|u| !u.is_empty());
+
+    let (image, rootfs_overlay) = if let Some(ref uri) = snapshot_uri {
+        // Restore from snapshot — download, decompress, import as Docker image
+        let snapshotter = snapshotter.as_ref().ok_or_else(|| {
+            anyhow::anyhow!("Snapshot restore requested but snapshotter not configured")
+        })?;
+
+        tracing::info!(
+            container_id = %info.container_id,
+            snapshot_uri = %uri,
+            "Restoring container from snapshot"
+        );
+
+        let restore_result = snapshotter.restore_snapshot(uri).await?;
+
+        // For gVisor (runsc), the restore returns an empty image and a rootfs
+        // overlay tar path. In that case, fall back to the original base image
+        // from sandbox_metadata so the container starts from the same image and
+        // gVisor applies the overlay on top.
+        let image = if restore_result.image.is_empty() {
+            desc.sandbox_metadata
+                .as_ref()
+                .and_then(|m| m.image.clone())
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "gVisor snapshot restore requires sandbox_metadata.image as base image"
+                    )
+                })?
+        } else {
+            restore_result.image
+        };
+        (image, restore_result.rootfs_overlay)
+    } else if let Some(ref meta) = desc.sandbox_metadata &&
         let Some(ref img) = meta.image
     {
-        img.clone()
+        // Prefer image from sandbox_metadata (server-provided)
+        (img.clone(), None)
     } else if let Some(ref pool_id) = desc.pool_id {
-        image_resolver
-            .sandbox_image_for_pool(info.namespace, pool_id)
-            .await?
+        (
+            image_resolver
+                .sandbox_image_for_pool(info.namespace, pool_id)
+                .await?,
+            None,
+        )
     } else if let Some(sid) = info.sandbox_id {
-        image_resolver.sandbox_image(info.namespace, sid).await?
+        (
+            image_resolver.sandbox_image(info.namespace, sid).await?,
+            None,
+        )
     } else {
         anyhow::bail!("Cannot determine image: no sandbox_metadata.image, pool_id, or sandbox_id")
     };
@@ -120,6 +170,7 @@ pub(super) async fn start_container_with_daemon(
         working_dir: None,
         resources,
         labels,
+        rootfs_overlay,
     };
 
     // Start the container (daemon will be PID 1)
@@ -139,9 +190,10 @@ pub(super) async fn start_container_with_daemon(
             executor_id = %info.executor_id,
             namespace = %info.namespace,
             container_handle_id = %handle.id,
-            error = %e,
+            error = ?e,
             "Failed to apply network rules (continuing anyway)"
         );
+        metrics.counters.sandbox_network_rules_errors.add(1, &[]);
         // Continue anyway - rules are defense-in-depth
     }
 
@@ -161,6 +213,7 @@ pub(super) async fn start_container_with_daemon(
     );
 
     // Connect to the daemon with retry (container may take a moment to start)
+    let connect_start = Instant::now();
     let daemon_result = async {
         let mut daemon_client =
             DaemonClient::connect_with_retry(daemon_addr, DAEMON_READY_TIMEOUT).await?;
@@ -168,6 +221,11 @@ pub(super) async fn start_container_with_daemon(
         Ok::<_, anyhow::Error>(daemon_client)
     }
     .await;
+
+    metrics
+        .histograms
+        .sandbox_daemon_connect_latency_seconds
+        .record(connect_start.elapsed().as_secs_f64(), &[]);
 
     match daemon_result {
         Ok(daemon_client) => {
@@ -181,6 +239,8 @@ pub(super) async fn start_container_with_daemon(
             Ok((handle, daemon_client))
         }
         Err(e) => {
+            metrics.counters.sandbox_daemon_connect_errors.add(1, &[]);
+
             // Daemon failed to start — capture container logs for diagnostics
             let container_logs = match driver.get_logs(&handle, 50).await {
                 Ok(logs) if !logs.is_empty() => logs,
@@ -194,7 +254,7 @@ pub(super) async fn start_container_with_daemon(
                 namespace = %info.namespace,
                 container_handle_id = %handle.id,
                 container_logs = %container_logs,
-                error = %e,
+                error = ?e,
                 "Daemon failed to start, killing container"
             );
 
@@ -218,6 +278,7 @@ pub(super) async fn start_container_with_daemon(
 /// Handle the result of a container startup attempt.
 /// Called from the spawned lifecycle task after `start_container_with_daemon`
 /// completes.
+#[tracing::instrument(skip_all, fields(container_id = %id))]
 pub(super) async fn handle_container_startup_result(
     id: String,
     desc: ContainerDescription,
@@ -239,6 +300,10 @@ pub(super) async fn handle_container_startup_result(
     match result {
         Ok((handle, daemon_client)) => {
             metrics.counters.record_container_started(container_type);
+            metrics
+                .histograms
+                .sandbox_startup_latency_seconds
+                .record(startup_duration_ms as f64 / 1000.0, &[]);
 
             tracing::info!(
                 parent: &span,
@@ -267,14 +332,14 @@ pub(super) async fn handle_container_startup_result(
                 if let Err(e) = state_file.upsert(persisted).await {
                     tracing::warn!(
                         parent: &span,
-                        error = %e,
+                        error = ?e,
                         "Failed to persist container state"
                     );
                 }
             }
 
             if let Err(e) = container.transition_to_running(handle, daemon_client) {
-                tracing::warn!(parent: &span, error = %e, "Invalid state transition on startup");
+                tracing::warn!(parent: &span, error = ?e, "Invalid state transition on startup");
             } else {
                 // Notify the server so it can promote sandbox status from
                 // Pending to Running.
@@ -287,6 +352,10 @@ pub(super) async fn handle_container_startup_result(
             metrics
                 .counters
                 .record_container_terminated(container_type, "startup_failed");
+            metrics
+                .histograms
+                .sandbox_startup_latency_seconds
+                .record(startup_duration_ms as f64 / 1000.0, &[]);
 
             tracing::error!(
                 parent: &span,

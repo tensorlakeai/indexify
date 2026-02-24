@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{path::PathBuf, time::Duration};
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -87,6 +87,58 @@ pub enum DriverConfig {
         /// filesystem storage.
         #[serde(default)]
         binds: Vec<String>,
+        /// Root directory for the runsc (gVisor) container state.
+        /// This is the `--root` flag passed to `runsc` commands.
+        /// Default: `/var/run/docker/runtime-runc/moby`.
+        #[serde(default)]
+        runsc_root: Option<String>,
+        /// Local directory for storing gVisor snapshot overlay tars.
+        /// Restored overlay tars are written here and referenced by the
+        /// `dev.gvisor.tar.rootfs.upper` Docker annotation at container start.
+        /// Default: `/tmp/indexify-snapshots`.
+        #[serde(default)]
+        snapshot_local_dir: Option<String>,
+    },
+    #[cfg(feature = "firecracker")]
+    Firecracker {
+        /// Path to firecracker binary. Default: "firecracker" (PATH lookup).
+        #[serde(default)]
+        firecracker_binary: Option<String>,
+        /// Path to Linux kernel image (vmlinux).
+        kernel_image_path: String,
+        /// Per-VM COW LV size in bytes. Default: 1 GiB.
+        #[serde(default)]
+        default_rootfs_size_bytes: Option<u64>,
+        /// Path to base guest OS rootfs ext4 image.
+        base_rootfs_image: String,
+        /// CNI network name (matches conflist "name" field).
+        cni_network_name: String,
+        /// CNI plugin binaries directory. Default: "/opt/cni/bin".
+        #[serde(default)]
+        cni_bin_path: Option<String>,
+        /// Guest gateway IP (e.g., "192.168.30.1").
+        guest_gateway: String,
+        /// Guest netmask. Default: "255.255.255.0".
+        #[serde(default)]
+        guest_netmask: Option<String>,
+        /// Default vCPUs per VM. Default: 2.
+        #[serde(default)]
+        default_vcpu_count: Option<u32>,
+        /// Default memory in MiB per VM. Default: 512.
+        #[serde(default)]
+        default_memory_mib: Option<u64>,
+        /// Directory for FC sockets and VM metadata.
+        /// Default: "/var/lib/indexify/firecracker".
+        #[serde(default)]
+        state_dir: Option<String>,
+        /// Directory for VM log files.
+        /// Default: "/var/log/indexify/firecracker".
+        #[serde(default)]
+        log_dir: Option<String>,
+        /// LVM volume group for thin-provisioned COW devices.
+        lvm_volume_group: String,
+        /// LVM thin pool LV name within the volume group.
+        lvm_thin_pool: String,
     },
 }
 
@@ -250,12 +302,14 @@ impl HttpProxyConfig {
     }
 }
 
+const DEFAULT_MONITORING_PORT: u16 = 8100;
+
 /// Configuration for the HTTP monitoring server.
 #[serde_inline_default]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MonitoringConfig {
     /// Port to listen on for HTTP monitoring requests.
-    #[serde_inline_default(8100)]
+    #[serde_inline_default(DEFAULT_MONITORING_PORT)]
     pub port: u16,
     /// Listen address for the monitoring server.
     #[serde_inline_default("0.0.0.0".to_string())]
@@ -265,7 +319,7 @@ pub struct MonitoringConfig {
 impl Default for MonitoringConfig {
     fn default() -> Self {
         Self {
-            port: 8100,
+            port: DEFAULT_MONITORING_PORT,
             listen_addr: "0.0.0.0".to_string(),
         }
     }
@@ -300,9 +354,14 @@ pub struct DataplaneConfig {
     /// Process driver configuration.
     #[serde(default)]
     pub driver: DriverConfig,
-    /// Path to the state file for persisting container state across restarts.
-    #[serde_inline_default("./dataplane-state.json".to_string())]
-    pub state_file: String,
+    /// Directory for all dataplane state files (container state, driver
+    /// metadata, logs). Defaults to `./dataplane-state/` in the current
+    /// working directory.
+    /// The container state file is written as `{state_dir}/state.json`,
+    /// and driver-specific subdirectories (e.g. `{state_dir}/firecracker/`)
+    /// are created automatically unless the driver config overrides them.
+    #[serde_inline_default("./dataplane-state".to_string())]
+    pub state_dir: String,
     /// HTTP proxy server configuration (header-based routing).
     /// Receives requests from sandbox-proxy with X-Tensorlake-Sandbox-Id
     /// header.
@@ -357,10 +416,6 @@ pub struct FunctionExecutorConfig {
     /// Path to cache application code. Defaults to /tmp/indexify_code_cache.
     #[serde(default = "default_code_cache_path")]
     pub code_cache_path: String,
-    /// Blob store URL (e.g., "s3://bucket" or "file:///path").
-    /// If not set, uses local filesystem.
-    #[serde(default)]
-    pub blob_store_url: Option<String>,
     /// Path to the function-executor binary.
     /// If not set, searches PATH.
     #[serde(default)]
@@ -375,7 +430,6 @@ impl Default for FunctionExecutorConfig {
     fn default() -> Self {
         Self {
             code_cache_path: default_code_cache_path(),
-            blob_store_url: None,
             fe_binary_path: None,
         }
     }
@@ -394,7 +448,7 @@ impl Default for DataplaneConfig {
             tls: TlsConfig::default(),
             telemetry: TelemetryConfig::default(),
             driver: DriverConfig::default(),
-            state_file: "./dataplane-state.json".to_string(),
+            state_dir: "./dataplane-state".to_string(),
             http_proxy: HttpProxyConfig::default(),
             daemon_binary_extract_path: None,
             function_executor: FunctionExecutorConfig::default(),
@@ -431,6 +485,39 @@ impl DataplaneConfig {
         }
 
         Ok(())
+    }
+
+    /// Path to the container state file, derived from `state_dir`.
+    pub fn state_file_path(&self) -> PathBuf {
+        PathBuf::from(&self.state_dir).join("state.json")
+    }
+
+    /// State directory for the Firecracker driver.
+    /// Uses the driver's explicit `state_dir` if set, otherwise
+    /// `{state_dir}/firecracker/`.
+    #[cfg(feature = "firecracker")]
+    pub fn firecracker_state_dir(&self) -> PathBuf {
+        if let DriverConfig::Firecracker { state_dir, .. } = &self.driver {
+            if let Some(dir) = state_dir {
+                return PathBuf::from(dir);
+            }
+        }
+        PathBuf::from(&self.state_dir).join("firecracker")
+    }
+
+    /// Log directory for the Firecracker driver.
+    /// Uses the driver's explicit `log_dir` if set, otherwise
+    /// `{state_dir}/firecracker/logs/`.
+    #[cfg(feature = "firecracker")]
+    pub fn firecracker_log_dir(&self) -> PathBuf {
+        if let DriverConfig::Firecracker { log_dir, .. } = &self.driver {
+            if let Some(dir) = log_dir {
+                return PathBuf::from(dir);
+            }
+        }
+        PathBuf::from(&self.state_dir)
+            .join("firecracker")
+            .join("logs")
     }
 
     pub fn structured_logging(&self) -> bool {
@@ -484,6 +571,27 @@ mod tests {
         // HTTP proxy has sensible defaults
         assert_eq!(config.http_proxy.port, 8095);
         assert_eq!(config.http_proxy.listen_addr, "0.0.0.0");
+        // state_dir defaults to ./dataplane-state
+        assert_eq!(config.state_dir, "./dataplane-state");
+        assert_eq!(
+            config.state_file_path(),
+            PathBuf::from("./dataplane-state/state.json")
+        );
+    }
+
+    #[test]
+    fn test_state_dir_derives_state_file_path() {
+        let yaml = r#"
+env: local
+server_addr: "http://localhost:8901"
+state_dir: "/var/lib/indexify"
+"#;
+        let config = DataplaneConfig::from_yaml_str(yaml).unwrap();
+        assert_eq!(config.state_dir, "/var/lib/indexify");
+        assert_eq!(
+            config.state_file_path(),
+            PathBuf::from("/var/lib/indexify/state.json")
+        );
     }
 
     #[test]
@@ -681,6 +789,179 @@ driver:
             }
             _ => panic!("Expected Docker driver"),
         }
+    }
+
+    #[cfg(feature = "firecracker")]
+    #[test]
+    fn test_firecracker_driver_config() {
+        let yaml = r#"
+env: local
+server_addr: "http://localhost:8901"
+driver:
+  type: firecracker
+  kernel_image_path: "/opt/firecracker/vmlinux"
+  base_rootfs_image: "/opt/firecracker/rootfs.ext4"
+  cni_network_name: "indexify-fc"
+  guest_gateway: "192.168.30.1"
+  lvm_volume_group: "indexify-vg"
+  lvm_thin_pool: "thinpool"
+"#;
+        let config = DataplaneConfig::from_yaml_str(yaml).unwrap();
+        match &config.driver {
+            DriverConfig::Firecracker {
+                kernel_image_path,
+                base_rootfs_image,
+                cni_network_name,
+                guest_gateway,
+                firecracker_binary,
+                default_rootfs_size_bytes,
+                cni_bin_path,
+                guest_netmask,
+                default_vcpu_count,
+                default_memory_mib,
+                state_dir,
+                log_dir,
+                lvm_volume_group,
+                lvm_thin_pool,
+            } => {
+                assert_eq!(kernel_image_path, "/opt/firecracker/vmlinux");
+                assert_eq!(base_rootfs_image, "/opt/firecracker/rootfs.ext4");
+                assert_eq!(cni_network_name, "indexify-fc");
+                assert_eq!(guest_gateway, "192.168.30.1");
+                assert_eq!(lvm_volume_group, "indexify-vg");
+                assert_eq!(lvm_thin_pool, "thinpool");
+                // Defaults
+                assert!(firecracker_binary.is_none());
+                assert!(default_rootfs_size_bytes.is_none());
+                assert!(cni_bin_path.is_none());
+                assert!(guest_netmask.is_none());
+                assert!(default_vcpu_count.is_none());
+                assert!(default_memory_mib.is_none());
+                assert!(state_dir.is_none());
+                assert!(log_dir.is_none());
+            }
+            _ => panic!("Expected Firecracker driver"),
+        }
+    }
+
+    #[cfg(feature = "firecracker")]
+    #[test]
+    fn test_firecracker_driver_config_with_all_options() {
+        let yaml = r#"
+env: local
+server_addr: "http://localhost:8901"
+driver:
+  type: firecracker
+  firecracker_binary: "/usr/local/bin/firecracker"
+  kernel_image_path: "/opt/firecracker/vmlinux"
+  default_rootfs_size_bytes: 2147483648
+  base_rootfs_image: "/opt/firecracker/rootfs.ext4"
+  cni_network_name: "indexify-fc"
+  cni_bin_path: "/usr/lib/cni"
+  guest_gateway: "10.0.0.1"
+  guest_netmask: "255.255.0.0"
+  default_vcpu_count: 4
+  default_memory_mib: 1024
+  state_dir: "/var/lib/indexify/fc"
+  log_dir: "/var/log/indexify/fc"
+  lvm_volume_group: "my-vg"
+  lvm_thin_pool: "my-pool"
+"#;
+        let config = DataplaneConfig::from_yaml_str(yaml).unwrap();
+        match &config.driver {
+            DriverConfig::Firecracker {
+                firecracker_binary,
+                default_rootfs_size_bytes,
+                cni_bin_path,
+                guest_netmask,
+                default_vcpu_count,
+                default_memory_mib,
+                state_dir,
+                log_dir,
+                lvm_volume_group,
+                lvm_thin_pool,
+                ..
+            } => {
+                assert_eq!(
+                    firecracker_binary.as_deref(),
+                    Some("/usr/local/bin/firecracker")
+                );
+                assert_eq!(*default_rootfs_size_bytes, Some(2147483648));
+                assert_eq!(cni_bin_path.as_deref(), Some("/usr/lib/cni"));
+                assert_eq!(guest_netmask.as_deref(), Some("255.255.0.0"));
+                assert_eq!(*default_vcpu_count, Some(4));
+                assert_eq!(*default_memory_mib, Some(1024));
+                assert_eq!(state_dir.as_deref(), Some("/var/lib/indexify/fc"));
+                assert_eq!(log_dir.as_deref(), Some("/var/log/indexify/fc"));
+                assert_eq!(lvm_volume_group, "my-vg");
+                assert_eq!(lvm_thin_pool, "my-pool");
+            }
+            _ => panic!("Expected Firecracker driver"),
+        }
+    }
+
+    #[cfg(feature = "firecracker")]
+    #[test]
+    fn test_firecracker_state_dir_derived_from_top_level() {
+        // When driver doesn't set state_dir/log_dir, they derive from
+        // the top-level state_dir.
+        let yaml = r#"
+env: local
+server_addr: "http://localhost:8901"
+state_dir: "/data/indexify"
+driver:
+  type: firecracker
+  kernel_image_path: "/opt/firecracker/vmlinux"
+  base_rootfs_image: "/opt/firecracker/rootfs.ext4"
+  cni_network_name: "indexify-fc"
+  guest_gateway: "192.168.30.1"
+  lvm_volume_group: "indexify-vg"
+  lvm_thin_pool: "thinpool"
+"#;
+        let config = DataplaneConfig::from_yaml_str(yaml).unwrap();
+        assert_eq!(
+            config.firecracker_state_dir(),
+            PathBuf::from("/data/indexify/firecracker")
+        );
+        assert_eq!(
+            config.firecracker_log_dir(),
+            PathBuf::from("/data/indexify/firecracker/logs")
+        );
+        assert_eq!(
+            config.state_file_path(),
+            PathBuf::from("/data/indexify/state.json")
+        );
+    }
+
+    #[cfg(feature = "firecracker")]
+    #[test]
+    fn test_firecracker_state_dir_explicit_override() {
+        // When driver explicitly sets state_dir/log_dir, those take
+        // precedence over derivation from top-level state_dir.
+        let yaml = r#"
+env: local
+server_addr: "http://localhost:8901"
+state_dir: "/data/indexify"
+driver:
+  type: firecracker
+  kernel_image_path: "/opt/firecracker/vmlinux"
+  base_rootfs_image: "/opt/firecracker/rootfs.ext4"
+  cni_network_name: "indexify-fc"
+  guest_gateway: "192.168.30.1"
+  state_dir: "/custom/fc-state"
+  log_dir: "/custom/fc-logs"
+  lvm_volume_group: "indexify-vg"
+  lvm_thin_pool: "thinpool"
+"#;
+        let config = DataplaneConfig::from_yaml_str(yaml).unwrap();
+        assert_eq!(
+            config.firecracker_state_dir(),
+            PathBuf::from("/custom/fc-state")
+        );
+        assert_eq!(
+            config.firecracker_log_dir(),
+            PathBuf::from("/custom/fc-logs")
+        );
     }
 
     #[test]

@@ -42,7 +42,7 @@ pub fn extract_daemon_binary(custom_path: Option<&str>) -> Result<&'static Path>
 
         // Extract the binary
         if let Err(e) = extract_to_path(&path) {
-            tracing::error!(error = %e, "Failed to extract daemon binary");
+            tracing::error!(error = ?e, "Failed to extract daemon binary");
             // Return a path even on failure - the actual error will be caught
             // when trying to use it
         }

@@ -18,6 +18,7 @@ use crate::{
         PersistedRequestCtx,
         RequestCtx,
         Sandbox,
+        Snapshot,
         StateChange,
         UnprocessedStateChanges,
     },
@@ -592,6 +593,57 @@ impl StateReader {
             )
             .await?;
         Ok(sandboxes)
+    }
+
+    pub async fn get_snapshot(
+        &self,
+        namespace: &str,
+        snapshot_id: &str,
+    ) -> Result<Option<Snapshot>> {
+        let kvs = &[KeyValue::new("op", "get_snapshot")];
+        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
+
+        let key = format!("{namespace}|{snapshot_id}");
+        let snapshot = self
+            .get_from_cf(&IndexifyObjectsColumns::Snapshots, key.as_bytes())
+            .await?;
+        Ok(snapshot)
+    }
+
+    pub async fn list_snapshots(&self, namespace: &str) -> Result<Vec<Snapshot>> {
+        let kvs = &[KeyValue::new("op", "list_snapshots")];
+        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
+
+        let key_prefix = format!("{namespace}|");
+        let (snapshots, _) = self
+            .get_rows_from_cf_with_limits::<Snapshot>(
+                key_prefix.as_bytes(),
+                None,
+                IndexifyObjectsColumns::Snapshots,
+                None,
+            )
+            .await?;
+        Ok(snapshots)
+    }
+
+    /// Find a snapshot by its ID across all namespaces. Used as a fallback
+    /// when the namespace is not known (e.g. CompleteSnapshot/FailSnapshot
+    /// from the dataplane).
+    pub async fn find_snapshot_by_id(&self, snapshot_id: &str) -> Result<Option<Snapshot>> {
+        let kvs = &[KeyValue::new("op", "find_snapshot_by_id")];
+        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
+
+        let (all_snapshots, _) = self
+            .get_rows_from_cf_with_limits::<Snapshot>(
+                &[],
+                None,
+                IndexifyObjectsColumns::Snapshots,
+                None,
+            )
+            .await?;
+        Ok(all_snapshots
+            .into_iter()
+            .find(|s| s.id.get() == snapshot_id))
     }
 }
 #[cfg(test)]
