@@ -138,7 +138,22 @@ impl Service {
             "Host resources discovered"
         );
 
-        let driver = create_process_driver(&config)?;
+        let function_driver = create_process_driver(
+            &config.function_driver,
+            #[cfg(feature = "firecracker")]
+            &config,
+        )?;
+        let sandbox_driver = create_process_driver(
+            &config.sandbox_driver,
+            #[cfg(feature = "firecracker")]
+            &config,
+        )?;
+
+        tracing::info!(
+            function_driver = ?config.function_driver,
+            sandbox_driver = ?config.sandbox_driver,
+            "Process drivers configured"
+        );
 
         let (result_tx, result_rx) = mpsc::unbounded_channel(); // CommandResponse (acks + container events)
         let (container_state_tx, container_state_rx) = mpsc::unbounded_channel(); // CommandResponse (ContainerTerminated)
@@ -159,7 +174,7 @@ impl Service {
         // URI's scheme; clones share the same lazily-initialized S3 client.
         let blob_store = Arc::new(BlobStore::new(metrics.clone()));
 
-        let snapshotter: Option<Arc<dyn Snapshotter>> = match &config.driver {
+        let snapshotter: Option<Arc<dyn Snapshotter>> = match &config.sandbox_driver {
             DriverConfig::Docker {
                 address,
                 runtime,
@@ -182,7 +197,7 @@ impl Service {
                     None => bollard::Docker::connect_with_local_defaults(),
                 }
                 .context("Failed to connect to Docker for snapshotter")?;
-                tracing::info!("Snapshotter enabled (Docker driver)");
+                tracing::info!("Snapshotter enabled (Docker sandbox driver)");
                 let snapshotter = crate::snapshotter::docker_snapshotter::DockerSnapshotter::new(
                     docker,
                     (*blob_store).clone(),
@@ -200,12 +215,12 @@ impl Service {
                 lvm_thin_pool,
                 ..
             } => {
-                let state_dir_path = config.firecracker_state_dir();
+                let state_dir_path = config.firecracker_state_dir(&config.sandbox_driver);
                 let lvm_config = crate::driver::firecracker::dm_snapshot::LvmConfig {
                     volume_group: lvm_volume_group.clone(),
                     thin_pool: lvm_thin_pool.clone(),
                 };
-                tracing::info!("Snapshotter enabled (Firecracker driver)");
+                tracing::info!("Snapshotter enabled (Firecracker sandbox driver)");
                 Some(Arc::new(
                     crate::snapshotter::firecracker_snapshotter::FirecrackerSnapshotter::new(
                         PathBuf::from(state_dir_path),
@@ -219,7 +234,7 @@ impl Service {
         };
 
         let container_manager = Arc::new(FunctionContainerManager::new(
-            driver.clone(),
+            sandbox_driver.clone(),
             image_resolver.clone(),
             secrets_provider.clone(),
             metrics.clone(),
@@ -238,7 +253,7 @@ impl Service {
         let gpu_allocator = Arc::new(crate::gpu_allocator::GpuAllocator::new(discovered_gpus));
 
         let spawn_config = FESpawnConfig {
-            driver: driver.clone(),
+            driver: function_driver.clone(),
             image_resolver,
             gpu_allocator,
             secrets_provider,
@@ -1098,10 +1113,12 @@ async fn wait_for_shutdown_signal() -> &'static str {
     }
 }
 
-/// Create the process driver based on config (ForkExec, Docker, or
-/// Firecracker).
-fn create_process_driver(config: &DataplaneConfig) -> Result<Arc<dyn ProcessDriver>> {
-    match &config.driver {
+/// Create a process driver from a DriverConfig.
+fn create_process_driver(
+    driver_config: &DriverConfig,
+    #[cfg(feature = "firecracker")] config: &DataplaneConfig,
+) -> Result<Arc<dyn ProcessDriver>> {
+    match driver_config {
         DriverConfig::ForkExec => Ok(Arc::new(ForkExecDriver::new())),
         DriverConfig::Docker {
             address,
@@ -1148,8 +1165,8 @@ fn create_process_driver(config: &DataplaneConfig) -> Result<Arc<dyn ProcessDriv
             guest_netmask.clone(),
             *default_vcpu_count,
             *default_memory_mib,
-            config.firecracker_state_dir(),
-            config.firecracker_log_dir(),
+            config.firecracker_state_dir(driver_config),
+            config.firecracker_log_dir(driver_config),
             lvm_volume_group.clone(),
             lvm_thin_pool.clone(),
         )?)),

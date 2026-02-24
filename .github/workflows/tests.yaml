@@ -523,7 +523,12 @@ jobs:
           cat > /tmp/dataplane_gpu_config.yaml << EOF
           env: local
           server_addr: "http://localhost:8901"
-          driver:
+          function_driver:
+            type: docker
+            runtime: runsc
+            binds:
+              - "${BLOB_STORE_DIR}:${BLOB_STORE_DIR}"
+          sandbox_driver:
             type: docker
             runtime: runsc
             binds:

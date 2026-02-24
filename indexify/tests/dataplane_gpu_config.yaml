@@ -1,6 +1,9 @@
 env: local
 server_addr: "http://localhost:8901"
-driver:
+function_driver:
+  type: docker
+  runtime: runsc
+sandbox_driver:
   type: docker
   runtime: runsc
 monitoring:
