@@ -27,6 +27,7 @@ use crate::{
         Function,
         FunctionResources,
         FunctionURI,
+        HostResources,
         Sandbox,
         SandboxId,
     },
@@ -134,6 +135,10 @@ pub struct ContainerScheduler {
     // BufferReconciler until resources become available (new executor joins or
     // container terminates).
     pub blocked_pools: std::collections::HashSet<ContainerPoolKey>,
+    // Sorted-set index: executors ordered by free memory (bytes).
+    // Tuple is (free_memory_bytes, executor_id) for O(log E) range queries.
+    // Maintained by set_executor_state / remove_executor_state / register_container.
+    pub(crate) executors_by_free_memory: imbl::OrdSet<(u64, ExecutorId)>,
 }
 
 impl ContainerScheduler {
@@ -160,14 +165,11 @@ impl ContainerScheduler {
             sandbox_pools.insert(pool_key, Box::new(pool));
         }
 
-        // Mark all loaded pools as dirty for initial reconciliation
-        let mut dirty_pools = std::collections::HashSet::new();
-        for key in function_pools.keys() {
-            dirty_pools.insert(key.clone());
-        }
-        for key in sandbox_pools.keys() {
-            dirty_pools.insert(key.clone());
-        }
+        // Don't mark pools dirty at startup — no executors are connected
+        // yet, so reconciliation would just block everything. Pools become
+        // dirty naturally when state changes occur (app creates, executor
+        // heartbeats, container events). Blocked pools are retried in Phase 4
+        // when executors with capacity appear.
 
         Ok(Self {
             executors: imbl::HashMap::new(),
@@ -179,8 +181,9 @@ impl ContainerScheduler {
             function_pools,
             sandbox_pools,
             clock,
-            dirty_pools,
+            dirty_pools: std::collections::HashSet::new(),
             blocked_pools: std::collections::HashSet::new(),
+            executors_by_free_memory: imbl::OrdSet::new(),
         })
     }
 
@@ -268,6 +271,7 @@ impl ContainerScheduler {
             sandbox_pools: self.sandbox_pools.clone(),
             dirty_pools: self.dirty_pools.clone(),
             blocked_pools: self.blocked_pools.clone(),
+            executors_by_free_memory: self.executors_by_free_memory.clone(),
         }))
     }
 
@@ -275,15 +279,13 @@ impl ContainerScheduler {
         // Only update executor metadata here.
         // num_allocations updates are handled in update_scheduler_update
         // when processing updated_allocations from the processors.
-        let is_new = !self.executors.contains_key(&executor_metadata.id);
         self.executors.insert(
             executor_metadata.id.clone(),
             executor_metadata.clone().into(),
         );
-        // New executor may have resources for previously blocked pools
-        if is_new && !executor_metadata.tombstoned {
-            self.unblock_all_pools();
-        }
+        // New executor capacity is handled by the buffer reconciler's
+        // blocked pool phase — it checks for available capacity and tries
+        // blocked pools until resources are consumed.
     }
 
     fn deregister_executor(&mut self, executor_id: &ExecutorId) {
@@ -323,8 +325,6 @@ impl ContainerScheduler {
                 };
             }
         }
-
-        let had_containers_to_terminate = !containers_to_remove.is_empty();
 
         // Remove terminated containers from all indices and mark pools dirty
         for (pool_key, fn_uri, container_id, was_warm) in containers_to_remove {
@@ -370,12 +370,10 @@ impl ContainerScheduler {
             self.mark_pool_dirty(pool_key);
         }
 
-        // Terminating containers will eventually free executor resources.
-        // Unblock all pools so the buffer reconciler retries placement on the
-        // next cycle after the executor confirms termination.
-        if had_containers_to_terminate {
-            self.unblock_all_pools();
-        }
+        // Note: containers are only *marked* for termination here
+        // (desired_state = Terminated). Resources are not freed until the
+        // dataplane confirms termination, at which point
+        // update_container_indices will unblock matching pools.
     }
 
     fn delete_container_pool(&mut self, namespace: &str, pool_id: &ContainerPoolId) {
@@ -463,6 +461,45 @@ impl ContainerScheduler {
         }
     }
 
+    /// Returns true if any executor has free memory. O(1).
+    pub fn has_available_capacity(&self) -> bool {
+        !self.executors_by_free_memory.is_empty()
+    }
+
+    /// Insert or replace an executor state, keeping the memory index
+    /// in sync. All mutations to `executor_states` must go through this
+    /// method or `remove_executor_state`.
+    pub(crate) fn set_executor_state(&mut self, id: ExecutorId, state: Box<ExecutorServerMetadata>) {
+        // Remove old index entry (extract memory_bytes to avoid borrow conflict)
+        if let Some(old) = self.executor_states.get(&id) {
+            let old_memory = old.free_resources.memory_bytes;
+            self.executors_by_free_memory
+                .remove(&(old_memory, id.clone()));
+        }
+        // Add new index entry
+        self.insert_resource_index(&id, &state.free_resources);
+        self.executor_states.insert(id, state);
+    }
+
+    /// Remove an executor state, keeping the memory index in sync.
+    fn remove_executor_state(&mut self, id: &ExecutorId) {
+        if let Some(old) = self.executor_states.remove(id) {
+            self.remove_resource_index(id, &old.free_resources);
+        }
+    }
+
+    fn insert_resource_index(&mut self, id: &ExecutorId, resources: &HostResources) {
+        if resources.memory_bytes > 0 {
+            self.executors_by_free_memory
+                .insert((resources.memory_bytes, id.clone()));
+        }
+    }
+
+    fn remove_resource_index(&mut self, id: &ExecutorId, resources: &HostResources) {
+        self.executors_by_free_memory
+            .remove(&(resources.memory_bytes, id.clone()));
+    }
+
     /// Mark a pool as dirty (needs reconciliation). Also removes it from the
     /// blocked set since a state change may have made it satisfiable.
     fn mark_pool_dirty(&mut self, pool_key: ContainerPoolKey) {
@@ -474,12 +511,6 @@ impl ContainerScheduler {
     /// Called by BufferReconciler to consume the dirty set.
     pub fn take_dirty_pools(&mut self) -> std::collections::HashSet<ContainerPoolKey> {
         std::mem::take(&mut self.dirty_pools)
-    }
-
-    /// Move all blocked pools to the dirty set for re-evaluation.
-    /// Called when new resources become available (e.g., new executor joins).
-    pub fn unblock_all_pools(&mut self) {
-        self.dirty_pools.extend(self.blocked_pools.drain());
     }
 
     fn update_scheduler_update(&mut self, scheduler_update: &SchedulerUpdateRequest) {
@@ -527,8 +558,7 @@ impl ContainerScheduler {
                 }
             }
 
-            self.executor_states
-                .insert(executor_id.clone(), Box::new(merged));
+            self.set_executor_state(executor_id.clone(), Box::new(merged));
         }
 
         for (container_id, new_function_container) in &scheduler_update.containers {
@@ -561,7 +591,7 @@ impl ContainerScheduler {
             // If the executor reconnects, upsert_executor refreshes the entry
             // (clears tombstoned), and the reconciler adopts whatever containers
             // the executor reports — starting from an empty executor_states.
-            let _ = self.executor_states.remove(removed_executor_id);
+            self.remove_executor_state(removed_executor_id);
         }
 
         // Propagate blocked pools from the buffer reconciler (runs on the clone)
@@ -597,8 +627,10 @@ impl ContainerScheduler {
                 }
                 self.mark_pool_dirty(pool_key);
             }
-            // Removed container frees resources — unblock all pools
-            self.unblock_all_pools();
+            // Note: this path is used for dropped containers (executor state
+            // merge) and removed executors — in both cases the executor is gone,
+            // so no resources are freed on any live executor. Affected pools are
+            // already marked dirty above for re-evaluation.
         }
     }
 
@@ -851,27 +883,35 @@ impl ContainerScheduler {
         function: Option<&Function>,
         resources: &FunctionResources,
     ) -> Vec<ExecutorServerMetadata> {
+        let min_memory_bytes = resources.memory_mb * 1024 * 1024;
+
+        // Range query: all executors with >= min_memory_bytes free memory
+        let range_start = (min_memory_bytes, ExecutorId::default());
         let mut candidates = Vec::new();
 
-        for (_, executor_state) in &self.executor_states {
+        for (_, executor_id) in self.executors_by_free_memory.range(range_start..) {
+            let Some(executor_state) = self.executor_states.get(executor_id) else {
+                continue;
+            };
             let Some(executor) = self.executors.get(&executor_state.executor_id) else {
                 error!(
                     executor_id = executor_state.executor_id.get(),
-                    "executor not found for candidate executors but was found in executor_states"
+                    "executor not found for candidate executors"
                 );
                 continue;
             };
 
+            // Constraint check (namespace, labels, allowlist)
             if !self.executor_matches_constraints(executor, namespace, application, function) {
                 continue;
             }
 
-            // Check resources
-            let resource_check = executor_state
+            // Inline CPU + disk + GPU check
+            if executor_state
                 .free_resources
-                .can_handle_function_resources(resources);
-
-            if resource_check.is_ok() {
+                .can_handle_function_resources(resources)
+                .is_ok()
+            {
                 candidates.push(*executor_state.clone());
             }
         }
@@ -900,7 +940,16 @@ impl ContainerScheduler {
             "registering container"
         );
 
+        // Maintain memory index: remove old entry before mutation, re-insert after
+        let old_memory = executor_server_metadata.free_resources.memory_bytes;
+        self.executors_by_free_memory
+            .remove(&(old_memory, executor_id.clone()));
         executor_server_metadata.add_container(&function_container)?;
+        let new_memory = executor_server_metadata.free_resources.memory_bytes;
+        if new_memory > 0 {
+            self.executors_by_free_memory
+                .insert((new_memory, executor_id.clone()));
+        }
 
         let fe_server_metadata = ContainerServerMetadata {
             executor_id: executor_id.clone(),
@@ -1497,9 +1546,9 @@ impl ContainerScheduler {
             if let Some(pool_key) = pool_key {
                 self.mark_pool_dirty(pool_key);
             }
-            // Terminated container frees resources on its executor, which could
-            // satisfy any blocked pool — not just the one this container belonged to.
-            self.unblock_all_pools();
+            // No need to unblock other pools here. The terminated container's
+            // own pool is marked dirty above. Other blocked pools will be
+            // retried when new capacity appears (new executor joins).
         } else {
             // Non-terminated: add to count/lookup indices
             self.containers_by_function_uri
@@ -1545,7 +1594,7 @@ impl ContainerScheduler {
 
         // Update executor states
         for (id, state) in &update.updated_executor_states {
-            self.executor_states.insert(id.clone(), state.clone());
+            self.set_executor_state(id.clone(), state.clone());
         }
     }
 

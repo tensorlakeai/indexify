@@ -477,7 +477,13 @@ impl ApplicationProcessor {
                     snapshot_id = %ev.snapshot_id,
                     "processing SnapshotSandbox event"
                 );
-                SchedulerUpdateRequest::default()
+                // No container or pool changes — skip buffer reconciliation
+                return Ok(StateMachineUpdateRequest {
+                    payload: RequestPayload::SchedulerUpdate(SchedulerUpdatePayload {
+                        update: Box::new(SchedulerUpdateRequest::default()),
+                        processed_state_changes: vec![state_change.clone()],
+                    }),
+                });
             }
             ChangeType::CreateContainerPool(ev) => {
                 tracing::info!(

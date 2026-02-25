@@ -52,10 +52,25 @@ impl BufferReconciler {
         // Only process pools that changed since last reconciliation
         let dirty_pools = container_scheduler.take_dirty_pools();
 
+        // Fast path: nothing to do. Deficit values in the state store are
+        // preserved because we return None for the deficit fields.
+        if dirty_pools.is_empty() && container_scheduler.blocked_pools.is_empty() {
+            return Ok(update);
+        }
+
         // Look up each dirty pool, skipping blocked pools and tombstoned pools
         let pools: Vec<ContainerPool> = dirty_pools
             .iter()
             .filter(|key| !container_scheduler.blocked_pools.contains(key))
+            .filter_map(|key| container_scheduler.get_pool(key).cloned())
+            .collect();
+
+        // Collect previously blocked pools for deficit-only computation in Phase 3.
+        // These pools are excluded from container creation (Phases 1/2) but their
+        // deficits still need to be reported so the API doesn't drop to zero.
+        let blocked_pools: Vec<ContainerPool> = container_scheduler
+            .blocked_pools
+            .iter()
             .filter_map(|key| container_scheduler.get_pool(key).cloned())
             .collect();
 
@@ -244,14 +259,190 @@ impl BufferReconciler {
             }
         }
 
-        update.function_pool_deficits = Some(function_pool_deficits);
-        update.sandbox_pool_deficits = Some(sandbox_pool_deficits);
+        // Also compute deficits for previously blocked pools (excluded from `pools`
+        // for container creation, but their resource gaps must still be reported).
+        for pool in &blocked_pools {
+            let min = pool.min_containers.unwrap_or(0);
+            let max = pool.max_containers.unwrap_or(u32::MAX);
+            let (active, idle) = self.count_pool_containers(pool, container_scheduler);
+            let current_total = active + idle;
 
-        // Propagate blocked pools to the scheduler for cross-cycle persistence
-        // and include in update for propagation to the real scheduler
+            let buffer = pool.buffer_containers.unwrap_or(0);
+            let deficit_target = (active + buffer).max(min).min(max);
+            if current_total < deficit_target {
+                let deficit = deficit_target - current_total;
+                let profile = ResourceProfile::from_container_resources(&pool.resources);
+                if pool.is_function_pool() {
+                    function_pool_deficits.increment_by(profile, deficit as u64);
+                } else {
+                    sandbox_pool_deficits.increment_by(profile, deficit as u64);
+                }
+            }
+        }
+
+        // Propagate newly blocked pools to the scheduler before Phase 4
         container_scheduler
             .blocked_pools
             .extend(blocked.iter().cloned());
+
+        // Phase 4: Try to satisfy blocked pools with available capacity.
+        // When a pool is unblocked (first container placed), run full
+        // min+buffer reconciliation for it inline — don't defer to the next
+        // cycle. Stops as soon as a full pass makes no progress (capacity
+        // exhausted).
+        if !container_scheduler.blocked_pools.is_empty()
+            && container_scheduler.has_available_capacity()
+        {
+            let blocked_keys: Vec<ContainerPoolKey> =
+                container_scheduler.blocked_pools.iter().cloned().collect();
+
+            // Probe: try to place one container per blocked pool.
+            // If successful, run full min+buffer for that pool.
+            for pool_key in &blocked_keys {
+                if !container_scheduler.blocked_pools.contains(pool_key) {
+                    continue;
+                }
+                let Some(pool) = container_scheduler.get_pool(pool_key).cloned() else {
+                    container_scheduler.blocked_pools.remove(pool_key);
+                    continue;
+                };
+
+                // Probe: can we place at least one container?
+                let probed = match self.create_container_for_pool(
+                    &pool,
+                    in_memory_state,
+                    container_scheduler,
+                    true,
+                ) {
+                    Ok(Some(u)) => {
+                        let placed = u.containers.values().any(|c| {
+                            !matches!(c.desired_state, ContainerState::Terminated { .. })
+                        });
+                        container_scheduler.apply_container_update(&u);
+                        update.extend(u);
+                        placed
+                    }
+                    _ => false,
+                };
+
+                if !probed {
+                    continue;
+                }
+
+                // Pool is unblocked — run full min+buffer inline
+                container_scheduler.blocked_pools.remove(pool_key);
+
+                // Phase 4a: ensure min
+                let min = pool.min_containers.unwrap_or(0);
+                let max = pool.max_containers.unwrap_or(u32::MAX);
+                let effective_min = min.min(max);
+
+                loop {
+                    let (active, idle) =
+                        self.count_pool_containers(&pool, container_scheduler);
+                    if active + idle >= effective_min {
+                        break;
+                    }
+                    match self.create_container_for_pool(
+                        &pool,
+                        in_memory_state,
+                        container_scheduler,
+                        true,
+                    ) {
+                        Ok(Some(u)) => {
+                            let placed = u.containers.values().any(|c| {
+                                !matches!(c.desired_state, ContainerState::Terminated { .. })
+                            });
+                            container_scheduler.apply_container_update(&u);
+                            update.extend(u);
+                            if !placed {
+                                break;
+                            }
+                        }
+                        _ => break,
+                    }
+                }
+
+                // Phase 4b: fill buffer
+                let buffer = pool.buffer_containers.unwrap_or(0);
+                loop {
+                    let (active, idle) =
+                        self.count_pool_containers(&pool, container_scheduler);
+                    if idle >= buffer || (active + idle) >= max {
+                        break;
+                    }
+                    match self.create_container_for_pool(
+                        &pool,
+                        in_memory_state,
+                        container_scheduler,
+                        false,
+                    ) {
+                        Ok(Some(u)) => {
+                            let placed = u.containers.values().any(|c| {
+                                !matches!(c.desired_state, ContainerState::Terminated { .. })
+                            });
+                            container_scheduler.apply_container_update(&u);
+                            update.extend(u);
+                            if !placed {
+                                break;
+                            }
+                        }
+                        _ => break,
+                    }
+                }
+            }
+
+            // Recompute deficits for pools that are still blocked after Phase 4
+            function_pool_deficits = ResourceProfileHistogram::default();
+            sandbox_pool_deficits = ResourceProfileHistogram::default();
+
+            // Re-include deficits from dirty pools (Phase 3 already computed these
+            // but the histograms were consumed, so recompute for all non-satisfied pools)
+            for pool in &pools {
+                let min = pool.min_containers.unwrap_or(0);
+                let max = pool.max_containers.unwrap_or(u32::MAX);
+                let (active, idle) = self.count_pool_containers(pool, container_scheduler);
+                let current_total = active + idle;
+                let buffer = pool.buffer_containers.unwrap_or(0);
+                let deficit_target = (active + buffer).max(min).min(max);
+                if current_total < deficit_target {
+                    let deficit = deficit_target - current_total;
+                    let profile = ResourceProfile::from_container_resources(&pool.resources);
+                    if pool.is_function_pool() {
+                        function_pool_deficits.increment_by(profile, deficit as u64);
+                    } else {
+                        sandbox_pool_deficits.increment_by(profile, deficit as u64);
+                    }
+                }
+            }
+
+            for pool_key in &blocked_keys {
+                if !container_scheduler.blocked_pools.contains(pool_key) {
+                    continue;
+                }
+                let Some(pool) = container_scheduler.get_pool(pool_key) else {
+                    continue;
+                };
+                let min = pool.min_containers.unwrap_or(0);
+                let max = pool.max_containers.unwrap_or(u32::MAX);
+                let (active, idle) = self.count_pool_containers(pool, container_scheduler);
+                let current_total = active + idle;
+                let buffer = pool.buffer_containers.unwrap_or(0);
+                let deficit_target = (active + buffer).max(min).min(max);
+                if current_total < deficit_target {
+                    let deficit = deficit_target - current_total;
+                    let profile = ResourceProfile::from_container_resources(&pool.resources);
+                    if pool.is_function_pool() {
+                        function_pool_deficits.increment_by(profile, deficit as u64);
+                    } else {
+                        sandbox_pool_deficits.increment_by(profile, deficit as u64);
+                    }
+                }
+            }
+        }
+
+        update.function_pool_deficits = Some(function_pool_deficits);
+        update.sandbox_pool_deficits = Some(sandbox_pool_deficits);
         update.newly_blocked_pools = blocked;
 
         Ok(update)

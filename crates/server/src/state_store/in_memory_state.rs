@@ -9,7 +9,7 @@ use anyhow::Result;
 use opentelemetry::KeyValue;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 use crate::{
     data_model::{
@@ -430,6 +430,14 @@ impl InMemoryState {
                         pending_resources
                             .function_runs
                             .increment(ResourceProfile::from_function(&function));
+                    } else {
+                        warn!(
+                            function_run_id = %function_run.id,
+                            namespace = %function_run.namespace,
+                            application = %function_run.application,
+                            function = %function_run.name,
+                            "Pending function run has no matching function - resource profile not tracked"
+                        );
                     }
                 }
                 function_runs.insert(function_run.into(), Box::new(function_run.clone()));
@@ -530,6 +538,14 @@ impl InMemoryState {
                         self.pending_resources
                             .function_runs
                             .increment(ResourceProfile::from_function(&function));
+                    } else {
+                        warn!(
+                            function_run_id = %function_run.id,
+                            namespace = %function_run.namespace,
+                            application = %function_run.application,
+                            function = %function_run.name,
+                            "Function not found for new function run - resource profile not tracked"
+                        );
                     }
                 }
             }
@@ -689,6 +705,14 @@ impl InMemoryState {
                                     self.pending_resources
                                         .function_runs
                                         .increment(ResourceProfile::from_function(&function));
+                                } else {
+                                    warn!(
+                                        function_run_id = %function_run.id,
+                                        namespace = %function_run.namespace,
+                                        application = %function_run.application,
+                                        function = %function_run.name,
+                                        "Function not found for pending function run - resource profile not tracked"
+                                    );
                                 }
                             }
                             (true, false) => {
@@ -697,6 +721,14 @@ impl InMemoryState {
                                     self.pending_resources
                                         .function_runs
                                         .decrement(&ResourceProfile::from_function(&function));
+                                } else {
+                                    warn!(
+                                        function_run_id = %function_run.id,
+                                        namespace = %function_run.namespace,
+                                        application = %function_run.application,
+                                        function = %function_run.name,
+                                        "Function not found for completed function run - resource profile not decremented"
+                                    );
                                 }
                             }
                             (_, true) => {
@@ -1093,10 +1125,20 @@ impl InMemoryState {
             self.function_runs.remove(&function_run.into());
             self.unallocated_function_runs.remove(&function_run.into());
 
-            if was_pending && let Some(function) = self.get_function(function_run) {
-                self.pending_resources
-                    .function_runs
-                    .decrement(&ResourceProfile::from_function(&function));
+            if was_pending {
+                if let Some(function) = self.get_function(function_run) {
+                    self.pending_resources
+                        .function_runs
+                        .decrement(&ResourceProfile::from_function(&function));
+                } else {
+                    warn!(
+                        function_run_id = %function_run.id,
+                        namespace = %function_run.namespace,
+                        application = %function_run.application,
+                        function = %function_run.name,
+                        "Function not found when deleting pending function run - resource profile not decremented"
+                    );
+                }
             }
         }
 
