@@ -152,9 +152,7 @@ impl AllocationController {
             tokio::spawn(async move {
                 let _ = state_file.remove(&id).await;
             });
-        } else if is_starting
-            && let Some(fe) = self.containers.get(fe_id)
-        {
+        } else if is_starting && let Some(fe) = self.containers.get(fe_id) {
             let ctx = FELogCtx::from_description(&fe.description);
             info!(
                 container_id = %fe_id,
