@@ -3,10 +3,12 @@ mod tests {
     use std::{
         collections::{HashMap, HashSet},
         sync::Arc,
+        time::Duration,
     };
 
     use anyhow::Result;
     use strum::IntoEnumIterator;
+    use tokio::sync::broadcast;
 
     use crate::{
         assert_function_run_counts,
@@ -28,6 +30,7 @@ mod tests {
         executors::EXECUTOR_TIMEOUT,
         state_store::{
             driver::{self, IterOptions, Reader, rocksdb::RocksDBDriver},
+            request_events::RequestStateChangeEvent,
             requests::{
                 CreateOrUpdateApplicationRequest,
                 DeleteApplicationRequest,
@@ -56,12 +59,6 @@ mod tests {
             );
         }
         for col in IndexifyObjectsColumns::iter() {
-            // Skip the request-state-change outbox — entries are consumed by
-            // the HTTP drain worker, which does not run in tests.
-            if col == IndexifyObjectsColumns::RequestStateChangeEvents {
-                continue;
-            }
-
             let count_options = IterOptions::default();
             let count = db.iter(col.as_ref(), count_options).await.count();
 
@@ -717,9 +714,6 @@ mod tests {
             assert_function_run_counts!(test_srv, total: 0, allocated: 0, pending: 0, completed_success: 0);
 
             // This makes sure we never leak any data on deletion!
-            // Note: RequestStateChangeEvents is skipped by assert_cf_counts because
-            // outbox entries are consumed by the HTTP drain worker, which does not
-            // run in tests.
             assert_cf_counts(
                 indexify_state.db.clone(),
                 HashMap::from([
@@ -1360,47 +1354,46 @@ mod tests {
         Ok(())
     }
 
-    /// Test that request state change events are broadcast via async_broadcast
-    /// channel and contain the expected event types as the request
-    /// progresses.
-    ///
-    /// Note: In the new architecture, events are broadcast to:
-    /// - SSE worker: delivers immediately to connected clients
-    /// - HTTP export worker: persists to DB, batches, and exports via HTTP
-    ///
-    /// This test verifies that events are correctly broadcast.
+    /// Test that request state change events are pushed to per-request SSE
+    /// buffers and contain the expected event types as the request progresses.
     #[tokio::test]
     async fn test_request_state_change_events_persistence() -> Result<()> {
-        use std::time::Duration;
-
-        use crate::state_store::request_events::RequestStateChangeEvent;
-
         let test_srv = testing::TestService::new().await?;
         let indexify_state = test_srv.service.indexify_state.clone();
 
-        // Subscribe to the broadcast channel to collect events BEFORE any operations
-        let mut rx = indexify_state.subscribe_request_state_changes();
-
-        // Helper to drain all pending events from the channel with timeout
-        // Uses async recv() with timeout instead of try_recv() for reliability
+        // Helper to drain all pending events from the channel with timeout.
         async fn drain_events_async(
-            rx: &mut async_broadcast::Receiver<RequestStateChangeEvent>,
+            rx: &mut broadcast::Receiver<RequestStateChangeEvent>,
         ) -> Vec<RequestStateChangeEvent> {
             let mut events = Vec::new();
-            // Keep receiving until timeout or channel closed
             loop {
                 match tokio::time::timeout(Duration::from_millis(100), rx.recv()).await {
                     Ok(Ok(event)) => events.push(event),
-                    Ok(Err(_)) => break, // Channel closed or overflowed
+                    Ok(Err(broadcast::error::RecvError::Lagged(_))) => continue,
+                    Ok(Err(_)) => break, // Channel closed
                     Err(_) => break,     // Timeout - no more events pending
                 }
             }
             events
         }
 
+        // Create the application and pre-generate a request ID so we can
+        // subscribe to the per-request SSE buffer BEFORE invoking, ensuring
+        // we don't miss the RequestStarted event.
+        let app =
+            test_state_store::create_or_update_application(&indexify_state, "graph_A", 0).await;
+        let request_id = "test-request-state-change-events";
+
+        // Subscribe to the per-request SSE buffer before invocation.
+        let mut rx = indexify_state
+            .subscribe_request_events(TEST_NAMESPACE, "graph_A", request_id)
+            .await;
+
         // Invoke the application - this should generate RequestStarted event
-        let request_id = test_state_store::with_simple_application(&indexify_state).await;
+        test_state_store::invoke_application_with_request_id(&indexify_state, &app, request_id)
+            .await?;
         test_srv.process_all_state_changes().await?;
+        let request_id = request_id.to_string();
 
         // Drain events - should have RequestStarted
         let events = drain_events_async(&mut rx).await;

@@ -31,7 +31,7 @@ use crate::{
     utils::get_epoch_time_in_ms,
 };
 
-const MAX_FETCH_LIMIT: usize = 100;
+const MAX_FETCH_LIMIT: usize = 500;
 
 #[derive(Clone, Debug, Default)]
 pub enum CursorDirection {

@@ -4,6 +4,7 @@ use std::{
     path::PathBuf,
     sync::{
         Arc,
+        OnceLock,
         atomic::{self, AtomicU64},
     },
 };
@@ -17,10 +18,6 @@ use rocksdb::{ColumnFamilyDescriptor, Options};
 use state_machine::IndexifyObjectsColumns;
 use strum::IntoEnumIterator;
 use tokio::sync::{Notify, RwLock, mpsc, watch};
-
-/// Channel capacity for request state change event broadcast.
-/// This provides backpressure if workers are slow.
-const REQUEST_EVENT_CHANNEL_CAPACITY: usize = 10000;
 use tracing::{debug, error, info, span};
 
 use crate::{
@@ -289,13 +286,12 @@ pub struct IndexifyState {
     /// written to the RequestStateChangeEvents outbox in RocksDB.
     pub request_events_db_tx: watch::Sender<()>,
     pub request_events_db_rx: watch::Receiver<()>,
-    /// Broadcast channel for request state change events.
-    /// SSE and file dump workers subscribe to this channel.
-    pub request_events_tx: async_broadcast::Sender<RequestStateChangeEvent>,
-    /// Keep the initial receiver alive to prevent channel from being closed.
-    /// New receivers are created via sender.new_receiver() which clone from
-    /// this.
-    _request_events_rx: async_broadcast::InactiveReceiver<RequestStateChangeEvent>,
+    /// Whether to persist request state change events to the RocksDB outbox.
+    /// Set at construction time from `cloud_events.is_some()`.
+    persist_request_events: bool,
+    /// Optional sender for the file-dump debug worker.  Set once by
+    /// `connect_file_dump()` when the worker is spawned.
+    file_dump_tx: OnceLock<mpsc::UnboundedSender<RequestStateChangeEvent>>,
 
     pub metrics: Arc<StateStoreMetrics>,
     pub in_memory_state: Arc<RwLock<in_memory_state::InMemoryState>>,
@@ -347,6 +343,7 @@ impl IndexifyState {
         path: PathBuf,
         config: RocksDBConfig,
         executor_catalog: ExecutorCatalog,
+        persist_request_events: bool,
     ) -> Result<Arc<Self>> {
         fs::create_dir_all(path.clone())
             .map_err(|e| anyhow!("failed to create state store dir: {e}"))?;
@@ -374,16 +371,6 @@ impl IndexifyState {
         let (change_events_tx, change_events_rx) = watch::channel(());
         let (usage_events_tx, usage_events_rx) = watch::channel(());
         let (request_events_db_tx, request_events_db_rx) = watch::channel(());
-
-        let (mut request_events_tx, request_events_rx) =
-            async_broadcast::broadcast::<RequestStateChangeEvent>(REQUEST_EVENT_CHANNEL_CAPACITY);
-        // Set overflow mode to drop old messages when channel is full
-        request_events_tx.set_overflow(true);
-        // Don't wait for active receivers - return immediately even if no one is
-        // listening
-        request_events_tx.set_await_active(false);
-        // Deactivate the initial receiver but keep it alive to prevent channel closure
-        let _request_events_rx = request_events_rx.deactivate();
 
         let state_reader = scanner::StateReader::new(db.clone(), state_store_metrics.clone());
 
@@ -417,8 +404,8 @@ impl IndexifyState {
             usage_events_rx,
             request_events_db_tx,
             request_events_db_rx,
-            request_events_tx,
-            _request_events_rx,
+            persist_request_events,
+            file_dump_tx: OnceLock::new(),
             executor_connections: RwLock::new(HashMap::new()),
             request_event_buffers: RequestEventBuffers::new(),
             _in_memory_store_gauges: in_memory_store_gauges,
@@ -631,16 +618,19 @@ impl IndexifyState {
                 error!(error = ?err, "failed to notify of usage event, ignoring");
             }
 
-            // Broadcast request state change events to SSE and file dump workers.
+            // Push request state change events directly to per-request SSE buffers.
             let has_request_events = !write_result.request_state_changes.is_empty();
             for event in write_result.request_state_changes {
-                if let Err(err) = self.request_events_tx.broadcast(event).await {
-                    error!(error = ?err, "failed to broadcast request state change event, ignoring");
+                if let Some(tx) = self.file_dump_tx.get() {
+                    let _ = tx.send(event.clone());
                 }
+                self.request_event_buffers.push_event(event).await;
             }
             // Notify the HTTP drain worker that new events are in the outbox.
-            if has_request_events && let Err(err) = self.request_events_db_tx.send(()) {
-                error!(error = ?err, "failed to notify HTTP export worker of new events, ignoring");
+            if self.persist_request_events && has_request_events {
+                if let Err(err) = self.request_events_db_tx.send(()) {
+                    error!(error = ?err, "failed to notify HTTP export worker of new events, ignoring");
+                }
             }
         }
 
@@ -911,12 +901,16 @@ impl IndexifyState {
 
         // Persist request state change events into the same transaction so they
         // become durable atomically with the state change that produced them.
-        for event in &request_state_changes {
-            let event_id = self
-                .request_event_id_seq
-                .fetch_add(1, atomic::Ordering::Relaxed);
-            let persisted = PersistedRequestStateChangeEvent::new(event_id.into(), event.clone());
-            state_machine::persist_single_request_state_change_event(&txn, &persisted).await?;
+        // Only written when an HTTP exporter is configured.
+        if self.persist_request_events {
+            for event in &request_state_changes {
+                let event_id = self
+                    .request_event_id_seq
+                    .fetch_add(1, atomic::Ordering::Relaxed);
+                let persisted =
+                    PersistedRequestStateChangeEvent::new(event_id.into(), event.clone());
+                state_machine::persist_single_request_state_change_event(&txn, &persisted).await?;
+            }
         }
 
         let current_state_id = self.state_change_id_seq.load(atomic::Ordering::Relaxed);
@@ -968,16 +962,12 @@ impl IndexifyState {
             .await
     }
 
-    pub async fn push_request_event(&self, event: RequestStateChangeEvent) {
-        self.request_event_buffers.push_event(event).await;
-    }
-
-    /// Get a new receiver for request state change events.
-    /// Used by SSE worker and HTTP export worker to subscribe to events.
-    pub fn subscribe_request_state_changes(
-        &self,
-    ) -> async_broadcast::Receiver<RequestStateChangeEvent> {
-        self.request_events_tx.new_receiver()
+    /// Register the file-dump worker's send channel.  Called once by the
+    /// processor before the worker is spawned.
+    pub fn connect_file_dump(&self, tx: mpsc::UnboundedSender<RequestStateChangeEvent>) {
+        if self.file_dump_tx.set(tx).is_err() {
+            error!("connect_file_dump called more than once, ignoring");
+        }
     }
 
     /// Ensure an executor connection exists with a fresh emitter. Called

@@ -1,10 +1,9 @@
 use std::{slice, sync::Arc, time::Duration};
 
 use anyhow::Result;
-use async_broadcast::Receiver;
-use opentelemetry::metrics::{Counter, Histogram, ObservableGauge};
+use opentelemetry::metrics::{Counter, Histogram};
 use otlp_logs_exporter::{OtlpLogsExporter, runtime::Tokio};
-use tokio::sync::watch;
+use tokio::sync::{mpsc, watch};
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::{error, info, instrument, warn};
 
@@ -26,24 +25,13 @@ const GRACEFUL_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(30);
 
 pub struct RequestStateChangeProcessor {
     indexify_state: Arc<IndexifyState>,
-    sse_processing_latency: Histogram<f64>,
     http_processing_latency: Histogram<f64>,
-    sse_events_counter: Counter<u64>,
     http_events_counter: Counter<u64>,
-    // Keep gauge alive so the callback continues to fire
-    _channel_buffer_size: ObservableGauge<u64>,
 }
 
 impl RequestStateChangeProcessor {
     pub fn new(indexify_state: Arc<IndexifyState>) -> Self {
         let meter = opentelemetry::global::meter("request_state_change_processor_metrics");
-
-        let sse_processing_latency = meter
-            .f64_histogram("indexify.request_state_change.sse_processing_latency")
-            .with_unit("s")
-            .with_boundaries(low_latency_boundaries())
-            .with_description("SSE event delivery latency in seconds")
-            .build();
 
         let http_processing_latency = meter
             .f64_histogram("indexify.request_state_change.http_processing_latency")
@@ -52,32 +40,15 @@ impl RequestStateChangeProcessor {
             .with_description("HTTP export batch processing latency in seconds")
             .build();
 
-        let sse_events_counter = meter
-            .u64_counter("indexify.request_state_change.sse_events_total")
-            .with_description("Total number of events delivered via SSE")
-            .build();
-
         let http_events_counter = meter
             .u64_counter("indexify.request_state_change.http_events_total")
             .with_description("Total number of events exported via HTTP")
             .build();
 
-        let state_for_gauge = indexify_state.clone();
-        let _channel_buffer_size = meter
-            .u64_observable_gauge("indexify.request_state_change.channel_buffer_size")
-            .with_description("Number of events currently buffered in the broadcast channel")
-            .with_callback(move |observer| {
-                observer.observe(state_for_gauge.request_events_tx.len() as u64, &[]);
-            })
-            .build();
-
         Self {
             indexify_state,
-            sse_processing_latency,
             http_processing_latency,
-            sse_events_counter,
             http_events_counter,
-            _channel_buffer_size,
         }
     }
 
@@ -91,27 +62,13 @@ impl RequestStateChangeProcessor {
         let cancel_token = CancellationToken::new();
         let tracker = TaskTracker::new();
 
-        // Subscribe to request state change events from the broadcast channel
-        let watch_rx = self.indexify_state.subscribe_request_state_changes();
-
-        // Spawn SSE delivery worker
-        tracker.spawn({
-            let sse_rx = watch_rx.clone();
-            let state = self.indexify_state.clone();
-            let latency = self.sse_processing_latency.clone();
-            let counter = self.sse_events_counter.clone();
-            let token = cancel_token.child_token();
-            async move {
-                sse_delivery_worker(sse_rx, state, latency, counter, token).await;
-            }
-        });
-
         // Spawn file dump worker if a dump path is configured.
         if let Some(path) = event_dump_path {
-            let dump_rx = watch_rx.clone();
+            let (tx, rx) = mpsc::unbounded_channel();
+            self.indexify_state.connect_file_dump(tx);
             let token = cancel_token.child_token();
             tracker.spawn(async move {
-                file_dump_worker(dump_rx, path, token).await;
+                file_dump_worker(rx, path, token).await;
             });
         }
 
@@ -157,47 +114,6 @@ impl RequestStateChangeProcessor {
         }
 
         info!("Request state change processor stopped");
-    }
-}
-
-/// SSE delivery worker - receives events via broadcast channel and delivers
-/// immediately. This is the fast path for connected SSE clients.
-async fn sse_delivery_worker(
-    mut rx: Receiver<RequestStateChangeEvent>,
-    state: Arc<IndexifyState>,
-    latency: Histogram<f64>,
-    counter: Counter<u64>,
-    cancel_token: CancellationToken,
-) {
-    info!("SSE delivery worker started");
-
-    loop {
-        // Wait for next event from broadcast channel
-        let event = tokio::select! {
-            result = rx.recv() => {
-                match result {
-                    Ok(event) => event,
-                    Err(async_broadcast::RecvError::Closed) => {
-                        info!("SSE delivery worker: channel closed, shutting down");
-                        return;
-                    }
-                    Err(async_broadcast::RecvError::Overflowed(n)) => {
-                        warn!("SSE delivery worker: channel overflowed, lost {} events", n);
-                        continue;
-                    }
-                }
-            }
-            _ = cancel_token.cancelled() => {
-                info!("SSE delivery worker shutting down");
-                return;
-            }
-        };
-
-        let _timer = Timer::start_with_labels(&latency, &[]);
-
-        // Push to SSE subscribers immediately (fire and forget)
-        state.push_request_event(event).await;
-        counter.add(1, &[]);
     }
 }
 
@@ -260,10 +176,10 @@ async fn drain_all(
     }
 }
 
-/// File dump worker - receives events via broadcast channel and appends each
-/// one as a JSON line to the configured file path.
+/// File dump worker - receives events via a dedicated mpsc channel and appends
+/// each one as a JSON line to the configured file path.
 async fn file_dump_worker(
-    mut rx: Receiver<RequestStateChangeEvent>,
+    mut rx: mpsc::UnboundedReceiver<RequestStateChangeEvent>,
     path: String,
     cancel_token: CancellationToken,
 ) {
@@ -290,14 +206,10 @@ async fn file_dump_worker(
         let event = tokio::select! {
             result = rx.recv() => {
                 match result {
-                    Ok(event) => event,
-                    Err(async_broadcast::RecvError::Closed) => {
+                    Some(event) => event,
+                    None => {
                         info!("File dump worker: channel closed, shutting down");
                         return;
-                    }
-                    Err(async_broadcast::RecvError::Overflowed(n)) => {
-                        warn!(n, "File dump worker: channel overflowed, lost events");
-                        continue;
                     }
                 }
             }
