@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Duration};
+use std::{slice, sync::Arc, time::Duration};
 
 use anyhow::Result;
 use async_broadcast::Receiver;
@@ -20,9 +20,8 @@ use crate::{
 };
 
 // Constants
-const HTTP_BATCH_SIZE: usize = 100;
-const HTTP_BATCH_TIMEOUT: Duration = Duration::from_millis(100);
-const MAX_DELETE_ATTEMPTS: u8 = 10;
+const MAX_REMOVE_ATTEMPTS: u8 = 10;
+const EXPORT_FAILURE_BACKOFF: Duration = Duration::from_secs(5);
 const GRACEFUL_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(30);
 
 pub struct RequestStateChangeProcessor {
@@ -86,16 +85,18 @@ impl RequestStateChangeProcessor {
     pub async fn start(
         &self,
         cloud_events_exporter: Option<OtlpLogsExporter<Tokio>>,
+        event_dump_path: Option<String>,
         mut shutdown_rx: watch::Receiver<()>,
     ) {
         let cancel_token = CancellationToken::new();
         let tracker = TaskTracker::new();
 
         // Subscribe to request state change events from the broadcast channel
-        let sse_rx = self.indexify_state.subscribe_request_state_changes();
+        let watch_rx = self.indexify_state.subscribe_request_state_changes();
 
         // Spawn SSE delivery worker
         tracker.spawn({
+            let sse_rx = watch_rx.clone();
             let state = self.indexify_state.clone();
             let latency = self.sse_processing_latency.clone();
             let counter = self.sse_events_counter.clone();
@@ -105,15 +106,32 @@ impl RequestStateChangeProcessor {
             }
         });
 
-        // Spawn HTTP export worker (if exporter is configured)
-        if let Some(exporter) = cloud_events_exporter {
-            let http_rx = self.indexify_state.subscribe_request_state_changes();
-            let state = self.indexify_state.clone();
-            let latency = self.http_processing_latency.clone();
-            let counter = self.http_events_counter.clone();
+        // Spawn file dump worker if a dump path is configured.
+        if let Some(path) = event_dump_path {
+            let dump_rx = watch_rx.clone();
             let token = cancel_token.child_token();
             tracker.spawn(async move {
-                http_export_worker(http_rx, exporter, state, latency, counter, token).await;
+                file_dump_worker(dump_rx, path, token).await;
+            });
+        }
+
+        // Spawn HTTP drain worker (if exporter is configured).
+        //
+        // Events are written directly to RocksDB by the state machine as part
+        // of the same transaction that produces the state change.  A
+        // watch::channel notifies this worker when new events are available.
+        // On each wakeup it drains the entire outbox (full pages of 100 events
+        // per HTTP request) before returning to sleep.
+        if let Some(exporter) = cloud_events_exporter {
+            tracker.spawn({
+                let notify_rx = self.indexify_state.request_events_db_rx.clone();
+                let state = self.indexify_state.clone();
+                let latency = self.http_processing_latency.clone();
+                let counter = self.http_events_counter.clone();
+                let token = cancel_token.child_token();
+                async move {
+                    http_drain_worker(exporter, state, notify_rx, latency, counter, token).await;
+                }
             });
         } else {
             info!("HTTP exporter disabled - no exporter configured");
@@ -183,131 +201,230 @@ async fn sse_delivery_worker(
     }
 }
 
-/// HTTP export worker - persists events to DB, batches them, and exports via
-/// HTTP. Provides stronger delivery guarantees than SSE.
-async fn http_export_worker(
-    mut rx: Receiver<RequestStateChangeEvent>,
+/// Drain worker — wakes on the watch channel when the state machine writes new
+/// events to the RocksDB outbox, then calls `drain_all` to export every
+/// pending page before going back to sleep. An unconditional drain on startup
+/// recovers events that were persisted in a previous run.
+async fn http_drain_worker(
     mut exporter: OtlpLogsExporter<Tokio>,
     state: Arc<IndexifyState>,
+    mut notify_rx: watch::Receiver<()>,
     latency: Histogram<f64>,
     counter: Counter<u64>,
     cancel_token: CancellationToken,
 ) {
-    info!("HTTP export worker started");
+    info!("HTTP drain worker started");
 
-    // Batch accumulator
-    let mut batch: Vec<PersistedRequestStateChangeEvent> = Vec::with_capacity(HTTP_BATCH_SIZE);
-    let mut batch_deadline = tokio::time::Instant::now() + HTTP_BATCH_TIMEOUT;
+    let mut cursor: Option<Vec<u8>> = None;
+
+    // Initial drain for crash recovery (events written in a previous run).
+    drain_all(&mut exporter, &state, &mut cursor, &latency, &counter).await;
 
     loop {
-        // Collect events until batch is full or timeout
-        let should_flush = tokio::select! {
-            result = rx.recv() => {
-                match result {
-                    Ok(event) => {
-                        // Persist event to DB immediately for durability
-                        match persist_event(&state, event).await {
-                            Ok(persisted) => {
-                                batch.push(persisted);
-                                batch.len() >= HTTP_BATCH_SIZE
-                            }
-                            Err(e) => {
-                                error!(%e, "Failed to persist event to DB, event lost");
-                                false
-                            }
-                        }
-                    }
-                    Err(async_broadcast::RecvError::Closed) => {
-                        info!("HTTP export worker: channel closed, flushing remaining batch");
-                        true
-                    }
-                    Err(async_broadcast::RecvError::Overflowed(n)) => {
-                        warn!("HTTP export worker: channel overflowed, lost {} events", n);
-                        false
-                    }
+        tokio::select! {
+            result = notify_rx.changed() => {
+                if result.is_err() {
+                    info!("HTTP drain worker: watch channel closed, shutting down");
+                    return;
                 }
-            }
-            _ = tokio::time::sleep_until(batch_deadline) => {
-                // Timeout reached, flush if we have events
-                !batch.is_empty()
+                drain_all(&mut exporter, &state, &mut cursor, &latency, &counter).await;
             }
             _ = cancel_token.cancelled() => {
-                info!("HTTP export worker: shutdown requested, flushing remaining batch");
-                true
-            }
-        };
-
-        if should_flush && !batch.is_empty() {
-            let _timer = Timer::start_with_labels(&latency, &[]);
-
-            // Export the batch
-            let batch_size = batch.len();
-            match export_batch(&mut exporter, &batch).await {
-                Ok(()) => {
-                    // Successfully exported - delete from DB
-                    if let Err(e) = remove_events_with_backoff(&state, &batch).await {
-                        error!(%e, "Failed to delete exported events from DB");
-                        // Events are exported but not deleted - they may be
-                        // re-exported on restart
-                        // This is acceptable since HTTP export should be
-                        // idempotent
-                    }
-                    counter.add(batch_size as u64, &[]);
-                    info!(count = batch_size, "HTTP batch exported successfully");
-                }
-                Err(e) => {
-                    error!(%e, count = batch_size, "HTTP batch export failed after retries");
-                    // Events remain in DB for retry on next startup
-                    // Don't delete them
-                }
-            }
-
-            batch.clear();
-            batch_deadline = tokio::time::Instant::now() + HTTP_BATCH_TIMEOUT;
-        }
-
-        // Check if we should exit
-        if cancel_token.is_cancelled() ||
-            matches!(rx.try_recv(), Err(async_broadcast::TryRecvError::Closed))
-        {
-            // Final flush already done above
-            if batch.is_empty() {
-                info!("HTTP export worker shutting down");
+                info!("HTTP drain worker shutting down");
                 return;
             }
         }
     }
 }
 
-/// Persist a single event to the database.
-async fn persist_event(
+/// Export every page of pending events from RocksDB, looping until the outbox
+/// is empty. On export failure the same page is retried after a backoff; on a
+/// DB read error the loop pauses before retrying.
+async fn drain_all(
+    exporter: &mut OtlpLogsExporter<Tokio>,
     state: &Arc<IndexifyState>,
-    event: RequestStateChangeEvent,
-) -> Result<PersistedRequestStateChangeEvent> {
-    let txn = state.db.transaction();
-
-    // Create persisted event with unique ID
-    let event_id = state
-        .request_event_id_seq
-        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let persisted = PersistedRequestStateChangeEvent::new(event_id.into(), event);
-
-    // Write to DB
-    state_machine::persist_single_request_state_change_event(&txn, &persisted).await?;
-
-    txn.commit().await?;
-    Ok(persisted)
+    cursor: &mut Option<Vec<u8>>,
+    latency: &Histogram<f64>,
+    counter: &Counter<u64>,
+) {
+    loop {
+        match process_batch(exporter, state, cursor, latency, counter).await {
+            Ok(true) => {} // more pages remain
+            Ok(false) => break,
+            Err(e) => {
+                error!(error = ?e, "Error processing request state change batch");
+                tokio::time::sleep(EXPORT_FAILURE_BACKOFF).await;
+                // cursor is unchanged; the same page will be retried
+            }
+        }
+    }
 }
 
-/// Export a batch of events via HTTP.
-async fn export_batch(
+/// File dump worker - receives events via broadcast channel and appends each
+/// one as a JSON line to the configured file path.
+async fn file_dump_worker(
+    mut rx: Receiver<RequestStateChangeEvent>,
+    path: String,
+    cancel_token: CancellationToken,
+) {
+    use tokio::io::AsyncWriteExt as _;
+
+    let file = match tokio::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .await
+    {
+        Ok(f) => f,
+        Err(e) => {
+            error!(error = ?e, path, "File dump worker: failed to open dump file, worker will not start");
+            return;
+        }
+    };
+
+    let mut writer = tokio::io::BufWriter::new(file);
+
+    info!(path, "File dump worker started");
+
+    loop {
+        let event = tokio::select! {
+            result = rx.recv() => {
+                match result {
+                    Ok(event) => event,
+                    Err(async_broadcast::RecvError::Closed) => {
+                        info!("File dump worker: channel closed, shutting down");
+                        return;
+                    }
+                    Err(async_broadcast::RecvError::Overflowed(n)) => {
+                        warn!(n, "File dump worker: channel overflowed, lost events");
+                        continue;
+                    }
+                }
+            }
+            _ = cancel_token.cancelled() => {
+                info!("File dump worker shutting down");
+                return;
+            }
+        };
+
+        let json = match serde_json::to_string(&event) {
+            Ok(s) => s,
+            Err(e) => {
+                error!(error = ?e, "File dump worker: failed to serialize event to JSON");
+                continue;
+            }
+        };
+
+        let write_result = async {
+            writer.write_all(json.as_bytes()).await?;
+            writer.write_all(b"\n").await?;
+            writer.flush().await?;
+            Ok::<_, std::io::Error>(())
+        }
+        .await;
+
+        if let Err(e) = write_result {
+            error!(error = ?e, path, "File dump worker: failed to write event to dump file");
+        }
+    }
+}
+
+/// Read one page of events from RocksDB, export via HTTP, and delete the
+/// successfully exported ones. Returns `Ok(true)` when more pages remain or a
+/// retry is needed, `Ok(false)` when the outbox is empty.
+///
+/// Fixes:
+/// - Bug 1 (no DB drain): reads from DB on every wakeup, not from memory.
+/// - Bug 2 (stale cursor): advances cursor on success so subsequent pages are
+///   read in order; resets to `None` after the last page.
+/// - Bug 4 (build error blocks queue): skips unserializable events so they
+///   cannot permanently prevent later events from being exported.
+async fn process_batch(
     exporter: &mut OtlpLogsExporter<Tokio>,
-    events: &[PersistedRequestStateChangeEvent],
-) -> Result<()> {
-    let raw_events: Vec<_> = events.iter().map(|e| e.event.clone()).collect();
-    let request = create_batched_export_request(&raw_events)?;
-    exporter.send_request(request).await?;
-    Ok(())
+    state: &Arc<IndexifyState>,
+    cursor: &mut Option<Vec<u8>>,
+    latency: &Histogram<f64>,
+    counter: &Counter<u64>,
+) -> Result<bool> {
+    let (events, new_cursor) = state
+        .reader()
+        .pending_request_state_change_events(cursor.as_ref())
+        .await?;
+
+    if events.is_empty() {
+        return Ok(false);
+    }
+
+    let _timer = Timer::start_with_labels(latency, &[]);
+    let has_more_pages = new_cursor.is_some();
+
+    // Bug 4 fix: validate each event individually. Events that cannot be
+    // serialised are skipped (treated as processed) so they do not permanently
+    // block export of subsequent events.
+    let mut valid_events: Vec<PersistedRequestStateChangeEvent> = Vec::new();
+    let mut skipped_events: Vec<PersistedRequestStateChangeEvent> = Vec::new();
+    for event in events {
+        if let Err(e) = create_batched_export_request(slice::from_ref(&event.event)) {
+            error!(
+                error = ?e,
+                event_id = %event.id,
+                "Failed to build export request for event, skipping"
+            );
+            skipped_events.push(event);
+        } else {
+            valid_events.push(event);
+        }
+    }
+
+    // Remove permanently-skipped events so they don't clog the outbox.
+    if !skipped_events.is_empty() &&
+        let Err(e) = remove_events_with_backoff(state, &skipped_events).await
+    {
+        error!(error = ?e, "Failed to remove skipped events from DB");
+    }
+
+    let had_failure = if !valid_events.is_empty() {
+        let raw_events: Vec<RequestStateChangeEvent> =
+            valid_events.iter().map(|e| e.event.clone()).collect();
+        let request = create_batched_export_request(&raw_events)?;
+        match exporter.send_request(request).await {
+            Ok(()) => {
+                counter.add(valid_events.len() as u64, &[]);
+                info!(
+                    count = valid_events.len(),
+                    "HTTP batch exported successfully"
+                );
+                if let Err(e) = remove_events_with_backoff(state, &valid_events).await {
+                    // Events were exported but not deleted - they will be
+                    // re-exported on next startup. HTTP export must be idempotent.
+                    error!(error = ?e, "Failed to remove exported events from DB");
+                }
+                false
+            }
+            Err(e) => {
+                error!(error = ?e, count = valid_events.len(), "HTTP batch export failed");
+                true
+            }
+        }
+    } else {
+        // All events on this page were skipped; no transport failure.
+        false
+    };
+
+    if had_failure {
+        // Keep cursor at current page start so the same events are retried.
+        tokio::time::sleep(EXPORT_FAILURE_BACKOFF).await;
+    } else {
+        // Advance cursor on success. Because exported events are deleted a
+        // scan from the next key will land on the first unprocessed event.
+        if let Some(c) = new_cursor {
+            cursor.replace(c);
+        } else {
+            *cursor = None;
+        }
+    }
+
+    Ok(has_more_pages || had_failure)
 }
 
 /// Remove events from database with exponential backoff on failure.
@@ -315,18 +432,18 @@ async fn remove_events_with_backoff(
     state: &Arc<IndexifyState>,
     events: &[PersistedRequestStateChangeEvent],
 ) -> Result<()> {
-    for attempt in 1..=MAX_DELETE_ATTEMPTS {
+    for attempt in 1..=MAX_REMOVE_ATTEMPTS {
         let txn = state.db.transaction();
 
         if let Err(e) = state_machine::remove_request_state_change_events(&txn, events).await {
             error!(
-                %e,
+                error = ?e,
                 attempt,
-                max_attempts = MAX_DELETE_ATTEMPTS,
+                max_attempts = MAX_REMOVE_ATTEMPTS,
                 "Error removing events, retrying..."
             );
 
-            if attempt == MAX_DELETE_ATTEMPTS {
+            if attempt == MAX_REMOVE_ATTEMPTS {
                 return Err(e);
             }
 
@@ -338,13 +455,13 @@ async fn remove_events_with_backoff(
             Ok(_) => return Ok(()),
             Err(e) => {
                 error!(
-                    %e,
+                    error = ?e,
                     attempt,
-                    max_attempts = MAX_DELETE_ATTEMPTS,
+                    max_attempts = MAX_REMOVE_ATTEMPTS,
                     "Error committing transaction, retrying..."
                 );
 
-                if attempt == MAX_DELETE_ATTEMPTS {
+                if attempt == MAX_REMOVE_ATTEMPTS {
                     return Err(e.into());
                 }
 
@@ -355,6 +472,6 @@ async fn remove_events_with_backoff(
 
     Err(anyhow::anyhow!(
         "Failed to remove events after {} attempts",
-        MAX_DELETE_ATTEMPTS
+        MAX_REMOVE_ATTEMPTS
     ))
 }

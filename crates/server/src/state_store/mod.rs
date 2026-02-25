@@ -11,7 +11,7 @@ use std::{
 use anyhow::{Result, anyhow};
 use in_memory_state::InMemoryState;
 use opentelemetry::KeyValue;
-use request_events::RequestStateChangeEvent;
+use request_events::{PersistedRequestStateChangeEvent, RequestStateChangeEvent};
 use requests::{RequestPayload, StateMachineUpdateRequest};
 use rocksdb::{ColumnFamilyDescriptor, Options};
 use state_machine::IndexifyObjectsColumns;
@@ -285,8 +285,12 @@ pub struct IndexifyState {
     pub change_events_rx: watch::Receiver<()>,
     pub usage_events_tx: watch::Sender<()>,
     pub usage_events_rx: watch::Receiver<()>,
+    /// Watch channel notifying the HTTP drain worker that new events have been
+    /// written to the RequestStateChangeEvents outbox in RocksDB.
+    pub request_events_db_tx: watch::Sender<()>,
+    pub request_events_db_rx: watch::Receiver<()>,
     /// Broadcast channel for request state change events.
-    /// SSE worker and HTTP export worker both subscribe to this channel.
+    /// SSE and file dump workers subscribe to this channel.
     pub request_events_tx: async_broadcast::Sender<RequestStateChangeEvent>,
     /// Keep the initial receiver alive to prevent channel from being closed.
     /// New receivers are created via sender.new_receiver() which clone from
@@ -334,7 +338,7 @@ struct PersistentWriteResult {
     current_state_id: u64,
     should_notify_usage_reporter: bool,
     new_state_changes: Vec<StateChange>,
-    /// Request state change events to broadcast (not persisted to DB anymore)
+    /// Request state change events to broadcast to SSE and file dump workers.
     request_state_changes: Vec<RequestStateChangeEvent>,
 }
 
@@ -367,8 +371,9 @@ impl IndexifyState {
         #[cfg(not(feature = "migrations"))]
         let sm_meta = read_sm_meta(&db).await?;
 
-        let (change_events_tx, change_events_rx) = tokio::sync::watch::channel(());
-        let (usage_events_tx, usage_events_rx) = tokio::sync::watch::channel(());
+        let (change_events_tx, change_events_rx) = watch::channel(());
+        let (usage_events_tx, usage_events_rx) = watch::channel(());
+        let (request_events_db_tx, request_events_db_rx) = watch::channel(());
 
         let (mut request_events_tx, request_events_rx) =
             async_broadcast::broadcast::<RequestStateChangeEvent>(REQUEST_EVENT_CHANNEL_CAPACITY);
@@ -410,6 +415,8 @@ impl IndexifyState {
             container_scheduler,
             usage_events_tx,
             usage_events_rx,
+            request_events_db_tx,
+            request_events_db_rx,
             request_events_tx,
             _request_events_rx,
             executor_connections: RwLock::new(HashMap::new()),
@@ -615,20 +622,25 @@ impl IndexifyState {
             if !write_result.new_state_changes.is_empty() &&
                 let Err(err) = self.change_events_tx.send(())
             {
-                error!("failed to notify of state change event, ignoring: {err:?}",);
+                error!(error = ?err, "failed to notify of state change event, ignoring");
             }
 
             if write_result.should_notify_usage_reporter &&
                 let Err(err) = self.usage_events_tx.send(())
             {
-                error!("failed to notify of usage event, ignoring: {err:?}",);
+                error!(error = ?err, "failed to notify of usage event, ignoring");
             }
 
-            // Broadcast request state change events to SSE and HTTP export workers
+            // Broadcast request state change events to SSE and file dump workers.
+            let has_request_events = !write_result.request_state_changes.is_empty();
             for event in write_result.request_state_changes {
                 if let Err(err) = self.request_events_tx.broadcast(event).await {
-                    error!("failed to broadcast request state change event, ignoring: {err:?}",);
+                    error!(error = ?err, "failed to broadcast request state change event, ignoring");
                 }
+            }
+            // Notify the HTTP drain worker that new events are in the outbox.
+            if has_request_events && let Err(err) = self.request_events_db_tx.send(()) {
+                error!(error = ?err, "failed to notify HTTP export worker of new events, ignoring");
             }
         }
 
@@ -895,6 +907,16 @@ impl IndexifyState {
         new_state_changes.extend(allocation_ingestion_events);
         if !new_state_changes.is_empty() {
             state_machine::save_state_changes(&txn, &new_state_changes, current_clock).await?;
+        }
+
+        // Persist request state change events into the same transaction so they
+        // become durable atomically with the state change that produced them.
+        for event in &request_state_changes {
+            let event_id = self
+                .request_event_id_seq
+                .fetch_add(1, atomic::Ordering::Relaxed);
+            let persisted = PersistedRequestStateChangeEvent::new(event_id.into(), event.clone());
+            state_machine::persist_single_request_state_change_event(&txn, &persisted).await?;
         }
 
         let current_state_id = self.state_change_id_seq.load(atomic::Ordering::Relaxed);

@@ -56,6 +56,12 @@ mod tests {
             );
         }
         for col in IndexifyObjectsColumns::iter() {
+            // Skip the request-state-change outbox — entries are consumed by
+            // the HTTP drain worker, which does not run in tests.
+            if col == IndexifyObjectsColumns::RequestStateChangeEvents {
+                continue;
+            }
+
             let count_options = IterOptions::default();
             let count = db.iter(col.as_ref(), count_options).await.count();
 
@@ -711,8 +717,9 @@ mod tests {
             assert_function_run_counts!(test_srv, total: 0, allocated: 0, pending: 0, completed_success: 0);
 
             // This makes sure we never leak any data on deletion!
-            // Note: RequestStateChangeEvents is not checked because events are broadcast
-            // directly and only persisted by the HTTP export worker (if enabled).
+            // Note: RequestStateChangeEvents is skipped by assert_cf_counts because
+            // outbox entries are consumed by the HTTP drain worker, which does not
+            // run in tests.
             assert_cf_counts(
                 indexify_state.db.clone(),
                 HashMap::from([

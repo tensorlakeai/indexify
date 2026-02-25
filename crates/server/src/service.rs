@@ -181,6 +181,11 @@ impl Service {
         });
 
         let request_state_change_processor = self.request_state_change_processor.clone();
+        let event_dump_path = self
+            .config
+            .cloud_events
+            .as_ref()
+            .and_then(|c| c.event_dump_path.clone());
         let cloud_events_config = self.config.cloud_events.clone();
         let shutdown_rx = self.shutdown_rx.clone();
         let env = self.config.env.clone();
@@ -207,7 +212,7 @@ impl Service {
 
             let _ = {
                 request_state_change_processor
-                    .start(cloud_events_exporter, shutdown_rx)
+                    .start(cloud_events_exporter, event_dump_path, shutdown_rx)
                     .await;
                 ().instrument(span.clone())
             };
