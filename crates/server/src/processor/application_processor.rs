@@ -612,8 +612,8 @@ impl ApplicationProcessor {
                             &container_scheduler_guard,
                             container_id,
                         )?;
-                    if !promote_update.updated_sandboxes.is_empty()
-                        || !promote_update.containers.is_empty()
+                    if !promote_update.updated_sandboxes.is_empty() ||
+                        !promote_update.containers.is_empty()
                     {
                         let payload = RequestPayload::SchedulerUpdate(SchedulerUpdatePayload::new(
                             promote_update.clone(),

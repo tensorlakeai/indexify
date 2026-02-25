@@ -651,9 +651,7 @@ impl ContainerReconciler {
         ) {
             let mut updated_meta = server_meta.clone();
             updated_meta.function_container.state = ContainerState::Running;
-            update
-                .containers
-                .insert(container_id.clone(), updated_meta);
+            update.containers.insert(container_id.clone(), updated_meta);
         }
 
         // Promote the associated sandbox from Pending to Running (if any).
