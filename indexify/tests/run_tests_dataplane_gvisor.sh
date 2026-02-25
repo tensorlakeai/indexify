@@ -27,7 +27,12 @@ CONFIG_FILE="/tmp/dataplane_gvisor_config.yaml"
 cat > "$CONFIG_FILE" << EOF
 env: local
 server_addr: "http://localhost:8901"
-driver:
+function_driver:
+  type: docker
+  runtime: runsc
+  binds:
+    - "${BLOB_STORE_DIR}:${BLOB_STORE_DIR}"
+sandbox_driver:
   type: docker
   runtime: runsc
   binds:

@@ -92,7 +92,9 @@ cargo run -p indexify-server
 cat > /tmp/docker-config.yaml << EOF
 env: local
 server_addr: "http://localhost:8901"
-driver:
+function_driver:
+  type: docker
+sandbox_driver:
   type: docker
 EOF
 

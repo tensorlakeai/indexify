@@ -212,7 +212,7 @@ Create `/etc/cni/net.d/indexify-fc.conflist`:
 ## Configuration
 
 ```yaml
-driver:
+sandbox_driver:
   type: firecracker
   kernel_image_path: /opt/firecracker/vmlinux
   base_rootfs_image: /opt/firecracker/rootfs.ext4

@@ -85,7 +85,9 @@ cargo run -p indexify-dataplane -- --config /etc/indexify/dataplane.yaml
 ```yaml
 env: production
 server_addr: 'http://indexify.example.com:8901'
-driver:
+function_driver:
+  type: docker
+sandbox_driver:
   type: docker
 http_proxy:
   port: 8095
@@ -123,12 +125,18 @@ telemetry:
   # Instance ID for metrics attribution
   instance_id: 'dataplane-prod-worker-1'
 
-# Process driver configuration
-driver:
-  # Options: "fork_exec" (default), "docker", or "firecracker"
+# Process driver for function executor containers
+# Options: "fork_exec" (default), "docker", or "firecracker"
+function_driver:
   type: docker
   # Docker daemon address (optional, uses default socket if not specified)
   # address: "unix:///var/run/docker.sock"
+
+# Process driver for sandbox containers
+# Can use a different backend than function_driver (e.g., gVisor for
+# functions and Firecracker for sandboxes).
+sandbox_driver:
+  type: docker
 
   # Firecracker driver (requires --features firecracker):
   # type: firecracker
@@ -593,7 +601,7 @@ EOF
 # /etc/indexify/dataplane.yaml
 env: production
 server_addr: "http://control-plane.example.com:8901"
-driver:
+sandbox_driver:
   type: firecracker
   kernel_image_path: /opt/firecracker/vmlinux
   base_rootfs_image: /opt/firecracker/rootfs.ext4
@@ -679,7 +687,9 @@ resolution issues:
 # /tmp/dataplane-docker.yaml
 env: local
 server_addr: 'http://localhost:8901'
-driver:
+function_driver:
+  type: docker
+sandbox_driver:
   type: docker
 http_proxy:
   port: 8095
