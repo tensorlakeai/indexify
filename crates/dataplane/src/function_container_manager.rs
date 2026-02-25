@@ -179,7 +179,8 @@ impl FunctionContainerManager {
             container_id = %entry.container_id,
             handle_id = %entry.handle_id,
             daemon_addr = %entry.daemon_addr,
-            sandbox_id = ?recovered_info.sandbox_id,
+            sandbox_id = recovered_info.sandbox_id.unwrap_or(""),
+            pool_id = recovered_info.pool_id.unwrap_or(""),
             "Recovered container from state file"
         );
 
@@ -374,6 +375,8 @@ impl FunctionContainerManager {
                 if let Err(e) = self.state_file.remove(&id).await {
                     tracing::warn!(
                         container_id = %info.container_id,
+                        sandbox_id = info.sandbox_id.unwrap_or(""),
+                        pool_id = info.pool_id.unwrap_or(""),
                         error = %e,
                         "Failed to remove container from state file"
                     );
@@ -449,7 +452,8 @@ impl FunctionContainerManager {
         {
             tracing::info!(
                 container_id = %id,
-                sandbox_id = ?new_sandbox_id,
+                sandbox_id = new_sandbox_id.as_deref().unwrap_or(""),
+                pool_id = container.description.pool_id.as_deref().unwrap_or(""),
                 executor_id = %self.executor_id,
                 "Warm container claimed by sandbox"
             );
@@ -501,6 +505,8 @@ impl FunctionContainerManager {
                     if let Err(e) = self.state_file.remove(id).await {
                         tracing::warn!(
                             container_id = %info.container_id,
+                            sandbox_id = info.sandbox_id.unwrap_or(""),
+                            pool_id = info.pool_id.unwrap_or(""),
                             error = %e,
                             "Failed to remove container from state file"
                         );
@@ -597,8 +603,11 @@ impl FunctionContainerManager {
             {
                 Ok((h, dc)) => (h, dc),
                 Err(_) => {
+                    let info = container.info();
                     tracing::warn!(
                         container_id = %container_id,
+                        sandbox_id = info.sandbox_id.unwrap_or(""),
+                        pool_id = info.pool_id.unwrap_or(""),
                         snapshot_id = %snapshot_id,
                         "SnapshotContainer: container not in Running state"
                     );
@@ -633,7 +642,7 @@ impl FunctionContainerManager {
 
             if let Err(e) = self.state_file.remove(container_id).await {
                 tracing::warn!(
-                    container_id = %container_id,
+                    parent: &span,
                     error = %e,
                     "Failed to remove container from state file"
                 );
@@ -664,7 +673,14 @@ impl FunctionContainerManager {
                 let ContainerState::Stopping { handle, .. } = &container.state &&
                 let Err(e) = network_rules::remove_rules(&handle.id, &handle.container_ip)
             {
-                tracing::warn!(error = ?e, "Failed to remove network rules");
+                let info = container.info();
+                tracing::warn!(
+                    container_id = %container_id,
+                    sandbox_id = info.sandbox_id.unwrap_or(""),
+                    pool_id = info.pool_id.unwrap_or(""),
+                    error = ?e,
+                    "Failed to remove network rules"
+                );
             }
         }
         let kill_handle = ProcessHandle {
@@ -781,6 +797,7 @@ impl FunctionContainerManager {
     ) {
         let id = container.description.id.clone().unwrap_or_default();
         let container_type = container_type_str(&container.description);
+        let span = container.info().tracing_span();
 
         // Handle based on current state
         if matches!(container.state, ContainerState::Pending) {
@@ -790,7 +807,7 @@ impl FunctionContainerManager {
             if container
                 .transition_to_terminated(reason)
                 .inspect_err(
-                    |error| tracing::warn!(container_id = %id, ?error, "Invalid state transition"),
+                    |error| tracing::warn!(parent: &span, ?error, "Invalid state transition"),
                 )
                 .is_ok()
             {
