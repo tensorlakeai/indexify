@@ -292,6 +292,13 @@ impl ContainerScheduler {
         if let Some(executor) = self.executors.get_mut(executor_id) {
             executor.tombstoned = true;
         }
+        // Remove from memory index immediately so has_available_capacity()
+        // doesn't trigger wasteful Phase 4 probes for a dying executor.
+        if let Some(state) = self.executor_states.get(executor_id) {
+            let memory = state.free_resources.memory_bytes;
+            self.executors_by_free_memory
+                .remove(&(memory, executor_id.clone()));
+        }
     }
 
     fn delete_application(&mut self, namespace: &str, name: &str) {
@@ -489,7 +496,7 @@ impl ContainerScheduler {
     }
 
     fn insert_resource_index(&mut self, id: &ExecutorId, resources: &HostResources) {
-        if resources.memory_bytes > 0 {
+        if resources.memory_bytes > 0 && resources.cpu_ms_per_sec > 0 {
             self.executors_by_free_memory
                 .insert((resources.memory_bytes, id.clone()));
         }
@@ -940,15 +947,18 @@ impl ContainerScheduler {
             "registering container"
         );
 
-        // Maintain memory index: remove old entry before mutation, re-insert after
+        // Maintain memory index: remove old entry before mutation, re-insert after.
+        // We access executors_by_free_memory directly (not via helper methods) to avoid
+        // conflicting mutable borrows — executor_server_metadata borrows executor_states,
+        // but Rust can split borrows on separate struct fields.
         let old_memory = executor_server_metadata.free_resources.memory_bytes;
         self.executors_by_free_memory
             .remove(&(old_memory, executor_id.clone()));
         executor_server_metadata.add_container(&function_container)?;
-        let new_memory = executor_server_metadata.free_resources.memory_bytes;
-        if new_memory > 0 {
+        let new_resources = &executor_server_metadata.free_resources;
+        if new_resources.memory_bytes > 0 && new_resources.cpu_ms_per_sec > 0 {
             self.executors_by_free_memory
-                .insert((new_memory, executor_id.clone()));
+                .insert((new_resources.memory_bytes, executor_id.clone()));
         }
 
         let fe_server_metadata = ContainerServerMetadata {
