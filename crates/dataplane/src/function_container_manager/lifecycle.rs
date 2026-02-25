@@ -57,11 +57,22 @@ pub(super) async fn start_container_with_daemon(
 
         tracing::info!(
             container_id = %info.container_id,
+            sandbox_id = info.sandbox_id.unwrap_or(""),
+            pool_id = info.pool_id.unwrap_or(""),
             snapshot_uri = %uri,
             "Restoring container from snapshot"
         );
 
-        let restore_result = snapshotter.restore_snapshot(uri).await?;
+        let restore_result = {
+            use tracing::Instrument;
+            let span = tracing::info_span!(
+                "restore_snapshot",
+                container_id = %info.container_id,
+                sandbox_id = info.sandbox_id.unwrap_or(""),
+                pool_id = info.pool_id.unwrap_or(""),
+            );
+            snapshotter.restore_snapshot(uri).instrument(span).await?
+        };
 
         // For gVisor (runsc), the restore returns an empty image and a rootfs
         // overlay tar path. In that case, fall back to the original base image
@@ -105,8 +116,8 @@ pub(super) async fn start_container_with_daemon(
         container_id = %info.container_id,
         namespace = %info.namespace,
         image = %image,
-        sandbox_id = ?info.sandbox_id,
-        pool_id = ?desc.pool_id,
+        sandbox_id = info.sandbox_id.unwrap_or(""),
+        pool_id = info.pool_id.unwrap_or(""),
         "Image resolved for container"
     );
 
@@ -155,6 +166,13 @@ pub(super) async fn start_container_with_daemon(
     ];
 
     // Fetch secrets for this container
+    tracing::info!(
+        container_id = %info.container_id,
+        sandbox_id = info.sandbox_id.unwrap_or(""),
+        pool_id = info.pool_id.unwrap_or(""),
+        secret_count = desc.secret_names.len(),
+        "Fetching secrets for container"
+    );
     let secrets = secrets_provider
         .fetch_secrets(executor_id, info.namespace, &desc.secret_names)
         .await?;
@@ -174,6 +192,12 @@ pub(super) async fn start_container_with_daemon(
     };
 
     // Start the container (daemon will be PID 1)
+    tracing::info!(
+        container_id = %info.container_id,
+        sandbox_id = info.sandbox_id.unwrap_or(""),
+        pool_id = info.pool_id.unwrap_or(""),
+        "Starting container process"
+    );
     let handle = driver.start(config).await?;
 
     // Apply network firewall rules BEFORE daemon connection.
@@ -187,6 +211,8 @@ pub(super) async fn start_container_with_daemon(
     {
         tracing::warn!(
             container_id = %info.container_id,
+            sandbox_id = info.sandbox_id.unwrap_or(""),
+            pool_id = info.pool_id.unwrap_or(""),
             executor_id = %info.executor_id,
             namespace = %info.namespace,
             container_handle_id = %handle.id,
@@ -205,6 +231,8 @@ pub(super) async fn start_container_with_daemon(
 
     tracing::info!(
         container_id = %info.container_id,
+        sandbox_id = info.sandbox_id.unwrap_or(""),
+        pool_id = info.pool_id.unwrap_or(""),
         executor_id = %info.executor_id,
         namespace = %info.namespace,
         container_handle_id = %handle.id,
@@ -231,6 +259,8 @@ pub(super) async fn start_container_with_daemon(
         Ok(daemon_client) => {
             tracing::info!(
                 container_id = %info.container_id,
+                sandbox_id = info.sandbox_id.unwrap_or(""),
+                pool_id = info.pool_id.unwrap_or(""),
                 executor_id = %info.executor_id,
                 namespace = %info.namespace,
                 container_handle_id = %handle.id,
@@ -250,6 +280,8 @@ pub(super) async fn start_container_with_daemon(
 
             tracing::error!(
                 container_id = %info.container_id,
+                sandbox_id = info.sandbox_id.unwrap_or(""),
+                pool_id = info.pool_id.unwrap_or(""),
                 executor_id = %info.executor_id,
                 namespace = %info.namespace,
                 container_handle_id = %handle.id,
@@ -262,6 +294,8 @@ pub(super) async fn start_container_with_daemon(
             if let Err(kill_err) = driver.kill(&handle).await {
                 tracing::warn!(
                     container_id = %info.container_id,
+                    sandbox_id = info.sandbox_id.unwrap_or(""),
+                    pool_id = info.pool_id.unwrap_or(""),
                     container_handle_id = %handle.id,
                     error = %kill_err,
                     "Failed to kill container after daemon startup failure"

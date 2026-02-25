@@ -109,8 +109,7 @@ async fn run_log_streamer(
                         pool_id = %pool_id,
                         namespace = %namespace,
                         function = %function,
-                        log_line = %line,
-                        "firecracker vmm"
+                        "firecracker vmm: {line}"
                     );
                 }
 
@@ -129,8 +128,7 @@ async fn run_log_streamer(
                         pool_id = %pool_id,
                         namespace = %namespace,
                         function = %function,
-                        log_line = %line,
-                        "firecracker serial"
+                        "firecracker serial: {line}"
                     );
                 }
             }

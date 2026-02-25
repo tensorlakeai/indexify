@@ -476,7 +476,11 @@ impl ContainerScheduler {
     /// Insert or replace an executor state, keeping the memory index
     /// in sync. All mutations to `executor_states` must go through this
     /// method or `remove_executor_state`.
-    pub(crate) fn set_executor_state(&mut self, id: ExecutorId, state: Box<ExecutorServerMetadata>) {
+    pub(crate) fn set_executor_state(
+        &mut self,
+        id: ExecutorId,
+        state: Box<ExecutorServerMetadata>,
+    ) {
         // Remove old index entry (extract memory_bytes to avoid borrow conflict)
         if let Some(old) = self.executor_states.get(&id) {
             let old_memory = old.free_resources.memory_bytes;
@@ -635,9 +639,10 @@ impl ContainerScheduler {
                 self.mark_pool_dirty(pool_key);
             }
             // Note: this path is used for dropped containers (executor state
-            // merge) and removed executors — in both cases the executor is gone,
-            // so no resources are freed on any live executor. Affected pools are
-            // already marked dirty above for re-evaluation.
+            // merge) and removed executors — in both cases the executor is
+            // gone, so no resources are freed on any live executor.
+            // Affected pools are already marked dirty above for
+            // re-evaluation.
         }
     }
 
@@ -949,8 +954,9 @@ impl ContainerScheduler {
 
         // Maintain memory index: remove old entry before mutation, re-insert after.
         // We access executors_by_free_memory directly (not via helper methods) to avoid
-        // conflicting mutable borrows — executor_server_metadata borrows executor_states,
-        // but Rust can split borrows on separate struct fields.
+        // conflicting mutable borrows — executor_server_metadata borrows
+        // executor_states, but Rust can split borrows on separate struct
+        // fields.
         let old_memory = executor_server_metadata.free_resources.memory_bytes;
         self.executors_by_free_memory
             .remove(&(old_memory, executor_id.clone()));

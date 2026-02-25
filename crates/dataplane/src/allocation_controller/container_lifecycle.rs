@@ -136,7 +136,13 @@ impl AllocationController {
                 ..
             } = &fe.state
             {
-                info!(container_id = %fe_id, "Removing Running container");
+                let ctx = FELogCtx::from_description(&fe.description);
+                info!(
+                    container_id = %fe_id,
+                    sandbox_id = %ctx.sandbox_id,
+                    pool_id = %ctx.pool_id,
+                    "Removing Running container"
+                );
                 health_checker_cancel.cancel();
                 self.kill_process_fire_and_forget(handle.clone());
             }
@@ -146,8 +152,16 @@ impl AllocationController {
             tokio::spawn(async move {
                 let _ = state_file.remove(&id).await;
             });
-        } else if is_starting {
-            info!(container_id = %fe_id, "Removing Starting container, marking Terminated");
+        } else if is_starting
+            && let Some(fe) = self.containers.get(fe_id)
+        {
+            let ctx = FELogCtx::from_description(&fe.description);
+            info!(
+                container_id = %fe_id,
+                sandbox_id = %ctx.sandbox_id,
+                pool_id = %ctx.pool_id,
+                "Removing Starting container, marking Terminated"
+            );
         }
 
         // Transition to Terminated
@@ -193,7 +207,8 @@ impl AllocationController {
             match self.config.gpu_allocator.allocate(gpu_count) {
                 Ok(uuids) => uuids,
                 Err(e) => {
-                    warn!(container_id = %fe_id, gpu_count = gpu_count, error = %e, "GPU allocation failed");
+                    let ctx = FELogCtx::from_description(&description);
+                    warn!(container_id = %fe_id, sandbox_id = %ctx.sandbox_id, pool_id = %ctx.pool_id, gpu_count = gpu_count, error = %e, "GPU allocation failed");
                     Vec::new()
                 }
             }
@@ -201,7 +216,8 @@ impl AllocationController {
             Vec::new()
         };
 
-        info!(container_id = %fe_id, max_concurrency = max_concurrency, gpus = ?allocated_gpu_uuids, "Creating container");
+        let ctx = FELogCtx::from_description(&description);
+        info!(container_id = %fe_id, sandbox_id = %ctx.sandbox_id, pool_id = %ctx.pool_id, max_concurrency = max_concurrency, gpus = ?allocated_gpu_uuids, "Creating container");
 
         self.config
             .metrics
@@ -250,6 +266,15 @@ impl AllocationController {
         let executor_id = config.executor_id.clone();
 
         let panic_fe_id = fe_id.clone();
+        let startup_sandbox_id = description
+            .sandbox_metadata
+            .as_ref()
+            .and_then(|m| m.sandbox_id.as_deref())
+            .unwrap_or("")
+            .to_string();
+        let startup_pool_id = description.pool_id.as_deref().unwrap_or("").to_string();
+        let panic_sandbox_id = startup_sandbox_id.clone();
+        let panic_pool_id = startup_pool_id.clone();
         tokio::spawn(async move {
             let result = tokio::spawn(
                 start_fe_process_and_initialize(config, desc_for_task, gpu_uuids_for_task)
@@ -261,6 +286,8 @@ impl AllocationController {
                         app = %app,
                         "fn" = %fn_name,
                         version = %version,
+                        sandbox_id = %startup_sandbox_id,
+                        pool_id = %startup_pool_id,
                     )),
             )
             .await;
@@ -272,7 +299,7 @@ impl AllocationController {
                 },
                 Err(join_err) => {
                     // Panic or cancellation — send failure
-                    error!(container_id = %panic_fe_id, error = %join_err, "Container startup task panicked");
+                    error!(container_id = %panic_fe_id, sandbox_id = %panic_sandbox_id, pool_id = %panic_pool_id, error = %join_err, "Container startup task panicked");
                     ACEvent::ContainerStartupComplete {
                         fe_id: fe_id_for_task,
                         result: Err(anyhow::anyhow!("Startup task panicked: {}", join_err)),
@@ -303,7 +330,8 @@ impl AllocationController {
                 // FE was removed during startup — kill the returned handle
                 // This is the KEY FIX for orphaned Docker containers.
                 if let Ok((handle, _)) = result {
-                    warn!(container_id = %fe_id, "Startup completed but FE is Terminated, killing handle");
+                    let ctx = FELogCtx::from_description(&fe.description);
+                    warn!(container_id = %fe_id, sandbox_id = %ctx.sandbox_id, pool_id = %ctx.pool_id, "Startup completed but FE is Terminated, killing handle");
                     self.kill_process_fire_and_forget(handle);
                 }
                 return;
@@ -311,7 +339,8 @@ impl AllocationController {
             ContainerState::Running { .. } => {
                 // Already running (duplicate event?) — kill if we got a new handle
                 if let Ok((handle, _)) = result {
-                    warn!(container_id = %fe_id, "Startup completed but FE is already Running, killing duplicate");
+                    let ctx = FELogCtx::from_description(&fe.description);
+                    warn!(container_id = %fe_id, sandbox_id = %ctx.sandbox_id, pool_id = %ctx.pool_id, "Startup completed but FE is already Running, killing duplicate");
                     self.kill_process_fire_and_forget(handle);
                 }
                 return;
@@ -603,12 +632,13 @@ async fn start_fe_process_and_initialize(
     let metrics = config.metrics.clone();
 
     // Start the FE process
-    info!(container_id = %fe_id, "Starting function executor process");
+    let ctx = FELogCtx::from_description(&description);
+    info!(container_id = %fe_id, sandbox_id = %ctx.sandbox_id, pool_id = %ctx.pool_id, "Starting function executor process");
     let start_time = Instant::now();
     let handle = match start_fe_process(&config, &description, &gpu_uuids).await {
         Ok(handle) => handle,
         Err(e) => {
-            tracing::error!(error = ?e, %fe_id, "Failed to start function executor process");
+            tracing::error!(error = ?e, %fe_id, sandbox_id = %ctx.sandbox_id, pool_id = %ctx.pool_id, "Failed to start function executor process");
             metrics
                 .counters
                 .function_executor_create_server_errors
@@ -652,17 +682,20 @@ async fn start_fe_process(
         .unwrap_or("");
 
     // Resolve image
-    tracing::debug!(%namespace, %app, %function, %version, "Resolving function image");
+    let ctx = FELogCtx::from_description(description);
+    tracing::debug!(container_id = %fe_id, %namespace, %app, %function, %version, "Resolving function image");
     let image = config
         .image_resolver
         .function_image(namespace, app, function, version)
         .await
         .inspect_err(|err| {
-            tracing::error!(%namespace, %app, %function, %version, error = ?err, "Failed to resolve function image");
+            tracing::error!(container_id = %fe_id, %namespace, %app, %function, %version, error = ?err, "Failed to resolve function image");
         })?;
 
     info!(
         container_id = %fe_id,
+        sandbox_id = %ctx.sandbox_id,
+        pool_id = %ctx.pool_id,
         namespace = %namespace,
         image = ?image,
         "Image resolved for function container"
