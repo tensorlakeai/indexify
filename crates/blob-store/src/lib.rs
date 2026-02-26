@@ -317,11 +317,14 @@ impl BlobStore {
 
 /// Detect the AWS region of an S3 bucket using `HeadBucket`.
 ///
-/// `HeadBucket` works cross-region — it returns the `bucket_region` response
-/// header regardless of which region the client is configured for, and only
-/// requires `s3:ListBucket` permission (commonly granted).
+/// S3 always includes the `x-amz-bucket-region` header in `HeadBucket`
+/// responses — even on redirect errors when the client's region doesn't
+/// match the bucket's region. This function handles both cases:
+/// - **Success**: extracts `bucket_region` from the response.
+/// - **Error (redirect)**: extracts `x-amz-bucket-region` from the raw
+///   error response headers.
 ///
-/// Creates a temporary S3 client (virtual-hosted style) to make the call.
+/// Only requires `s3:ListBucket` permission (commonly granted).
 pub async fn detect_bucket_region(bucket: &str) -> Result<String> {
     let config = aws_config::defaults(aws_config::BehaviorVersion::latest())
         .load()
@@ -330,23 +333,45 @@ pub async fn detect_bucket_region(bucket: &str) -> Result<String> {
     // with cross-region routing.
     let client = S3Client::new(&config);
 
-    let resp = client
-        .head_bucket()
-        .bucket(bucket)
-        .send()
-        .await
-        .with_context(|| format!("Failed to detect region for S3 bucket '{bucket}'"))?;
+    match client.head_bucket().bucket(bucket).send().await {
+        Ok(resp) => resp
+            .bucket_region()
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string())
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "HeadBucket for '{bucket}' succeeded but returned no bucket_region header"
+                )
+            }),
+        Err(err) => {
+            // On redirect (PermanentRedirect), S3 still includes
+            // x-amz-bucket-region in the response headers.
+            extract_region_from_sdk_error(&err).ok_or_else(|| {
+                anyhow::anyhow!(
+                    "HeadBucket for '{bucket}' failed and no region in error response: {err:#}"
+                )
+            })
+        }
+    }
+}
 
-    let region = resp
-        .bucket_region()
-        .filter(|s| !s.is_empty())
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "HeadBucket for '{bucket}' succeeded but returned no bucket_region header"
-            )
-        })?;
+/// Extract `x-amz-bucket-region` from the raw HTTP response inside an SDK
+/// error. Works for both `ServiceError` (parsed error) and `ResponseError`
+/// (unparsed response).
+fn extract_region_from_sdk_error<E>(
+    err: &aws_sdk_s3::error::SdkError<E>,
+) -> Option<String> {
+    use aws_sdk_s3::error::SdkError;
 
-    Ok(region.to_string())
+    let headers = match err {
+        SdkError::ServiceError(e) => e.raw().headers(),
+        SdkError::ResponseError(e) => e.raw().headers(),
+        _ => return None,
+    };
+
+    headers
+        .get("x-amz-bucket-region")
+        .map(|v| v.to_string())
 }
 
 #[cfg(test)]
