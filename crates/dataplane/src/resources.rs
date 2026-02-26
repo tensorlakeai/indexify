@@ -161,10 +161,14 @@ pub fn probe_host_resources(gpus: &[GpuInfo]) -> HostResources {
 
 /// Probe free/available resources for metrics.
 ///
+/// `sys` must be a long-lived `System` instance that is reused across calls.
+/// `sysinfo` computes `cpu_usage()` as a delta between the previous and current
+/// refresh, so a freshly-created `System` would always return 0% usage (no
+/// baseline), which would make `free_cpu_percent` always 100%.
+///
 /// Uses host-mounted filesystems for memory when available,
 /// sysinfo for CPU and disk.
-pub fn probe_free_resources() -> ResourceAvailability {
-    let mut sys = System::new();
+pub fn probe_free_resources(sys: &mut System) -> ResourceAvailability {
     sys.refresh_cpu_all();
 
     let cpu_usage: f32 =
