@@ -321,8 +321,8 @@ impl BlobStore {
 /// responses — even on redirect errors when the client's region doesn't
 /// match the bucket's region. This function handles both cases:
 /// - **Success**: extracts `bucket_region` from the response.
-/// - **Error (redirect)**: extracts `x-amz-bucket-region` from the raw
-///   error response headers.
+/// - **Error (redirect)**: extracts `x-amz-bucket-region` from the raw error
+///   response headers.
 ///
 /// Only requires `s3:ListBucket` permission (commonly granted).
 pub async fn detect_bucket_region(bucket: &str) -> Result<String> {
@@ -358,9 +358,7 @@ pub async fn detect_bucket_region(bucket: &str) -> Result<String> {
 /// Extract `x-amz-bucket-region` from the raw HTTP response inside an SDK
 /// error. Works for both `ServiceError` (parsed error) and `ResponseError`
 /// (unparsed response).
-fn extract_region_from_sdk_error<E>(
-    err: &aws_sdk_s3::error::SdkError<E>,
-) -> Option<String> {
+fn extract_region_from_sdk_error<E>(err: &aws_sdk_s3::error::SdkError<E>) -> Option<String> {
     use aws_sdk_s3::error::SdkError;
 
     let headers = match err {
@@ -369,9 +367,7 @@ fn extract_region_from_sdk_error<E>(
         _ => return None,
     };
 
-    headers
-        .get("x-amz-bucket-region")
-        .map(|v| v.to_string())
+    headers.get("x-amz-bucket-region").map(|v| v.to_string())
 }
 
 #[cfg(test)]
