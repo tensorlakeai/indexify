@@ -92,12 +92,16 @@ jobs:
         run: cd indexify && make build && make check
 
   acceptance_tests_dataplane:
-    name: Run Acceptance Tests (Dataplane)
+    name: Run Acceptance Tests (Dataplane) [${{ matrix.phase }}]
     needs: [build_server]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
       contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        phase: [dataplane-cli, executor-features, sdk]
     steps:
       - uses: actions/checkout@v6
         with:
@@ -138,7 +142,7 @@ jobs:
           export DATAPLANE_BIN=$(pwd)/indexify-dataplane
           export PATH=$(cd tensorlake && poetry env info --path)/bin:$PATH
           cd indexify/tests
-          bash run_tests_dataplane.sh
+          bash run_tests_dataplane.sh --phase ${{ matrix.phase }}
       - name: Terminate processes
         if: always()
         run: |
