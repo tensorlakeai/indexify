@@ -84,13 +84,13 @@ async fn prepare_request_error_blob(
     allocation: &ServerAllocation,
     blob_store: &BlobStore,
 ) -> Result<(MultipartUploadHandle, proto_api::function_executor_pb::Blob)> {
-    let request_id = allocation.request_id.as_deref().unwrap_or("unknown");
+    let allocation_id = allocation.allocation_id.as_deref().unwrap_or("unknown");
     let uri_prefix = allocation
         .request_error_payload_uri_prefix
         .as_deref()
         .unwrap_or("file:///tmp/indexify-errors");
 
-    let blob_uri = format!("{}.{}.req_error", uri_prefix, request_id);
+    let blob_uri = format!("{}.{}.req_error", uri_prefix, allocation_id);
 
     let handle = blob_store
         .create_multipart_upload(&blob_uri)
