@@ -627,11 +627,10 @@ impl IndexifyState {
                 self.request_event_buffers.push_event(event).await;
             }
             // Notify the HTTP drain worker that new events are in the outbox.
-            if self.persist_request_events && has_request_events {
-                if let Err(err) = self.request_events_db_tx.send(()) {
+            if self.persist_request_events && has_request_events
+                && let Err(err) = self.request_events_db_tx.send(()) {
                     error!(error = ?err, "failed to notify HTTP export worker of new events, ignoring");
                 }
-            }
         }
 
         Ok(())
