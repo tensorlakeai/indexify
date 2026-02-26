@@ -664,7 +664,6 @@ pub fn build_request_state_change_events(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::data_model::RequestCtxBuilder;
 
     #[test]
     fn test_request_started_event_metadata() {
