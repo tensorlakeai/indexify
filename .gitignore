@@ -2,9 +2,8 @@
 .idea
 .claude
 
-dataplane-state.json
-
-dataplane-state.json
+dataplane-state
+CLAUDE.md
 
 # Python-related files
 __pycache__

@@ -80,7 +80,7 @@ async def _prepare_alloc_input(
     """
     alloc: Allocation = alloc_info.allocation
     request_error_blob_uri: str = (
-        f"{alloc.request_error_payload_uri_prefix}.{alloc.request_id}.req_error"
+        f"{alloc.request_error_payload_uri_prefix}.{alloc.allocation_id}.req_error"
     )
 
     # The upload is completed when finalizing the alloc.
