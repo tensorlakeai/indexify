@@ -103,7 +103,14 @@ impl AllocationController {
                 // Send failure via outcome channel — no blobs to clean up.
                 proto_convert::record_outcome_metrics(&outcome, &self.config.metrics.counters);
                 if self.config.outcome_tx.send(outcome).is_err() {
-                    tracing::warn!("outcome_tx channel closed, allocation outcome lost");
+                    tracing::warn!(
+                        allocation_id = %alloc_id,
+                        container_id = %fe_id,
+                        namespace = %lctx.namespace,
+                        app = %lctx.app,
+                        "fn" = %lctx.fn_name,
+                        "outcome_tx channel closed, allocation outcome lost"
+                    );
                 }
                 let managed = ManagedAllocation {
                     allocation: allocation.clone(),
@@ -420,7 +427,16 @@ impl AllocationController {
                 // Get prepared data
                 let Some((prepared, finalization_ctx)) = self.prepared_data.remove(&alloc_id)
                 else {
-                    warn!(allocation_id = %alloc_id, "No prepared data for scheduled allocation");
+                    let no_prep_lctx = AllocLogCtx::from_allocation(&alloc.allocation);
+                    warn!(
+                        allocation_id = %alloc_id,
+                        container_id = %fe_id,
+                        namespace = %no_prep_lctx.namespace,
+                        app = %no_prep_lctx.app,
+                        "fn" = %no_prep_lctx.fn_name,
+                        request_id = %no_prep_lctx.request_id,
+                        "No prepared data for scheduled allocation"
+                    );
                     let result = proto_convert::make_failure_result(
                         &alloc.allocation,
                         AllocationFailureReason::InternalError,
@@ -657,6 +673,11 @@ impl AllocationController {
                 if likely_fe_crash {
                     warn!(
                         allocation_id = %allocation_id,
+                        container_id = %fe_id,
+                        namespace = %lctx.namespace,
+                        app = %lctx.app,
+                        "fn" = %lctx.fn_name,
+                        request_id = %lctx.request_id,
                         error = ?error_message,
                         termination_reason = ?termination_reason,
                         "Allocation failed due to likely FE crash"
@@ -759,7 +780,11 @@ impl AllocationController {
         let outcome = proto_convert::allocation_result_to_outcome(&result, terminated_container_id);
         proto_convert::record_outcome_metrics(&outcome, &self.config.metrics.counters);
         if self.config.outcome_tx.send(outcome).is_err() {
-            tracing::warn!("outcome_tx channel closed, allocation outcome lost");
+            tracing::warn!(
+                allocation_id = %allocation_id,
+                container_id = %alloc.fe_id,
+                "outcome_tx channel closed, allocation outcome lost"
+            );
         }
 
         // Keep the allocation in Done state — do NOT remove it.
@@ -956,7 +981,7 @@ impl AllocationController {
         }
 
         // Send any remaining results as AllocationActivities
-        for (_alloc_id, alloc) in self.allocations.drain() {
+        for (alloc_id, alloc) in self.allocations.drain() {
             if let AllocationState::Finalizing {
                 result,
                 terminated_container_id,
@@ -968,7 +993,11 @@ impl AllocationController {
                 let outcome = proto_convert::allocation_result_to_outcome(&result, container_id);
                 proto_convert::record_outcome_metrics(&outcome, &self.config.metrics.counters);
                 if self.config.outcome_tx.send(outcome).is_err() {
-                    tracing::warn!("outcome_tx channel closed, allocation outcome lost");
+                    tracing::warn!(
+                        allocation_id = %alloc_id,
+                        container_id = %alloc.fe_id,
+                        "outcome_tx channel closed, allocation outcome lost"
+                    );
                 }
             }
         }
