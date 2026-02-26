@@ -132,8 +132,10 @@ impl Service {
         let usage_processor =
             Arc::new(UsageProcessor::new(usage_queue, indexify_state.clone()).await?);
 
-        let request_state_change_processor =
-            Arc::new(RequestStateChangeProcessor::new(indexify_state.clone()));
+        let request_state_change_processor = Arc::new(RequestStateChangeProcessor::new(
+            indexify_state.clone(),
+            blob_storage_registry.clone(),
+        ));
 
         Ok(Self {
             config,

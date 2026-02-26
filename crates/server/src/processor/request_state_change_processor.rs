@@ -8,12 +8,14 @@ use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::{error, info, instrument, warn};
 
 use crate::{
+    blob_store::registry::BlobStorageRegistry,
     cloud_events::create_batched_export_request,
     metrics::{Timer, low_latency_boundaries},
     state_store::{
         IndexifyState,
         driver::Writer,
-        request_events::{PersistedRequestStateChangeEvent, RequestStateChangeEvent},
+        request_events::{PersistedRequestStateChangeEvent, RequestStateChangeEvent, enrichment},
+        scanner::StateReader,
         state_machine,
     },
 };
@@ -25,12 +27,13 @@ const GRACEFUL_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(30);
 
 pub struct RequestStateChangeProcessor {
     indexify_state: Arc<IndexifyState>,
+    blob_storage: Arc<BlobStorageRegistry>,
     http_processing_latency: Histogram<f64>,
     http_events_counter: Counter<u64>,
 }
 
 impl RequestStateChangeProcessor {
-    pub fn new(indexify_state: Arc<IndexifyState>) -> Self {
+    pub fn new(indexify_state: Arc<IndexifyState>, blob_storage: Arc<BlobStorageRegistry>) -> Self {
         let meter = opentelemetry::global::meter("request_state_change_processor_metrics");
 
         let http_processing_latency = meter
@@ -47,6 +50,7 @@ impl RequestStateChangeProcessor {
 
         Self {
             indexify_state,
+            blob_storage,
             http_processing_latency,
             http_events_counter,
         }
@@ -84,11 +88,21 @@ impl RequestStateChangeProcessor {
             tracker.spawn({
                 let notify_rx = self.indexify_state.request_event_buffers.db_notify_rx();
                 let state = self.indexify_state.clone();
+                let blob_storage = self.blob_storage.clone();
                 let latency = self.http_processing_latency.clone();
                 let counter = self.http_events_counter.clone();
                 let token = cancel_token.child_token();
                 async move {
-                    http_drain_worker(exporter, state, notify_rx, latency, counter, token).await;
+                    http_drain_worker(
+                        exporter,
+                        state,
+                        blob_storage,
+                        notify_rx,
+                        latency,
+                        counter,
+                        token,
+                    )
+                    .await;
                 }
             });
         } else {
@@ -125,6 +139,7 @@ impl RequestStateChangeProcessor {
 async fn http_drain_worker(
     mut exporter: OtlpLogsExporter<Tokio>,
     state: Arc<IndexifyState>,
+    blob_storage: Arc<BlobStorageRegistry>,
     mut notify_rx: watch::Receiver<()>,
     latency: Histogram<f64>,
     counter: Counter<u64>,
@@ -135,7 +150,15 @@ async fn http_drain_worker(
     let mut cursor: Option<Vec<u8>> = None;
 
     // Initial drain for crash recovery (events written in a previous run).
-    drain_all(&mut exporter, &state, &mut cursor, &latency, &counter).await;
+    drain_all(
+        &mut exporter,
+        &state,
+        &blob_storage,
+        &mut cursor,
+        &latency,
+        &counter,
+    )
+    .await;
 
     loop {
         tokio::select! {
@@ -144,7 +167,7 @@ async fn http_drain_worker(
                     info!("HTTP drain worker: watch channel closed, shutting down");
                     return;
                 }
-                drain_all(&mut exporter, &state, &mut cursor, &latency, &counter).await;
+                drain_all(&mut exporter, &state, &blob_storage, &mut cursor, &latency, &counter).await;
             }
             _ = cancel_token.cancelled() => {
                 info!("HTTP drain worker shutting down");
@@ -160,12 +183,13 @@ async fn http_drain_worker(
 async fn drain_all(
     exporter: &mut OtlpLogsExporter<Tokio>,
     state: &Arc<IndexifyState>,
+    blob_storage: &Arc<BlobStorageRegistry>,
     cursor: &mut Option<Vec<u8>>,
     latency: &Histogram<f64>,
     counter: &Counter<u64>,
 ) {
     loop {
-        match process_batch(exporter, state, cursor, latency, counter).await {
+        match process_batch(exporter, state, blob_storage, cursor, latency, counter).await {
             Ok(true) => {} // more pages remain
             Ok(false) => break,
             Err(e) => {
@@ -255,12 +279,13 @@ async fn local_request_events_log_worker(
 async fn process_batch(
     exporter: &mut OtlpLogsExporter<Tokio>,
     state: &Arc<IndexifyState>,
+    blob_storage: &Arc<BlobStorageRegistry>,
     cursor: &mut Option<Vec<u8>>,
     latency: &Histogram<f64>,
     counter: &Counter<u64>,
 ) -> Result<bool> {
-    let (events, new_cursor) = state
-        .reader()
+    let reader = state.reader();
+    let (events, new_cursor) = reader
         .pending_request_state_change_events(cursor.as_ref())
         .await?;
 
@@ -270,6 +295,11 @@ async fn process_batch(
 
     let _timer = Timer::start_with_labels(latency, &[]);
     let has_more_pages = new_cursor.is_some();
+
+    // Enrich RequestFinished events with output data from blob storage before
+    // exporting. Events are stored with output: None by the state machine; the
+    // actual payload is read from blob storage here.
+    let events = enrich_batch(events, &reader, blob_storage).await;
 
     // Bug 4 fix: validate each event individually. Events that cannot be
     // serialised are skipped (treated as processed) so they do not permanently
@@ -338,6 +368,48 @@ async fn process_batch(
     }
 
     Ok(has_more_pages || had_failure)
+}
+
+/// Enrich each `RequestFinished` event in the batch with function output read
+/// from blob storage. Non-`RequestFinished` events are returned unchanged.
+/// On enrichment failure the original event (with `output: None`) is kept so
+/// the export is not blocked.
+async fn enrich_batch(
+    events: Vec<PersistedRequestStateChangeEvent>,
+    reader: &StateReader,
+    blob_storage: &BlobStorageRegistry,
+) -> Vec<PersistedRequestStateChangeEvent> {
+    let mut enriched = Vec::with_capacity(events.len());
+    for mut persisted in events {
+        if let RequestStateChangeEvent::RequestFinished(ref finished) = persisted.event {
+            match enrichment::check_for_finished(
+                reader,
+                blob_storage,
+                &finished.namespace,
+                &finished.application_name,
+                &finished.request_id,
+            )
+            .await
+            {
+                Ok(Some(enriched_event)) => persisted.event = enriched_event,
+                Ok(None) => {
+                    warn!(
+                        request_id = finished.request_id,
+                        "RequestFinished event but request not yet marked done in state — exporting without output"
+                    );
+                }
+                Err(e) => {
+                    warn!(
+                        error = ?e,
+                        request_id = finished.request_id,
+                        "Failed to enrich RequestFinished event — exporting without output"
+                    );
+                }
+            }
+        }
+        enriched.push(persisted);
+    }
+    enriched
 }
 
 /// Remove events from database with exponential backoff on failure.

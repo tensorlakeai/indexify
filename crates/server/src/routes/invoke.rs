@@ -9,7 +9,7 @@ use axum::{
     response::{IntoResponse, sse::Event},
 };
 use bytes::Bytes;
-use futures::{Stream, StreamExt, TryStreamExt};
+use futures::{Stream, StreamExt};
 use pin_project::pin_project;
 use serde::Serialize;
 use tokio::{
@@ -23,137 +23,27 @@ use crate::{
     data_model::{
         self,
         ApplicationState,
-        DataPayload,
         FunctionCallId,
         InputArgs,
         RequestCtx,
         RequestCtxBuilder,
-        RequestOutcome,
     },
     http_objects::IndexifyAPIError,
     metrics::Increment,
     state_store::{
         IndexifyState,
         driver,
-        request_events::{RequestStateChangeEvent, RequestStateFinishedOutput},
+        request_events::{RequestStateChangeEvent, enrichment},
         requests::{InvokeApplicationRequest, RequestPayload, StateMachineUpdateRequest},
-        scanner::StateReader,
     },
     utils::get_epoch_time_in_ms,
 };
 
 /// We allow at max the length of a UUID4 with hyphens.
 const MAX_REQUEST_ID_LENGTH: usize = 36;
-const MAX_INLINE_JSON_SIZE: u64 = 1024 * 1024;
 /// Interval for checking if the request has finished when SSE events may have
 /// been missed.
 const REQUEST_HEALTH_CHECK_INTERVAL_SECS: u64 = 10;
-
-fn build_output_path(namespace: &str, application: &str, request_id: &str) -> String {
-    format!(
-        "/v1/namespaces/{}/applications/{}/requests/{}/output",
-        namespace, application, request_id
-    )
-}
-
-async fn read_json_output(
-    payload: &DataPayload,
-    state: &RouteState,
-    namespace: &str,
-) -> Option<serde_json::Value> {
-    if !payload.encoding.starts_with("application/json") {
-        return None;
-    }
-
-    if payload.data_size() > MAX_INLINE_JSON_SIZE {
-        return None;
-    }
-
-    let blob_storage = state.blob_storage.get_blob_store(namespace);
-
-    let storage_reader = match blob_storage
-        .get(&payload.path, Some(payload.data_range()))
-        .await
-    {
-        Ok(reader) => reader,
-        Err(e) => {
-            warn!(?e, "failed to read output blob for SSE");
-            return None;
-        }
-    };
-
-    let bytes = match storage_reader
-        .map_ok(|chunk| chunk.to_vec())
-        .try_concat()
-        .await
-    {
-        Ok(bytes) => bytes,
-        Err(e) => {
-            warn!(?e, "failed to concat output blob chunks for SSE");
-            return None;
-        }
-    };
-
-    serde_json::from_slice(&bytes).ok()
-}
-
-async fn build_finished_event_for_outcome(
-    state: &RouteState,
-    ctx: &RequestCtx,
-    outcome: &RequestOutcome,
-) -> RequestStateChangeEvent {
-    if !outcome.is_success() {
-        return RequestStateChangeEvent::finished(ctx, outcome, None);
-    }
-
-    let function_run_output = ctx
-        .function_runs
-        .get(&FunctionCallId::from(ctx.request_id.as_str()))
-        .and_then(|fn_run| fn_run.output.clone());
-
-    let Some(payload) = function_run_output else {
-        return RequestStateChangeEvent::finished(ctx, outcome, None);
-    };
-
-    let output = read_json_output(&payload, state, &ctx.namespace)
-        .await
-        .map(|body| {
-            debug!("function run output found");
-            RequestStateFinishedOutput {
-                body: Some(body),
-                content_encoding: payload.encoding,
-                path: build_output_path(&ctx.namespace, &ctx.application_name, &ctx.request_id),
-            }
-        });
-
-    RequestStateChangeEvent::finished(ctx, outcome, output)
-}
-
-/// Check if a request has finished by reading its context from the database.
-/// Returns Ok(Some(event)) if finished, Ok(None) if still running, Err if
-/// request not found or error.
-async fn check_for_finished(
-    reader: &StateReader,
-    state: &RouteState,
-    namespace: &str,
-    application: &str,
-    request_id: &str,
-) -> anyhow::Result<Option<RequestStateChangeEvent>> {
-    let Some(context) = reader
-        .request_ctx(namespace, application, request_id)
-        .await?
-    else {
-        return Err(anyhow!("request not found"));
-    };
-
-    match &context.outcome {
-        Some(outcome) => {
-            let event = build_finished_event_for_outcome(state, &context, outcome).await;
-            Ok(Some(event))
-        }
-        None => Ok(None),
-    }
-}
 
 struct SubscriptionGuard {
     indexify_state: Arc<IndexifyState>,
@@ -225,7 +115,7 @@ pub(crate) async fn create_request_progress_stream(
         let mut health_check_interval = interval(Duration::from_secs(REQUEST_HEALTH_CHECK_INTERVAL_SECS));
 
         // Check if the request is already finished before starting the stream
-        match check_for_finished(&reader, &state, &namespace, &application, &request_id).await {
+        match enrichment::check_for_finished(&reader, &state.blob_storage, &namespace, &application, &request_id).await {
             Ok(Some(event)) => {
                 debug!("request already finished, sending event");
                 yield Event::default().json_data(event);
@@ -247,7 +137,7 @@ pub(crate) async fn create_request_progress_stream(
                         Ok(event) if matches!(event, RequestStateChangeEvent::RequestFinished(_)) => {
                             debug!("received finished event");
                             // Enrich the event with output data if available
-                            match check_for_finished(&reader, &state, &namespace, &application, &request_id).await {
+                            match enrichment::check_for_finished(&reader, &state.blob_storage, &namespace, &application, &request_id).await {
                                 Ok(Some(finished_event)) => {
                                     yield Event::default().json_data(finished_event);
                                 }
@@ -265,7 +155,7 @@ pub(crate) async fn create_request_progress_stream(
                         }
                         Err(RecvError::Lagged(num)) => {
                             warn!("lagged behind by {} events, checking request state", num);
-                            match check_for_finished(&reader, &state, &namespace, &application, &request_id).await {
+                            match enrichment::check_for_finished(&reader, &state.blob_storage, &namespace, &application, &request_id).await {
                                 Ok(Some(event)) => {
                                     debug!("request finished during lag");
                                     yield Event::default().json_data(event);
@@ -283,7 +173,7 @@ pub(crate) async fn create_request_progress_stream(
                         }
                         Err(RecvError::Closed) => {
                             debug!("channel closed, checking final state");
-                            if let Ok(Some(event)) = check_for_finished(&reader, &state, &namespace, &application, &request_id).await {
+                            if let Ok(Some(event)) = enrichment::check_for_finished(&reader, &state.blob_storage, &namespace, &application, &request_id).await {
                                 yield Event::default().json_data(event);
                             }
                             break;
@@ -292,7 +182,7 @@ pub(crate) async fn create_request_progress_stream(
                 }
                 _ = health_check_interval.tick() => {
                     debug!("health check interval tick");
-                    match check_for_finished(&reader, &state, &namespace, &application, &request_id).await {
+                    match enrichment::check_for_finished(&reader, &state.blob_storage, &namespace, &application, &request_id).await {
                         Ok(Some(event)) => {
                             debug!("request finished during health check");
                             yield Event::default().json_data(event);
