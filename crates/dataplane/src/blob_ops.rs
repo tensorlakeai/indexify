@@ -108,7 +108,7 @@ impl BlobStore {
             Err(e) => {
                 tracing::warn!(
                     bucket = %bucket,
-                    error = %e,
+                    error = format!("{:#}", e),
                     "Failed to detect S3 bucket region, falling back to default"
                 );
                 None
