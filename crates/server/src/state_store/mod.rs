@@ -4,7 +4,6 @@ use std::{
     path::PathBuf,
     sync::{
         Arc,
-        OnceLock,
         atomic::{self, AtomicU64},
     },
 };
@@ -282,16 +281,6 @@ pub struct IndexifyState {
     pub change_events_rx: watch::Receiver<()>,
     pub usage_events_tx: watch::Sender<()>,
     pub usage_events_rx: watch::Receiver<()>,
-    /// Watch channel notifying the HTTP drain worker that new events have been
-    /// written to the RequestStateChangeEvents outbox in RocksDB.
-    pub request_events_db_tx: watch::Sender<()>,
-    pub request_events_db_rx: watch::Receiver<()>,
-    /// Whether to persist request state change events to the RocksDB outbox.
-    /// Set at construction time from `cloud_events.is_some()`.
-    persist_request_events: bool,
-    /// Optional sender for the file-dump debug worker.  Set once by
-    /// `connect_file_dump()` when the worker is spawned.
-    file_dump_tx: OnceLock<mpsc::UnboundedSender<RequestStateChangeEvent>>,
 
     pub metrics: Arc<StateStoreMetrics>,
     pub in_memory_state: Arc<RwLock<in_memory_state::InMemoryState>>,
@@ -343,7 +332,7 @@ impl IndexifyState {
         path: PathBuf,
         config: RocksDBConfig,
         executor_catalog: ExecutorCatalog,
-        persist_request_events: bool,
+        request_event_buffers: RequestEventBuffers,
     ) -> Result<Arc<Self>> {
         fs::create_dir_all(path.clone())
             .map_err(|e| anyhow!("failed to create state store dir: {e}"))?;
@@ -370,7 +359,6 @@ impl IndexifyState {
 
         let (change_events_tx, change_events_rx) = watch::channel(());
         let (usage_events_tx, usage_events_rx) = watch::channel(());
-        let (request_events_db_tx, request_events_db_rx) = watch::channel(());
 
         let state_reader = scanner::StateReader::new(db.clone(), state_store_metrics.clone());
 
@@ -402,12 +390,8 @@ impl IndexifyState {
             container_scheduler,
             usage_events_tx,
             usage_events_rx,
-            request_events_db_tx,
-            request_events_db_rx,
-            persist_request_events,
-            file_dump_tx: OnceLock::new(),
             executor_connections: RwLock::new(HashMap::new()),
-            request_event_buffers: RequestEventBuffers::new(),
+            request_event_buffers,
             _in_memory_store_gauges: in_memory_store_gauges,
             _container_scheduler_gauges: container_scheduler_gauges,
         });
@@ -618,19 +602,9 @@ impl IndexifyState {
                 error!(error = ?err, "failed to notify of usage event, ignoring");
             }
 
-            // Push request state change events directly to per-request SSE buffers.
-            let has_request_events = !write_result.request_state_changes.is_empty();
-            for event in write_result.request_state_changes {
-                if let Some(tx) = self.file_dump_tx.get() {
-                    let _ = tx.send(event.clone());
-                }
-                self.request_event_buffers.push_event(event).await;
-            }
-            // Notify the HTTP drain worker that new events are in the outbox.
-            if self.persist_request_events && has_request_events
-                && let Err(err) = self.request_events_db_tx.send(()) {
-                    error!(error = ?err, "failed to notify HTTP export worker of new events, ignoring");
-                }
+            self.request_event_buffers
+                .push_events(write_result.request_state_changes)
+                .await;
         }
 
         Ok(())
@@ -901,7 +875,7 @@ impl IndexifyState {
         // Persist request state change events into the same transaction so they
         // become durable atomically with the state change that produced them.
         // Only written when an HTTP exporter is configured.
-        if self.persist_request_events {
+        if self.request_event_buffers.export_request_events() {
             for event in &request_state_changes {
                 let event_id = self
                     .request_event_id_seq
@@ -959,14 +933,6 @@ impl IndexifyState {
         self.request_event_buffers
             .unsubscribe(namespace, application, request_id)
             .await
-    }
-
-    /// Register the file-dump worker's send channel.  Called once by the
-    /// processor before the worker is spawned.
-    pub fn connect_file_dump(&self, tx: mpsc::UnboundedSender<RequestStateChangeEvent>) {
-        if self.file_dump_tx.set(tx).is_err() {
-            error!("connect_file_dump called more than once, ignoring");
-        }
     }
 
     /// Ensure an executor connection exists with a fresh emitter. Called

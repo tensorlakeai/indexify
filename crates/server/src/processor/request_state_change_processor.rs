@@ -56,19 +56,20 @@ impl RequestStateChangeProcessor {
     pub async fn start(
         &self,
         cloud_events_exporter: Option<OtlpLogsExporter<Tokio>>,
-        event_dump_path: Option<String>,
+        local_request_events_log: Option<(
+            mpsc::UnboundedReceiver<RequestStateChangeEvent>,
+            String,
+        )>,
         mut shutdown_rx: watch::Receiver<()>,
     ) {
         let cancel_token = CancellationToken::new();
         let tracker = TaskTracker::new();
 
         // Spawn file dump worker if a dump path is configured.
-        if let Some(path) = event_dump_path {
-            let (tx, rx) = mpsc::unbounded_channel();
-            self.indexify_state.connect_file_dump(tx);
+        if let Some((rx, path)) = local_request_events_log {
             let token = cancel_token.child_token();
             tracker.spawn(async move {
-                file_dump_worker(rx, path, token).await;
+                local_request_events_log_worker(rx, path, token).await;
             });
         }
 
@@ -81,7 +82,7 @@ impl RequestStateChangeProcessor {
         // per HTTP request) before returning to sleep.
         if let Some(exporter) = cloud_events_exporter {
             tracker.spawn({
-                let notify_rx = self.indexify_state.request_events_db_rx.clone();
+                let notify_rx = self.indexify_state.request_event_buffers.db_notify_rx();
                 let state = self.indexify_state.clone();
                 let latency = self.http_processing_latency.clone();
                 let counter = self.http_events_counter.clone();
@@ -178,7 +179,7 @@ async fn drain_all(
 
 /// File dump worker - receives events via a dedicated mpsc channel and appends
 /// each one as a JSON line to the configured file path.
-async fn file_dump_worker(
+async fn local_request_events_log_worker(
     mut rx: mpsc::UnboundedReceiver<RequestStateChangeEvent>,
     path: String,
     cancel_token: CancellationToken,
