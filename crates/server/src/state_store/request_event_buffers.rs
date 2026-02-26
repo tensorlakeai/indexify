@@ -3,10 +3,11 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
-use tokio::sync::{RwLock, broadcast};
-use tracing::debug;
+use tokio::sync::{RwLock, broadcast, mpsc, watch};
+use tracing::{debug, error};
 
 use super::request_events::RequestStateChangeEvent;
+use crate::config::CloudEventsConfig;
 
 const BROADCAST_CHANNEL_CAPACITY: usize = 100;
 
@@ -65,19 +66,91 @@ pub struct RequestEventBuffers {
     subscriptions: RwLock<HashMap<SubscriptionKey, SubscriptionState>>,
     /// Counter for total subscriptions (for metrics)
     subscription_count: AtomicU64,
+    /// Optional sender for the file-dump debug worker.
+    local_request_events_log_tx: Option<mpsc::UnboundedSender<RequestStateChangeEvent>>,
+    /// Whether to export request state change events to the RocksDB outbox.
+    export_request_events: bool,
+    /// Notifies the HTTP drain worker that new events are in the outbox.
+    request_events_db_tx: watch::Sender<()>,
+    request_events_db_rx: watch::Receiver<()>,
 }
 
 impl Default for RequestEventBuffers {
     fn default() -> Self {
-        Self::new()
+        Self::new(false, None)
     }
 }
 
 impl RequestEventBuffers {
-    pub fn new() -> Self {
+    pub fn new(
+        export_request_events: bool,
+        local_request_events_log_tx: Option<mpsc::UnboundedSender<RequestStateChangeEvent>>,
+    ) -> Self {
+        let (request_events_db_tx, request_events_db_rx) = watch::channel(());
         Self {
             subscriptions: RwLock::new(HashMap::new()),
             subscription_count: AtomicU64::new(0),
+            local_request_events_log_tx,
+            export_request_events,
+            request_events_db_tx,
+            request_events_db_rx,
+        }
+    }
+
+    /// Build a `RequestEventBuffers` from the cloud events configuration.
+    ///
+    /// Returns the buffers and, if a dump path is configured, the receiver end
+    /// of the file-dump channel together with the path. The caller is
+    /// responsible for spawning the file-dump worker with those.
+    pub fn from_cloud_events_config(
+        config: Option<&CloudEventsConfig>,
+    ) -> (
+        Self,
+        Option<(mpsc::UnboundedReceiver<RequestStateChangeEvent>, String)>,
+    ) {
+        let export_request_events = config.is_some();
+        let (local_request_events_log_tx, local_request_events_log) =
+            match config.and_then(|c| c.local_event_log_path.as_deref()) {
+                Some(path) => {
+                    let (tx, rx) = mpsc::unbounded_channel();
+                    (Some(tx), Some((rx, path.to_owned())))
+                }
+                None => (None, None),
+            };
+        (
+            Self::new(export_request_events, local_request_events_log_tx),
+            local_request_events_log,
+        )
+    }
+
+    pub fn export_request_events(&self) -> bool {
+        self.export_request_events
+    }
+
+    /// Returns a receiver that is notified when new events have been written to
+    /// the RocksDB outbox. Used by the HTTP drain worker.
+    pub fn db_notify_rx(&self) -> watch::Receiver<()> {
+        self.request_events_db_rx.clone()
+    }
+
+    /// Push a batch of events to all configured sinks:
+    /// - the per-request SSE broadcast channels
+    /// - the optional file-dump worker
+    /// - the HTTP drain worker (via the watch channel), if export is enabled
+    pub async fn push_events(&self, events: Vec<RequestStateChangeEvent>) {
+        if events.is_empty() {
+            return;
+        }
+        for event in events {
+            if let Some(tx) = &self.local_request_events_log_tx {
+                let _ = tx.send(event.clone());
+            }
+            self.push_event(event).await;
+        }
+        if self.export_request_events &&
+            let Err(err) = self.request_events_db_tx.send(())
+        {
+            error!(error = ?err, "failed to notify HTTP export worker of new events, ignoring");
         }
     }
 
@@ -165,7 +238,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_subscribe_and_receive() {
-        let buffers = RequestEventBuffers::new();
+        let buffers = RequestEventBuffers::default();
 
         // Subscribe to a request
         let mut rx = buffers.subscribe("ns", "app", "req1").await;
@@ -191,7 +264,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_no_subscription_drops_event() {
-        let buffers = RequestEventBuffers::new();
+        let buffers = RequestEventBuffers::default();
 
         // Push an event without subscription - should not panic
         let event = RequestStateChangeEvent::RequestStarted(RequestStartedEvent {
@@ -208,7 +281,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_unsubscribe() {
-        let buffers = RequestEventBuffers::new();
+        let buffers = RequestEventBuffers::default();
 
         // Subscribe
         let _rx = buffers.subscribe("ns", "app", "req1").await;
@@ -221,7 +294,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_multiple_subscribers_same_request() {
-        let buffers = RequestEventBuffers::new();
+        let buffers = RequestEventBuffers::default();
 
         // Two subscribers for the same request
         let mut rx1 = buffers.subscribe("ns", "app", "req1").await;
@@ -245,7 +318,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_ref_counting_first_unsubscribe_keeps_channel() {
-        let buffers = RequestEventBuffers::new();
+        let buffers = RequestEventBuffers::default();
 
         // Two subscribers for the same request
         let rx1 = buffers.subscribe("ns", "app", "req1").await;
@@ -278,7 +351,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_lagged_receiver() {
-        let buffers = RequestEventBuffers::new();
+        let buffers = RequestEventBuffers::default();
 
         // Subscribe
         let mut rx = buffers.subscribe("ns", "app", "req1").await;

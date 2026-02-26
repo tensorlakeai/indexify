@@ -11,16 +11,12 @@ use std::{
 use anyhow::{Result, anyhow};
 use in_memory_state::InMemoryState;
 use opentelemetry::KeyValue;
-use request_events::RequestStateChangeEvent;
+use request_events::{PersistedRequestStateChangeEvent, RequestStateChangeEvent};
 use requests::{RequestPayload, StateMachineUpdateRequest};
 use rocksdb::{ColumnFamilyDescriptor, Options};
 use state_machine::IndexifyObjectsColumns;
 use strum::IntoEnumIterator;
 use tokio::sync::{Notify, RwLock, mpsc, watch};
-
-/// Channel capacity for request state change event broadcast.
-/// This provides backpressure if workers are slow.
-const REQUEST_EVENT_CHANNEL_CAPACITY: usize = 10000;
 use tracing::{debug, error, info, span};
 
 use crate::{
@@ -285,13 +281,6 @@ pub struct IndexifyState {
     pub change_events_rx: watch::Receiver<()>,
     pub usage_events_tx: watch::Sender<()>,
     pub usage_events_rx: watch::Receiver<()>,
-    /// Broadcast channel for request state change events.
-    /// SSE worker and HTTP export worker both subscribe to this channel.
-    pub request_events_tx: async_broadcast::Sender<RequestStateChangeEvent>,
-    /// Keep the initial receiver alive to prevent channel from being closed.
-    /// New receivers are created via sender.new_receiver() which clone from
-    /// this.
-    _request_events_rx: async_broadcast::InactiveReceiver<RequestStateChangeEvent>,
 
     pub metrics: Arc<StateStoreMetrics>,
     pub in_memory_state: Arc<RwLock<in_memory_state::InMemoryState>>,
@@ -334,7 +323,7 @@ struct PersistentWriteResult {
     current_state_id: u64,
     should_notify_usage_reporter: bool,
     new_state_changes: Vec<StateChange>,
-    /// Request state change events to broadcast (not persisted to DB anymore)
+    /// Request state change events to broadcast to SSE and file dump workers.
     request_state_changes: Vec<RequestStateChangeEvent>,
 }
 
@@ -343,6 +332,7 @@ impl IndexifyState {
         path: PathBuf,
         config: RocksDBConfig,
         executor_catalog: ExecutorCatalog,
+        request_event_buffers: RequestEventBuffers,
     ) -> Result<Arc<Self>> {
         fs::create_dir_all(path.clone())
             .map_err(|e| anyhow!("failed to create state store dir: {e}"))?;
@@ -367,18 +357,8 @@ impl IndexifyState {
         #[cfg(not(feature = "migrations"))]
         let sm_meta = read_sm_meta(&db).await?;
 
-        let (change_events_tx, change_events_rx) = tokio::sync::watch::channel(());
-        let (usage_events_tx, usage_events_rx) = tokio::sync::watch::channel(());
-
-        let (mut request_events_tx, request_events_rx) =
-            async_broadcast::broadcast::<RequestStateChangeEvent>(REQUEST_EVENT_CHANNEL_CAPACITY);
-        // Set overflow mode to drop old messages when channel is full
-        request_events_tx.set_overflow(true);
-        // Don't wait for active receivers - return immediately even if no one is
-        // listening
-        request_events_tx.set_await_active(false);
-        // Deactivate the initial receiver but keep it alive to prevent channel closure
-        let _request_events_rx = request_events_rx.deactivate();
+        let (change_events_tx, change_events_rx) = watch::channel(());
+        let (usage_events_tx, usage_events_rx) = watch::channel(());
 
         let state_reader = scanner::StateReader::new(db.clone(), state_store_metrics.clone());
 
@@ -410,10 +390,8 @@ impl IndexifyState {
             container_scheduler,
             usage_events_tx,
             usage_events_rx,
-            request_events_tx,
-            _request_events_rx,
             executor_connections: RwLock::new(HashMap::new()),
-            request_event_buffers: RequestEventBuffers::new(),
+            request_event_buffers,
             _in_memory_store_gauges: in_memory_store_gauges,
             _container_scheduler_gauges: container_scheduler_gauges,
         });
@@ -615,21 +593,18 @@ impl IndexifyState {
             if !write_result.new_state_changes.is_empty() &&
                 let Err(err) = self.change_events_tx.send(())
             {
-                error!("failed to notify of state change event, ignoring: {err:?}",);
+                error!(error = ?err, "failed to notify of state change event, ignoring");
             }
 
             if write_result.should_notify_usage_reporter &&
                 let Err(err) = self.usage_events_tx.send(())
             {
-                error!("failed to notify of usage event, ignoring: {err:?}",);
+                error!(error = ?err, "failed to notify of usage event, ignoring");
             }
 
-            // Broadcast request state change events to SSE and HTTP export workers
-            for event in write_result.request_state_changes {
-                if let Err(err) = self.request_events_tx.broadcast(event).await {
-                    error!("failed to broadcast request state change event, ignoring: {err:?}",);
-                }
-            }
+            self.request_event_buffers
+                .push_events(write_result.request_state_changes)
+                .await;
         }
 
         Ok(())
@@ -897,6 +872,20 @@ impl IndexifyState {
             state_machine::save_state_changes(&txn, &new_state_changes, current_clock).await?;
         }
 
+        // Persist request state change events into the same transaction so they
+        // become durable atomically with the state change that produced them.
+        // Only written when an HTTP exporter is configured.
+        if self.request_event_buffers.export_request_events() {
+            for event in &request_state_changes {
+                let event_id = self
+                    .request_event_id_seq
+                    .fetch_add(1, atomic::Ordering::Relaxed);
+                let persisted =
+                    PersistedRequestStateChangeEvent::new(event_id.into(), event.clone());
+                state_machine::persist_single_request_state_change_event(&txn, &persisted).await?;
+            }
+        }
+
         let current_state_id = self.state_change_id_seq.load(atomic::Ordering::Relaxed);
         let current_usage_sequence_id = self.usage_event_id_seq.load(atomic::Ordering::Relaxed);
         let current_request_event_id = self.request_event_id_seq.load(atomic::Ordering::Relaxed);
@@ -944,18 +933,6 @@ impl IndexifyState {
         self.request_event_buffers
             .unsubscribe(namespace, application, request_id)
             .await
-    }
-
-    pub async fn push_request_event(&self, event: RequestStateChangeEvent) {
-        self.request_event_buffers.push_event(event).await;
-    }
-
-    /// Get a new receiver for request state change events.
-    /// Used by SSE worker and HTTP export worker to subscribe to events.
-    pub fn subscribe_request_state_changes(
-        &self,
-    ) -> async_broadcast::Receiver<RequestStateChangeEvent> {
-        self.request_events_tx.new_receiver()
     }
 
     /// Ensure an executor connection exists with a fresh emitter. Called

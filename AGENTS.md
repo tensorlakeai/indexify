@@ -129,6 +129,10 @@ If linting fails, fix the issues. Note: `just fmt` requires `poetry` for Python 
 
 **IMPORTANT**: Do not leave code for future use. Only implement what is needed now. Remove unused constants, functions, and commented-out code.
 
+### Rust Import Style
+
+**IMPORTANT**: Never inline `use` statements inside function or test bodies. Always place imports at the top of the file or module. After making changes, run `just fmt-rust` to sort and format imports.
+
 ---
 
 ## 4. Key Files

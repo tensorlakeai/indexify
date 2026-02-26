@@ -7,7 +7,11 @@ use axum_tracing_opentelemetry::middleware::{OtelAxumLayer, OtelInResponseLayer}
 use hyper::Method;
 use otlp_logs_exporter::{OtlpLogsExporter, runtime::Tokio};
 pub use proto_api::descriptor as executor_api_descriptor;
-use tokio::{self, signal, sync::watch};
+use tokio::{
+    self,
+    signal,
+    sync::{mpsc, watch},
+};
 use tonic::transport::Server;
 use tower_http::{
     cors::{Any, CorsLayer},
@@ -31,7 +35,11 @@ use crate::{
     routes::routes_state::RouteState,
     routes_internal::{configure_helper_router, configure_internal_routes},
     routes_v1::configure_v1_routes,
-    state_store::IndexifyState,
+    state_store::{
+        IndexifyState,
+        request_event_buffers::RequestEventBuffers,
+        request_events::RequestStateChangeEvent,
+    },
 };
 
 fn otel_axum_filter(path: &str) -> bool {
@@ -49,6 +57,8 @@ pub struct Service {
     pub application_processor: Arc<ApplicationProcessor>,
     pub usage_processor: Arc<UsageProcessor>,
     pub request_state_change_processor: Arc<RequestStateChangeProcessor>,
+    /// File-dump receiver and path, held until the processor worker is spawned.
+    local_request_events_log: Option<(mpsc::UnboundedReceiver<RequestStateChangeEvent>, String)>,
 }
 
 impl Service {
@@ -70,10 +80,14 @@ impl Service {
             info!("No configured executor label sets; allowing all executors");
         }
 
+        let (request_event_buffers, local_request_events_log) =
+            RequestEventBuffers::from_cloud_events_config(config.cloud_events.as_ref());
+
         let indexify_state = IndexifyState::new(
             config.state_store_path.parse()?,
             config.rocksdb_config.clone(),
             executor_catalog,
+            request_event_buffers,
         )
         .await?;
 
@@ -118,8 +132,10 @@ impl Service {
         let usage_processor =
             Arc::new(UsageProcessor::new(usage_queue, indexify_state.clone()).await?);
 
-        let request_state_change_processor =
-            Arc::new(RequestStateChangeProcessor::new(indexify_state.clone()));
+        let request_state_change_processor = Arc::new(RequestStateChangeProcessor::new(
+            indexify_state.clone(),
+            blob_storage_registry.clone(),
+        ));
 
         Ok(Self {
             config,
@@ -131,6 +147,7 @@ impl Service {
             application_processor,
             usage_processor,
             request_state_change_processor,
+            local_request_events_log,
         })
     }
 
@@ -181,6 +198,7 @@ impl Service {
         });
 
         let request_state_change_processor = self.request_state_change_processor.clone();
+        let local_request_events_log = self.local_request_events_log.take();
         let cloud_events_config = self.config.cloud_events.clone();
         let shutdown_rx = self.shutdown_rx.clone();
         let env = self.config.env.clone();
@@ -207,7 +225,7 @@ impl Service {
 
             let _ = {
                 request_state_change_processor
-                    .start(cloud_events_exporter, shutdown_rx)
+                    .start(cloud_events_exporter, local_request_events_log, shutdown_rx)
                     .await;
                 ().instrument(span.clone())
             };

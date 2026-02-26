@@ -1,3 +1,5 @@
+pub mod enrichment;
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -205,7 +207,7 @@ pub struct RequestFinishedEvent {
     pub outcome: RequestOutcome,
     #[serde(default)]
     pub created_at: DateTime<Utc>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub output: Option<RequestStateFinishedOutput>,
 }
 

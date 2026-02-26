@@ -134,8 +134,8 @@ run-jaeger:
 
 # Run Tensorlake benchmarks
 [working-directory('indexify')]
-run-tl-benchmarks:
-    poetry run python3 benchmarks/map_reduce/main.py --maps-count 500 --num-requests 1 --failure-threshold-seconds 900
+run-tl-benchmarks maps_count="10" num_requests="10":
+    poetry run python3 benchmarks/map_reduce/main.py --maps-count {{maps_count}} --num-requests {{num_requests}} --failure-threshold-seconds 900
 
 # Build a Docker image for the Indexify server
 build-server-image TAG="latest":

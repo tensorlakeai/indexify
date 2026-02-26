@@ -269,6 +269,11 @@ mod duration_serde {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct CloudEventsConfig {
     pub endpoint: String,
+    /// If set, the server writes every request state change event as a JSON
+    /// line to this file. Useful for local debugging. Leave unset in
+    /// production.
+    #[serde(default)]
+    pub local_event_log_path: Option<String>,
 }
 
 #[cfg(test)]
