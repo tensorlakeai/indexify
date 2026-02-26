@@ -2,7 +2,6 @@ import time
 import unittest
 
 from tensorlake.applications import (
-    Future,
     Request,
     application,
     function,
@@ -46,12 +45,12 @@ def future_function_1(_: int) -> str:
     # The call chain will fail if child function call
     # timeouts don't propagate to parent because the overall
     # chaing takes more than 5 seconds.
-    return future_function_2.awaitable().run().result()
+    return future_function_2.future().result()
 
 
 @function(timeout=2)
 def future_function_2() -> str:
-    return future_function_3.awaitable().run().result()
+    return future_function_3.future().result()
 
 
 @function(timeout=10)
