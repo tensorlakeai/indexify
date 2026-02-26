@@ -52,6 +52,12 @@ impl BufferReconciler {
         // Only process pools that changed since last reconciliation
         let dirty_pools = container_scheduler.take_dirty_pools();
 
+        // Fast path: nothing to do. Deficit values in the state store are
+        // preserved because we return None for the deficit fields.
+        if dirty_pools.is_empty() && container_scheduler.blocked_pools.is_empty() {
+            return Ok(update);
+        }
+
         // Look up each dirty pool, skipping blocked pools and tombstoned pools
         let pools: Vec<ContainerPool> = dirty_pools
             .iter()
@@ -60,64 +66,13 @@ impl BufferReconciler {
             .collect();
 
         // Track pools that can't be satisfied within this reconciliation cycle
-        let mut blocked: HashSet<ContainerPoolKey> = HashSet::new();
+        let mut newly_blocked: HashSet<ContainerPoolKey> = HashSet::new();
 
         // Phase 1: Ensure minimums are met (highest priority)
         for pool in &pools {
-            let pool_key = ContainerPoolKey::from(pool);
-            if blocked.contains(&pool_key) {
-                continue;
-            }
-
-            let min = pool.min_containers.unwrap_or(0);
-            let max = pool.max_containers.unwrap_or(u32::MAX);
-            // Don't exceed max even when meeting min (handles invalid min > max config)
-            let effective_min = min.min(max);
-            let (active, idle) = self.count_pool_containers(pool, container_scheduler);
-            let current = active + idle;
-
-            if current < effective_min {
-                let needed = effective_min - current;
-                let (ns, identity) = self.pool_identity(pool);
-                info!(
-                    namespace = %ns,
-                    pool_identity = %identity,
-                    active,
-                    idle,
-                    min,
-                    needed,
-                    phase = "ensure_min",
-                    "Creating containers to meet minimum"
-                );
-                for _ in 0..needed {
-                    match self.create_container_for_pool(
-                        pool,
-                        in_memory_state,
-                        container_scheduler,
-                        true,
-                    ) {
-                        Ok(Some(u)) => {
-                            let placed = u.containers.values().any(|c| {
-                                !matches!(c.desired_state, ContainerState::Terminated { .. })
-                            });
-                            container_scheduler.apply_container_update(&u);
-                            update.extend(u);
-                            if !placed {
-                                blocked.insert(pool_key.clone());
-                                break;
-                            }
-                        }
-                        Ok(None) => {
-                            warn!(pool_id = %pool.id.get(), "Cannot meet min - no resources");
-                            blocked.insert(pool_key.clone());
-                            break;
-                        }
-                        Err(e) => {
-                            warn!(pool_id = %pool.id.get(), error = %e, "Error creating pool container");
-                            break;
-                        }
-                    }
-                }
+            if !self.ensure_pool_min(pool, in_memory_state, container_scheduler, &mut update)? {
+                warn!(pool_id = %pool.id.get(), "Cannot meet min containers, marking pool as blocked");
+                newly_blocked.insert(ContainerPoolKey::from(pool));
             }
         }
 
@@ -127,56 +82,44 @@ impl BufferReconciler {
 
             for pool in &pools {
                 let pool_key = ContainerPoolKey::from(pool);
-                if blocked.contains(&pool_key) {
+                if newly_blocked.contains(&pool_key) {
                     continue;
                 }
 
+                if !self.pool_needs_buffer(pool, container_scheduler) {
+                    continue;
+                }
+
+                let (ns, identity) = self.pool_identity(pool);
                 let buffer = pool.buffer_containers.unwrap_or(0);
                 let max = pool.max_containers.unwrap_or(u32::MAX);
                 let (active, idle) = self.count_pool_containers(pool, container_scheduler);
+                debug!(
+                    namespace = %ns,
+                    pool_identity = %identity,
+                    active,
+                    idle,
+                    buffer,
+                    max,
+                    phase = "fill_buffer",
+                    "Filling buffer containers"
+                );
 
-                // Need more idle and not at max
-                if idle < buffer && (active + idle) < max {
-                    let (ns, identity) = self.pool_identity(pool);
-                    debug!(
-                        namespace = %ns,
-                        pool_identity = %identity,
-                        active,
-                        idle,
-                        buffer,
-                        max,
-                        phase = "fill_buffer",
-                        "Filling buffer containers"
-                    );
-                    match self.create_container_for_pool(
-                        pool,
-                        in_memory_state,
-                        container_scheduler,
-                        false,
-                    ) {
-                        Ok(Some(u)) => {
-                            // Only count as progress if a container was actually
-                            // placed on an executor (not just a vacuum update).
-                            // create_container returns Ok(Some(update)) even when
-                            // no host has resources — treating that as progress
-                            // causes an infinite loop.
-                            let placed = u.containers.values().any(|c| {
-                                !matches!(c.desired_state, ContainerState::Terminated { .. })
-                            });
-                            container_scheduler.apply_container_update(&u);
-                            update.extend(u);
-                            if placed {
-                                any_created = true;
-                            } else {
-                                blocked.insert(pool_key);
-                            }
-                        }
-                        Ok(None) => {
-                            blocked.insert(pool_key);
-                        }
-                        Err(e) => {
-                            warn!(pool_id = %pool.id.get(), error = %e, "Error filling buffer");
-                        }
+                match self.try_place_container(
+                    pool,
+                    in_memory_state,
+                    container_scheduler,
+                    false,
+                    &mut update,
+                ) {
+                    Ok(true) => {
+                        any_created = true;
+                    }
+                    Ok(false) => {
+                        newly_blocked.insert(pool_key);
+                    }
+                    Err(e) => {
+                        warn!(pool_id = %pool.id.get(), error = %e, "Error filling buffer");
                     }
                 }
             }
@@ -186,75 +129,274 @@ impl BufferReconciler {
             }
         }
 
-        // Phase 3: Trim excess idle containers AND compute deficits
-        // (Combined to avoid duplicate container counting)
-        let mut function_pool_deficits = ResourceProfileHistogram::default();
-        let mut sandbox_pool_deficits = ResourceProfileHistogram::default();
-
+        // Phase 3: Trim excess idle containers
         for pool in &pools {
+            let pool_key = ContainerPoolKey::from(pool);
+            if !newly_blocked.contains(&pool_key) {
+                self.trim_pool_excess(pool, container_scheduler, &mut update)?;
+            }
+        }
+
+        // Propagate newly blocked pools to the scheduler before Phase 4
+        container_scheduler
+            .blocked_pools
+            .extend(newly_blocked.iter().cloned());
+
+        // Phase 4: Try to satisfy blocked pools with available capacity.
+        // When a pool is unblocked (first container placed), run full
+        // min+buffer reconciliation for it inline — don't defer to the next
+        // cycle. Stops as soon as a full pass makes no progress (capacity
+        // exhausted).
+        if !container_scheduler.blocked_pools.is_empty() &&
+            container_scheduler.has_available_capacity()
+        {
+            let blocked_keys: Vec<ContainerPoolKey> =
+                container_scheduler.blocked_pools.iter().cloned().collect();
+
+            // Probe: try to place one container per blocked pool.
+            // If successful, run full min+buffer for that pool.
+            for pool_key in &blocked_keys {
+                if !container_scheduler.blocked_pools.contains(pool_key) {
+                    continue;
+                }
+                let Some(pool) = container_scheduler.get_pool(pool_key).cloned() else {
+                    container_scheduler.blocked_pools.remove(pool_key);
+                    continue;
+                };
+
+                // Probe: can we place at least one container?
+                if !self
+                    .try_place_container(
+                        &pool,
+                        in_memory_state,
+                        container_scheduler,
+                        true,
+                        &mut update,
+                    )
+                    .unwrap_or(false)
+                {
+                    continue;
+                }
+
+                // Pool is unblocked — run full min+buffer inline
+                container_scheduler.blocked_pools.remove(pool_key);
+
+                // Reuse ensure_pool_min (probe already placed 1, so it creates fewer)
+                self.ensure_pool_min(&pool, in_memory_state, container_scheduler, &mut update)?;
+
+                // Fill buffer
+                while self.pool_needs_buffer(&pool, container_scheduler) {
+                    if !self
+                        .try_place_container(
+                            &pool,
+                            in_memory_state,
+                            container_scheduler,
+                            false,
+                            &mut update,
+                        )
+                        .unwrap_or(false)
+                    {
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Compute deficits ONCE at the end (after all phases)
+        let mut fn_deficits = ResourceProfileHistogram::default();
+        let mut sb_deficits = ResourceProfileHistogram::default();
+
+        // Dirty pools (includes newly-blocked; satisfied pools contribute 0)
+        let dirty_keys: HashSet<ContainerPoolKey> =
+            pools.iter().map(ContainerPoolKey::from).collect();
+        self.accumulate_pool_deficits(
+            pools.iter(),
+            container_scheduler,
+            &mut fn_deficits,
+            &mut sb_deficits,
+        );
+
+        // Still-blocked pools that weren't in the dirty set (avoids double-counting).
+        // These are disjoint because dirty_pools filters out blocked_pools at the
+        // start, and newly_blocked is a subset of dirty.
+        self.accumulate_pool_deficits(
+            container_scheduler
+                .blocked_pools
+                .iter()
+                .filter(|k| !dirty_keys.contains(k))
+                .filter_map(|k| container_scheduler.get_pool(k)),
+            container_scheduler,
+            &mut fn_deficits,
+            &mut sb_deficits,
+        );
+
+        update.function_pool_deficits = Some(fn_deficits);
+        update.sandbox_pool_deficits = Some(sb_deficits);
+        update.newly_blocked_pools = newly_blocked;
+
+        Ok(update)
+    }
+
+    /// Create containers until a pool meets its min_containers floor.
+    /// Returns Ok(true) if min is satisfied, Ok(false) if blocked or on error.
+    fn ensure_pool_min(
+        &self,
+        pool: &ContainerPool,
+        in_memory_state: &InMemoryState,
+        container_scheduler: &mut ContainerScheduler,
+        update: &mut SchedulerUpdateRequest,
+    ) -> Result<bool> {
+        let min = pool.min_containers.unwrap_or(0);
+        let max = pool.max_containers.unwrap_or(u32::MAX);
+        // Don't exceed max even when meeting min (handles invalid min > max config)
+        let effective_min = min.min(max);
+        let (active, idle) = self.count_pool_containers(pool, container_scheduler);
+        let current = active + idle;
+
+        if current >= effective_min {
+            return Ok(true);
+        }
+
+        let needed = effective_min - current;
+        let (ns, identity) = self.pool_identity(pool);
+        info!(
+            namespace = %ns,
+            pool_identity = %identity,
+            active,
+            idle,
+            min,
+            needed,
+            phase = "ensure_min",
+            "Creating containers to meet minimum"
+        );
+        for _ in 0..needed {
+            match self.try_place_container(pool, in_memory_state, container_scheduler, true, update)
+            {
+                Ok(true) => {}
+                Ok(false) => {
+                    return Ok(false);
+                }
+                Err(e) => {
+                    warn!(pool_id = %pool.id.get(), error = %e, "Error creating pool container");
+                    return Ok(false);
+                }
+            }
+        }
+        Ok(true)
+    }
+
+    /// Returns true if a pool needs more idle containers for its buffer.
+    fn pool_needs_buffer(
+        &self,
+        pool: &ContainerPool,
+        container_scheduler: &ContainerScheduler,
+    ) -> bool {
+        let buffer = pool.buffer_containers.unwrap_or(0);
+        let max = pool.max_containers.unwrap_or(u32::MAX);
+        let (active, idle) = self.count_pool_containers(pool, container_scheduler);
+        idle < buffer && (active + idle) < max
+    }
+
+    /// Trim idle containers that exceed the pool's target.
+    fn trim_pool_excess(
+        &self,
+        pool: &ContainerPool,
+        container_scheduler: &mut ContainerScheduler,
+        update: &mut SchedulerUpdateRequest,
+    ) -> Result<()> {
+        let min = pool.min_containers.unwrap_or(0);
+        let max = pool.max_containers.unwrap_or(u32::MAX);
+        let (active, idle) = self.count_pool_containers(pool, container_scheduler);
+        let current_total = active + idle;
+        // If buffer is explicitly set, target = active + buffer (at least min)
+        // If buffer is not set, preserve existing containers for warm starts
+        let target_total = if let Some(buffer) = pool.buffer_containers {
+            (active + buffer).max(min)
+        } else {
+            current_total.max(min)
+        };
+        let effective_limit = target_total.min(max);
+
+        // Trim excess idle containers
+        if current_total > effective_limit && idle > 0 {
+            let excess = (current_total - effective_limit).min(idle);
+            let (ns, identity) = self.pool_identity(pool);
+            info!(
+                namespace = %ns,
+                pool_identity = %identity,
+                active,
+                idle,
+                current_total,
+                target_total,
+                effective_limit,
+                excess,
+                phase = "trim_excess",
+                "Trimming excess idle containers"
+            );
+            let trim_update = self.trim_idle_containers(pool, excess, container_scheduler)?;
+            update.extend(trim_update);
+        }
+        Ok(())
+    }
+
+    /// Try to place one container for a pool. Returns:
+    /// - `Ok(true)`  — container placed on an executor
+    /// - `Ok(false)` — no resources available or only a vacuum update
+    /// - `Err(e)`    — unexpected error
+    fn try_place_container(
+        &self,
+        pool: &ContainerPool,
+        in_memory_state: &InMemoryState,
+        container_scheduler: &mut ContainerScheduler,
+        is_critical: bool,
+        update: &mut SchedulerUpdateRequest,
+    ) -> Result<bool> {
+        match self.create_container_for_pool(
+            pool,
+            in_memory_state,
+            container_scheduler,
+            is_critical,
+        ) {
+            Ok(Some(u)) => {
+                let placed = u
+                    .containers
+                    .values()
+                    .any(|c| !matches!(c.desired_state, ContainerState::Terminated { .. }));
+                container_scheduler.apply_container_update(&u);
+                update.extend(u);
+                Ok(placed)
+            }
+            Ok(None) => Ok(false),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Compute resource deficits for a set of pools and accumulate into the
+    /// provided histograms.
+    fn accumulate_pool_deficits<'a>(
+        &self,
+        pools: impl Iterator<Item = &'a ContainerPool>,
+        container_scheduler: &ContainerScheduler,
+        function_deficits: &mut ResourceProfileHistogram,
+        sandbox_deficits: &mut ResourceProfileHistogram,
+    ) {
+        for pool in pools {
             let min = pool.min_containers.unwrap_or(0);
             let max = pool.max_containers.unwrap_or(u32::MAX);
             let (active, idle) = self.count_pool_containers(pool, container_scheduler);
             let current_total = active + idle;
-
-            let pool_key = ContainerPoolKey::from(pool);
-            if !blocked.contains(&pool_key) {
-                // If buffer is explicitly set, target = active + buffer (at least min)
-                // If buffer is not set, preserve existing containers for warm starts
-                let target_total = if let Some(buffer) = pool.buffer_containers {
-                    (active + buffer).max(min)
-                } else {
-                    current_total.max(min)
-                };
-                let effective_limit = target_total.min(max);
-
-                // Trim excess idle containers
-                if current_total > effective_limit && idle > 0 {
-                    let excess = (current_total - effective_limit).min(idle);
-                    let (ns, identity) = self.pool_identity(pool);
-                    info!(
-                        namespace = %ns,
-                        pool_identity = %identity,
-                        active,
-                        idle,
-                        current_total,
-                        target_total,
-                        effective_limit,
-                        excess,
-                        phase = "trim_excess",
-                        "Trimming excess idle containers"
-                    );
-                    let trim_update =
-                        self.trim_idle_containers(pool, excess, container_scheduler)?;
-                    update.extend(trim_update);
-                }
-            }
-
-            // Compute deficit for this pool (uses buffer=0 when None for deficit reporting)
             let buffer = pool.buffer_containers.unwrap_or(0);
             let deficit_target = (active + buffer).max(min).min(max);
             if current_total < deficit_target {
                 let deficit = deficit_target - current_total;
                 let profile = ResourceProfile::from_container_resources(&pool.resources);
                 if pool.is_function_pool() {
-                    function_pool_deficits.increment_by(profile, deficit as u64);
+                    function_deficits.increment_by(profile, deficit as u64);
                 } else {
-                    sandbox_pool_deficits.increment_by(profile, deficit as u64);
+                    sandbox_deficits.increment_by(profile, deficit as u64);
                 }
             }
         }
-
-        update.function_pool_deficits = Some(function_pool_deficits);
-        update.sandbox_pool_deficits = Some(sandbox_pool_deficits);
-
-        // Propagate blocked pools to the scheduler for cross-cycle persistence
-        // and include in update for propagation to the real scheduler
-        container_scheduler
-            .blocked_pools
-            .extend(blocked.iter().cloned());
-        update.newly_blocked_pools = blocked;
-
-        Ok(update)
     }
 
     /// Count containers for a pool (active with work, idle without work)

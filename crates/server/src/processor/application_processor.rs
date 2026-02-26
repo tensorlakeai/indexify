@@ -477,7 +477,13 @@ impl ApplicationProcessor {
                     snapshot_id = %ev.snapshot_id,
                     "processing SnapshotSandbox event"
                 );
-                SchedulerUpdateRequest::default()
+                // No container or pool changes — skip buffer reconciliation
+                return Ok(StateMachineUpdateRequest {
+                    payload: RequestPayload::SchedulerUpdate(SchedulerUpdatePayload {
+                        update: Box::new(SchedulerUpdateRequest::default()),
+                        processed_state_changes: vec![state_change.clone()],
+                    }),
+                });
             }
             ChangeType::CreateContainerPool(ev) => {
                 tracing::info!(
@@ -601,10 +607,10 @@ impl ApplicationProcessor {
                     scheduler_update.extend(container_update);
                 }
 
-                // Step 1b: Promote sandboxes for started containers.
-                // When the dataplane reports ContainerStarted, check if the
-                // container is backing a sandbox and promote it from Pending
-                // to Running.
+                // Step 1b: Promote containers and sandboxes for started containers.
+                // When the dataplane reports ContainerStarted, update the
+                // container state from Pending to Running and promote the
+                // associated sandbox (if any) as well.
                 for container_id in &ev.container_started_ids {
                     let promote_update = container_reconciler
                         .promote_sandbox_for_started_container(
@@ -612,7 +618,9 @@ impl ApplicationProcessor {
                             &container_scheduler_guard,
                             container_id,
                         )?;
-                    if !promote_update.updated_sandboxes.is_empty() {
+                    if !promote_update.updated_sandboxes.is_empty() ||
+                        !promote_update.containers.is_empty()
+                    {
                         let payload = RequestPayload::SchedulerUpdate(SchedulerUpdatePayload::new(
                             promote_update.clone(),
                         ));

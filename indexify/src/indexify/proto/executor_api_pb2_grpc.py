@@ -7,7 +7,7 @@ import grpc
 
 from indexify.proto import executor_api_pb2 as indexify_dot_proto_dot_executor__api__pb2
 
-GRPC_GENERATED_VERSION = "1.76.0"
+GRPC_GENERATED_VERSION = "1.78.1"
 GRPC_VERSION = grpc.__version__
 _version_not_supported = False
 
@@ -31,7 +31,18 @@ if _version_not_supported:
 
 
 class ExecutorAPIStub(object):
-    """Internal API for scheduling and running allocations on Executors. Executors are acting as clients of this API.
+    """════════════════════════════════════════════
+    REMOVED MESSAGES (kept as reserved comments)
+    ════════════════════════════════════════════
+
+    GetCommandStreamRequest removed — replaced by PollCommandsRequest.
+    ReportCommandResponsesRequest/Response removed — folded into HeartbeatRequest.
+    ReportAllocationActivitiesRequest/Response removed — folded into HeartbeatRequest.
+    AllocationStreamRequest removed — log entries folded into HeartbeatRequest,
+    results delivered via PollAllocationResultsResponse.
+    AllocationStreamResponse removed — replaced by PollAllocationResultsResponse.
+
+    Internal API for scheduling and running allocations on Executors. Executors are acting as clients of this API.
     Server is responsible for scheduling allocations on Executors and Executors are responsible for running the allocations.
 
     Rename with caution. Existing clients won't find the service if the service name changes. A HTTP2 ingress proxy
@@ -45,28 +56,39 @@ class ExecutorAPIStub(object):
         Args:
             channel: A grpc.Channel.
         """
-        self.report_executor_state = channel.unary_unary(
-            "/executor_api_pb.ExecutorAPI/report_executor_state",
-            request_serializer=indexify_dot_proto_dot_executor__api__pb2.ReportExecutorStateRequest.SerializeToString,
-            response_deserializer=indexify_dot_proto_dot_executor__api__pb2.ReportExecutorStateResponse.FromString,
+        self.heartbeat = channel.unary_unary(
+            "/executor_api_pb.ExecutorAPI/heartbeat",
+            request_serializer=indexify_dot_proto_dot_executor__api__pb2.HeartbeatRequest.SerializeToString,
+            response_deserializer=indexify_dot_proto_dot_executor__api__pb2.HeartbeatResponse.FromString,
             _registered_method=True,
         )
-        self.get_desired_executor_states = channel.unary_stream(
-            "/executor_api_pb.ExecutorAPI/get_desired_executor_states",
-            request_serializer=indexify_dot_proto_dot_executor__api__pb2.GetDesiredExecutorStatesRequest.SerializeToString,
-            response_deserializer=indexify_dot_proto_dot_executor__api__pb2.DesiredExecutorState.FromString,
+        self.poll_commands = channel.unary_unary(
+            "/executor_api_pb.ExecutorAPI/poll_commands",
+            request_serializer=indexify_dot_proto_dot_executor__api__pb2.PollCommandsRequest.SerializeToString,
+            response_deserializer=indexify_dot_proto_dot_executor__api__pb2.PollCommandsResponse.FromString,
             _registered_method=True,
         )
-        self.call_function = channel.unary_unary(
-            "/executor_api_pb.ExecutorAPI/call_function",
-            request_serializer=indexify_dot_proto_dot_executor__api__pb2.FunctionCallRequest.SerializeToString,
-            response_deserializer=indexify_dot_proto_dot_executor__api__pb2.FunctionCallResponse.FromString,
+        self.poll_allocation_results = channel.unary_unary(
+            "/executor_api_pb.ExecutorAPI/poll_allocation_results",
+            request_serializer=indexify_dot_proto_dot_executor__api__pb2.PollAllocationResultsRequest.SerializeToString,
+            response_deserializer=indexify_dot_proto_dot_executor__api__pb2.PollAllocationResultsResponse.FromString,
             _registered_method=True,
         )
 
 
 class ExecutorAPIServicer(object):
-    """Internal API for scheduling and running allocations on Executors. Executors are acting as clients of this API.
+    """════════════════════════════════════════════
+    REMOVED MESSAGES (kept as reserved comments)
+    ════════════════════════════════════════════
+
+    GetCommandStreamRequest removed — replaced by PollCommandsRequest.
+    ReportCommandResponsesRequest/Response removed — folded into HeartbeatRequest.
+    ReportAllocationActivitiesRequest/Response removed — folded into HeartbeatRequest.
+    AllocationStreamRequest removed — log entries folded into HeartbeatRequest,
+    results delivered via PollAllocationResultsResponse.
+    AllocationStreamResponse removed — replaced by PollAllocationResultsResponse.
+
+    Internal API for scheduling and running allocations on Executors. Executors are acting as clients of this API.
     Server is responsible for scheduling allocations on Executors and Executors are responsible for running the allocations.
 
     Rename with caution. Existing clients won't find the service if the service name changes. A HTTP2 ingress proxy
@@ -74,25 +96,26 @@ class ExecutorAPIServicer(object):
     at https://github.com/grpc/grpc/blob/master/doc/PROTOCOL-HTTP2.md.
     """
 
-    def report_executor_state(self, request, context):
-        """Called by Executor every 5 seconds to report that it's still alive and provide its current state.
-
-        Missing 3 reports will result in the Executor being deregistered by Server.
+    def heartbeat(self, request, context):
+        """Heartbeat: liveness + optional state sync + batched reports
+        (command responses, allocation outcomes, log entries).
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details("Method not implemented!")
         raise NotImplementedError("Method not implemented!")
 
-    def get_desired_executor_states(self, request, context):
-        """Called by Executor to open a stream of its desired states. When Server wants Executor to change something
-        it puts a message on the stream with the new desired state of the Executor.
+    def poll_commands(self, request, context):
+        """Long-poll for pending commands. Server holds request open until
+        commands are available or ~5 min timeout.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details("Method not implemented!")
         raise NotImplementedError("Method not implemented!")
 
-    def call_function(self, request, context):
-        """Called by the user code to invoke a blocking function call."""
+    def poll_allocation_results(self, request, context):
+        """Long-poll for pending function call results. Server holds request
+        open until results are available or ~5 min timeout.
+        """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details("Method not implemented!")
         raise NotImplementedError("Method not implemented!")
@@ -100,20 +123,20 @@ class ExecutorAPIServicer(object):
 
 def add_ExecutorAPIServicer_to_server(servicer, server):
     rpc_method_handlers = {
-        "report_executor_state": grpc.unary_unary_rpc_method_handler(
-            servicer.report_executor_state,
-            request_deserializer=indexify_dot_proto_dot_executor__api__pb2.ReportExecutorStateRequest.FromString,
-            response_serializer=indexify_dot_proto_dot_executor__api__pb2.ReportExecutorStateResponse.SerializeToString,
+        "heartbeat": grpc.unary_unary_rpc_method_handler(
+            servicer.heartbeat,
+            request_deserializer=indexify_dot_proto_dot_executor__api__pb2.HeartbeatRequest.FromString,
+            response_serializer=indexify_dot_proto_dot_executor__api__pb2.HeartbeatResponse.SerializeToString,
         ),
-        "get_desired_executor_states": grpc.unary_stream_rpc_method_handler(
-            servicer.get_desired_executor_states,
-            request_deserializer=indexify_dot_proto_dot_executor__api__pb2.GetDesiredExecutorStatesRequest.FromString,
-            response_serializer=indexify_dot_proto_dot_executor__api__pb2.DesiredExecutorState.SerializeToString,
+        "poll_commands": grpc.unary_unary_rpc_method_handler(
+            servicer.poll_commands,
+            request_deserializer=indexify_dot_proto_dot_executor__api__pb2.PollCommandsRequest.FromString,
+            response_serializer=indexify_dot_proto_dot_executor__api__pb2.PollCommandsResponse.SerializeToString,
         ),
-        "call_function": grpc.unary_unary_rpc_method_handler(
-            servicer.call_function,
-            request_deserializer=indexify_dot_proto_dot_executor__api__pb2.FunctionCallRequest.FromString,
-            response_serializer=indexify_dot_proto_dot_executor__api__pb2.FunctionCallResponse.SerializeToString,
+        "poll_allocation_results": grpc.unary_unary_rpc_method_handler(
+            servicer.poll_allocation_results,
+            request_deserializer=indexify_dot_proto_dot_executor__api__pb2.PollAllocationResultsRequest.FromString,
+            response_serializer=indexify_dot_proto_dot_executor__api__pb2.PollAllocationResultsResponse.SerializeToString,
         ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -127,7 +150,18 @@ def add_ExecutorAPIServicer_to_server(servicer, server):
 
 # This class is part of an EXPERIMENTAL API.
 class ExecutorAPI(object):
-    """Internal API for scheduling and running allocations on Executors. Executors are acting as clients of this API.
+    """════════════════════════════════════════════
+    REMOVED MESSAGES (kept as reserved comments)
+    ════════════════════════════════════════════
+
+    GetCommandStreamRequest removed — replaced by PollCommandsRequest.
+    ReportCommandResponsesRequest/Response removed — folded into HeartbeatRequest.
+    ReportAllocationActivitiesRequest/Response removed — folded into HeartbeatRequest.
+    AllocationStreamRequest removed — log entries folded into HeartbeatRequest,
+    results delivered via PollAllocationResultsResponse.
+    AllocationStreamResponse removed — replaced by PollAllocationResultsResponse.
+
+    Internal API for scheduling and running allocations on Executors. Executors are acting as clients of this API.
     Server is responsible for scheduling allocations on Executors and Executors are responsible for running the allocations.
 
     Rename with caution. Existing clients won't find the service if the service name changes. A HTTP2 ingress proxy
@@ -136,7 +170,7 @@ class ExecutorAPI(object):
     """
 
     @staticmethod
-    def report_executor_state(
+    def heartbeat(
         request,
         target,
         options=(),
@@ -151,9 +185,9 @@ class ExecutorAPI(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            "/executor_api_pb.ExecutorAPI/report_executor_state",
-            indexify_dot_proto_dot_executor__api__pb2.ReportExecutorStateRequest.SerializeToString,
-            indexify_dot_proto_dot_executor__api__pb2.ReportExecutorStateResponse.FromString,
+            "/executor_api_pb.ExecutorAPI/heartbeat",
+            indexify_dot_proto_dot_executor__api__pb2.HeartbeatRequest.SerializeToString,
+            indexify_dot_proto_dot_executor__api__pb2.HeartbeatResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -166,37 +200,7 @@ class ExecutorAPI(object):
         )
 
     @staticmethod
-    def get_desired_executor_states(
-        request,
-        target,
-        options=(),
-        channel_credentials=None,
-        call_credentials=None,
-        insecure=False,
-        compression=None,
-        wait_for_ready=None,
-        timeout=None,
-        metadata=None,
-    ):
-        return grpc.experimental.unary_stream(
-            request,
-            target,
-            "/executor_api_pb.ExecutorAPI/get_desired_executor_states",
-            indexify_dot_proto_dot_executor__api__pb2.GetDesiredExecutorStatesRequest.SerializeToString,
-            indexify_dot_proto_dot_executor__api__pb2.DesiredExecutorState.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True,
-        )
-
-    @staticmethod
-    def call_function(
+    def poll_commands(
         request,
         target,
         options=(),
@@ -211,9 +215,39 @@ class ExecutorAPI(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            "/executor_api_pb.ExecutorAPI/call_function",
-            indexify_dot_proto_dot_executor__api__pb2.FunctionCallRequest.SerializeToString,
-            indexify_dot_proto_dot_executor__api__pb2.FunctionCallResponse.FromString,
+            "/executor_api_pb.ExecutorAPI/poll_commands",
+            indexify_dot_proto_dot_executor__api__pb2.PollCommandsRequest.SerializeToString,
+            indexify_dot_proto_dot_executor__api__pb2.PollCommandsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True,
+        )
+
+    @staticmethod
+    def poll_allocation_results(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            "/executor_api_pb.ExecutorAPI/poll_allocation_results",
+            indexify_dot_proto_dot_executor__api__pb2.PollAllocationResultsRequest.SerializeToString,
+            indexify_dot_proto_dot_executor__api__pb2.PollAllocationResultsResponse.FromString,
             options,
             channel_credentials,
             insecure,

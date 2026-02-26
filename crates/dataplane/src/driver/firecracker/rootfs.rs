@@ -48,6 +48,7 @@ if [ -n "$ip_param" ]; then
     ip link set "$device" up 2>/dev/null || true
     [ -n "$gateway" ] && ip route add default via "$gateway" dev "$device" 2>/dev/null || true
 
+    rm -f /etc/resolv.conf 2>/dev/null || true
     : > /etc/resolv.conf
     [ -n "$gateway" ] && echo "nameserver $gateway" >> /etc/resolv.conf
     echo "nameserver 8.8.8.8" >> /etc/resolv.conf

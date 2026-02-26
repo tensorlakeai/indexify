@@ -102,8 +102,8 @@ impl<'a> ContainerInfo<'a> {
             app = %self.app,
             fn = %self.fn_name,
             version = %self.app_version,
-            sandbox_id = ?self.sandbox_id,
-            pool_id = ?self.pool_id,
+            sandbox_id = self.sandbox_id.unwrap_or(""),
+            pool_id = self.pool_id.unwrap_or(""),
         )
     }
 }

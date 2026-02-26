@@ -104,18 +104,20 @@ impl Snapshotter for FirecrackerSnapshotter {
         let api_client = FirecrackerApiClient::new(&metadata.socket_path);
         if let Err(e) = api_client.pause_vm().await {
             tracing::warn!(
+                container_id = %container_id,
                 vm_id = %vm_id,
                 error = %e,
                 "Failed to pause VM before snapshot (VM may already be stopped)"
             );
         } else {
-            info!(vm_id = %vm_id, "VM paused for snapshot");
+            info!(container_id = %container_id, vm_id = %vm_id, "VM paused for snapshot");
         }
 
         // Suspend the dm-snapshot device to flush all pending host-side I/O
         // to the COW file on disk, ensuring it is consistent for reading.
         if let Err(e) = dm_snapshot::suspend_snapshot_async(metadata.dm_name.clone()).await {
             tracing::warn!(
+                container_id = %container_id,
                 vm_id = %vm_id,
                 dm_name = %metadata.dm_name,
                 error = %e,
@@ -124,6 +126,7 @@ impl Snapshotter for FirecrackerSnapshotter {
         }
 
         info!(
+            container_id = %container_id,
             cow_device = %cow_path.display(),
             "Reading COW device for snapshot"
         );
@@ -141,6 +144,7 @@ impl Snapshotter for FirecrackerSnapshotter {
         // the subsequent cleanup. `dmsetup remove` fails on suspended devices.
         if let Err(e) = dm_snapshot::resume_snapshot_async(metadata.dm_name.clone()).await {
             tracing::warn!(
+                container_id = %container_id,
                 vm_id = %vm_id,
                 dm_name = %metadata.dm_name,
                 error = %e,
@@ -196,7 +200,9 @@ impl Snapshotter for FirecrackerSnapshotter {
 
         // Decompress and write to COW file.
         let cow_path_clone = cow_path.clone();
+        let span = tracing::Span::current();
         tokio::task::spawn_blocking(move || {
+            let _guard = span.enter();
             let decompressed =
                 zstd::decode_all(compressed.as_slice()).context("Failed to decompress snapshot")?;
             std::fs::write(&cow_path_clone, &decompressed)

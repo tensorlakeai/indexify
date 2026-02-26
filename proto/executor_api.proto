@@ -740,6 +740,4 @@ service ExecutorAPI {
     rpc poll_allocation_results(PollAllocationResultsRequest)
         returns (PollAllocationResultsResponse) {}
 
-    // Fetch historical allocation log entries for deterministic replay.
-    rpc get_allocation_log(GetAllocationLogRequest) returns (GetAllocationLogResponse) {}
 }

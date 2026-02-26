@@ -61,6 +61,8 @@ impl SandboxProcessor {
                     warn!(
                         sandbox_id = %sandbox.id,
                         namespace = %sandbox.namespace,
+                        pool_id = sandbox.pool_id.as_ref().map(|id| id.get()).unwrap_or(""),
+                        container_id = sandbox.container_id.as_ref().map(|id| id.get()).unwrap_or(""),
                         error = %err,
                         "Failed to allocate sandbox"
                     );
@@ -186,13 +188,16 @@ impl SandboxProcessor {
                     update
                         .updated_sandboxes
                         .insert(sandbox_key, updated_sandbox);
-                    update.extend(container_update);
 
                     info!(
                         sandbox_id = %sandbox.id,
                         namespace = %sandbox.namespace,
+                        pool_id = sandbox.pool_id.as_ref().map(|id| id.get()).unwrap_or(""),
+                        container_id = %fc_metadata.function_container.id,
                         "Sandbox allocated successfully"
                     );
+
+                    update.extend(container_update);
 
                     // Apply update to local copies so subsequent iterations see the changes
                     let payload = RequestPayload::SchedulerUpdate(SchedulerUpdatePayload::new(
@@ -220,6 +225,7 @@ impl SandboxProcessor {
                         info!(
                             sandbox_id = %sandbox.id,
                             namespace = %sandbox.namespace,
+                            pool_id = sandbox.pool_id.as_ref().map(|id| id.get()).unwrap_or(""),
                             "No resources available for sandbox, keeping as pending"
                         );
                         Self::set_pending_reason(
@@ -231,6 +237,7 @@ impl SandboxProcessor {
                         info!(
                             sandbox_id = %sandbox.id,
                             namespace = %sandbox.namespace,
+                            pool_id = sandbox.pool_id.as_ref().map(|id| id.get()).unwrap_or(""),
                             "No executors available for sandbox, keeping as pending"
                         );
                         Self::set_pending_reason(
@@ -276,6 +283,7 @@ impl SandboxProcessor {
                     warn!(
                         sandbox_id = %sandbox.id,
                         namespace = %sandbox.namespace,
+                        pool_id = sandbox.pool_id.as_ref().map(|id| id.get()).unwrap_or(""),
                         "Sandbox allocation failed: constraint unsatisfiable"
                     );
 

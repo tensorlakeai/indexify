@@ -430,6 +430,7 @@ impl AllocationController {
             }
         });
 
+        let ctx = types::FELogCtx::from_description(&description);
         let managed = ManagedFE {
             description,
             state: ContainerState::Running {
@@ -445,6 +446,8 @@ impl AllocationController {
         let handle_id = handle.id.clone();
         info!(
             container_id = %fe_id,
+            sandbox_id = %ctx.sandbox_id,
+            pool_id = %ctx.pool_id,
             handle_id = %handle_id,
             daemon_addr = %entry.daemon_addr,
             max_concurrency = max_concurrency,
@@ -515,8 +518,18 @@ impl AllocationController {
         };
 
         if !alloc_ids.is_empty() {
+            let ctx = self
+                .containers
+                .get(fe_id)
+                .map(|fe| types::FELogCtx::from_description(&fe.description));
+            let (sandbox_id, pool_id) = ctx
+                .as_ref()
+                .map(|c| (c.sandbox_id.as_str(), c.pool_id.as_str()))
+                .unwrap_or(("", ""));
             warn!(
                 container_id = %fe_id,
+                sandbox_id = %sandbox_id,
+                pool_id = %pool_id,
                 reason = ?reason,
                 non_running_reason = ?non_running_reason,
                 count = alloc_ids.len(),

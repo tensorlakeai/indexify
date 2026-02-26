@@ -50,13 +50,11 @@ aws-config.workspace = true
 url.workspace = true
 indexify-blob-store.workspace = true
 zstd.workspace = true
+nix.workspace = true
+libc = { workspace = true, optional = true }
 
 [features]
-firecracker = []
-
-[target.'cfg(unix)'.dependencies]
-libc.workspace = true
-nix.workspace = true
+firecracker = ["libc"]
 
 [dev-dependencies]
 tempfile.workspace = true

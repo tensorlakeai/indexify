@@ -993,6 +993,11 @@ impl IndexifyState {
     pub async fn deregister_executor_connection(&self, executor_id: &ExecutorId) {
         let removed = self.executor_connections.write().await.remove(executor_id);
         if let Some(conn) = removed {
+            // Abort the background command generator task so it doesn't
+            // linger if it's blocked on emitter lock or I/O.
+            if let Some(handle) = conn.command_generator_handle {
+                handle.abort();
+            }
             // Wake any held long-poll requests so they return immediately
             // instead of blocking until the 5-minute timeout.
             conn.commands_notify.notify_one();

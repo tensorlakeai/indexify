@@ -1,5 +1,4 @@
 import time
-from typing import List
 
 from pydantic import BaseModel
 from tensorlake.applications import application, function
@@ -13,7 +12,7 @@ class MappedItem(BaseModel):
 
 class ReducerAccumulator(BaseModel):
     num_maps: int
-    results: List[MappedItem]
+    results: list[MappedItem]
 
 
 @application()
@@ -22,8 +21,8 @@ def indexify_map_reduce_benchmark_api(num_maps: int) -> ReducerAccumulator:
     print(f"{time.time()}: running benchmark with: {num_maps} map calls")
 
     # Use tail calls to get max cluster throughput.
-    return reduce_function.awaitable.reduce(
-        map_function.awaitable.map([f"map_item_{i}" for i in range(num_maps)]),
+    return reduce_function.future.reduce(
+        map_function.future.map([f"map_item_{i}" for i in range(num_maps)]),
         ReducerAccumulator(num_maps=0, results=[]),
     )
 

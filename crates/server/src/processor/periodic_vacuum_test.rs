@@ -50,14 +50,13 @@ mod tests {
             sandbox_pools: imbl::HashMap::new(),
             dirty_pools: std::collections::HashSet::new(),
             blocked_pools: std::collections::HashSet::new(),
+            executors_by_free_memory: imbl::OrdSet::new(),
         };
 
         scheduler
             .executors
             .insert(executor_id.clone(), Box::new(executor_meta));
-        scheduler
-            .executor_states
-            .insert(executor_id.clone(), Box::new(executor_state));
+        scheduler.set_executor_state(executor_id.clone(), Box::new(executor_state));
 
         (scheduler, executor_id)
     }
