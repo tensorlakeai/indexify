@@ -116,6 +116,7 @@ impl StateMachineUpdateRequest {
             RequestPayload::DataplaneResults(request) => {
                 state_changes::dataplane_results_ingested(state_change_id_seq, request)
             }
+            RequestPayload::CordonExecutors(request) => Ok(request.state_changes.clone()),
             _ => Ok(Vec::new()), // Handle other request types as needed
         }
     }
@@ -131,6 +132,7 @@ pub enum RequestPayload {
     TombstoneRequest(DeleteRequestRequest),
     UpsertExecutor(UpsertExecutorRequest),
     DeregisterExecutor(DeregisterExecutorRequest),
+    CordonExecutors(CordonExecutorsRequest),
     CreateSandbox(CreateSandboxRequest),
     TerminateSandbox(TerminateSandboxRequest),
     SnapshotSandbox(SnapshotSandboxRequest),
@@ -417,6 +419,30 @@ impl UpsertExecutorRequest {
 pub struct DeregisterExecutorRequest {
     pub executor_id: ExecutorId,
     pub state_changes: Vec<StateChange>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CordonExecutorsRequest {
+    pub executor_ids: Vec<ExecutorId>,
+    pub state_changes: Vec<StateChange>,
+}
+
+impl CordonExecutorsRequest {
+    pub fn build(
+        executor_ids: Vec<ExecutorId>,
+        indexify_state: Arc<crate::state_store::IndexifyState>,
+    ) -> Result<Self> {
+        let mut state_changes = Vec::new();
+        for executor_id in &executor_ids {
+            let changes =
+                state_changes::upsert_executor(&indexify_state.state_change_id_seq, executor_id)?;
+            state_changes.extend(changes);
+        }
+        Ok(Self {
+            executor_ids,
+            state_changes,
+        })
+    }
 }
 
 #[derive(Debug, Clone)]

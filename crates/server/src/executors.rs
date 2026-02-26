@@ -715,6 +715,32 @@ impl ExecutorManager {
         Ok(executors)
     }
 
+    /// Wait for executor to acknowledge state change via heartbeat clock
+    pub async fn wait_for_acknowledgement(
+        &self,
+        executor_id: &ExecutorId,
+        target_clock: u64,
+        timeout: Duration,
+    ) -> Result<bool> {
+        let deadline = Instant::now() + timeout;
+
+        loop {
+            let runtime_data = self.runtime_data.read().await;
+            if let Some(data) = runtime_data.get(executor_id) &&
+                data.last_executor_clock >= target_clock
+            {
+                return Ok(true); // Acknowledged
+            }
+            drop(runtime_data);
+
+            if Instant::now() >= deadline {
+                return Ok(false); // Timeout
+            }
+
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    }
+
     pub async fn api_list_allocations(&self) -> ExecutorsAllocationsResponse {
         let state = self.indexify_state.in_memory_state.read().await;
         let container_sched = self.indexify_state.container_scheduler.read().await;

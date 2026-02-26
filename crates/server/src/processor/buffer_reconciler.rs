@@ -49,6 +49,13 @@ impl BufferReconciler {
     ) -> Result<SchedulerUpdateRequest> {
         let mut update = SchedulerUpdateRequest::default();
 
+        // Phase 0: Drain idle/warm containers on cordoned executors.
+        // These containers can't accept new work, so terminate them to free
+        // resources and let subsequent phases create replacements on healthy
+        // executors.
+        let drain_update = self.drain_cordoned_containers(container_scheduler)?;
+        update.extend(drain_update);
+
         // Only process pools that changed since last reconciliation
         let dirty_pools = container_scheduler.take_dirty_pools();
 
@@ -511,6 +518,60 @@ impl BufferReconciler {
         } else {
             (ns, format!("pool_id={}", pool.id.get()))
         }
+    }
+
+    /// Terminate idle/warm containers stranded on cordoned executors.
+    /// Active containers (with allocations or sandbox_id) are left to finish
+    /// naturally — only idle (function pools) and warm (sandbox pools)
+    /// containers are drained.
+    fn drain_cordoned_containers(
+        &self,
+        container_scheduler: &mut ContainerScheduler,
+    ) -> Result<SchedulerUpdateRequest> {
+        let mut update = SchedulerUpdateRequest::default();
+
+        // Collect cordoned executor IDs
+        let cordoned_executor_ids: Vec<_> = container_scheduler
+            .executors
+            .iter()
+            .filter(|(_, e)| e.state.is_scheduling_disabled())
+            .map(|(id, _)| id.clone())
+            .collect();
+
+        // Collect container IDs to terminate: idle/warm containers on cordoned
+        // executors
+        let mut to_terminate = Vec::new();
+        for executor_id in &cordoned_executor_ids {
+            if let Some(executor_state) = container_scheduler.executor_states.get(executor_id) {
+                for container_id in &executor_state.function_container_ids {
+                    if let Some(meta) = container_scheduler.function_containers.get(container_id) {
+                        if matches!(meta.desired_state, ContainerState::Terminated { .. }) {
+                            continue;
+                        }
+                        // Function containers: drain if no allocations (idle)
+                        // Sandbox pool containers: drain if no sandbox_id (warm)
+                        let is_idle = meta.allocations.is_empty() &&
+                            meta.function_container.sandbox_id.is_none();
+                        if is_idle {
+                            to_terminate.push(container_id.clone());
+                        }
+                    }
+                }
+            }
+        }
+
+        for container_id in to_terminate {
+            info!(
+                container_id = %container_id.get(),
+                phase = "drain_cordoned",
+                "Terminating idle container on cordoned executor"
+            );
+            if let Some(u) = container_scheduler.terminate_container(&container_id)? {
+                update.extend(u);
+            }
+        }
+
+        Ok(update)
     }
 
     /// Parse function pool ID to extract FunctionURI

@@ -24,6 +24,7 @@ use crate::{
         ExecutorId,
         ExecutorMetadata,
         ExecutorServerMetadata,
+        ExecutorState,
         Function,
         FunctionResources,
         FunctionURI,
@@ -200,6 +201,24 @@ impl ContainerScheduler {
             }
             RequestPayload::DeregisterExecutor(request) => {
                 self.deregister_executor(&request.executor_id);
+            }
+            RequestPayload::CordonExecutors(request) => {
+                for executor_id in &request.executor_ids {
+                    if let Some(executor) = self.executors.get_mut(executor_id) {
+                        executor.state = ExecutorState::SchedulingDisabled;
+                    }
+                    // Mark pools dirty for every container on this executor so the
+                    // buffer reconciler re-evaluates them (drain + replacement).
+                    if let Some(executor_state) = self.executor_states.get(executor_id) {
+                        for container_id in &executor_state.function_container_ids {
+                            if let Some(meta) = self.function_containers.get(container_id) {
+                                if let Some(pool_key) = meta.function_container.pool_key() {
+                                    self.dirty_pools.insert(pool_key);
+                                }
+                            }
+                        }
+                    }
+                }
             }
             RequestPayload::CreateContainerPool(request) => {
                 let pool_key = ContainerPoolKey::from(&request.pool);
@@ -913,7 +932,10 @@ impl ContainerScheduler {
                 continue;
             };
 
-            // Constraint check (namespace, labels, allowlist)
+            if executor.state.is_scheduling_disabled() {
+                continue;
+            }
+
             if !self.executor_matches_constraints(executor, namespace, application, function) {
                 continue;
             }
@@ -1362,18 +1384,29 @@ impl ContainerScheduler {
     // Buffer/Pool Helper Methods
     // ====================================
 
-    /// Get the count of non-terminated containers for a pool.
-    /// Terminated containers are excluded from containers_by_pool at index
-    /// update time, so this is O(1).
+    /// Get the count of non-terminated containers for a pool, excluding
+    /// containers on cordoned (SchedulingDisabled) executors.
     pub fn pool_container_count(&self, pool_key: &ContainerPoolKey) -> u32 {
         self.containers_by_pool
             .get(pool_key)
-            .map(|ids| ids.len() as u32)
+            .map(|ids| {
+                ids.iter()
+                    .filter(|id| {
+                        self.function_containers.get(*id).is_some_and(|meta| {
+                            !self
+                                .executors
+                                .get(&meta.executor_id)
+                                .is_some_and(|e| e.state.is_scheduling_disabled())
+                        })
+                    })
+                    .count() as u32
+            })
             .unwrap_or(0)
     }
 
     /// Count active (with allocations) and idle (without) containers for a
-    /// function. Terminated containers are excluded from
+    /// function. Excludes containers on cordoned (SchedulingDisabled)
+    /// executors. Terminated containers are excluded from
     /// containers_by_function_uri at index update time.
     pub fn count_active_idle_containers(&self, fn_uri: &FunctionURI) -> (u32, u32) {
         let mut active = 0;
@@ -1382,6 +1415,13 @@ impl ContainerScheduler {
         if let Some(ids) = self.containers_by_function_uri.get(fn_uri) {
             for id in ids {
                 if let Some(meta) = self.function_containers.get(id) {
+                    if self
+                        .executors
+                        .get(&meta.executor_id)
+                        .is_some_and(|e| e.state.is_scheduling_disabled())
+                    {
+                        continue;
+                    }
                     if meta.allocations.is_empty() {
                         idle += 1;
                     } else {
@@ -1401,19 +1441,29 @@ impl ContainerScheduler {
     }
 
     /// Pool containers have pool_id set. Claimed ones also have sandbox_id set.
-    /// Uses the warm_containers_by_pool index for O(1) warm count.
+    /// Excludes containers on cordoned (SchedulingDisabled) executors.
     pub fn count_pool_containers(&self, pool_key: &ContainerPoolKey) -> (u32, u32) {
-        // Warm count is O(1) from the warm index
-        let warm = self
-            .warm_containers_by_pool
-            .get(pool_key)
-            .map(|ids| ids.len() as u32)
-            .unwrap_or(0);
+        let mut warm = 0u32;
+        let mut claimed = 0u32;
 
-        // For claimed, count total non-terminated and subtract warm
-        let total_non_terminated = self.pool_container_count(pool_key);
-
-        let claimed = total_non_terminated.saturating_sub(warm);
+        if let Some(ids) = self.containers_by_pool.get(pool_key) {
+            for id in ids {
+                if let Some(meta) = self.function_containers.get(id) {
+                    if self
+                        .executors
+                        .get(&meta.executor_id)
+                        .is_some_and(|e| e.state.is_scheduling_disabled())
+                    {
+                        continue;
+                    }
+                    if meta.function_container.sandbox_id.is_none() {
+                        warm += 1;
+                    } else {
+                        claimed += 1;
+                    }
+                }
+            }
+        }
 
         (claimed, warm)
     }
@@ -1632,6 +1682,13 @@ impl ContainerScheduler {
                 warm_ids.iter().find_map(|id| {
                     self.function_containers
                         .get(id)
+                        .filter(|meta| {
+                            // Filter out containers on executors with SchedulingDisabled state
+                            self.executors
+                                .get(&meta.executor_id)
+                                .map(|executor| !executor.state.is_scheduling_disabled())
+                                .unwrap_or_default()
+                        })
                         .map(|meta| (id.clone(), meta.executor_id.clone()))
                 })
             });

@@ -1725,8 +1725,15 @@ pub enum ExecutorState {
     Unknown,
     StartingUp,
     Running,
+    SchedulingDisabled,
     Drained,
     Stopped,
+}
+
+impl ExecutorState {
+    pub fn is_scheduling_disabled(&self) -> bool {
+        matches!(self, ExecutorState::SchedulingDisabled)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]

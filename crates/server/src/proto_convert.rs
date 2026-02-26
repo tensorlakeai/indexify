@@ -96,6 +96,7 @@ impl From<ExecutorStatus> for data_model::ExecutorState {
             ExecutorStatus::Drained => data_model::ExecutorState::Drained,
             ExecutorStatus::Stopped => data_model::ExecutorState::Stopped,
             ExecutorStatus::Unknown => data_model::ExecutorState::Unknown,
+            ExecutorStatus::SchedulingDisabled => data_model::ExecutorState::SchedulingDisabled,
         }
     }
 }

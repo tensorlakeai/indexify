@@ -43,6 +43,7 @@ mod tests {
             executor_manager: test_service.service.executor_manager.clone(),
             metrics: Arc::new(metrics::api_io_stats::Metrics::new()),
             config: test_service.service.config.clone(),
+            shutdown_rx: test_service.service.shutdown_rx.clone(),
         }
     }
 

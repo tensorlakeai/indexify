@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use tokio::sync::watch;
+
 use crate::{
     blob_store,
     config::ServerConfig,
@@ -15,4 +17,5 @@ pub struct RouteState {
     pub executor_manager: Arc<ExecutorManager>,
     pub metrics: Arc<api_io_stats::Metrics>,
     pub config: Arc<ServerConfig>,
+    pub shutdown_rx: watch::Receiver<()>,
 }
