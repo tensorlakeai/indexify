@@ -315,40 +315,36 @@ impl BlobStore {
     }
 }
 
-/// Detect the AWS region of an S3 bucket using `GetBucketLocation`.
+/// Detect the AWS region of an S3 bucket using `HeadBucket`.
 ///
-/// Creates a temporary S3 client (virtual-hosted style, default region from
-/// the AWS config chain) to make the API call. Returns the detected region,
-/// defaulting to `"us-east-1"` for buckets that report no location constraint
-/// (the S3 convention for that region).
+/// `HeadBucket` works cross-region — it returns the `bucket_region` response
+/// header regardless of which region the client is configured for, and only
+/// requires `s3:ListBucket` permission (commonly granted).
 ///
-/// Requires `s3:GetBucketLocation` permission on the bucket.
+/// Creates a temporary S3 client (virtual-hosted style) to make the call.
 pub async fn detect_bucket_region(bucket: &str) -> Result<String> {
     let config = aws_config::defaults(aws_config::BehaviorVersion::latest())
         .load()
         .await;
-    // Use virtual-hosted style (the default) for this call — force_path_style
-    // can interfere with the SDK's routing for global S3 operations.
+    // Use virtual-hosted style (the default) — force_path_style can interfere
+    // with cross-region routing.
     let client = S3Client::new(&config);
 
     let resp = client
-        .get_bucket_location()
+        .head_bucket()
         .bucket(bucket)
         .send()
         .await
         .with_context(|| format!("Failed to detect region for S3 bucket '{bucket}'"))?;
 
-    // S3 returns None or empty string for us-east-1 buckets.
-    // Legacy buckets may return "EU" instead of "eu-west-1".
-    let region = match resp
-        .location_constraint()
-        .map(|lc| lc.as_str())
+    let region = resp
+        .bucket_region()
         .filter(|s| !s.is_empty())
-    {
-        Some("EU") => "eu-west-1",
-        Some(r) => r,
-        None => "us-east-1",
-    };
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "HeadBucket for '{bucket}' succeeded but returned no bucket_region header"
+            )
+        })?;
 
     Ok(region.to_string())
 }
