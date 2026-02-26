@@ -4,13 +4,14 @@
 //! [`indexify_blob_store::BlobStore`], plus presigned URL generation, multipart
 //! upload management, and blob download for function executor allocations.
 
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use anyhow::Result;
 use bytes::Bytes;
 // Re-export types that consumers use directly.
 pub use indexify_blob_store::MultipartUploadHandle;
 use opentelemetry::metrics::{Counter, Histogram};
+use tokio::sync::RwLock;
 
 use crate::metrics::DataplaneMetrics;
 
@@ -46,39 +47,80 @@ async fn record_blob_op<T>(
 
 /// Metrics-instrumented blob store with dynamic URI-based backend dispatch.
 ///
-/// Holds a local FS backend (always available, zero-cost) and a lazily
-/// initialized S3 backend. Each operation inspects the URI scheme and
-/// dispatches to the appropriate backend, mirroring the Python executor's
-/// dual-client pattern.
+/// Holds a local FS backend (always available, zero-cost) and a per-bucket
+/// cache of S3 backends. Each S3 client is created with the correct region
+/// for its bucket (auto-detected via `GetBucketLocation`), supporting
+/// multi-tenant deployments where different namespaces use buckets in
+/// different AWS regions.
 #[derive(Clone)]
 pub struct BlobStore {
     local: indexify_blob_store::BlobStore,
-    s3: Arc<tokio::sync::OnceCell<indexify_blob_store::BlobStore>>,
+    /// Per-bucket S3 clients, keyed by bucket name. Each client is configured
+    /// for the bucket's actual region.
+    s3_clients: Arc<RwLock<HashMap<String, indexify_blob_store::BlobStore>>>,
     metrics: Arc<DataplaneMetrics>,
 }
 
 impl BlobStore {
     /// Create a new blob store with dynamic URI-based dispatch.
     ///
-    /// The local FS backend is always available. The S3 backend is lazily
-    /// initialized on the first S3 URI encountered.
+    /// The local FS backend is always available. S3 backends are lazily
+    /// initialized per-bucket on the first URI encountered for each bucket,
+    /// with automatic region detection.
     pub fn new(metrics: Arc<DataplaneMetrics>) -> Self {
         Self {
             local: indexify_blob_store::BlobStore::new_local("file:///"),
-            s3: Arc::new(tokio::sync::OnceCell::new()),
+            s3_clients: Arc::new(RwLock::new(HashMap::new())),
             metrics,
         }
     }
 
     /// Return the backend appropriate for the given URI.
-    async fn backend_for(&self, uri: &str) -> Result<&indexify_blob_store::BlobStore> {
+    ///
+    /// For S3 URIs, returns a client configured for the bucket's region.
+    /// Clients are cached per-bucket so region detection only happens once
+    /// per bucket.
+    async fn backend_for(&self, uri: &str) -> Result<indexify_blob_store::BlobStore> {
         if indexify_blob_store::uri::is_file_uri(uri) {
-            Ok(&self.local)
-        } else {
-            self.s3
-                .get_or_try_init(|| async { indexify_blob_store::BlobStore::from_uri(uri).await })
-                .await
+            return Ok(self.local.clone());
         }
+
+        let (bucket, _key) = indexify_blob_store::uri::parse_s3_uri(uri)?;
+
+        // Fast path: check if we already have a client for this bucket.
+        {
+            let clients = self.s3_clients.read().await;
+            if let Some(client) = clients.get(&bucket) {
+                return Ok(client.clone());
+            }
+        }
+
+        // Slow path: detect the bucket's region and create a new client.
+        let region = match indexify_blob_store::detect_bucket_region(&bucket).await {
+            Ok(region) => {
+                tracing::info!(
+                    bucket = %bucket,
+                    region = %region,
+                    "Detected S3 bucket region"
+                );
+                Some(region)
+            }
+            Err(e) => {
+                tracing::warn!(
+                    bucket = %bucket,
+                    error = %e,
+                    "Failed to detect S3 bucket region, falling back to default"
+                );
+                None
+            }
+        };
+
+        let base_url = format!("s3://{bucket}");
+        let new_client = indexify_blob_store::BlobStore::new_s3(&base_url, region).await?;
+
+        let mut clients = self.s3_clients.write().await;
+        let client = clients.entry(bucket).or_insert(new_client);
+        Ok(client.clone())
     }
 
     /// Get metadata (size) for a blob.
@@ -464,41 +506,50 @@ mod tests {
     #[tokio::test]
     async fn test_s3_uri_triggers_s3_backend() {
         let store = BlobStore::new(test_metrics());
-        // S3 OnceCell should be empty before any S3 operation
-        assert!(store.s3.get().is_none());
-        // An S3 URI should attempt to initialize the S3 backend.
-        // Without AWS credentials this will succeed (SDK creates a client
-        // eagerly) but the actual operation would fail. We just verify
-        // that backend_for populates the OnceCell.
+        assert!(store.s3_clients.read().await.is_empty());
+        // An S3 URI should attempt to initialize an S3 backend for that bucket.
+        // Without real AWS credentials, detect_bucket_region will fail but
+        // backend_for falls back to creating a client with the default region.
         let result = store.backend_for("s3://test-bucket/key").await;
         assert!(result.is_ok());
-        assert!(store.s3.get().is_some());
+        assert!(store.s3_clients.read().await.contains_key("test-bucket"));
     }
 
     #[tokio::test]
-    async fn test_s3_backend_is_reused_across_calls() {
+    async fn test_different_buckets_get_separate_clients() {
         let store = BlobStore::new(test_metrics());
         let _ = store.backend_for("s3://bucket-a/key1").await.unwrap();
         let _ = store.backend_for("s3://bucket-b/key2").await.unwrap();
-        // OnceCell initialized exactly once — both calls return the same backend
-        assert!(store.s3.get().is_some());
+        let clients = store.s3_clients.read().await;
+        assert!(clients.contains_key("bucket-a"));
+        assert!(clients.contains_key("bucket-b"));
+        assert_eq!(clients.len(), 2);
     }
 
     #[tokio::test]
-    async fn test_cloned_store_shares_s3_backend() {
+    async fn test_same_bucket_reuses_client() {
+        let store = BlobStore::new(test_metrics());
+        let _ = store.backend_for("s3://bucket-a/key1").await.unwrap();
+        let _ = store.backend_for("s3://bucket-a/key2").await.unwrap();
+        let clients = store.s3_clients.read().await;
+        assert_eq!(clients.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_cloned_store_shares_s3_clients() {
         let store = BlobStore::new(test_metrics());
         let clone = store.clone();
-        // Initialize S3 via the original
+        // Initialize via the original
         let _ = store.backend_for("s3://bucket/key").await.unwrap();
-        // Clone should see the same initialized backend
-        assert!(clone.s3.get().is_some());
+        // Clone should see the same cached client
+        assert!(clone.s3_clients.read().await.contains_key("bucket"));
     }
 
     #[tokio::test]
     async fn test_file_uri_uses_local_backend() {
         let store = BlobStore::new(test_metrics());
         let _ = store.backend_for("file:///tmp/test").await.unwrap();
-        // file:// URIs should not trigger S3 initialization
-        assert!(store.s3.get().is_none());
+        // file:// URIs should not create any S3 clients
+        assert!(store.s3_clients.read().await.is_empty());
     }
 }
