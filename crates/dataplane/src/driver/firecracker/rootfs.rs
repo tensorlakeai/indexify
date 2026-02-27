@@ -77,16 +77,31 @@ mkdir -p /var/log/indexify
 exec /indexify-daemon --port 9500 --http-port 9501 --log-dir /var/log/indexify
 "#;
 
-/// Read the host's `/etc/resolv.conf` and return the nameserver IPs as a
-/// comma-separated string suitable for the `DNS_NAMESERVERS` env var.
+/// Read the host's DNS nameservers and return them as a comma-separated
+/// string suitable for the `DNS_NAMESERVERS` env var.
+///
+/// Tries `/run/systemd/resolve/resolv.conf` first (actual upstream servers
+/// on systemd-resolved hosts), then falls back to `/etc/resolv.conf`.
+/// Filters out loopback addresses (127.x.x.x) since those point to
+/// host-local resolvers like systemd-resolved that won't exist in the VM.
 pub fn read_host_dns() -> Option<String> {
-    let content = std::fs::read_to_string("/etc/resolv.conf").ok()?;
+    // On systemd-resolved hosts, /etc/resolv.conf points to 127.0.0.53.
+    // The real upstream servers are in /run/systemd/resolve/resolv.conf.
+    let content = std::fs::read_to_string("/run/systemd/resolve/resolv.conf")
+        .or_else(|_| std::fs::read_to_string("/etc/resolv.conf"))
+        .ok()?;
     let servers: Vec<&str> = content
         .lines()
         .filter_map(|line| {
             let line = line.trim();
             if line.starts_with("nameserver") {
-                line.split_whitespace().nth(1)
+                let addr = line.split_whitespace().nth(1)?;
+                // Skip loopback addresses — they point to host-local resolvers.
+                if addr.starts_with("127.") {
+                    None
+                } else {
+                    Some(addr)
+                }
             } else {
                 None
             }
