@@ -317,7 +317,7 @@ mod tests {
 
         // Check for stale data in in-memory state
         {
-            let in_memory_state = indexify_state.in_memory_state.read().await;
+            let in_memory_state = indexify_state.in_memory_state.load();
 
             // Check allocations_by_executor - should have no allocations for this request
             let executor_id = crate::data_model::ExecutorId::new(TEST_EXECUTOR_ID.to_string());
@@ -358,7 +358,7 @@ mod tests {
 
         // Check for stale data in container scheduler
         {
-            let container_scheduler = indexify_state.container_scheduler.read().await;
+            let container_scheduler = indexify_state.container_scheduler.load();
 
             // Check if containers for this app still exist
             let app_containers: Vec<_> = container_scheduler
@@ -468,7 +468,7 @@ mod tests {
 
         // Check for stale data in container scheduler after app deletion
         {
-            let container_scheduler = indexify_state.container_scheduler.read().await;
+            let container_scheduler = indexify_state.container_scheduler.load();
 
             // Check if containers for this app still exist
             let app_containers: Vec<_> = container_scheduler
@@ -531,9 +531,6 @@ mod tests {
                 };
             }
 
-            // Update state_hash so heartbeat triggers state changes
-            executor_state.state_hash = nanoid::nanoid!();
-
             // Send heartbeat with updated state
             executor.sync_executor_state(executor_state).await?;
             test_srv.process_all_state_changes().await?;
@@ -541,7 +538,7 @@ mod tests {
 
         // Check container scheduler state AFTER heartbeat
         {
-            let container_scheduler = indexify_state.container_scheduler.read().await;
+            let container_scheduler = indexify_state.container_scheduler.load();
 
             let app_containers: Vec<_> = container_scheduler
                 .function_containers
@@ -1687,13 +1684,14 @@ mod tests {
 
         // SIMULATE SERVER RESTART:
         // Clear executor state but keep allocations (as if loaded from DB)
-        // NOTE: We must write to the original in_memory_state, not a clone!
+        // Fork-mutate-publish via ArcSwap.
         {
+            let current = indexify_state.in_memory_state.load_full();
+            let mut next = (*current).clone();
+            next.simulate_server_restart_clear_executor_state();
             indexify_state
                 .in_memory_state
-                .write()
-                .await
-                .simulate_server_restart_clear_executor_state();
+                .store(std::sync::Arc::new(next));
         }
 
         // Now deregister the executor - this will take the FALLBACK path

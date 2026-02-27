@@ -20,6 +20,7 @@ mod proto_convert;
 mod routes;
 mod routes_internal;
 mod routes_v1;
+mod scheduler;
 mod service;
 mod state_store;
 mod tracing;

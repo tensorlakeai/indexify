@@ -170,7 +170,7 @@ mod tests {
 
     /// Get count of pending sandboxes
     async fn get_pending_sandbox_count(indexify_state: &IndexifyState) -> usize {
-        let guard = indexify_state.in_memory_state.read().await;
+        let guard = indexify_state.in_memory_state.load();
         guard.pending_sandboxes.len()
     }
 
@@ -675,8 +675,7 @@ mod tests {
             };
         }
 
-        // Update state hash and send heartbeat
-        executor_state.state_hash = nanoid::nanoid!();
+        // Send heartbeat with updated state
         executor.sync_executor_state(executor_state).await?;
         test_srv.process_all_state_changes().await?;
 

@@ -355,7 +355,7 @@ pub async fn list_sandboxes(
     let scheme = &state.config.sandbox_proxy_scheme;
 
     // Get container scheduler to look up executor proxy addresses
-    let container_scheduler = state.indexify_state.container_scheduler.read().await;
+    let container_scheduler = state.indexify_state.container_scheduler.load();
 
     let sandbox_infos: Vec<SandboxInfo> = sandboxes
         .iter()
@@ -402,7 +402,7 @@ pub async fn get_sandbox(
     let scheme = &state.config.sandbox_proxy_scheme;
 
     // Look up dataplane proxy address from the executor
-    let container_scheduler = state.indexify_state.container_scheduler.read().await;
+    let container_scheduler = state.indexify_state.container_scheduler.load();
     let dataplane_api_address = sandbox
         .executor_id
         .as_ref()

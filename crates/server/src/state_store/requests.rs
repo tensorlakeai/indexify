@@ -1,7 +1,4 @@
-use std::{
-    collections::{HashMap, HashSet},
-    sync::{Arc, atomic::AtomicU64},
-};
+use std::sync::{Arc, atomic::AtomicU64};
 
 use anyhow::Result;
 use tracing::info;
@@ -54,7 +51,7 @@ impl StateMachineUpdateRequest {
                 req.ctx.prepare_for_persistence(clock);
             }
             RequestPayload::SchedulerUpdate(payload) => {
-                for request_ctx in payload.update.updated_request_states.values_mut() {
+                for (_, request_ctx) in payload.update.updated_request_states.iter_mut() {
                     request_ctx.prepare_for_persistence(clock);
                 }
             }
@@ -181,22 +178,22 @@ impl SchedulerUpdatePayload {
 pub struct SchedulerUpdateRequest {
     pub new_allocations: Vec<Allocation>,
     pub updated_allocations: Vec<Allocation>,
-    pub updated_function_runs: HashMap<String, HashSet<FunctionCallId>>,
-    pub updated_function_calls: HashMap<String, HashSet<FunctionCallId>>,
-    pub updated_request_states: HashMap<String, RequestCtx>,
+    pub updated_function_runs: imbl::HashMap<String, imbl::HashSet<FunctionCallId>>,
+    pub updated_function_calls: imbl::HashMap<String, imbl::HashSet<FunctionCallId>>,
+    pub updated_request_states: imbl::HashMap<String, RequestCtx>,
     pub remove_executors: Vec<ExecutorId>,
-    pub updated_executor_states: HashMap<ExecutorId, Box<ExecutorServerMetadata>>,
-    pub containers: HashMap<ContainerId, Box<ContainerServerMetadata>>,
+    pub updated_executor_states: imbl::HashMap<ExecutorId, Box<ExecutorServerMetadata>>,
+    pub containers: imbl::HashMap<ContainerId, Box<ContainerServerMetadata>>,
     pub new_state_changes: Vec<StateChange>,
-    pub updated_sandboxes: HashMap<SandboxKey, Sandbox>,
-    pub updated_pools: HashMap<ContainerPoolKey, ContainerPool>,
-    pub deleted_pools: HashSet<ContainerPoolKey>,
+    pub updated_sandboxes: imbl::HashMap<SandboxKey, Sandbox>,
+    pub updated_pools: imbl::HashMap<ContainerPoolKey, ContainerPool>,
+    pub deleted_pools: imbl::HashSet<ContainerPoolKey>,
     pub function_pool_deficits: Option<super::in_memory_state::ResourceProfileHistogram>,
     pub sandbox_pool_deficits: Option<super::in_memory_state::ResourceProfileHistogram>,
     /// Pools that the buffer reconciler found unsatisfiable (no resources).
     /// Propagated to the real scheduler's blocked_pools for cross-cycle
     /// persistence so these pools are skipped until resources become available.
-    pub newly_blocked_pools: HashSet<ContainerPoolKey>,
+    pub newly_blocked_pools: imbl::HashSet<ContainerPoolKey>,
 }
 
 impl SchedulerUpdateRequest {

@@ -304,7 +304,7 @@ fn is_executor_ready_for_teardown(
     executor_id: &ExecutorId,
     allocations_by_executor: &imbl::HashMap<
         ExecutorId,
-        HashMap<ContainerId, HashMap<AllocationId, Box<DataModelAllocation>>>,
+        imbl::HashMap<ContainerId, imbl::HashMap<AllocationId, Box<DataModelAllocation>>>,
     >,
     sandboxes_by_executor: &imbl::HashMap<ExecutorId, imbl::HashSet<SandboxKey>>,
     containers: &HashMap<ContainerId, Box<ContainerServerMetadata>>,
@@ -349,8 +349,8 @@ pub(crate) async fn list_executors(
         .await
         .map_err(IndexifyAPIError::internal_error)?;
 
-    let container_sched = state.indexify_state.container_scheduler.read().await;
-    let in_memory_state = state.indexify_state.in_memory_state.read().await;
+    let container_sched = state.indexify_state.container_scheduler.load();
+    let in_memory_state = state.indexify_state.in_memory_state.load();
 
     let mut http_executors = vec![];
     for executor in executors {
@@ -438,7 +438,7 @@ async fn list_unprocessed_state_changes(
 async fn list_unallocated_function_runs(
     State(state): State<RouteState>,
 ) -> Result<Json<UnallocatedFunctionRuns>, IndexifyAPIError> {
-    let state = state.indexify_state.in_memory_state.read().await;
+    let state = state.indexify_state.in_memory_state.load();
     let unallocated_function_runs: Vec<http_objects_v1::FunctionRun> = state
         .unallocated_function_runs
         .clone()
@@ -470,12 +470,8 @@ async fn list_unallocated_function_runs(
 async fn list_executor_catalog(
     State(state): State<RouteState>,
 ) -> Result<Json<ExecutorCatalog>, IndexifyAPIError> {
-    let catalog = &state
-        .indexify_state
-        .in_memory_state
-        .read()
-        .await
-        .executor_catalog;
+    let in_memory_state = state.indexify_state.in_memory_state.load();
+    let catalog = &in_memory_state.executor_catalog;
     Ok(Json(ExecutorCatalog::from(catalog)))
 }
 
@@ -498,13 +494,8 @@ async fn list_executor_catalog(
 async fn get_pending_resources(
     State(state): State<RouteState>,
 ) -> Result<Json<PendingResourcesResponse>, IndexifyAPIError> {
-    let pending = state
-        .indexify_state
-        .in_memory_state
-        .read()
-        .await
-        .get_pending_resources()
-        .clone();
+    let in_memory_state = state.indexify_state.in_memory_state.load();
+    let pending = in_memory_state.get_pending_resources().clone();
     Ok(Json(pending.into()))
 }
 
@@ -689,7 +680,7 @@ async fn get_sandbox_by_id(
     State(state): State<RouteState>,
     Path((namespace, sandbox_id)): Path<(String, String)>,
 ) -> Result<Json<SandboxLookupResponse>, IndexifyAPIError> {
-    let in_memory_state = state.indexify_state.in_memory_state.read().await;
+    let in_memory_state = state.indexify_state.in_memory_state.load();
 
     let sandbox_key = crate::data_model::SandboxKey::new(&namespace, &sandbox_id);
     let sandbox = in_memory_state
@@ -702,7 +693,7 @@ async fn get_sandbox_by_id(
         .as_ref()
         .ok_or_else(|| IndexifyAPIError::not_found("Sandbox has no container assigned"))?;
 
-    let container_scheduler = state.indexify_state.container_scheduler.read().await;
+    let container_scheduler = state.indexify_state.container_scheduler.load();
 
     let container_meta = container_scheduler
         .function_containers

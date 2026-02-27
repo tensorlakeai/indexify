@@ -1,7 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
     fmt::Display,
-    sync::Arc,
     time::Instant,
 };
 
@@ -36,6 +35,7 @@ use crate::{
         RequestCtxKey,
         Sandbox,
         SandboxKey,
+        SandboxPendingReason,
         SandboxStatus,
         Snapshot,
         SnapshotKey,
@@ -62,6 +62,24 @@ pub struct ResourceProfile {
     pub gpu_model: Option<String>,
     /// Placement constraint expressions (e.g., "gpu_type==nvidia-a100")
     pub placement_constraints: Vec<String>,
+}
+
+impl Ord for ResourceProfile {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.memory_mb
+            .cmp(&other.memory_mb)
+            .then(self.cpu_ms_per_sec.cmp(&other.cpu_ms_per_sec))
+            .then(self.disk_mb.cmp(&other.disk_mb))
+            .then(self.gpu_count.cmp(&other.gpu_count))
+            .then(self.gpu_model.cmp(&other.gpu_model))
+            .then(self.placement_constraints.cmp(&other.placement_constraints))
+    }
+}
+
+impl PartialOrd for ResourceProfile {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
 }
 
 impl ResourceProfile {
@@ -175,7 +193,14 @@ pub struct DesiredExecutorState {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct FunctionRunKey(String);
+pub struct FunctionRunKey(pub(crate) String);
+
+impl FunctionRunKey {
+    #[cfg(test)]
+    pub fn new(key: &str) -> Self {
+        Self(key.to_string())
+    }
+}
 
 impl From<&FunctionRun> for FunctionRunKey {
     fn from(function_run: &FunctionRun) -> Self {
@@ -225,6 +250,7 @@ impl Display for FunctionRunKey {
     }
 }
 
+#[derive(Clone)]
 pub struct InMemoryState {
     // clock is the value of the state_id this in-memory state is at.
     pub clock: u64,
@@ -238,8 +264,10 @@ pub struct InMemoryState {
     pub application_versions: imbl::OrdMap<String, Box<ApplicationVersion>>,
 
     // ExecutorId -> (FE ID -> Map of AllocationId -> Allocation)
-    pub allocations_by_executor:
-        imbl::HashMap<ExecutorId, HashMap<ContainerId, HashMap<AllocationId, Box<Allocation>>>>,
+    pub allocations_by_executor: imbl::HashMap<
+        ExecutorId,
+        imbl::HashMap<ContainerId, imbl::HashMap<AllocationId, Box<Allocation>>>,
+    >,
 
     // TaskKey -> Task
     pub unallocated_function_runs: imbl::OrdSet<FunctionRunKey>,
@@ -264,6 +292,12 @@ pub struct InMemoryState {
 
     // Pending sandboxes waiting for executor allocation
     pub pending_sandboxes: imbl::OrdSet<SandboxKey>,
+
+    // Pending sandboxes grouped by resource profile (sorted by ResourceProfile::Ord)
+    pub pending_sandboxes_by_profile: imbl::OrdMap<ResourceProfile, imbl::OrdSet<SandboxKey>>,
+
+    // Reverse index: pending sandbox key -> its resource profile
+    pending_sandbox_profile: imbl::HashMap<SandboxKey, ResourceProfile>,
 
     // Snapshots - SnapshotKey -> Snapshot
     pub snapshots: imbl::OrdMap<SnapshotKey, Box<Snapshot>>,
@@ -363,7 +397,7 @@ impl InMemoryState {
 
         let mut allocations_by_executor: imbl::HashMap<
             ExecutorId,
-            HashMap<ContainerId, HashMap<AllocationId, Box<Allocation>>>,
+            imbl::HashMap<ContainerId, imbl::HashMap<AllocationId, Box<Allocation>>>,
         > = imbl::HashMap::new();
         for (executor_id, fe_id, alloc_id, allocation) in allocations_grouped {
             allocations_by_executor
@@ -449,8 +483,14 @@ impl InMemoryState {
             .filter(|(_key, sandbox)| sandbox.status != SandboxStatus::Terminated)
             .map(|(_key, sandbox)| {
                 let sandbox_key = SandboxKey::from(sandbox);
-                let is_pending = sandbox.status.is_pending();
-                (sandbox_key, Box::new(sandbox.clone()), is_pending)
+                // Pending sandboxes that are WaitingForContainer already have a
+                // container assigned — they are not pending allocation.
+                let awaiting_alloc = matches!(
+                    &sandbox.status,
+                    SandboxStatus::Pending { reason }
+                        if !matches!(reason, SandboxPendingReason::WaitingForContainer)
+                );
+                (sandbox_key, Box::new(sandbox.clone()), awaiting_alloc)
             })
             .collect();
 
@@ -458,14 +498,22 @@ impl InMemoryState {
         let mut sandbox_by_container = imbl::HashMap::new();
         let mut sandboxes_by_executor = imbl::HashMap::new();
         let mut pending_sandboxes = imbl::OrdSet::new();
-        for (sandbox_key, sandbox, is_pending) in sandboxes_filtered {
-            if is_pending {
+        let mut pending_sandboxes_by_profile: imbl::OrdMap<
+            ResourceProfile,
+            imbl::OrdSet<SandboxKey>,
+        > = imbl::OrdMap::new();
+        let mut pending_sandbox_profile: imbl::HashMap<SandboxKey, ResourceProfile> =
+            imbl::HashMap::new();
+        for (sandbox_key, sandbox, awaiting_alloc) in sandboxes_filtered {
+            if awaiting_alloc {
+                let profile = ResourceProfile::from_container_resources(&sandbox.resources);
                 pending_sandboxes.insert(sandbox_key.clone());
-                pending_resources
-                    .sandboxes
-                    .increment(ResourceProfile::from_container_resources(
-                        &sandbox.resources,
-                    ));
+                pending_sandboxes_by_profile
+                    .entry(profile.clone())
+                    .or_default()
+                    .insert(sandbox_key.clone());
+                pending_sandbox_profile.insert(sandbox_key.clone(), profile.clone());
+                pending_resources.sandboxes.increment(profile);
             }
             // Build reverse index for containers serving sandboxes
             if let Some(container_id) = &sandbox.container_id {
@@ -501,6 +549,8 @@ impl InMemoryState {
             sandbox_by_container,
             sandboxes_by_executor,
             pending_sandboxes,
+            pending_sandboxes_by_profile,
+            pending_sandbox_profile,
             snapshots,
             pending_resources,
             metrics,
@@ -512,6 +562,282 @@ impl InMemoryState {
             "completed in-memory state initialization from state store",
         );
         Ok(in_memory_state)
+    }
+
+    fn add_pending_sandbox(&mut self, key: SandboxKey, profile: ResourceProfile) {
+        self.pending_sandboxes.insert(key.clone());
+        self.pending_sandboxes_by_profile
+            .entry(profile.clone())
+            .or_default()
+            .insert(key.clone());
+        self.pending_sandbox_profile.insert(key, profile.clone());
+        self.pending_resources.sandboxes.increment(profile);
+    }
+
+    fn remove_pending_sandbox(&mut self, key: &SandboxKey) {
+        self.pending_sandboxes.remove(key);
+        if let Some(profile) = self.pending_sandbox_profile.remove(key) {
+            if let Some(set) = self.pending_sandboxes_by_profile.get_mut(&profile) {
+                set.remove(key);
+                if set.is_empty() {
+                    self.pending_sandboxes_by_profile.remove(&profile);
+                }
+            }
+            self.pending_resources.sandboxes.decrement(&profile);
+        }
+    }
+
+    /// Apply a scheduler update directly, without wrapping in RequestPayload.
+    /// Used by inline mutations in processors to avoid the clone overhead
+    /// of constructing a SchedulerUpdatePayload.
+    pub fn apply_scheduler_update(
+        &mut self,
+        clock: u64,
+        update: &crate::state_store::requests::SchedulerUpdateRequest,
+        _ctx: &str,
+    ) -> Result<HashSet<ExecutorId>> {
+        self.clock = clock;
+        let mut changed_executors = HashSet::new();
+        self.apply_scheduler_update_inner(update, &mut changed_executors);
+        Ok(changed_executors)
+    }
+
+    fn apply_scheduler_update_inner(
+        &mut self,
+        req: &crate::state_store::requests::SchedulerUpdateRequest,
+        changed_executors: &mut HashSet<ExecutorId>,
+    ) {
+        // Track executors with updated allocations for notification
+        for allocation in &req.updated_allocations {
+            changed_executors.insert(allocation.target.executor_id.clone());
+        }
+
+        for (ctx_key, function_call_ids) in &req.updated_function_runs {
+            for function_call_id in function_call_ids {
+                let Some(ctx) = req.updated_request_states.get(ctx_key) else {
+                    error!(
+                        ctx_key = ctx_key,
+                        "request ctx not found for updated function runs"
+                    );
+                    continue;
+                };
+                let Some(function_run) = ctx.function_runs.get(function_call_id) else {
+                    error!(
+                        ctx_key = ctx_key,
+                        fn_call_id = %function_call_id,
+                        "function run not found for updated function runs"
+                    );
+                    continue;
+                };
+
+                let was_pending = self
+                    .unallocated_function_runs
+                    .contains(&function_run.into());
+                let is_pending = function_run.status == FunctionRunStatus::Pending;
+
+                match (was_pending, is_pending) {
+                    (false, true) => {
+                        self.unallocated_function_runs.insert(function_run.into());
+                        if let Some(function) = self.get_function(function_run) {
+                            self.pending_resources
+                                .function_runs
+                                .increment(ResourceProfile::from_function(&function));
+                        } else {
+                            warn!(
+                                function_run_id = %function_run.id,
+                                namespace = %function_run.namespace,
+                                application = %function_run.application,
+                                function = %function_run.name,
+                                "Function not found for pending function run - resource profile not tracked"
+                            );
+                        }
+                    }
+                    (true, false) => {
+                        self.unallocated_function_runs.remove(&function_run.into());
+                        if let Some(function) = self.get_function(function_run) {
+                            self.pending_resources
+                                .function_runs
+                                .decrement(&ResourceProfile::from_function(&function));
+                        } else {
+                            warn!(
+                                function_run_id = %function_run.id,
+                                namespace = %function_run.namespace,
+                                application = %function_run.application,
+                                function = %function_run.name,
+                                "Function not found for completed function run - resource profile not decremented"
+                            );
+                        }
+                    }
+                    (_, true) => {
+                        self.unallocated_function_runs.insert(function_run.into());
+                    }
+                    (_, false) => {
+                        self.unallocated_function_runs.remove(&function_run.into());
+                    }
+                }
+
+                self.function_runs
+                    .insert(function_run.into(), Box::new(function_run.clone()));
+            }
+        }
+
+        {
+            let start_time = Instant::now();
+            for (key, request_ctx) in &req.updated_request_states {
+                if request_ctx.outcome.is_some() {
+                    self.delete_request(
+                        &request_ctx.namespace,
+                        &request_ctx.application_name,
+                        &request_ctx.request_id,
+                    );
+                } else {
+                    self.request_ctx
+                        .insert(key.into(), Box::new(request_ctx.clone()));
+                }
+            }
+            self.metrics
+                .scheduler_update_delete_requests
+                .record(start_time.elapsed().as_secs_f64(), &[]);
+        }
+        {
+            let start_time = Instant::now();
+            for allocation in &req.new_allocations {
+                if let Some(function_run) = self.function_runs.get(&allocation.into()) {
+                    self.allocations_by_executor
+                        .entry(allocation.target.executor_id.clone())
+                        .or_default()
+                        .entry(allocation.target.container_id.clone())
+                        .or_default()
+                        .insert(allocation.id.clone(), Box::new(allocation.clone()));
+
+                    self.metrics.function_run_pending_latency.record(
+                        get_elapsed_time(function_run.creation_time_ns, TimeUnit::Nanoseconds),
+                        &[],
+                    );
+
+                    changed_executors.insert(allocation.target.executor_id.clone());
+                } else {
+                    error!(
+                        namespace = &allocation.namespace,
+                        app = &allocation.application,
+                        "fn" = &allocation.function,
+                        executor_id = allocation.target.executor_id.get(),
+                        allocation_id = %allocation.id,
+                        request_id = &allocation.request_id,
+                        fn_call_id = allocation.function_call_id.to_string(),
+                        "function run not found for new allocation"
+                    );
+                }
+            }
+            self.metrics
+                .scheduler_update_insert_new_allocations
+                .record(start_time.elapsed().as_secs_f64(), &[]);
+        }
+        {
+            let start_time = Instant::now();
+            for executor_id in &req.remove_executors {
+                self.allocations_by_executor.remove(executor_id);
+                changed_executors.insert(executor_id.clone());
+            }
+            self.metrics
+                .scheduler_update_remove_executors
+                .record(start_time.elapsed().as_secs_f64(), &[]);
+        }
+
+        for (sandbox_key, sandbox) in &req.updated_sandboxes {
+            let was_pending = self.pending_sandboxes.contains(sandbox_key);
+            let (old_container_id, old_executor_id) = self
+                .sandboxes
+                .get(sandbox_key)
+                .map(|s| (s.container_id.clone(), s.executor_id.clone()))
+                .unwrap_or((None, None));
+
+            match sandbox.status {
+                SandboxStatus::Pending { ref reason } => {
+                    self.sandboxes
+                        .insert(sandbox_key.clone(), Box::new(sandbox.clone()));
+
+                    let awaiting_alloc =
+                        !matches!(reason, SandboxPendingReason::WaitingForContainer);
+                    if was_pending && !awaiting_alloc {
+                        self.remove_pending_sandbox(sandbox_key);
+                    } else if !was_pending && awaiting_alloc {
+                        self.add_pending_sandbox(
+                            sandbox_key.clone(),
+                            ResourceProfile::from_container_resources(&sandbox.resources),
+                        );
+                    }
+                    if let Some(container_id) = &sandbox.container_id {
+                        self.sandbox_by_container
+                            .insert(container_id.clone(), sandbox_key.clone());
+                    }
+                    if let Some(executor_id) = &sandbox.executor_id {
+                        self.sandboxes_by_executor
+                            .entry(executor_id.clone())
+                            .or_default()
+                            .insert(sandbox_key.clone());
+                    }
+                }
+                SandboxStatus::Running => {
+                    self.sandboxes
+                        .insert(sandbox_key.clone(), Box::new(sandbox.clone()));
+
+                    if was_pending {
+                        self.remove_pending_sandbox(sandbox_key);
+
+                        if let Some(container_id) = &sandbox.container_id {
+                            self.sandbox_by_container
+                                .insert(container_id.clone(), sandbox_key.clone());
+                        }
+                        if let Some(executor_id) = &sandbox.executor_id {
+                            self.sandboxes_by_executor
+                                .entry(executor_id.clone())
+                                .or_default()
+                                .insert(sandbox_key.clone());
+                        }
+                    }
+                }
+                SandboxStatus::Snapshotting { .. } => {
+                    self.sandboxes
+                        .insert(sandbox_key.clone(), Box::new(sandbox.clone()));
+                }
+                SandboxStatus::Terminated => {
+                    if was_pending {
+                        self.remove_pending_sandbox(sandbox_key);
+                    }
+                    if let Some(container_id) = old_container_id {
+                        self.sandbox_by_container.remove(&container_id);
+                    }
+                    if let Some(executor_id) = old_executor_id &&
+                        let Some(sandboxes) = self.sandboxes_by_executor.get_mut(&executor_id)
+                    {
+                        sandboxes.remove(sandbox_key);
+                        if sandboxes.is_empty() {
+                            self.sandboxes_by_executor.remove(&executor_id);
+                        }
+                    }
+                    self.sandboxes.remove(sandbox_key);
+                }
+            }
+        }
+
+        for fc_metadata in req.containers.values() {
+            if matches!(
+                fc_metadata.function_container.state,
+                ContainerState::Pending
+            ) || matches!(fc_metadata.desired_state, ContainerState::Terminated { .. }) ||
+                fc_metadata.function_container.sandbox_id.is_some()
+            {
+                changed_executors.insert(fc_metadata.executor_id.clone());
+            }
+        }
+
+        if let Some(deficits) = &req.function_pool_deficits {
+            self.pending_resources.function_pool_deficits = deficits.clone();
+        }
+        if let Some(deficits) = &req.sandbox_pool_deficits {
+            self.pending_resources.sandbox_pool_deficits = deficits.clone();
+        }
     }
 
     pub fn update_state(
@@ -662,275 +988,7 @@ impl InMemoryState {
                 }
             }
             RequestPayload::SchedulerUpdate(payload) => {
-                let req = &payload.update;
-                // Note: Allocations are removed from allocations_by_executor in two places:
-                // 1. UpsertExecutor handler - when allocation output is ingested
-                // 2. remove_function_executors handling below - when FE is terminated
-                // So we don't need to remove updated_allocations here.
-
-                // Track executors with updated allocations for notification
-                for allocation in &req.updated_allocations {
-                    changed_executors.insert(allocation.target.executor_id.clone());
-                }
-
-                for (ctx_key, function_call_ids) in &req.updated_function_runs {
-                    for function_call_id in function_call_ids {
-                        let Some(ctx) = req.updated_request_states.get(ctx_key) else {
-                            error!(
-                                ctx_key = ctx_key,
-                                "request ctx not found for updated function runs"
-                            );
-                            continue;
-                        };
-                        let Some(function_run) = ctx.function_runs.get(function_call_id) else {
-                            error!(
-                                ctx_key = ctx_key,
-                                fn_call_id = %function_call_id,
-                                "function run not found for updated function runs"
-                            );
-                            continue;
-                        };
-
-                        // Check if the function run was previously pending BEFORE modifying state
-                        let was_pending = self
-                            .unallocated_function_runs
-                            .contains(&function_run.into());
-                        let is_pending = function_run.status == FunctionRunStatus::Pending;
-
-                        // Update pending resources based on state transitions
-                        match (was_pending, is_pending) {
-                            (false, true) => {
-                                self.unallocated_function_runs.insert(function_run.into());
-                                if let Some(function) = self.get_function(function_run) {
-                                    self.pending_resources
-                                        .function_runs
-                                        .increment(ResourceProfile::from_function(&function));
-                                } else {
-                                    warn!(
-                                        function_run_id = %function_run.id,
-                                        namespace = %function_run.namespace,
-                                        application = %function_run.application,
-                                        function = %function_run.name,
-                                        "Function not found for pending function run - resource profile not tracked"
-                                    );
-                                }
-                            }
-                            (true, false) => {
-                                self.unallocated_function_runs.remove(&function_run.into());
-                                if let Some(function) = self.get_function(function_run) {
-                                    self.pending_resources
-                                        .function_runs
-                                        .decrement(&ResourceProfile::from_function(&function));
-                                } else {
-                                    warn!(
-                                        function_run_id = %function_run.id,
-                                        namespace = %function_run.namespace,
-                                        application = %function_run.application,
-                                        function = %function_run.name,
-                                        "Function not found for completed function run - resource profile not decremented"
-                                    );
-                                }
-                            }
-                            (_, true) => {
-                                self.unallocated_function_runs.insert(function_run.into());
-                            }
-                            (_, false) => {
-                                self.unallocated_function_runs.remove(&function_run.into());
-                            }
-                        }
-
-                        self.function_runs
-                            .insert(function_run.into(), Box::new(function_run.clone()));
-                    }
-                }
-
-                {
-                    let start_time = Instant::now();
-                    for (key, request_ctx) in &req.updated_request_states {
-                        // Remove function runs for request ctx if completed
-                        if request_ctx.outcome.is_some() {
-                            self.delete_request(
-                                &request_ctx.namespace,
-                                &request_ctx.application_name,
-                                &request_ctx.request_id,
-                            );
-                        } else {
-                            self.request_ctx
-                                .insert(key.into(), Box::new(request_ctx.clone()));
-                        }
-                    }
-                    // record the time instead of using a timer because we cannot
-                    // borrow the metric as immutable and borrow self as mutable inside the loop.
-                    self.metrics
-                        .scheduler_update_delete_requests
-                        .record(start_time.elapsed().as_secs_f64(), &[]);
-                }
-                {
-                    let start_time = Instant::now();
-                    for allocation in &req.new_allocations {
-                        if let Some(function_run) = self.function_runs.get(&allocation.into()) {
-                            self.allocations_by_executor
-                                .entry(allocation.target.executor_id.clone())
-                                .or_default()
-                                .entry(allocation.target.container_id.clone())
-                                .or_default()
-                                .insert(allocation.id.clone(), Box::new(allocation.clone()));
-
-                            // Record metrics
-                            self.metrics.function_run_pending_latency.record(
-                                get_elapsed_time(
-                                    function_run.creation_time_ns,
-                                    TimeUnit::Nanoseconds,
-                                ),
-                                &[],
-                            );
-
-                            // Executor has a new allocation
-                            changed_executors.insert(allocation.target.executor_id.clone());
-                        } else {
-                            error!(
-                                namespace = &allocation.namespace,
-                                app = &allocation.application,
-                                "fn" = &allocation.function,
-                                executor_id = allocation.target.executor_id.get(),
-                                allocation_id = %allocation.id,
-                                request_id = &allocation.request_id,
-                                fn_call_id = allocation.function_call_id.to_string(),
-                                "function run not found for new allocation"
-                            );
-                        }
-                    }
-                    // record the time instead of using a timer because we cannot
-                    // borrow the metric as immutable and borrow self as mutable inside the loop.
-                    self.metrics
-                        .scheduler_update_insert_new_allocations
-                        .record(start_time.elapsed().as_secs_f64(), &[]);
-                }
-                {
-                    let start_time = Instant::now();
-                    for executor_id in &req.remove_executors {
-                        self.allocations_by_executor.remove(executor_id);
-                        changed_executors.insert(executor_id.clone());
-                    }
-                    // record the time instead of using a timer because we cannot
-                    // borrow the metric as immutable and borrow self as mutable inside the loop.
-                    self.metrics
-                        .scheduler_update_remove_executors
-                        .record(start_time.elapsed().as_secs_f64(), &[]);
-                }
-
-                for (sandbox_key, sandbox) in &req.updated_sandboxes {
-                    let was_pending = self.pending_sandboxes.contains(sandbox_key);
-                    // Get old state before updating (for index cleanup)
-                    let (old_container_id, old_executor_id) = self
-                        .sandboxes
-                        .get(sandbox_key)
-                        .map(|s| (s.container_id.clone(), s.executor_id.clone()))
-                        .unwrap_or((None, None));
-
-                    match sandbox.status {
-                        SandboxStatus::Pending { .. } => {
-                            self.sandboxes
-                                .insert(sandbox_key.clone(), Box::new(sandbox.clone()));
-                            if !was_pending {
-                                self.pending_sandboxes.insert(sandbox_key.clone());
-                                // Track pending resources
-                                self.pending_resources.sandboxes.increment(
-                                    ResourceProfile::from_container_resources(&sandbox.resources),
-                                );
-                            }
-                            // Populate reverse indices for Pending sandboxes that
-                            // have an allocated container (WaitingForContainer)
-                            if let Some(container_id) = &sandbox.container_id {
-                                self.sandbox_by_container
-                                    .insert(container_id.clone(), sandbox_key.clone());
-                            }
-                            if let Some(executor_id) = &sandbox.executor_id {
-                                self.sandboxes_by_executor
-                                    .entry(executor_id.clone())
-                                    .or_default()
-                                    .insert(sandbox_key.clone());
-                            }
-                        }
-                        SandboxStatus::Running => {
-                            self.sandboxes
-                                .insert(sandbox_key.clone(), Box::new(sandbox.clone()));
-
-                            if was_pending {
-                                // Pending → Running transition: remove from pending and add to
-                                // indices
-                                self.pending_sandboxes.remove(sandbox_key);
-                                self.pending_resources.sandboxes.decrement(
-                                    &ResourceProfile::from_container_resources(&sandbox.resources),
-                                );
-
-                                // Add to reverse indices
-                                if let Some(container_id) = &sandbox.container_id {
-                                    self.sandbox_by_container
-                                        .insert(container_id.clone(), sandbox_key.clone());
-                                }
-                                if let Some(executor_id) = &sandbox.executor_id {
-                                    self.sandboxes_by_executor
-                                        .entry(executor_id.clone())
-                                        .or_default()
-                                        .insert(sandbox_key.clone());
-                                }
-                            }
-                        }
-                        SandboxStatus::Snapshotting { .. } => {
-                            // Snapshotting: sandbox is still "live" (indices unchanged),
-                            // just update the status in place.
-                            self.sandboxes
-                                .insert(sandbox_key.clone(), Box::new(sandbox.clone()));
-                        }
-                        SandboxStatus::Terminated => {
-                            if was_pending {
-                                self.pending_resources.sandboxes.decrement(
-                                    &ResourceProfile::from_container_resources(&sandbox.resources),
-                                );
-                            }
-                            // Remove from reverse index: container_id
-                            if let Some(container_id) = old_container_id {
-                                self.sandbox_by_container.remove(&container_id);
-                            }
-                            // Remove from reverse index: executor_id
-                            if let Some(executor_id) = old_executor_id &&
-                                let Some(sandboxes) =
-                                    self.sandboxes_by_executor.get_mut(&executor_id)
-                            {
-                                sandboxes.remove(sandbox_key);
-                                if sandboxes.is_empty() {
-                                    self.sandboxes_by_executor.remove(&executor_id);
-                                }
-                            }
-                            self.sandboxes.remove(sandbox_key);
-                            self.pending_sandboxes.remove(sandbox_key);
-                        }
-                    }
-                }
-
-                for fc_metadata in req.containers.values() {
-                    // Notify executor when:
-                    // 1. Container is Pending (new container being created)
-                    // 2. Container desired_state is Terminated (container needs to be stopped)
-                    // 3. Container has a sandbox_id (claimed by a sandbox)
-                    if matches!(
-                        fc_metadata.function_container.state,
-                        ContainerState::Pending
-                    ) || matches!(fc_metadata.desired_state, ContainerState::Terminated { .. }) ||
-                        fc_metadata.function_container.sandbox_id.is_some()
-                    {
-                        changed_executors.insert(fc_metadata.executor_id.clone());
-                    }
-                }
-
-                // Update pool deficits if provided by buffer reconciler
-                if let Some(deficits) = &req.function_pool_deficits {
-                    self.pending_resources.function_pool_deficits = deficits.clone();
-                }
-                if let Some(deficits) = &req.sandbox_pool_deficits {
-                    self.pending_resources.sandbox_pool_deficits = deficits.clone();
-                }
+                self.apply_scheduler_update_inner(&payload.update, &mut changed_executors);
             }
             RequestPayload::UpsertExecutor(req) => {
                 for allocation_output in &req.allocation_outputs {
@@ -1012,8 +1070,8 @@ impl InMemoryState {
                 self.sandboxes
                     .insert(sandbox_key.clone(), Box::new(req.sandbox.clone()));
                 if req.sandbox.status.is_pending() {
-                    self.pending_sandboxes.insert(sandbox_key);
-                    self.pending_resources.sandboxes.increment(
+                    self.add_pending_sandbox(
+                        sandbox_key,
                         ResourceProfile::from_container_resources(&req.sandbox.resources),
                     );
                 }
@@ -1056,19 +1114,22 @@ impl InMemoryState {
 
                     // Terminate the sandbox
                     let sandbox_key = SandboxKey::new(&ns, sb_id.get());
-                    if let Some(sandbox) = self.sandboxes.get(&sandbox_key) {
-                        let was_pending = sandbox.status.is_pending();
-
+                    // Extract data we need before taking &mut self
+                    let sandbox_info = self.sandboxes.get(&sandbox_key).map(|sandbox| {
+                        (
+                            sandbox.status.is_pending(),
+                            sandbox.container_id.clone(),
+                            sandbox.executor_id.clone(),
+                        )
+                    });
+                    if let Some((was_pending, container_id, executor_id)) = sandbox_info {
                         if was_pending {
-                            self.pending_sandboxes.remove(&sandbox_key);
-                            self.pending_resources.sandboxes.decrement(
-                                &ResourceProfile::from_container_resources(&sandbox.resources),
-                            );
+                            self.remove_pending_sandbox(&sandbox_key);
                         }
-                        if let Some(container_id) = &sandbox.container_id {
+                        if let Some(container_id) = &container_id {
                             self.sandbox_by_container.remove(container_id);
                         }
-                        if let Some(executor_id) = &sandbox.executor_id &&
+                        if let Some(executor_id) = &executor_id &&
                             let Some(set) = self.sandboxes_by_executor.get_mut(executor_id)
                         {
                             set.remove(&sandbox_key);
@@ -1170,45 +1231,15 @@ impl InMemoryState {
         self.delete_function_runs(function_runs_to_remove);
     }
 
-    pub fn unallocated_function_runs(&self) -> Vec<FunctionRun> {
-        let unallocated_function_run_keys = self
-            .unallocated_function_runs
-            .iter()
-            .cloned()
-            .collect::<Vec<_>>();
-        let mut function_runs = Vec::new();
-        for function_run_key in unallocated_function_run_keys {
-            if let Some(function_run) = self.function_runs.get(&function_run_key) {
-                function_runs.push(*function_run.clone());
-            } else {
-                error!(
-                    function_run_key = function_run_key.0,
-                    "function run not found for unallocated function run"
-                );
-            }
-        }
-        function_runs
-    }
-
-    pub fn clone(&self) -> Arc<tokio::sync::RwLock<Self>> {
-        Arc::new(tokio::sync::RwLock::new(InMemoryState {
-            clock: self.clock,
-            namespaces: self.namespaces.clone(),
-            applications: self.applications.clone(),
-            application_versions: self.application_versions.clone(),
-            request_ctx: self.request_ctx.clone(),
-            allocations_by_executor: self.allocations_by_executor.clone(),
-            executor_catalog: self.executor_catalog.clone(),
-            metrics: self.metrics.clone(),
-            function_runs: self.function_runs.clone(),
-            unallocated_function_runs: self.unallocated_function_runs.clone(),
-            sandboxes: self.sandboxes.clone(),
-            sandbox_by_container: self.sandbox_by_container.clone(),
-            sandboxes_by_executor: self.sandboxes_by_executor.clone(),
-            pending_sandboxes: self.pending_sandboxes.clone(),
-            snapshots: self.snapshots.clone(),
-            pending_resources: self.pending_resources.clone(),
-        }))
+    /// Resolve function run keys to FunctionRun objects, filtering to
+    /// only pending runs. Used by BlockedWorkTracker to convert unblocked
+    /// keys back to allocatable items.
+    pub fn resolve_pending_function_runs(&self, keys: &[FunctionRunKey]) -> Vec<FunctionRun> {
+        keys.iter()
+            .filter_map(|key| self.function_runs.get(key))
+            .filter(|fr| fr.status == FunctionRunStatus::Pending)
+            .map(|fr| *fr.clone())
+            .collect()
     }
 
     pub fn get_pending_resources(&self) -> &PendingResources {
@@ -1325,6 +1356,8 @@ mod test_helpers {
                 sandbox_by_container: imbl::HashMap::new(),
                 sandboxes_by_executor: imbl::HashMap::new(),
                 pending_sandboxes: imbl::OrdSet::new(),
+                pending_sandboxes_by_profile: imbl::OrdMap::new(),
+                pending_sandbox_profile: imbl::HashMap::new(),
                 snapshots: imbl::OrdMap::new(),
                 pending_resources: PendingResources::default(),
             }

@@ -663,7 +663,10 @@ impl Application {
                 return Ok(());
             }
             for entry in executor_catalog.entries.iter() {
-                if node.placement_constraints.matches(&entry.labels) {
+                if node
+                    .placement_constraints
+                    .matches(&entry.labels.clone().into())
+                {
                     met_placement_constraints = true;
                 }
 
@@ -1858,7 +1861,7 @@ impl From<&ContainerTerminationReason> for FunctionRunFailureReason {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct FunctionAllowlist {
     pub namespace: Option<String>,
     pub application: Option<String>,
@@ -2033,9 +2036,9 @@ impl Container {
 #[derive(Debug, Clone, Builder)]
 pub struct ExecutorServerMetadata {
     pub executor_id: ExecutorId,
-    pub function_container_ids: HashSet<ContainerId>,
+    pub function_container_ids: imbl::HashSet<ContainerId>,
     pub free_resources: HostResources,
-    pub resource_claims: HashMap<ContainerId, ContainerResources>,
+    pub resource_claims: imbl::HashMap<ContainerId, ContainerResources>,
 }
 
 impl ExecutorServerMetadata {
@@ -2105,7 +2108,7 @@ pub struct ContainerServerMetadata {
     pub container_type: ContainerType,
     #[builder(default)]
     #[serde(default)]
-    pub allocations: HashSet<AllocationId>,
+    pub allocations: imbl::HashSet<AllocationId>,
     /// When the container last became idle (no allocations).
     /// - `Some(instant)` = container is idle since this time
     /// - `None` = container is currently busy (has allocations)
@@ -2142,7 +2145,7 @@ impl ContainerServerMetadata {
             function_container: function_executor,
             desired_state,
             container_type,
-            allocations: HashSet::new(),
+            allocations: imbl::HashSet::new(),
             idle_since: Some(tokio::time::Instant::now()),
         }
     }
@@ -2164,8 +2167,8 @@ pub struct ExecutorMetadata {
     pub executor_version: String,
     pub function_allowlist: Option<Vec<FunctionAllowlist>>,
     pub addr: String,
-    pub labels: HashMap<String, String>,
-    pub containers: HashMap<ContainerId, Container>,
+    pub labels: imbl::HashMap<String, String>,
+    pub containers: imbl::HashMap<ContainerId, Container>,
     pub host_resources: HostResources,
     pub state: ExecutorState,
     #[builder(default)]
@@ -2780,6 +2783,16 @@ impl SandboxKey {
 
     pub fn from_sandbox(sandbox: &Sandbox) -> Self {
         Self::new(&sandbox.namespace, sandbox.id.get())
+    }
+
+    /// Extract the namespace portion of the key (before the `|` separator).
+    pub fn namespace(&self) -> &str {
+        self.0.split('|').next().unwrap_or("")
+    }
+
+    /// Extract the sandbox_id portion of the key (after the `|` separator).
+    pub fn sandbox_id(&self) -> &str {
+        self.0.split('|').nth(1).unwrap_or("")
     }
 }
 
@@ -3870,9 +3883,10 @@ mod tests {
             function: Some("fn".to_string()),
         }]);
         let addr = "127.0.0.1:8080".to_string();
-        let labels = HashMap::from([("role".to_string(), "worker".to_string())]);
+        let labels =
+            imbl::HashMap::from(HashMap::from([("role".to_string(), "worker".to_string())]));
         let fe_id = ContainerId::from("fe-1");
-        let function_executors = HashMap::from([(
+        let function_executors = imbl::HashMap::from(HashMap::from([(
             fe_id.clone(),
             ContainerBuilder::default()
                 .id(fe_id.clone())
@@ -3891,7 +3905,7 @@ mod tests {
                 .pool_id(Some(ContainerPoolId::for_function("graph", "fn", "1")))
                 .build()
                 .expect("Should build FunctionExecutor"),
-        )]);
+        )]));
         let host_resources = HostResources {
             cpu_ms_per_sec: 4000,
             memory_bytes: 8 * 1024 * 1024 * 1024,

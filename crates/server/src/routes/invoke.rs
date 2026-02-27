@@ -324,8 +324,7 @@ pub async fn invoke_application_with_object_v1(
     let app_version = state
         .indexify_state
         .in_memory_state
-        .read()
-        .await
+        .load()
         .application_version(&namespace, &application.name, &application.version)
         .cloned()
         .ok_or(IndexifyAPIError::not_found(

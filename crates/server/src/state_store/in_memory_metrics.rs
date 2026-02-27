@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
+use arc_swap::ArcSwap;
 use opentelemetry::metrics::{Histogram, ObservableGauge};
-use tokio::sync::RwLock;
 
 use crate::{metrics::low_latency_boundaries, state_store::in_memory_state::InMemoryState};
 
@@ -81,16 +81,15 @@ pub struct InMemoryStoreGauges {
 }
 
 impl InMemoryStoreGauges {
-    pub fn new(in_memory_state: Arc<RwLock<InMemoryState>>) -> Self {
+    pub fn new(in_memory_state: Arc<ArcSwap<InMemoryState>>) -> Self {
         let meter = opentelemetry::global::meter("state_store");
         let state_clone = in_memory_state.clone();
         let active_requests = meter
             .u64_observable_gauge("indexify.active_requests")
             .with_description("Number of active requests")
             .with_callback(move |observer| {
-                if let Ok(state) = state_clone.try_read() {
-                    observer.observe(state.request_ctx.len() as u64, &[]);
-                }
+                let state = state_clone.load();
+                observer.observe(state.request_ctx.len() as u64, &[]);
             })
             .build();
         let state_clone = in_memory_state.clone();
@@ -98,13 +97,12 @@ impl InMemoryStoreGauges {
             .u64_observable_gauge("indexify.active_allocations")
             .with_description("Number of active allocations")
             .with_callback(move |observer| {
-                if let Ok(state) = state_clone.try_read() {
-                    let total_allocations = state
-                        .allocations_by_executor
-                        .iter()
-                        .fold(0, |acc, (_, allocations)| acc + allocations.len());
-                    observer.observe(total_allocations as u64, &[]);
-                }
+                let state = state_clone.load();
+                let total_allocations = state
+                    .allocations_by_executor
+                    .iter()
+                    .fold(0, |acc, (_, allocations)| acc + allocations.len());
+                observer.observe(total_allocations as u64, &[]);
             })
             .build();
         let state_clone = in_memory_state.clone();
@@ -112,9 +110,8 @@ impl InMemoryStoreGauges {
             .u64_observable_gauge("indexify.unallocated_function_runs")
             .with_description("Number of unallocated function runs")
             .with_callback(move |observer| {
-                if let Ok(state) = state_clone.try_read() {
-                    observer.observe(state.unallocated_function_runs.len() as u64, &[]);
-                }
+                let state = state_clone.load();
+                observer.observe(state.unallocated_function_runs.len() as u64, &[]);
             })
             .build();
         let state_clone = in_memory_state.clone();
@@ -122,9 +119,8 @@ impl InMemoryStoreGauges {
             .u64_observable_gauge("indexify.active_function_runs")
             .with_description("Number of active function runs")
             .with_callback(move |observer| {
-                if let Ok(state) = state_clone.try_read() {
-                    observer.observe(state.function_runs.len() as u64, &[]);
-                }
+                let state = state_clone.load();
+                observer.observe(state.function_runs.len() as u64, &[]);
             })
             .build();
         Self {

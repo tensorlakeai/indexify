@@ -9,6 +9,7 @@ use std::{
 };
 
 use anyhow::{Result, anyhow};
+use arc_swap::ArcSwap;
 use in_memory_state::InMemoryState;
 use opentelemetry::KeyValue;
 use request_events::{PersistedRequestStateChangeEvent, RequestStateChangeEvent};
@@ -283,8 +284,12 @@ pub struct IndexifyState {
     pub usage_events_rx: watch::Receiver<()>,
 
     pub metrics: Arc<StateStoreMetrics>,
-    pub in_memory_state: Arc<RwLock<in_memory_state::InMemoryState>>,
-    pub container_scheduler: Arc<RwLock<ContainerScheduler>>,
+    pub in_memory_state: Arc<ArcSwap<in_memory_state::InMemoryState>>,
+    pub container_scheduler: Arc<ArcSwap<ContainerScheduler>>,
+    /// Serializes writers to in_memory_state and container_scheduler.
+    /// ArcSwap provides lock-free reads but concurrent fork-mutate-publish
+    /// cycles need serialization to prevent lost updates.
+    write_mutex: tokio::sync::Mutex<()>,
     /// Per-executor connection state for event-driven command generation.
     /// `write()` pushes typed events; a background task consumes them and
     /// buffers commands/results for long-poll delivery.
@@ -369,11 +374,11 @@ impl IndexifyState {
         )
         .await?;
 
-        let container_scheduler = Arc::new(RwLock::new(
-            ContainerScheduler::new(in_memory_state.clock, &state_reader).await?,
+        let container_scheduler = Arc::new(ArcSwap::from_pointee(
+            ContainerScheduler::new(&state_reader).await?,
         ));
         let container_scheduler_gauges = ContainerSchedulerGauges::new(container_scheduler.clone());
-        let indexes = Arc::new(RwLock::new(in_memory_state));
+        let indexes = Arc::new(ArcSwap::from_pointee(in_memory_state));
         let in_memory_store_gauges = InMemoryStoreGauges::new(indexes.clone());
 
         let s = Arc::new(Self {
@@ -392,6 +397,7 @@ impl IndexifyState {
             usage_events_rx,
             executor_connections: RwLock::new(HashMap::new()),
             request_event_buffers,
+            write_mutex: tokio::sync::Mutex::new(()),
             _in_memory_store_gauges: in_memory_store_gauges,
             _container_scheduler_gauges: container_scheduler_gauges,
         });
@@ -427,27 +433,34 @@ impl IndexifyState {
         let timer_kv = &[KeyValue::new("request", request.payload.to_string())];
         let _timer = Timer::start_with_labels(&self.metrics.state_write, timer_kv);
 
+        // Serialize writers — prevents concurrent fork-mutate-publish races.
+        let _write_guard = self.write_mutex.lock().await;
+
         let write_result = self
             .write_in_persistent_store(&mut request, timer_kv)
             .await?;
 
+        // Fork InMemoryState (O(1) via imbl structural sharing), mutate, publish.
         let mut changed_executors = {
             let _timer = Timer::start_with_labels(&self.metrics.state_write_in_memory, timer_kv);
-            self.in_memory_state
-                .write()
-                .await
+            let current = self.in_memory_state.load_full();
+            let mut next = (*current).clone();
+            let changed = next
                 .update_state(
                     write_result.current_state_id,
                     &request.payload,
                     "state_store",
                 )
-                .map_err(|e| anyhow!("error updating in memory state: {e:?}"))?
+                .map_err(|e| anyhow!("error updating in memory state: {e:?}"))?;
+            self.in_memory_state.store(Arc::new(next));
+            changed
         };
+
         // Snapshot pre-existing containers before updating the scheduler,
         // so we can distinguish new containers from updates in event emission.
         let pre_existing_containers: HashSet<ContainerId> =
             if let RequestPayload::SchedulerUpdate(payload) = &request.payload {
-                let cs = self.container_scheduler.read().await;
+                let cs = self.container_scheduler.load();
                 payload
                     .update
                     .containers
@@ -459,14 +472,15 @@ impl IndexifyState {
                 HashSet::new()
             };
 
+        // Fork ContainerScheduler, mutate, publish.
         {
             let _timer =
                 Timer::start_with_labels(&self.metrics.state_write_container_scheduler, timer_kv);
-            self.container_scheduler
-                .write()
-                .await
-                .update(&request.payload)
+            let current = self.container_scheduler.load_full();
+            let mut next = (*current).clone();
+            next.update(&request.payload)
                 .map_err(|e| anyhow!("error updating container scheduler: {e:?}"))?;
+            self.container_scheduler.store(Arc::new(next));
         }
 
         // --- Event-driven emission + legacy watch notification ---
@@ -524,7 +538,7 @@ impl IndexifyState {
         // When a snapshot is requested, send a SnapshotContainer event to the
         // executor hosting the sandbox's container.
         if let RequestPayload::SnapshotSandbox(req) = &request.payload {
-            let in_memory = self.in_memory_state.read().await;
+            let in_memory = self.in_memory_state.load();
             let sandbox_key =
                 SandboxKey::new(&req.snapshot.namespace, req.snapshot.sandbox_id.get());
             if let Some(sandbox) = in_memory.sandboxes.get(&sandbox_key) &&
@@ -549,7 +563,7 @@ impl IndexifyState {
         // containers immediately rather than waiting for the next poll cycle.
         if let RequestPayload::DeleteContainerPool((delete_req, _)) = &request.payload {
             let pool_key = ContainerPoolKey::new(&delete_req.namespace, &delete_req.pool_id);
-            let container_scheduler = self.container_scheduler.read().await;
+            let container_scheduler = self.container_scheduler.load();
             for (_, meta) in container_scheduler.function_containers.iter() {
                 if meta.function_container.belongs_to_pool(&pool_key) {
                     changed_executors.insert(meta.executor_id.clone());
@@ -560,7 +574,7 @@ impl IndexifyState {
         // Notify executors when an application is deleted so they terminate
         // containers immediately rather than waiting for the stream to reconnect.
         if let RequestPayload::DeleteApplicationRequest((delete_req, _)) = &request.payload {
-            let container_scheduler = self.container_scheduler.read().await;
+            let container_scheduler = self.container_scheduler.load();
             for (_, meta) in container_scheduler.function_containers.iter() {
                 if meta.function_container.namespace == delete_req.namespace &&
                     meta.function_container.application_name == delete_req.name
@@ -758,7 +772,7 @@ impl IndexifyState {
             RequestPayload::CompleteSnapshot(request) => {
                 // Find the snapshot by ID. Try in-memory first, fall back to DB
                 // scan to handle cases where in-memory state is stale.
-                let in_memory = self.in_memory_state.read().await;
+                let in_memory = self.in_memory_state.load();
                 let snapshot_opt = in_memory
                     .snapshots
                     .values()
@@ -786,7 +800,7 @@ impl IndexifyState {
 
                     // Terminate the sandbox
                     let sb_key = SandboxKey::new(&snapshot.namespace, snapshot.sandbox_id.get());
-                    let in_memory = self.in_memory_state.read().await;
+                    let in_memory = self.in_memory_state.load();
                     if let Some(mut sandbox) = in_memory.sandboxes.get(&sb_key).cloned() {
                         sandbox.status = SandboxStatus::Terminated;
                         state_machine::upsert_sandbox(&txn, &sandbox, current_clock).await?;
@@ -802,7 +816,7 @@ impl IndexifyState {
             RequestPayload::FailSnapshot(request) => {
                 // Find the snapshot by ID. Try in-memory first, fall back to DB
                 // scan to handle cases where in-memory state is stale.
-                let in_memory = self.in_memory_state.read().await;
+                let in_memory = self.in_memory_state.load();
                 let snapshot_opt = in_memory
                     .snapshots
                     .values()
@@ -830,7 +844,7 @@ impl IndexifyState {
 
                     // Revert sandbox to Running
                     let sb_key = SandboxKey::new(&snapshot.namespace, snapshot.sandbox_id.get());
-                    let in_memory = self.in_memory_state.read().await;
+                    let in_memory = self.in_memory_state.load();
                     if let Some(mut sandbox) = in_memory.sandboxes.get(&sb_key).cloned() {
                         sandbox.status = SandboxStatus::Running;
                         state_machine::upsert_sandbox(&txn, &sandbox, current_clock).await?;

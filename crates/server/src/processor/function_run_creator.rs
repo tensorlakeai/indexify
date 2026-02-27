@@ -578,7 +578,7 @@ fn propagate_output_to_consumers(
                     scheduler_update
                         .updated_function_runs
                         .entry(request_ctx_key.clone())
-                        .or_insert(HashSet::new())
+                        .or_insert(imbl::HashSet::new())
                         .insert(fn_run.id.clone());
                     // 4. Now that this function run has an output, figure out which
                     // function run this function run is linked to

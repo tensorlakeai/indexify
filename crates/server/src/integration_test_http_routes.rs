@@ -492,22 +492,18 @@ mod tests {
             "Executor with non-terminated containers should NOT be ready for teardown"
         );
 
-        // --- Phase 2: advance time, run vacuum → container terminated → ready ---
+        // --- Phase 2: run reaper → container terminated → ready ---
 
-        // Advance time past the vacuum idle threshold
-        let max_idle_age = std::time::Duration::from_secs(300);
-        tokio::time::advance(std::time::Duration::from_secs(600)).await;
-
-        // Run periodic vacuum on the container scheduler
+        // Reap idle containers (eager — no age threshold)
         let scheduler_update = {
-            let container_scheduler = indexify_state.container_scheduler.read().await.clone();
-            let mut guard = container_scheduler.write().await;
-            guard.periodic_vacuum(max_idle_age).unwrap()
+            let current = indexify_state.container_scheduler.load_full();
+            let mut guard = (*current).clone();
+            guard.reap_idle_containers(std::time::Duration::ZERO)
         };
 
         assert!(
             !scheduler_update.containers.is_empty(),
-            "vacuum should have terminated the idle container"
+            "reaper should have terminated the idle container"
         );
 
         // Persist the vacuum update (mirrors handle_cluster_vacuum)

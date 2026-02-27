@@ -160,6 +160,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "arc-swap"
+version = "1.8.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f9f3647c145568cec02c42054e07bdf9a5a698e15b466fb2341bfc393cd24aa5"
+dependencies = [
+ "rustversion",
+]
+
+[[package]]
 name = "archery"
 version = "1.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2551,6 +2560,7 @@ dependencies = [
  "imbl-sized-chunks",
  "rand_core 0.9.5",
  "rand_xoshiro",
+ "serde_core",
  "version_check",
  "wide",
 ]
@@ -2674,6 +2684,7 @@ name = "indexify-server"
 version = "0.3.15"
 dependencies = [
  "anyhow",
+ "arc-swap",
  "async-broadcast",
  "async-stream",
  "async-trait",

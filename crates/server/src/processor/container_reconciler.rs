@@ -184,17 +184,26 @@ impl ContainerReconciler {
             containers_adopted = true;
         }
 
-        // Update executor metadata once after adopting all containers
+        // Update executor metadata and apply adoption data so the sync loop
+        // below can find adopted containers in function_containers.
         if containers_adopted {
             update.updated_executor_states.insert(
                 executor_server_metadata.executor_id.clone(),
                 executor_server_metadata.clone(),
             );
-        }
 
-        container_scheduler.update(&RequestPayload::SchedulerUpdate(
-            SchedulerUpdatePayload::new(update.clone()),
-        ))?;
+            // Apply only the adoption subset (containers + executor states) so
+            // the sync loop can look up adopted containers. The full update
+            // (including sync/promote/remove data) is applied in the final write.
+            let adoption_update = SchedulerUpdateRequest {
+                containers: update.containers.clone(),
+                updated_executor_states: update.updated_executor_states.clone(),
+                ..Default::default()
+            };
+            container_scheduler.update(&RequestPayload::SchedulerUpdate(
+                SchedulerUpdatePayload::new(adoption_update),
+            ))?;
+        }
 
         for (executor_c_id, executor_c) in &executor.containers {
             // If the Executor FE is also in the server's tracked FE lets sync them.
@@ -233,9 +242,6 @@ impl ContainerReconciler {
                 update.extend(promote_update);
             }
         }
-        container_scheduler.update(&RequestPayload::SchedulerUpdate(
-            SchedulerUpdatePayload::new(update.clone()),
-        ))?;
 
         // Add container removals to main update
         update.extend(self.remove_function_containers(
@@ -789,7 +795,11 @@ impl ContainerReconciler {
                 terminated_fc.function_container.state = terminated_state.clone();
 
                 let container_term_update = SchedulerUpdateRequest {
-                    containers: [(container_id.clone(), Box::new(terminated_fc.clone()))].into(),
+                    containers: std::iter::once((
+                        container_id.clone(),
+                        Box::new(terminated_fc.clone()),
+                    ))
+                    .collect(),
                     ..Default::default()
                 };
                 scheduler_update.extend(container_term_update.clone());
@@ -935,9 +945,9 @@ impl ContainerReconciler {
             );
             let executor_server_metadata = ExecutorServerMetadata {
                 executor_id: executor_id.clone(),
-                function_container_ids: std::collections::HashSet::new(),
+                function_container_ids: imbl::HashSet::new(),
                 free_resources: executor.host_resources.clone(),
-                resource_claims: std::collections::HashMap::new(),
+                resource_claims: imbl::HashMap::new(),
             };
             update
                 .updated_executor_states
