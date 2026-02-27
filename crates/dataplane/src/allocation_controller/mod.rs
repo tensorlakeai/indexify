@@ -30,7 +30,7 @@ use tracing::{info, warn};
 
 use self::{
     events::{ACCommand, ACEvent},
-    types::{AllocLogCtx, AllocationState, ContainerState, ManagedAllocation, ManagedFE},
+    types::{AllocLogCtx, AllocationState, ContainerState, FELogCtx, ManagedAllocation, ManagedFE},
 };
 use crate::{
     allocation_result_dispatcher::AllocationResultDispatcher,
@@ -444,6 +444,7 @@ impl AllocationController {
         };
 
         let handle_id = handle.id.clone();
+        let recovery_ctx = FELogCtx::from_description(&managed.description);
         info!(
             container_id = %fe_id,
             sandbox_id = %ctx.sandbox_id,
@@ -451,6 +452,9 @@ impl AllocationController {
             handle_id = %handle_id,
             daemon_addr = %entry.daemon_addr,
             max_concurrency = max_concurrency,
+            namespace = %recovery_ctx.namespace,
+            app = %recovery_ctx.app,
+            "fn" = %recovery_ctx.fn_name,
             "Recovered AC container from state file"
         );
 
@@ -518,18 +522,17 @@ impl AllocationController {
         };
 
         if !alloc_ids.is_empty() {
-            let ctx = self
+            let fe_ctx = self
                 .containers
                 .get(fe_id)
-                .map(|fe| types::FELogCtx::from_description(&fe.description));
-            let (sandbox_id, pool_id) = ctx
-                .as_ref()
-                .map(|c| (c.sandbox_id.as_str(), c.pool_id.as_str()))
-                .unwrap_or(("", ""));
+                .map(|fe| FELogCtx::from_description(&fe.description));
             warn!(
                 container_id = %fe_id,
-                sandbox_id = %sandbox_id,
-                pool_id = %pool_id,
+                namespace = %fe_ctx.as_ref().map(|c| c.namespace.as_str()).unwrap_or(""),
+                app = %fe_ctx.as_ref().map(|c| c.app.as_str()).unwrap_or(""),
+                "fn" = %fe_ctx.as_ref().map(|c| c.fn_name.as_str()).unwrap_or(""),
+                sandbox_id = %fe_ctx.as_ref().map(|c| c.sandbox_id.as_str()).unwrap_or(""),
+                pool_id = %fe_ctx.as_ref().map(|c| c.pool_id.as_str()).unwrap_or(""),
                 reason = ?reason,
                 non_running_reason = ?non_running_reason,
                 count = alloc_ids.len(),
@@ -573,7 +576,7 @@ impl AllocationController {
                     namespace = %lctx.namespace,
                     app = %lctx.app,
                     version = %lctx.version,
-                    fn_name = %lctx.fn_name,
+                    "fn" = %lctx.fn_name,
                     allocation_id = %alloc_id,
                     request_id = %lctx.request_id,
                     container_id = %fe_id,
@@ -614,7 +617,11 @@ impl AllocationController {
                 );
                 proto_convert::record_outcome_metrics(&outcome, &self.config.metrics.counters);
                 if self.config.outcome_tx.send(outcome).is_err() {
-                    tracing::warn!("outcome_tx channel closed, allocation outcome lost");
+                    tracing::warn!(
+                        allocation_id = %alloc_id,
+                        container_id = %fe_id,
+                        "outcome_tx channel closed, allocation outcome lost"
+                    );
                 }
                 alloc.state = AllocationState::Done;
             } else {

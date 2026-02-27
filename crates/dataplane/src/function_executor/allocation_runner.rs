@@ -237,17 +237,19 @@ impl AllocationRunner {
 
     /// Top-level execution flow: create allocation on FE, open stream, run
     /// reconciliation loop, convert result.
-    #[tracing::instrument(skip_all, fields(allocation_id = %self.allocation_id, executor_id = %self.ctx.executor_id, request_id = ?self.allocation.request_id, function_call_id = ?self.allocation.function_call_id))]
+    #[tracing::instrument(skip_all, fields(
+        allocation_id = %self.allocation_id,
+        executor_id = %self.ctx.executor_id,
+        request_id = %self.allocation.request_id.as_deref().unwrap_or(""),
+        function_call_id = %self.allocation.function_call_id.as_deref().unwrap_or(""),
+        namespace = %self.allocation.function.as_ref().and_then(|f| f.namespace.as_deref()).unwrap_or(""),
+        app = %self.allocation.function.as_ref().and_then(|f| f.application_name.as_deref()).unwrap_or(""),
+        container_id = %self.ctx.process_handle.id,
+    ))]
     async fn run(&mut self, prepared: PreparedAllocation) -> AllocationOutcome {
         let start_time = Instant::now();
 
-        let func_ref = self.allocation.function.as_ref();
-        info!(
-            namespace = ?func_ref.and_then(|f| f.namespace.as_deref()),
-            app = ?func_ref.and_then(|f| f.application_name.as_deref()),
-            "fn" = ?func_ref.and_then(|f| f.function_name.as_deref()),
-            "Starting allocation execution"
-        );
+        info!("Starting allocation execution");
 
         // Register with the dispatcher to receive FunctionCallResults from the
         // allocation stream.
@@ -340,9 +342,6 @@ impl AllocationRunner {
             if Instant::now() > deadline {
                 if self.should_timeout() {
                     warn!(
-                        allocation_id = %self.allocation_id,
-                        request_id = ?self.allocation.request_id,
-                        function_call_id = ?self.allocation.function_call_id,
                         timeout_secs = self.timeout.as_secs(),
                         "Allocation timed out"
                     );
@@ -397,7 +396,6 @@ impl AllocationRunner {
                                     );
                                 } else {
                                     info!(
-                                        allocation_id = %self.allocation_id,
                                         outcome = ?result.outcome_code,
                                         "Allocation completed"
                                     );
@@ -444,9 +442,6 @@ impl AllocationRunner {
                         Err(_) => {
                             if self.should_timeout() {
                                 warn!(
-                                    allocation_id = %self.allocation_id,
-                                    request_id = ?self.allocation.request_id,
-                                    function_call_id = ?self.allocation.function_call_id,
                                     timeout_secs = self.timeout.as_secs(),
                                     "Allocation timed out waiting for state"
                                 );
