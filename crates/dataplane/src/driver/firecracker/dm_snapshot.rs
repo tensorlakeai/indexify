@@ -133,7 +133,7 @@ impl ThinDeviceAllocator {
     /// Falls back to FC_DEVICE_ID_BASE if no devices found.
     fn recover_max_id(lvm_config: &LvmConfig) -> u32 {
         let mut max_id = FC_DEVICE_ID_BASE;
-        let pool_dev = format!("/dev/mapper/{}", lvm_config.pool_dm_device);
+        let pool_dev = mapper_path(&lvm_config.pool_dm_device);
 
         if let Ok(output) = run_cmd("dmsetup", &["ls"]) {
             for line in output.lines() {
@@ -227,6 +227,21 @@ fn is_thin_pool_target(dm_name: &str) -> bool {
     }
 }
 
+/// DM device name for a VM's snapshot target (e.g., `indexify-vm-abc123`).
+fn vm_dm_name(vm_id: &str) -> String {
+    format!("indexify-vm-{vm_id}")
+}
+
+/// DM device name for a VM's COW thin device (e.g., `indexify-cow-abc123`).
+fn cow_dm_name_for(vm_id: &str) -> String {
+    format!("indexify-cow-{vm_id}")
+}
+
+/// Full `/dev/mapper/` path for a device-mapper name.
+fn mapper_path(dm_name: &str) -> String {
+    format!("/dev/mapper/{dm_name}")
+}
+
 // ---------------------------------------------------------------------------
 // LVM thin pool validation and dmsetup thin device helpers
 // ---------------------------------------------------------------------------
@@ -263,7 +278,7 @@ fn create_thin_device(
     device_id: u32,
     size_sectors: u64,
 ) -> Result<String> {
-    let pool_dev = format!("/dev/mapper/{}", config.pool_dm_device);
+    let pool_dev = mapper_path(&config.pool_dm_device);
 
     // Allocate a thin device ID in the pool.
     run_cmd(
@@ -297,14 +312,14 @@ fn create_thin_device(
     }
 
     tracing::debug!(dm_name, device_id, size_sectors, "Thin device created");
-    Ok(format!("/dev/mapper/{}", dm_name))
+    Ok(mapper_path(dm_name))
 }
 
 /// Remove (deactivate) a thin device and delete it from the pool.
 fn remove_thin_device(config: &LvmConfig, dm_name: &str, device_id: u32) -> Result<()> {
     dmsetup_remove_with_retry(dm_name)?;
 
-    let pool_dev = format!("/dev/mapper/{}", config.pool_dm_device);
+    let pool_dev = mapper_path(&config.pool_dm_device);
     run_cmd(
         "dmsetup",
         &["message", &pool_dev, "0", &format!("delete {}", device_id)],
@@ -427,9 +442,9 @@ pub fn create_snapshot(
     cow_size_bytes: u64,
     allocator: &ThinDeviceAllocator,
 ) -> Result<SnapshotHandle> {
-    let dm_name = format!("indexify-vm-{}", vm_id);
-    let device_path = PathBuf::from(format!("/dev/mapper/{}", dm_name));
-    let cow_dm_name = format!("indexify-cow-{}", vm_id);
+    let dm_name = vm_dm_name(vm_id);
+    let device_path = PathBuf::from(mapper_path(&dm_name));
+    let cow_dm_name = cow_dm_name_for(vm_id);
     let size_sectors = cow_size_bytes / 512;
     let device_id = allocator.allocate();
 
@@ -484,9 +499,9 @@ pub fn create_snapshot_from_cow(
     cow_file: &Path,
     allocator: &ThinDeviceAllocator,
 ) -> Result<SnapshotHandle> {
-    let dm_name = format!("indexify-vm-{}", vm_id);
-    let device_path = PathBuf::from(format!("/dev/mapper/{}", dm_name));
-    let cow_dm_name = format!("indexify-cow-{}", vm_id);
+    let dm_name = vm_dm_name(vm_id);
+    let device_path = PathBuf::from(mapper_path(&dm_name));
+    let cow_dm_name = cow_dm_name_for(vm_id);
 
     // Get the size of the COW file to create an appropriately sized thin device.
     let cow_size = std::fs::metadata(cow_file)
@@ -569,7 +584,7 @@ const DM_REMOVE_RETRY_DELAY: std::time::Duration = std::time::Duration::from_mil
 
 /// Remove a dm device with retries for transient "Device or resource busy".
 fn dmsetup_remove_with_retry(dm_name: &str) -> Result<()> {
-    let device_path = format!("/dev/mapper/{}", dm_name);
+    let device_path = mapper_path(dm_name);
     if !Path::new(&device_path).exists() {
         return Ok(());
     }
@@ -631,7 +646,7 @@ pub fn destroy_snapshot_by_parts(
     dmsetup_remove_with_retry(dm_name)?;
 
     let vm_id = dm_name.strip_prefix("indexify-vm-").unwrap_or(dm_name);
-    let cow_dm_name = format!("indexify-cow-{}", vm_id);
+    let cow_dm_name = cow_dm_name_for(vm_id);
     if let Err(e) = remove_thin_device(lvm_config, &cow_dm_name, thin_device_id) {
         tracing::warn!(
             cow_dm_name = %cow_dm_name,
@@ -696,13 +711,13 @@ pub async fn resume_snapshot_async(dm_name: String) -> Result<()> {
 /// Check if a dm-snapshot target exists for a VM.
 #[allow(dead_code)]
 pub fn snapshot_exists(vm_id: &str) -> bool {
-    Path::new(&format!("/dev/mapper/indexify-vm-{}", vm_id)).exists()
+    Path::new(&mapper_path(&vm_dm_name(vm_id))).exists()
 }
 
 /// Get the status of a dm-snapshot (sectors allocated / total).
 #[allow(dead_code)]
 pub fn snapshot_status(vm_id: &str) -> Result<SnapshotStatus> {
-    let dm_name = format!("indexify-vm-{}", vm_id);
+    let dm_name = vm_dm_name(vm_id);
     let status = run_cmd("dmsetup", &["status", &dm_name])
         .with_context(|| format!("Failed to get status for {}", dm_name))?;
 
@@ -808,7 +823,7 @@ pub fn cleanup_stale_devices(active_vm_ids: &HashSet<String>, lvm_config: &LvmCo
     }
 
     // Clean up orphaned indexify-cow-* dm devices not associated with active VMs.
-    let pool_dev = format!("/dev/mapper/{}", lvm_config.pool_dm_device);
+    let pool_dev = mapper_path(&lvm_config.pool_dm_device);
     if let Ok(output) = run_cmd("dmsetup", &["ls"]) {
         for line in output.lines() {
             if let Some(name) = line.split_whitespace().next() {
