@@ -55,9 +55,9 @@ struct ManagedProcess {
     ended_at: Option<i64>,
     stdin_mode: StdinMode,
     stdin_tx: Option<mpsc::Sender<Bytes>>,
-    stdout_tx: broadcast::Sender<OutputEvent>,
-    stderr_tx: broadcast::Sender<OutputEvent>,
-    combined_tx: broadcast::Sender<OutputEvent>,
+    stdout_tx: Option<broadcast::Sender<OutputEvent>>,
+    stderr_tx: Option<broadcast::Sender<OutputEvent>>,
+    combined_tx: Option<broadcast::Sender<OutputEvent>>,
 }
 
 impl ManagedProcess {
@@ -224,9 +224,9 @@ impl ProcessManager {
             ended_at: None,
             stdin_mode: req.stdin_mode,
             stdin_tx,
-            stdout_tx,
-            stderr_tx,
-            combined_tx,
+            stdout_tx: Some(stdout_tx),
+            stderr_tx: Some(stderr_tx),
+            combined_tx: Some(combined_tx),
         };
 
         let process_info = managed.to_info();
@@ -336,19 +336,25 @@ impl ProcessManager {
     /// Subscribe to stdout events for a process.
     pub async fn subscribe_stdout(&self, pid: u32) -> Option<broadcast::Receiver<OutputEvent>> {
         let processes = self.processes.lock().await;
-        processes.get(&pid).map(|p| p.stdout_tx.subscribe())
+        processes
+            .get(&pid)
+            .and_then(|p| p.stdout_tx.as_ref().map(|tx| tx.subscribe()))
     }
 
     /// Subscribe to stderr events for a process.
     pub async fn subscribe_stderr(&self, pid: u32) -> Option<broadcast::Receiver<OutputEvent>> {
         let processes = self.processes.lock().await;
-        processes.get(&pid).map(|p| p.stderr_tx.subscribe())
+        processes
+            .get(&pid)
+            .and_then(|p| p.stderr_tx.as_ref().map(|tx| tx.subscribe()))
     }
 
     /// Subscribe to combined stdout+stderr events for a process.
     pub async fn subscribe_combined(&self, pid: u32) -> Option<broadcast::Receiver<OutputEvent>> {
         let processes = self.processes.lock().await;
-        processes.get(&pid).map(|p| p.combined_tx.subscribe())
+        processes
+            .get(&pid)
+            .and_then(|p| p.combined_tx.as_ref().map(|tx| tx.subscribe()))
     }
 
     /// Get all captured stdout output for a process (from log file).
@@ -548,6 +554,11 @@ async fn wait_for_process_exit(
                 let ended_at = Utc::now().timestamp_millis();
                 process.ended_at = Some(ended_at);
                 process.stdin_tx = None; // Close stdin
+                // Drop broadcast senders so SSE follow streams receive Closed
+                // and emit the "eof" event instead of hanging forever.
+                process.stdout_tx = None;
+                process.stderr_tx = None;
+                process.combined_tx = None;
 
                 if let Some(code) = exit_status.code() {
                     info!(pid = pid, exit_code = code, "Process exited");
@@ -577,6 +588,9 @@ async fn wait_for_process_exit(
                 process.status = ProcessStatus::Exited(-1);
                 process.ended_at = Some(Utc::now().timestamp_millis());
                 process.stdin_tx = None;
+                process.stdout_tx = None;
+                process.stderr_tx = None;
+                process.combined_tx = None;
             }
         }
     }

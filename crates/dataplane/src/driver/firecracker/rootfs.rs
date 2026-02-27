@@ -34,7 +34,14 @@ mount -t tmpfs    tmpfs    /dev/shm  2>/dev/null || true
 mount -t tmpfs    tmpfs    /tmp      2>/dev/null || true
 mount -t tmpfs    tmpfs    /run      2>/dev/null || true
 
-# 2. Configure networking from kernel ip= boot param
+# 2. Load environment variables (before networking, for DNS_NAMESERVERS)
+if [ -f /etc/indexify-env ]; then
+    set -a
+    . /etc/indexify-env
+    set +a
+fi
+
+# 3. Configure networking from kernel ip= boot param
 ip_param=$(cat /proc/cmdline | tr ' ' '\n' | grep '^ip=' | head -1)
 
 if [ -n "$ip_param" ]; then
@@ -50,26 +57,47 @@ if [ -n "$ip_param" ]; then
 
     rm -f /etc/resolv.conf 2>/dev/null || true
     : > /etc/resolv.conf
-    [ -n "$gateway" ] && echo "nameserver $gateway" >> /etc/resolv.conf
-    echo "nameserver 8.8.8.8" >> /etc/resolv.conf
+    if [ -n "$DNS_NAMESERVERS" ]; then
+        echo "$DNS_NAMESERVERS" | tr ',' '\n' | while read -r ns; do
+            [ -n "$ns" ] && echo "nameserver $ns" >> /etc/resolv.conf
+        done
+    else
+        [ -n "$gateway" ] && echo "nameserver $gateway" >> /etc/resolv.conf
+        echo "nameserver 8.8.8.8" >> /etc/resolv.conf
+    fi
 fi
 
-# 3. Set hostname
+# 4. Set hostname
 hostname indexify-vm
 
-# 4. Create required directories
+# 5. Create required directories
 mkdir -p /var/log/indexify
-
-# 5. Load environment variables
-if [ -f /etc/indexify-env ]; then
-    set -a
-    . /etc/indexify-env
-    set +a
-fi
 
 # 6. Exec the container-daemon as PID 1
 exec /indexify-daemon --port 9500 --http-port 9501 --log-dir /var/log/indexify
 "#;
+
+/// Read the host's `/etc/resolv.conf` and return the nameserver IPs as a
+/// comma-separated string suitable for the `DNS_NAMESERVERS` env var.
+pub fn read_host_dns() -> Option<String> {
+    let content = std::fs::read_to_string("/etc/resolv.conf").ok()?;
+    let servers: Vec<&str> = content
+        .lines()
+        .filter_map(|line| {
+            let line = line.trim();
+            if line.starts_with("nameserver") {
+                line.split_whitespace().nth(1)
+            } else {
+                None
+            }
+        })
+        .collect();
+    if servers.is_empty() {
+        None
+    } else {
+        Some(servers.join(","))
+    }
+}
 
 /// Mount a thin volume, inject daemon + init + env, unmount.
 ///
@@ -263,6 +291,14 @@ mod tests {
         assert!(
             INIT_SCRIPT.contains("/etc/indexify-env"),
             "Init script must source /etc/indexify-env"
+        );
+    }
+
+    #[test]
+    fn test_init_script_uses_dns_nameservers_env() {
+        assert!(
+            INIT_SCRIPT.contains("DNS_NAMESERVERS"),
+            "Init script must use DNS_NAMESERVERS env var for resolv.conf"
         );
     }
 
