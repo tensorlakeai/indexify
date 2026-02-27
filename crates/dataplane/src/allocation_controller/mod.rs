@@ -251,6 +251,12 @@ impl AllocationController {
             metrics
                 .update_fe_state_counts(starting, running, terminated)
                 .await;
+            // containers.running.functions / containers.pending.functions are
+            // owned by the AllocationController (function containers never
+            // enter the FunctionContainerManager's store).
+            metrics
+                .update_function_container_counts(starting, running)
+                .await;
         });
     }
 
