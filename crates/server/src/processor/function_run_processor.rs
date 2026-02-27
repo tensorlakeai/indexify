@@ -501,8 +501,8 @@ impl FunctionRunProcessor {
 
         // 3. If no container available (none exist or all at capacity), try to create
         //    one
-        if selected_target.is_none()
-            && let Some(create_update) =
+        if selected_target.is_none() &&
+            let Some(create_update) =
                 try_create_container(in_memory_state, container_scheduler, function_run)?
         {
             // Extract target directly from the newly created container — no re-query needed
@@ -511,10 +511,7 @@ impl FunctionRunProcessor {
                 .values()
                 .find(|c| !matches!(c.desired_state, ContainerState::Terminated { .. }))
                 .map(|c| {
-                    AllocationTarget::new(
-                        c.executor_id.clone(),
-                        c.function_container.id.clone(),
-                    )
+                    AllocationTarget::new(c.executor_id.clone(), c.function_container.id.clone())
                 });
 
             // Update scheduler indices so subsequent capacity checks work

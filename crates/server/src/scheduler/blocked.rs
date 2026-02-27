@@ -169,8 +169,8 @@ impl BlockedWorkTracker {
         if let Some(sandbox_keys) = self.sandboxes_by_class.get(class).cloned() {
             let mut to_remove = Vec::new();
             for key in &sandbox_keys {
-                if let Some(info) = self.blocked_sandboxes.get(key)
-                    && info.memory_mb <= freed_mb
+                if let Some(info) = self.blocked_sandboxes.get(key) &&
+                    info.memory_mb <= freed_mb
                 {
                     to_remove.push(key.clone());
                     work.sandbox_keys.push(key.clone());
@@ -186,8 +186,8 @@ impl BlockedWorkTracker {
         if let Some(fn_keys) = self.function_runs_by_class.get(class).cloned() {
             let mut to_remove = Vec::new();
             for key in &fn_keys {
-                if let Some(info) = self.blocked_function_runs.get(key)
-                    && info.memory_mb <= freed_mb
+                if let Some(info) = self.blocked_function_runs.get(key) &&
+                    info.memory_mb <= freed_mb
                 {
                     to_remove.push(key.clone());
                     work.function_run_keys.push(key.clone());

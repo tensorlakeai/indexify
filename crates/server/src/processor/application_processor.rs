@@ -493,8 +493,8 @@ impl ApplicationProcessor {
         }
 
         // 6. ONE RocksDB write for the entire batch.
-        if !processed_state_changes.is_empty()
-            && let Err(err) = self
+        if !processed_state_changes.is_empty() &&
+            let Err(err) = self
                 .indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::SchedulerUpdate(SchedulerUpdatePayload {

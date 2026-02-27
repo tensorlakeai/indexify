@@ -282,9 +282,9 @@ impl ContainerScheduler {
         let executor_id = &executor_metadata.id;
 
         // Remove from old class index if class changed
-        if let Some(old_class) = self.executor_classes.get(executor_id)
-            && old_class != &new_class
-            && let Some(set) = self.executors_by_class.get_mut(old_class)
+        if let Some(old_class) = self.executor_classes.get(executor_id) &&
+            old_class != &new_class &&
+            let Some(set) = self.executors_by_class.get_mut(old_class)
         {
             set.remove(executor_id);
             if set.is_empty() {
@@ -318,8 +318,8 @@ impl ContainerScheduler {
         }
 
         // Remove from executor class indexes
-        if let Some(old_class) = self.executor_classes.remove(executor_id)
-            && let Some(set) = self.executors_by_class.get_mut(&old_class)
+        if let Some(old_class) = self.executor_classes.remove(executor_id) &&
+            let Some(set) = self.executors_by_class.get_mut(&old_class)
         {
             set.remove(executor_id);
             if set.is_empty() {
@@ -1394,8 +1394,8 @@ impl ContainerScheduler {
             });
 
         // Remove old idle entry if present
-        if let Some(old_fc) = self.function_containers.get(container_id)
-            && let Some(old_idle) = old_fc.idle_since
+        if let Some(old_fc) = self.function_containers.get(container_id) &&
+            let Some(old_idle) = old_fc.idle_since
         {
             self.idle_containers
                 .remove(&(old_idle, container_id.clone()));
@@ -1404,8 +1404,9 @@ impl ContainerScheduler {
         // Add new idle entry if container is idle, not terminated, and is a
         // Function container. Sandbox containers are never reaped so keeping
         // them out of the idle set avoids unnecessary iteration.
-        if !is_terminated && meta.container_type == ContainerType::Function
-            && let Some(idle_since) = meta.idle_since
+        if !is_terminated &&
+            meta.container_type == ContainerType::Function &&
+            let Some(idle_since) = meta.idle_since
         {
             self.idle_containers
                 .insert((idle_since, container_id.clone()));
