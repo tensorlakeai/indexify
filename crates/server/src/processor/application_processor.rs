@@ -897,7 +897,8 @@ impl ApplicationProcessor {
                     }
                 }
 
-                // Step 2: Process allocation results.
+                // Step 2: Process allocation results and accumulate freed capacity.
+                let mut counted_containers: HashSet<data_model::ContainerId> = HashSet::new();
                 for alloc_event in &ev.allocation_events {
                     let alloc_update = task_creator
                         .handle_allocation_ingestion(
@@ -907,37 +908,28 @@ impl ApplicationProcessor {
                         )
                         .await?;
 
-                    // handle_allocation_ingestion already applies its updates to
-                    // in_memory_state and container_scheduler internally, so we
-                    // only need to accumulate the result for the final
-                    // scheduler_update.  (Calling update_state again here would
-                    // be safe — it is idempotent — but redundant.)
+                    // Apply to in-memory state so subsequent iterations see
+                    // updated request_ctx (important when multiple allocs
+                    // complete for the same request).
+                    indexes_guard.apply_scheduler_update(
+                        clock,
+                        &alloc_update,
+                        "alloc_ingestion",
+                    )?;
                     scheduler_update.extend(alloc_update);
-                }
 
-                // Step 2a: Accumulate freed capacity from allocation completions.
-                // handle_allocation_ingestion removed the allocation from the
-                // container, so containers that completed work now have free
-                // slots. Treat this as freed memory so Step 2b unblocks waiting
-                // function runs.
-                {
-                    let mut counted: HashSet<data_model::ContainerId> = HashSet::new();
-                    for alloc_event in &ev.allocation_events {
-                        let cid = &alloc_event.allocation_target.container_id;
-                        if !counted.insert(cid.clone()) {
-                            continue;
-                        }
-                        if let Some(fc) = container_scheduler_guard.function_containers.get(cid) {
-                            if matches!(
-                                fc.desired_state,
-                                data_model::ContainerState::Terminated { .. }
-                            ) {
-                                continue;
-                            }
-                            let capacity = self.queue_size * fc.function_container.max_concurrency;
-                            if fc.allocations.len() < capacity as usize {
-                                freed_memory_mb += fc.function_container.resources.memory_mb;
-                            }
+                    // Accumulate freed capacity (was Step 2a).
+                    let cid = &alloc_event.allocation_target.container_id;
+                    if counted_containers.insert(cid.clone()) &&
+                        let Some(fc) = container_scheduler_guard.function_containers.get(cid)
+                    {
+                        let not_terminated = !matches!(
+                            fc.desired_state,
+                            data_model::ContainerState::Terminated { .. }
+                        );
+                        let capacity = self.queue_size * fc.function_container.max_concurrency;
+                        if not_terminated && fc.allocations.len() < capacity as usize {
+                            freed_memory_mb += fc.function_container.resources.memory_mb;
                         }
                     }
                 }
