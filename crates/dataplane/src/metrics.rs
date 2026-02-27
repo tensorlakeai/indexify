@@ -622,9 +622,19 @@ impl DataplaneMetrics {
     }
 
     /// Update container counts in the shared state.
+    /// Used by FunctionContainerManager for sandbox containers.
     pub async fn update_container_counts(&self, counts: ContainerCounts) {
         let mut state = self.state.lock().await;
         state.container_counts = counts;
+    }
+
+    /// Update only the function container counts (pending + running).
+    /// Used by AllocationController, which owns function containers.
+    /// Leaves sandbox counts (managed by FunctionContainerManager) untouched.
+    pub async fn update_function_container_counts(&self, pending: u64, running: u64) {
+        let mut state = self.state.lock().await;
+        state.container_counts.pending_functions = pending;
+        state.container_counts.running_functions = running;
     }
 
     /// Update resource availability in the shared state.
