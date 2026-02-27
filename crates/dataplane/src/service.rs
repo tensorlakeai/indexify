@@ -73,6 +73,9 @@ pub struct Service {
     config: DataplaneConfig,
     channel: Channel,
     host_resources: HostResources,
+    /// LVM volume group name for disk metrics (None when not using
+    /// Firecracker).
+    lvm_vg_name: Option<String>,
     allowed_functions: Vec<proto_api::executor_api_pb::AllowedFunction>,
     container_manager: Arc<FunctionContainerManager>,
     metrics: Arc<DataplaneMetrics>,
@@ -108,7 +111,26 @@ impl Service {
     ) -> Result<Self> {
         let channel = create_channel(&config).await?;
         let discovered_gpus = crate::gpu_allocator::discover_gpus();
-        let mut host_resources = probe_host_resources(&discovered_gpus);
+
+        // Extract LVM VG name from Firecracker driver config (if present)
+        // for LVM-based disk reporting.
+        let lvm_vg_name: Option<String> = {
+            #[cfg(feature = "firecracker")]
+            {
+                match &config.sandbox_driver {
+                    DriverConfig::Firecracker {
+                        lvm_volume_group, ..
+                    } => Some(lvm_volume_group.clone()),
+                    _ => None,
+                }
+            }
+            #[cfg(not(feature = "firecracker"))]
+            {
+                None
+            }
+        };
+
+        let mut host_resources = probe_host_resources(&discovered_gpus, lvm_vg_name.as_deref());
 
         // Apply resource overrides from config.
         if let Some(overrides) = &config.resource_overrides {
@@ -210,23 +232,14 @@ impl Service {
                 Some(Arc::new(snapshotter))
             }
             #[cfg(feature = "firecracker")]
-            DriverConfig::Firecracker {
-                lvm_volume_group,
-                lvm_thin_pool,
-                ..
-            } => {
+            DriverConfig::Firecracker { .. } => {
                 let state_dir_path = config.firecracker_state_dir(&config.sandbox_driver);
-                let lvm_config = crate::driver::firecracker::dm_snapshot::LvmConfig {
-                    volume_group: lvm_volume_group.clone(),
-                    thin_pool: lvm_thin_pool.clone(),
-                };
                 tracing::info!("Snapshotter enabled (Firecracker sandbox driver)");
                 Some(Arc::new(
                     crate::snapshotter::firecracker_snapshotter::FirecrackerSnapshotter::new(
                         PathBuf::from(state_dir_path),
                         (*blob_store).clone(),
                         metrics.clone(),
-                        lvm_config,
                     ),
                 ))
             }
@@ -306,6 +319,7 @@ impl Service {
             config,
             channel,
             host_resources,
+            lvm_vg_name,
             allowed_functions,
             container_manager,
             metrics,
@@ -411,8 +425,10 @@ impl Service {
         tasks.spawn({
             let span = span.clone();
             let metrics = self.metrics.clone();
+            let lvm_vg_name = self.lvm_vg_name.clone();
             let cancel_token = cancel_token.clone();
-            async move { run_metrics_update_loop(metrics, cancel_token).await }.instrument(span)
+            async move { run_metrics_update_loop(metrics, lvm_vg_name, cancel_token).await }
+                .instrument(span)
         });
 
         tasks.spawn({
@@ -488,7 +504,11 @@ impl Service {
 const METRICS_UPDATE_INTERVAL: Duration = Duration::from_secs(5);
 
 /// Periodically update resource availability metrics.
-async fn run_metrics_update_loop(metrics: Arc<DataplaneMetrics>, cancel_token: CancellationToken) {
+async fn run_metrics_update_loop(
+    metrics: Arc<DataplaneMetrics>,
+    lvm_vg_name: Option<String>,
+    cancel_token: CancellationToken,
+) {
     let mut interval = tokio::time::interval(METRICS_UPDATE_INTERVAL);
     // Reuse a single System instance across ticks so that sysinfo can compute
     // cpu_usage() as a delta between consecutive refreshes.  A fresh System on
@@ -502,7 +522,7 @@ async fn run_metrics_update_loop(metrics: Arc<DataplaneMetrics>, cancel_token: C
                 return;
             }
             _ = interval.tick() => {
-                let resources = probe_free_resources(&mut sys);
+                let resources = probe_free_resources(&mut sys, lvm_vg_name.as_deref());
                 metrics.update_resources(resources).await;
             }
         }
