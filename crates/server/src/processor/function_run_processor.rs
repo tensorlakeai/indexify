@@ -42,6 +42,7 @@ impl FunctionRunProcessor {
         Self { queue_size }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn allocate_request(
         &self,
         in_memory_state: &InMemoryState,
@@ -500,26 +501,25 @@ impl FunctionRunProcessor {
 
         // 3. If no container available (none exist or all at capacity), try to create
         //    one
-        if selected_target.is_none() {
-            if let Some(create_update) =
+        if selected_target.is_none()
+            && let Some(create_update) =
                 try_create_container(in_memory_state, container_scheduler, function_run)?
-            {
-                // Extract target directly from the newly created container — no re-query needed
-                selected_target = create_update
-                    .containers
-                    .values()
-                    .find(|c| !matches!(c.desired_state, ContainerState::Terminated { .. }))
-                    .map(|c| {
-                        AllocationTarget::new(
-                            c.executor_id.clone(),
-                            c.function_container.id.clone(),
-                        )
-                    });
+        {
+            // Extract target directly from the newly created container — no re-query needed
+            selected_target = create_update
+                .containers
+                .values()
+                .find(|c| !matches!(c.desired_state, ContainerState::Terminated { .. }))
+                .map(|c| {
+                    AllocationTarget::new(
+                        c.executor_id.clone(),
+                        c.function_container.id.clone(),
+                    )
+                });
 
-                // Update scheduler indices so subsequent capacity checks work
-                container_scheduler.apply_container_update(&create_update);
-                update.extend(create_update);
-            }
+            // Update scheduler indices so subsequent capacity checks work
+            container_scheduler.apply_container_update(&create_update);
+            update.extend(create_update);
         }
 
         let Some(target) = selected_target else {

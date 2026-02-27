@@ -493,8 +493,8 @@ impl ApplicationProcessor {
         }
 
         // 6. ONE RocksDB write for the entire batch.
-        if !processed_state_changes.is_empty() {
-            if let Err(err) = self
+        if !processed_state_changes.is_empty()
+            && let Err(err) = self
                 .indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::SchedulerUpdate(SchedulerUpdatePayload {
@@ -503,17 +503,16 @@ impl ApplicationProcessor {
                     }),
                 })
                 .await
-            {
-                error!(
-                    "error writing batched state changes, marking as processed: {:?}",
-                    err,
-                );
-                self.indexify_state
-                    .write(StateMachineUpdateRequest {
-                        payload: RequestPayload::ProcessStateChanges(processed_state_changes),
-                    })
-                    .await?;
-            }
+        {
+            error!(
+                "error writing batched state changes, marking as processed: {:?}",
+                err,
+            );
+            self.indexify_state
+                .write(StateMachineUpdateRequest {
+                    payload: RequestPayload::ProcessStateChanges(processed_state_changes),
+                })
+                .await?;
         }
 
         // 7. Persist BlockedWorkTracker state from batch processing.

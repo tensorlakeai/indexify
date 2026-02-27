@@ -173,7 +173,7 @@ impl SandboxProcessor {
                     .blocked_work
                     .remove_sandbox(&SandboxKey::from(sandbox));
 
-                return Ok((update, false));
+                Ok((update, false))
             }
             Ok(None) => {
                 // Distinguish between "no executors exist" and "executors
@@ -207,7 +207,7 @@ impl SandboxProcessor {
                 Self::record_blocked_sandbox(container_scheduler, cache, sandbox);
 
                 // Exhausted: no host could fit this sandbox
-                return Ok((update, true));
+                Ok((update, true))
             }
             Err(err) => {
                 // Check if this is a ConstraintUnsatisfiable error
@@ -239,7 +239,7 @@ impl SandboxProcessor {
                     // update, leaving the sandbox stuck in Pending forever.
                     return Ok((update, false));
                 }
-                return Err(err);
+                Err(err)
             }
         }
     }
