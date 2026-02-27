@@ -726,12 +726,23 @@ async fn start_fe_process(
     let pool_id = description.pool_id.as_deref().unwrap_or("").to_string();
 
     let labels = vec![
-        ("indexify.container_id".to_string(), fe_id.clone()),
-        ("indexify.namespace".to_string(), namespace.to_string()),
-        ("indexify.application".to_string(), app.to_string()),
-        ("indexify.function".to_string(), function.to_string()),
-        ("indexify.sandbox_id".to_string(), sandbox_id),
-        ("indexify.pool_id".to_string(), pool_id),
+        ("is_function_executor".to_string(), "true".to_string()),
+        ("container_id".to_string(), fe_id.clone()),
+        ("fn_executor_id".to_string(), fe_id.clone()),
+        ("executor_id".to_string(), config.executor_id.clone()),
+        ("namespace".to_string(), namespace.to_string()),
+        ("app".to_string(), app.to_string()),
+        ("app_version".to_string(), version.to_string()),
+        ("fn".to_string(), function.to_string()),
+        ("sandbox_id".to_string(), sandbox_id),
+        ("pool_id".to_string(), pool_id),
+        (
+            "com.datadoghq.ad.tags".to_string(),
+            format!(
+                "[\"namespace:{}\", \"app:{}\", \"app_version:{}\", \"fn:{}\"]",
+                namespace, app, version, function
+            ),
+        ),
     ];
 
     let process_config = ProcessConfig {

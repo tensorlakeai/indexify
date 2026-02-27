@@ -867,10 +867,7 @@ impl ProcessDriver for DockerDriver {
 
         // Filter by label instead of name prefix for more reliable reconciliation
         let mut filters: HashMap<String, Vec<String>> = HashMap::new();
-        filters.insert(
-            "label".to_string(),
-            vec!["indexify.managed=true".to_string()],
-        );
+        filters.insert("label".to_string(), vec!["managed=true".to_string()]);
 
         let options = ListContainersOptions {
             all: true,

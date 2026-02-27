@@ -153,15 +153,19 @@ pub(super) async fn start_container_with_daemon(
     // Build labels for container identification
     let container_type = container_type_str(desc);
     let labels = vec![
-        ("indexify.managed".to_string(), "true".to_string()),
-        ("indexify.type".to_string(), container_type.to_string()),
-        ("indexify.namespace".to_string(), info.namespace.to_string()),
-        ("indexify.application".to_string(), info.app.to_string()),
-        ("indexify.function".to_string(), info.fn_name.to_string()),
-        ("indexify.version".to_string(), info.app_version.to_string()),
+        ("managed".to_string(), "true".to_string()),
+        ("type".to_string(), container_type.to_string()),
+        ("fn_executor_id".to_string(), info.container_id.to_string()),
+        ("executor_id".to_string(), executor_id.to_string()),
+        ("namespace".to_string(), info.namespace.to_string()),
+        ("app_version".to_string(), info.app_version.to_string()),
+        ("container_id".to_string(), info.container_id.to_string()),
         (
-            "indexify.container_id".to_string(),
-            info.container_id.to_string(),
+            "com.datadoghq.ad.tags".to_string(),
+            format!(
+                "[\"namespace:{}\", \"app_version:{}\"]",
+                info.namespace, info.app_version
+            ),
         ),
     ];
 
