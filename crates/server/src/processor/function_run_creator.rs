@@ -162,10 +162,7 @@ impl FunctionRunCreator {
                 fc.clone(),
             );
         }
-        let payload =
-            RequestPayload::SchedulerUpdate(SchedulerUpdatePayload::new(scheduler_update.clone()));
-        container_scheduler.update(&payload)?;
-        in_memory_state.update_state(self.clock, &payload, "function_run_creator")?;
+        container_scheduler.apply_container_update(&scheduler_update);
 
         let Some(mut request_ctx) = in_memory_state
             .request_ctx
@@ -295,11 +292,6 @@ impl FunctionRunCreator {
         scheduler_update.add_function_run(function_run.clone(), &mut request_ctx);
 
         scheduler_update.add_request_state(&request_ctx);
-        in_memory_state.update_state(
-            self.clock,
-            &RequestPayload::SchedulerUpdate(SchedulerUpdatePayload::new(scheduler_update.clone())),
-            "task_creator",
-        )?;
 
         // If task is pending (being retried), return early
         if function_run.status == FunctionRunStatus::Pending {
@@ -368,11 +360,6 @@ impl FunctionRunCreator {
             &application_version,
         )?);
         scheduler_update.add_request_state(&request_ctx);
-        in_memory_state.update_state(
-            self.clock,
-            &RequestPayload::SchedulerUpdate(SchedulerUpdatePayload::new(scheduler_update.clone())),
-            "task_creator",
-        )?;
         Ok(scheduler_update)
     }
 
