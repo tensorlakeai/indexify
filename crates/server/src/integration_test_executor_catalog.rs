@@ -82,7 +82,7 @@ mod tests {
         test_srv.process_all_state_changes().await?;
 
         // Step 5: Verify that the compute graph has been disabled
-        let in_memory = indexify_state.in_memory_state.read().await;
+        let in_memory = indexify_state.in_memory_state.load();
         let key = crate::data_model::Application::key_from(TEST_NAMESPACE, "graph_unsatisfiable");
         let stored_app = in_memory
             .applications
@@ -96,7 +96,7 @@ mod tests {
             _ => panic!("Compute graph should be disabled due to unsatisfiable constraints"),
         }
 
-        // Release the read guard before further updates
+        // Release the guard before further updates
         drop(in_memory);
 
         // Step 6: Build a compute graph whose functions require foo==bar (satisfiable)
@@ -142,7 +142,7 @@ mod tests {
         test_srv.process_all_state_changes().await?;
 
         // Step 9: Verify that the compute graph remains active
-        let in_memory = indexify_state.in_memory_state.read().await;
+        let in_memory = indexify_state.in_memory_state.load();
         let sat_key = crate::data_model::Application::key_from(TEST_NAMESPACE, "graph_satisfiable");
         let sat_stored_graph = in_memory
             .applications
@@ -265,7 +265,7 @@ mod tests {
         test_srv.process_all_state_changes().await?;
 
         // Verify states of graphs after validation
-        let in_memory = indexify_state.in_memory_state.read().await;
+        let in_memory = indexify_state.in_memory_state.load();
 
         // Active graphs
         let key_valid_no =
@@ -458,7 +458,7 @@ mod tests {
         test_srv.process_all_state_changes().await?;
 
         // Verify expected states
-        let in_memory = indexify_state.in_memory_state.read().await;
+        let in_memory = indexify_state.in_memory_state.load();
 
         let assert_state = |name: &str, expect_active: bool| {
             let key = crate::data_model::Application::key_from(TEST_NAMESPACE, name);

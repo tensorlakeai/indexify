@@ -62,7 +62,8 @@ nanoid = "0.4.0"
 uuid = { version = "1.21.0", features = ["v4"] }
 bytes = { version = "1.11.1", features = ["serde"] }
 priority-queue = "2.6.0"
-imbl = "7.0.0"
+arc-swap = "1.7.1"
+imbl = { version = "7.0.0", features = ["serde"] }
 rand = "0.10.0"
 rayon = "1.10.0"
 url = "2.5.8"

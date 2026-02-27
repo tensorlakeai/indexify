@@ -1,7 +1,6 @@
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 use anyhow::Result;
-use nanoid::nanoid;
 use tracing::subscriber;
 use tracing_subscriber::{Layer, layer::SubscriberExt};
 
@@ -104,6 +103,12 @@ impl TestService {
         {
             self.process_graph_processor().await?;
         }
+        // Run deferred pool reconciliation after all state changes are
+        // processed, matching the event loop behavior in start().
+        self.service
+            .application_processor
+            .run_pool_reconciliation()
+            .await?;
         Ok(())
     }
 
@@ -175,8 +180,7 @@ impl TestService {
             .service
             .indexify_state
             .in_memory_state
-            .read()
-            .await
+            .load()
             .function_runs
             .clone();
 
@@ -191,7 +195,7 @@ impl TestService {
             "Pending tasks in mem store",
         );
 
-        let in_memory_state = self.service.indexify_state.in_memory_state.read().await;
+        let in_memory_state = self.service.indexify_state.in_memory_state.load();
 
         let unallocated_function_runs = in_memory_state.unallocated_function_runs.clone();
 
@@ -418,7 +422,6 @@ impl TestExecutor<'_> {
 
         // State changed — do full state sync (like production executor
         // reporting updated container states via heartbeat with full_state)
-        executor.state_hash = nanoid!();
         self.sync_executor_state(executor.clone()).await?;
 
         Ok(())
@@ -429,8 +432,8 @@ impl TestExecutor<'_> {
             .get_executor_server_state()
             .await?
             .containers
-            .into_values()
-            .map(|mut fe| {
+            .into_iter()
+            .map(|(_, mut fe)| {
                 fe.state = state.clone();
                 fe
             })
@@ -455,8 +458,7 @@ impl TestExecutor<'_> {
             .service
             .indexify_state
             .container_scheduler
-            .read()
-            .await;
+            .load();
 
         // Get executor from in-memory state - this is the base executor without
         // complete function executors
@@ -475,7 +477,7 @@ impl TestExecutor<'_> {
         // Clone base executor
         let mut executor = *executor.clone();
 
-        let mut function_containers = HashMap::new();
+        let mut function_containers = imbl::HashMap::new();
         for container_id in executor_server_metadata.function_container_ids {
             let Some(fc) = container_scheduler.function_containers.get(&container_id) else {
                 continue;

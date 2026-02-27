@@ -59,6 +59,7 @@ nanoid.workspace = true
 uuid.workspace = true
 bytes.workspace = true
 priority-queue.workspace = true
+arc-swap.workspace = true
 imbl.workspace = true
 rand.workspace = true
 rayon.workspace = true

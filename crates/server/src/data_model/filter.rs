@@ -1,7 +1,4 @@
-use std::{
-    collections::HashMap,
-    fmt::{self, Display},
-};
+use std::fmt::{self, Display};
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize, Serializer, de::Deserializer};
@@ -111,7 +108,7 @@ impl Display for Expression {
 pub struct LabelsFilter(pub Vec<Expression>);
 
 impl LabelsFilter {
-    pub fn matches(&self, values: &HashMap<String, String>) -> bool {
+    pub fn matches(&self, values: &imbl::HashMap<String, String>) -> bool {
         self.0.iter().all(|expr| {
             let value = values.get(&expr.key);
             match value {
@@ -163,7 +160,7 @@ mod tests {
             },
         ]);
 
-        let mut values = HashMap::new();
+        let mut values = imbl::HashMap::new();
         values.insert("key1".to_string(), "1".to_string());
         assert!(!filter.matches(&values));
 
@@ -179,11 +176,11 @@ mod tests {
         let empty_filter = LabelsFilter::default();
 
         // Empty filter should match empty labels
-        let empty_labels = HashMap::new();
+        let empty_labels = imbl::HashMap::new();
         assert!(empty_filter.matches(&empty_labels));
 
         // Empty filter should also match non-empty labels
-        let mut labels = HashMap::new();
+        let mut labels = imbl::HashMap::new();
         labels.insert("any_key".to_string(), "any_value".to_string());
         assert!(empty_filter.matches(&labels));
     }

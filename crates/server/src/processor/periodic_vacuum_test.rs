@@ -1,9 +1,5 @@
 #[cfg(test)]
 mod tests {
-    use std::collections::{HashMap, HashSet};
-
-    use tokio::time::Duration;
-
     use crate::{
         data_model::{
             AllocationId,
@@ -33,13 +29,12 @@ mod tests {
 
         let executor_state = ExecutorServerMetadata {
             executor_id: executor_id.clone(),
-            function_container_ids: HashSet::new(),
+            function_container_ids: imbl::HashSet::new(),
             free_resources: executor_meta.host_resources.clone(),
-            resource_claims: HashMap::new(),
+            resource_claims: imbl::HashMap::new(),
         };
 
         let mut scheduler = ContainerScheduler {
-            clock: 0,
             executors: imbl::HashMap::new(),
             containers_by_function_uri: imbl::HashMap::new(),
             function_containers: imbl::HashMap::new(),
@@ -48,9 +43,15 @@ mod tests {
             warm_containers_by_pool: imbl::HashMap::new(),
             function_pools: imbl::HashMap::new(),
             sandbox_pools: imbl::HashMap::new(),
-            dirty_pools: std::collections::HashSet::new(),
-            blocked_pools: std::collections::HashSet::new(),
+            dirty_pools: imbl::HashSet::new(),
+            blocked_pools: imbl::HashSet::new(),
             executors_by_free_memory: imbl::OrdSet::new(),
+            executor_classes: imbl::HashMap::new(),
+            executors_by_class: imbl::HashMap::new(),
+            blocked_work: Default::default(),
+            idle_containers: imbl::OrdSet::new(),
+            reaped_containers: Default::default(),
+            last_placement: None,
         };
 
         scheduler
@@ -124,7 +125,7 @@ mod tests {
             function_container: container,
             desired_state: ContainerState::Running,
             container_type: ContainerType::Function,
-            allocations: HashSet::new(),
+            allocations: imbl::HashSet::new(),
             idle_since: Some(tokio::time::Instant::now()),
         };
 
@@ -166,7 +167,7 @@ mod tests {
             function_container: container,
             desired_state: ContainerState::Running,
             container_type: ContainerType::Sandbox,
-            allocations: HashSet::new(),
+            allocations: imbl::HashSet::new(),
             idle_since: Some(tokio::time::Instant::now()),
         };
 
@@ -208,7 +209,7 @@ mod tests {
             function_container: container,
             desired_state: ContainerState::Running,
             container_type: ContainerType::Sandbox,
-            allocations: HashSet::new(),
+            allocations: imbl::HashSet::new(),
             idle_since: Some(tokio::time::Instant::now()),
         };
 
@@ -294,10 +295,10 @@ mod tests {
     }
 
     // ===================================================================
-    // Test: busy container (with allocation) is NOT vacuumed
+    // Test: busy container (with allocation) is NOT reaped
     // ===================================================================
     #[tokio::test(start_paused = true)]
-    async fn busy_container_not_vacuumed() {
+    async fn busy_container_not_reaped() {
         let (mut scheduler, executor_id) = setup_scheduler();
         register_pool(&mut scheduler, "pool1", ContainerPoolType::Function, 0);
 
@@ -305,66 +306,77 @@ mod tests {
         let _alloc_id = add_allocation(&mut scheduler, &cid);
 
         // Container has an active allocation → idle_since is None
-        let update = scheduler.periodic_vacuum(Duration::from_secs(0)).unwrap();
+        let update = scheduler.reap_idle_containers(std::time::Duration::ZERO);
         assert!(
             update.containers.is_empty(),
-            "busy container (with allocation) must not be vacuumed"
+            "busy container (with allocation) must not be reaped"
         );
     }
 
     // ===================================================================
-    // Test: container that just became idle is NOT vacuumed (below age)
+    // Test: idle container IS reaped (no age threshold in eager reaping)
     // ===================================================================
     #[tokio::test(start_paused = true)]
-    async fn recently_idle_container_not_vacuumed() {
+    async fn idle_container_reaped() {
         let (mut scheduler, executor_id) = setup_scheduler();
         register_pool(&mut scheduler, "pool1", ContainerPoolType::Function, 0);
 
         let cid = add_function_container(&mut scheduler, &executor_id, "pool1");
-        let alloc_id = add_allocation(&mut scheduler, &cid);
-        finish_allocation(&mut scheduler, &cid, &alloc_id);
 
-        // Container just became idle — too young for 300s threshold
-        let update = scheduler.periodic_vacuum(Duration::from_secs(300)).unwrap();
-        assert!(
-            update.containers.is_empty(),
-            "container that just became idle must not be vacuumed (below max_idle_age)"
-        );
-    }
-
-    // ===================================================================
-    // Test: container idle longer than threshold IS vacuumed
-    // ===================================================================
-    #[tokio::test(start_paused = true)]
-    async fn idle_container_vacuumed_after_threshold() {
-        let (mut scheduler, executor_id) = setup_scheduler();
-        register_pool(&mut scheduler, "pool1", ContainerPoolType::Function, 0);
-
-        let cid = add_function_container(&mut scheduler, &executor_id, "pool1");
-        let alloc_id = add_allocation(&mut scheduler, &cid);
-        finish_allocation(&mut scheduler, &cid, &alloc_id);
-
-        // Advance time past the threshold
-        tokio::time::advance(Duration::from_secs(600)).await;
-
-        // Idle for 600s > 300s threshold → vacuumed
-        let update = scheduler.periodic_vacuum(Duration::from_secs(300)).unwrap();
-        assert_eq!(
-            update.containers.len(),
-            1,
-            "idle container past threshold must be vacuumed"
-        );
+        let update = scheduler.reap_idle_containers(std::time::Duration::ZERO);
+        assert_eq!(update.containers.len(), 1, "idle container must be reaped");
         assert!(update.containers.contains_key(&cid));
     }
 
     // ===================================================================
-    // Test: full lifecycle — busy → idle-young → idle-old
+    // Test: reaping optimistically frees executor resources
     // ===================================================================
     #[tokio::test(start_paused = true)]
-    async fn full_lifecycle_busy_then_idle_then_vacuumed() {
+    async fn reaping_frees_executor_resources() {
         let (mut scheduler, executor_id) = setup_scheduler();
         register_pool(&mut scheduler, "pool1", ContainerPoolType::Function, 0);
-        let max_idle = Duration::from_secs(300);
+
+        let initial_free = scheduler
+            .executor_states
+            .get(&executor_id)
+            .unwrap()
+            .free_resources
+            .memory_bytes;
+
+        let _cid = add_function_container(&mut scheduler, &executor_id, "pool1");
+
+        let after_add = scheduler
+            .executor_states
+            .get(&executor_id)
+            .unwrap()
+            .free_resources
+            .memory_bytes;
+        assert!(
+            after_add < initial_free,
+            "adding container should consume resources"
+        );
+
+        let _update = scheduler.reap_idle_containers(std::time::Duration::ZERO);
+
+        let after_reap = scheduler
+            .executor_states
+            .get(&executor_id)
+            .unwrap()
+            .free_resources
+            .memory_bytes;
+        assert_eq!(
+            after_reap, initial_free,
+            "reaping must free resources back to initial level"
+        );
+    }
+
+    // ===================================================================
+    // Test: full lifecycle — busy → idle → reaped
+    // ===================================================================
+    #[tokio::test(start_paused = true)]
+    async fn full_lifecycle_busy_then_idle_then_reaped() {
+        let (mut scheduler, executor_id) = setup_scheduler();
+        register_pool(&mut scheduler, "pool1", ContainerPoolType::Function, 0);
 
         // Step 1: Create container (starts idle)
         let cid = add_function_container(&mut scheduler, &executor_id, "pool1");
@@ -373,40 +385,28 @@ mod tests {
         let alloc_id = add_allocation(&mut scheduler, &cid);
         assert!(
             scheduler
-                .periodic_vacuum(max_idle)
-                .unwrap()
+                .reap_idle_containers(std::time::Duration::ZERO)
                 .containers
                 .is_empty(),
-            "step 2: busy container must not be vacuumed"
+            "step 2: busy container must not be reaped"
         );
 
-        // Step 3: Finish allocation → idle again, but just now
+        // Step 3: Finish allocation → idle again
         finish_allocation(&mut scheduler, &cid, &alloc_id);
-        assert!(
-            scheduler
-                .periodic_vacuum(max_idle)
-                .unwrap()
-                .containers
-                .is_empty(),
-            "step 3: recently-idle container must not be vacuumed"
-        );
-
-        // Step 4: Time passes beyond threshold
-        tokio::time::advance(Duration::from_secs(600)).await;
-        let update = scheduler.periodic_vacuum(max_idle).unwrap();
+        let update = scheduler.reap_idle_containers(std::time::Duration::ZERO);
         assert_eq!(
             update.containers.len(),
             1,
-            "step 4: idle container past threshold must be vacuumed"
+            "step 3: idle container must be reaped"
         );
         assert!(update.containers.contains_key(&cid));
     }
 
     // ===================================================================
-    // Test: warm sandbox pool containers are NEVER vacuumed
+    // Test: warm sandbox pool containers are NEVER reaped
     // ===================================================================
     #[tokio::test(start_paused = true)]
-    async fn warm_sandbox_pool_containers_never_vacuumed() {
+    async fn warm_sandbox_pool_containers_never_reaped() {
         let (mut scheduler, executor_id) = setup_scheduler();
         register_pool(
             &mut scheduler,
@@ -416,22 +416,19 @@ mod tests {
         );
 
         let _warm_cid = add_warm_sandbox_container(&mut scheduler, &executor_id, "sandbox_pool");
-        tokio::time::advance(Duration::from_secs(9999)).await;
 
-        let update = scheduler.periodic_vacuum(Duration::from_secs(0)).unwrap();
+        let update = scheduler.reap_idle_containers(std::time::Duration::ZERO);
         assert!(
             update.containers.is_empty(),
-            "warm sandbox pool container must never be vacuumed"
+            "warm sandbox pool container must never be reaped"
         );
     }
 
     // ===================================================================
-    // Test: claimed sandbox containers are NOT vacuumed
-    // (can_be_removed only allows Function type — sandboxes are managed
-    //  by the sandbox lifecycle, not the periodic vacuum)
+    // Test: claimed sandbox containers are NOT reaped
     // ===================================================================
     #[tokio::test(start_paused = true)]
-    async fn claimed_sandbox_containers_not_vacuumed() {
+    async fn claimed_sandbox_containers_not_reaped() {
         let (mut scheduler, executor_id) = setup_scheduler();
         register_pool(
             &mut scheduler,
@@ -442,59 +439,54 @@ mod tests {
 
         let _claimed_cid =
             add_claimed_sandbox_container(&mut scheduler, &executor_id, "sandbox_pool");
-        tokio::time::advance(Duration::from_secs(9999)).await;
 
-        let update = scheduler.periodic_vacuum(Duration::from_secs(0)).unwrap();
+        let update = scheduler.reap_idle_containers(std::time::Duration::ZERO);
         assert!(
             update.containers.is_empty(),
-            "claimed sandbox container must not be vacuumed (sandbox lifecycle manages these)"
+            "claimed sandbox container must not be reaped"
         );
     }
 
     // ===================================================================
     // Test: mixed scenario — function, warm sandbox, claimed sandbox
-    // Only idle Function containers past the threshold are vacuumed.
-    // All sandbox types (warm or claimed) are protected.
+    // Only idle Function containers are reaped.
     // ===================================================================
     #[tokio::test(start_paused = true)]
-    async fn mixed_containers_only_eligible_ones_vacuumed() {
+    async fn mixed_containers_only_eligible_ones_reaped() {
         let (mut scheduler, executor_id) = setup_scheduler();
         register_pool(&mut scheduler, "fn_pool", ContainerPoolType::Function, 0);
         register_pool(&mut scheduler, "sb_pool", ContainerPoolType::Sandbox, 0);
 
-        // 1. Idle function container (should be vacuumed)
+        // 1. Idle function container (should be reaped)
         let fn_cid = add_function_container(&mut scheduler, &executor_id, "fn_pool");
 
-        // 2. Busy function container (should NOT be vacuumed)
+        // 2. Busy function container (should NOT be reaped)
         let busy_cid = add_function_container(&mut scheduler, &executor_id, "fn_pool");
         let _alloc = add_allocation(&mut scheduler, &busy_cid);
 
-        // 3. Warm sandbox pool container (should NEVER be vacuumed)
+        // 3. Warm sandbox pool container (should NEVER be reaped)
         let warm_cid = add_warm_sandbox_container(&mut scheduler, &executor_id, "sb_pool");
 
-        // 4. Claimed sandbox container (also NOT vacuumed — sandbox lifecycle)
+        // 4. Claimed sandbox container (also NOT reaped)
         let claimed_cid = add_claimed_sandbox_container(&mut scheduler, &executor_id, "sb_pool");
 
-        // Advance time past threshold for all idle containers
-        tokio::time::advance(Duration::from_secs(9999)).await;
-
-        let update = scheduler.periodic_vacuum(Duration::from_secs(300)).unwrap();
+        let update = scheduler.reap_idle_containers(std::time::Duration::ZERO);
 
         assert!(
             update.containers.contains_key(&fn_cid),
-            "idle function container must be vacuumed"
+            "idle function container must be reaped"
         );
         assert!(
             !update.containers.contains_key(&busy_cid),
-            "busy function container must NOT be vacuumed"
+            "busy function container must NOT be reaped"
         );
         assert!(
             !update.containers.contains_key(&warm_cid),
-            "warm sandbox pool container must NOT be vacuumed"
+            "warm sandbox pool container must NOT be reaped"
         );
         assert!(
             !update.containers.contains_key(&claimed_cid),
-            "claimed sandbox container must NOT be vacuumed (sandbox lifecycle)"
+            "claimed sandbox container must NOT be reaped"
         );
     }
 
@@ -511,21 +503,18 @@ mod tests {
         let cid2 = add_function_container(&mut scheduler, &executor_id, "pool1");
         let cid3 = add_function_container(&mut scheduler, &executor_id, "pool1");
 
-        // Advance time past threshold
-        tokio::time::advance(Duration::from_secs(9999)).await;
-
-        // Vacuum → only 1 should be vacuumed (3 - min 2 = 1 evictable)
-        let update = scheduler.periodic_vacuum(Duration::from_secs(0)).unwrap();
+        // Reap → only 1 should be reaped (3 - min 2 = 1 evictable)
+        let update = scheduler.reap_idle_containers(std::time::Duration::ZERO);
         assert_eq!(
             update.containers.len(),
             1,
-            "only 1 container should be vacuumed (min_containers=2, total=3)"
+            "only 1 container should be reaped (min_containers=2, total=3)"
         );
 
-        let vacuumed_id = update.containers.keys().next().unwrap();
+        let reaped_id = update.containers.keys().next().unwrap();
         assert!(
-            *vacuumed_id == cid1 || *vacuumed_id == cid2 || *vacuumed_id == cid3,
-            "vacuumed container must be one of the pool's containers"
+            *reaped_id == cid1 || *reaped_id == cid2 || *reaped_id == cid3,
+            "reaped container must be one of the pool's containers"
         );
     }
 
@@ -539,9 +528,6 @@ mod tests {
 
         let cid = add_function_container(&mut scheduler, &executor_id, "pool1");
 
-        // Advance time past threshold
-        tokio::time::advance(Duration::from_secs(9999)).await;
-
         // Mark as terminated via the production update() path
         let fc = scheduler.function_containers.get(&cid).unwrap();
         let mut terminated = *fc.clone();
@@ -552,10 +538,30 @@ mod tests {
         update.containers.insert(cid.clone(), Box::new(terminated));
         apply_update(&mut scheduler, update);
 
-        let update = scheduler.periodic_vacuum(Duration::from_secs(0)).unwrap();
+        let update = scheduler.reap_idle_containers(std::time::Duration::ZERO);
         assert!(
             update.containers.is_empty(),
-            "already-terminated container must not appear in vacuum candidates"
+            "already-terminated container must not appear in reap candidates"
+        );
+    }
+
+    // ===================================================================
+    // Test: reaped containers are tracked for restoration
+    // ===================================================================
+    #[tokio::test(start_paused = true)]
+    async fn reaped_containers_tracked() {
+        let (mut scheduler, executor_id) = setup_scheduler();
+        register_pool(&mut scheduler, "pool1", ContainerPoolType::Function, 0);
+
+        let _cid = add_function_container(&mut scheduler, &executor_id, "pool1");
+
+        let update = scheduler.reap_idle_containers(std::time::Duration::ZERO);
+        assert_eq!(update.containers.len(), 1);
+
+        // reaped_containers should have an entry
+        assert!(
+            !scheduler.reaped_containers.is_empty(),
+            "reaped_containers must be populated for anti-churn restoration"
         );
     }
 }

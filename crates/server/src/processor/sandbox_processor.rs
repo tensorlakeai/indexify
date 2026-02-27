@@ -14,104 +14,69 @@ use crate::{
         SandboxSuccessReason,
     },
     processor::container_scheduler::{self, ContainerScheduler},
-    state_store::{
-        in_memory_state::InMemoryState,
-        requests::{RequestPayload, SchedulerUpdatePayload, SchedulerUpdateRequest},
+    scheduler::{
+        blocked::BlockingInfo,
+        placement::{self, FeasibilityCache, WorkloadKey},
     },
+    state_store::{in_memory_state::InMemoryState, requests::SchedulerUpdateRequest},
 };
 
-pub struct SandboxProcessor {
-    clock: u64,
-}
+pub struct SandboxProcessor;
 
 impl SandboxProcessor {
-    pub fn new(clock: u64) -> Self {
-        Self { clock }
-    }
-
-    /// Allocate all pending sandboxes that can be scheduled
-    pub fn allocate_sandboxes(
-        &self,
-        in_memory_state: &mut InMemoryState,
-        container_scheduler: &mut ContainerScheduler,
-    ) -> Result<SchedulerUpdateRequest> {
-        let mut update = SchedulerUpdateRequest::default();
-
-        // Early exit if no executors are available
-        if container_scheduler.executors.is_empty() {
-            return Ok(update);
-        }
-
-        // Collect pending sandbox keys to avoid borrowing issues
-        let pending_keys: Vec<SandboxKey> =
-            in_memory_state.pending_sandboxes.iter().cloned().collect();
-
-        for sandbox_key in pending_keys {
-            let sandbox = if let Some(sandbox) = in_memory_state.sandboxes.get(&sandbox_key) {
-                sandbox.as_ref().clone()
-            } else {
-                continue;
-            };
-
-            match self.allocate_sandbox(in_memory_state, container_scheduler, &sandbox) {
-                Ok(sandbox_update) => {
-                    update.extend(sandbox_update);
-                }
-                Err(err) => {
-                    warn!(
-                        sandbox_id = %sandbox.id,
-                        namespace = %sandbox.namespace,
-                        pool_id = sandbox.pool_id.as_ref().map(|id| id.get()).unwrap_or(""),
-                        container_id = sandbox.container_id.as_ref().map(|id| id.get()).unwrap_or(""),
-                        error = %err,
-                        "Failed to allocate sandbox"
-                    );
-                }
-            }
-        }
-
-        Ok(update)
+    pub fn new() -> Self {
+        Self
     }
 
     /// Allocate a specific sandbox by key
     pub fn allocate_sandbox_by_key(
         &self,
-        in_memory_state: &mut InMemoryState,
+        in_memory_state: &InMemoryState,
         container_scheduler: &mut ContainerScheduler,
         namespace: &str,
         sandbox_id: &str,
+        cache: &mut FeasibilityCache,
     ) -> Result<SchedulerUpdateRequest> {
         let sandbox_key = SandboxKey::new(namespace, sandbox_id);
         let Some(sandbox) = in_memory_state.sandboxes.get(&sandbox_key).cloned() else {
             return Ok(SchedulerUpdateRequest::default());
         };
 
-        self.allocate_sandbox(in_memory_state, container_scheduler, &sandbox)
+        let (update, _) =
+            self.allocate_sandbox(in_memory_state, container_scheduler, &sandbox, cache)?;
+        Ok(update)
     }
 
-    /// Allocate a single sandbox
+    /// Allocate a single sandbox.
+    ///
+    /// Returns `(update, exhausted)` where `exhausted` is true when the failure
+    /// indicates cluster-wide resource exhaustion (no resources / no executors
+    /// / create_container returned None). Non-exhaustion cases: pool claim
+    /// success, container placed, pool at capacity, already scheduled,
+    /// ConstraintUnsatisfiable.
     #[tracing::instrument(skip_all, fields(
         namespace = %sandbox.namespace,
         sandbox_id = %sandbox.id
     ))]
     fn allocate_sandbox(
         &self,
-        in_memory_state: &mut InMemoryState,
+        in_memory_state: &InMemoryState,
         container_scheduler: &mut ContainerScheduler,
         sandbox: &Sandbox,
-    ) -> Result<SchedulerUpdateRequest> {
+        cache: &mut FeasibilityCache,
+    ) -> Result<(SchedulerUpdateRequest, bool)> {
         let mut update = SchedulerUpdateRequest::default();
 
         // Skip if sandbox is not pending
         if !sandbox.status.is_pending() {
-            return Ok(update);
+            return Ok((update, false));
         }
 
         // Skip if a container has already been scheduled for this sandbox.
         // It is waiting for the container to report Running and should not
         // be re-allocated — doing so would claim a duplicate pool slot.
         if sandbox.has_scheduled() {
-            return Ok(update);
+            return Ok((update, false));
         }
 
         // If sandbox has a pool_id, try to claim from pool first
@@ -119,13 +84,10 @@ impl SandboxProcessor {
             let container_pool_key = ContainerPoolKey::new(&sandbox.namespace, pool_id);
 
             // Try to claim a warm container from the pool
-            if let Some(claim_update) = self.try_claim_from_pool(
-                in_memory_state,
-                container_scheduler,
-                sandbox,
-                &container_pool_key,
-            )? {
-                return Ok(claim_update);
+            if let Some(claim_update) =
+                self.try_claim_from_pool(container_scheduler, sandbox, &container_pool_key)?
+            {
+                return Ok((claim_update, false));
             }
 
             // No warm container available - check if we can create on-demand
@@ -150,7 +112,7 @@ impl SandboxProcessor {
                         sandbox,
                         SandboxPendingReason::PoolAtCapacity,
                     );
-                    return Ok(update);
+                    return Ok((update, false));
                 }
             }
             // Fall through to create on-demand
@@ -166,101 +128,86 @@ impl SandboxProcessor {
         });
 
         // Try to create a container for the sandbox using consolidated method
-        match container_scheduler.create_container_for_sandbox(sandbox, snapshot_uri.as_deref()) {
+        match container_scheduler.create_container_for_sandbox(
+            sandbox,
+            snapshot_uri.as_deref(),
+            cache,
+        ) {
             Ok(Some(container_update)) => {
-                // Find the newly placed container, skipping any vacuum-marked
-                // containers that have Terminated desired state.
-                if let Some(fc_metadata) = container_update
+                // Container placed — extract executor/container info.
+                let (executor_id, container_id) = container_update
                     .containers
                     .values()
                     .find(|c| !matches!(c.desired_state, ContainerState::Terminated { .. }))
-                {
-                    // Container created successfully, keep sandbox Pending until container
-                    // reports Running via heartbeat
-                    let mut updated_sandbox = sandbox.clone();
-                    updated_sandbox.executor_id = Some(fc_metadata.executor_id.clone());
-                    updated_sandbox.container_id = Some(fc_metadata.function_container.id.clone());
-                    updated_sandbox.status = SandboxStatus::Pending {
-                        reason: SandboxPendingReason::WaitingForContainer,
-                    };
+                    .map(|fc| (fc.executor_id.clone(), fc.function_container.id.clone()))
+                    .expect("create_container returned Some but no placed container");
 
-                    let sandbox_key = SandboxKey::from(&updated_sandbox);
-                    update
-                        .updated_sandboxes
-                        .insert(sandbox_key, updated_sandbox);
+                // Container created successfully, keep sandbox Pending until container
+                // reports Running via heartbeat
+                let mut updated_sandbox = sandbox.clone();
+                updated_sandbox.executor_id = Some(executor_id);
+                updated_sandbox.container_id = Some(container_id.clone());
+                updated_sandbox.status = SandboxStatus::Pending {
+                    reason: SandboxPendingReason::WaitingForContainer,
+                };
 
-                    info!(
-                        sandbox_id = %sandbox.id,
-                        namespace = %sandbox.namespace,
-                        pool_id = sandbox.pool_id.as_ref().map(|id| id.get()).unwrap_or(""),
-                        container_id = %fc_metadata.function_container.id,
-                        "Sandbox allocated successfully"
-                    );
-
-                    update.extend(container_update);
-
-                    // Apply update to local copies so subsequent iterations see the changes
-                    let payload = RequestPayload::SchedulerUpdate(SchedulerUpdatePayload::new(
-                        update.clone(),
-                    ));
-                    container_scheduler.update(&payload)?;
-                    in_memory_state.update_state(self.clock, &payload, "sandbox_processor")?;
-                } else {
-                    // No container created (vacuum may have run but no host available)
-                    // Apply any vacuum updates
-                    if !container_update.containers.is_empty() ||
-                        !container_update.updated_executor_states.is_empty()
-                    {
-                        let payload = RequestPayload::SchedulerUpdate(SchedulerUpdatePayload::new(
-                            container_update.clone(),
-                        ));
-                        container_scheduler.update(&payload)?;
-                        in_memory_state.update_state(self.clock, &payload, "sandbox_processor")?;
-                        update.extend(container_update);
-                    }
-
-                    // Distinguish between "no executors exist" and "executors
-                    // exist but lack capacity" by checking the executor list.
-                    if container_scheduler.has_executors() {
-                        info!(
-                            sandbox_id = %sandbox.id,
-                            namespace = %sandbox.namespace,
-                            pool_id = sandbox.pool_id.as_ref().map(|id| id.get()).unwrap_or(""),
-                            "No resources available for sandbox, keeping as pending"
-                        );
-                        Self::set_pending_reason(
-                            &mut update,
-                            sandbox,
-                            SandboxPendingReason::NoResourcesAvailable,
-                        );
-                    } else {
-                        info!(
-                            sandbox_id = %sandbox.id,
-                            namespace = %sandbox.namespace,
-                            pool_id = sandbox.pool_id.as_ref().map(|id| id.get()).unwrap_or(""),
-                            "No executors available for sandbox, keeping as pending"
-                        );
-                        Self::set_pending_reason(
-                            &mut update,
-                            sandbox,
-                            SandboxPendingReason::NoExecutorsAvailable,
-                        );
-                    };
-                }
-            }
-            Ok(None) => {
-                // No executors available at all
-                Self::set_pending_reason(
-                    &mut update,
-                    sandbox,
-                    SandboxPendingReason::NoExecutorsAvailable,
-                );
+                let sandbox_key = SandboxKey::from(&updated_sandbox);
+                update
+                    .updated_sandboxes
+                    .insert(sandbox_key, updated_sandbox);
 
                 info!(
                     sandbox_id = %sandbox.id,
                     namespace = %sandbox.namespace,
-                    "No executors available for sandbox, keeping as pending"
+                    pool_id = sandbox.pool_id.as_ref().map(|id| id.get()).unwrap_or(""),
+                    container_id = %container_id,
+                    "Sandbox allocated successfully"
                 );
+
+                // Update scheduler indices so subsequent capacity checks work
+                container_scheduler.apply_container_update(&container_update);
+                update.extend(container_update);
+
+                // Remove from blocked work tracker if it was previously blocked
+                container_scheduler
+                    .blocked_work
+                    .remove_sandbox(&SandboxKey::from(sandbox));
+
+                return Ok((update, false));
+            }
+            Ok(None) => {
+                // Distinguish between "no executors exist" and "executors
+                // exist but lack capacity" by checking the executor list.
+                if container_scheduler.has_executors() {
+                    info!(
+                        sandbox_id = %sandbox.id,
+                        namespace = %sandbox.namespace,
+                        pool_id = sandbox.pool_id.as_ref().map(|id| id.get()).unwrap_or(""),
+                        "No resources available for sandbox, keeping as pending"
+                    );
+                    Self::set_pending_reason(
+                        &mut update,
+                        sandbox,
+                        SandboxPendingReason::NoResourcesAvailable,
+                    );
+                } else {
+                    info!(
+                        sandbox_id = %sandbox.id,
+                        namespace = %sandbox.namespace,
+                        "No executors available for sandbox, keeping as pending"
+                    );
+                    Self::set_pending_reason(
+                        &mut update,
+                        sandbox,
+                        SandboxPendingReason::NoExecutorsAvailable,
+                    );
+                }
+
+                // Record failed placement in BlockedWorkTracker for targeted retry
+                Self::record_blocked_sandbox(container_scheduler, cache, sandbox);
+
+                // Exhausted: no host could fit this sandbox
+                return Ok((update, true));
             }
             Err(err) => {
                 // Check if this is a ConstraintUnsatisfiable error
@@ -287,18 +234,14 @@ impl SandboxProcessor {
                         "Sandbox allocation failed: constraint unsatisfiable"
                     );
 
-                    // Apply update to local copies
-                    let payload = RequestPayload::SchedulerUpdate(SchedulerUpdatePayload::new(
-                        update.clone(),
-                    ));
-                    container_scheduler.update(&payload)?;
-                    in_memory_state.update_state(self.clock, &payload, "sandbox_processor")?;
+                    // Return Ok so the update (with terminated sandbox) is merged
+                    // into the batch and persisted. Returning Err would drop the
+                    // update, leaving the sandbox stuck in Pending forever.
+                    return Ok((update, false));
                 }
                 return Err(err);
             }
         }
-
-        Ok(update)
     }
 
     pub fn terminate_sandbox(
@@ -331,7 +274,12 @@ impl SandboxProcessor {
         ));
         update
             .updated_sandboxes
-            .insert(sandbox_key, terminated_sandbox);
+            .insert(sandbox_key.clone(), terminated_sandbox);
+
+        // Clean up from blocked work tracker
+        container_scheduler
+            .blocked_work
+            .remove_sandbox(&sandbox_key);
 
         Ok(update)
     }
@@ -339,7 +287,6 @@ impl SandboxProcessor {
     /// Try to claim a warm container from a sandbox pool
     fn try_claim_from_pool(
         &self,
-        in_memory_state: &mut InMemoryState,
         container_scheduler: &mut ContainerScheduler,
         sandbox: &Sandbox,
         pool_key: &ContainerPoolKey,
@@ -392,12 +339,61 @@ impl SandboxProcessor {
             "Sandbox claimed warm container from pool"
         );
 
-        // Apply update to local copies
-        let payload = RequestPayload::SchedulerUpdate(SchedulerUpdatePayload::new(update.clone()));
-        container_scheduler.update(&payload)?;
-        in_memory_state.update_state(self.clock, &payload, "sandbox_processor")?;
+        // Remove from blocked work tracker if it was previously blocked
+        container_scheduler
+            .blocked_work
+            .remove_sandbox(&SandboxKey::from(sandbox));
+
+        // Note: claim_pool_container already updated function_containers and
+        // warm_containers_by_pool inline, so no apply_container_update needed.
 
         Ok(Some(update))
+    }
+
+    /// Record a failed sandbox placement in the BlockedWorkTracker.
+    ///
+    /// Reads the PlacementResult from `container_scheduler.last_placement`
+    /// (set by create_container) and records the eligible/ineligible classes so
+    /// the tracker can do targeted retry when capacity changes.
+    fn record_blocked_sandbox(
+        container_scheduler: &mut ContainerScheduler,
+        cache: &mut FeasibilityCache,
+        sandbox: &Sandbox,
+    ) {
+        let sandbox_key = SandboxKey::from(sandbox);
+        let (eligible, escaped) = match container_scheduler.last_placement.take() {
+            Some(placement) => {
+                let escaped = placement.eligible_classes.is_empty();
+                (placement.eligible_classes, escaped)
+            }
+            None => {
+                // No placement attempted (e.g., create_container returned None
+                // before calling select_executor). Compute per-class
+                // feasibility so only genuinely eligible classes are recorded.
+                // Fall back to escaped when empty (no executors).
+                let workload_key = WorkloadKey::Sandbox {
+                    namespace: sandbox.namespace.clone(),
+                };
+                let eligible = placement::compute_eligible_classes(
+                    container_scheduler,
+                    cache,
+                    &workload_key,
+                    &sandbox.namespace,
+                    "",
+                    None,
+                );
+                let escaped = eligible.is_empty();
+                (eligible, escaped)
+            }
+        };
+        container_scheduler.blocked_work.block_sandbox(
+            sandbox_key,
+            BlockingInfo {
+                eligible_classes: eligible,
+                escaped,
+                memory_mb: sandbox.resources.memory_mb,
+            },
+        );
     }
 
     /// Sets the pending reason on a sandbox and adds it to the update.

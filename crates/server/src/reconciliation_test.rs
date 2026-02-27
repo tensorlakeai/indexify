@@ -209,7 +209,8 @@ mod tests {
                 .get_executor_server_state()
                 .await?
                 .containers
-                .into_values()
+                .into_iter()
+                .map(|(_, v)| v)
                 .collect();
             for fe in fes.iter_mut() {
                 if fe.function_name == "fn_a" {

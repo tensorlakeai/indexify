@@ -75,12 +75,7 @@ mod tests {
             function: fn_name.to_string(),
             version: version.to_string(),
         };
-        let container_scheduler = test_srv
-            .service
-            .indexify_state
-            .container_scheduler
-            .read()
-            .await;
+        let container_scheduler = test_srv.service.indexify_state.container_scheduler.load();
         container_scheduler.count_active_idle_containers(&function_uri)
     }
 
@@ -89,12 +84,7 @@ mod tests {
         test_srv: &TestService,
         pool_key: &ContainerPoolKey,
     ) -> (u32, u32) {
-        let container_scheduler = test_srv
-            .service
-            .indexify_state
-            .container_scheduler
-            .read()
-            .await;
+        let container_scheduler = test_srv.service.indexify_state.container_scheduler.load();
         container_scheduler.count_pool_containers(pool_key)
     }
 
@@ -486,7 +476,7 @@ mod tests {
 
         // Verify warm containers exist and they have pool_id but no sandbox_id
         {
-            let container_scheduler = indexify_state.container_scheduler.read().await;
+            let container_scheduler = indexify_state.container_scheduler.load();
             let warm_container = container_scheduler
                 .function_containers
                 .iter()
@@ -542,7 +532,7 @@ mod tests {
 
         // Verify the container now has sandbox_id set (the key invariant!)
         {
-            let container_scheduler = indexify_state.container_scheduler.read().await;
+            let container_scheduler = indexify_state.container_scheduler.load();
             let claimed_container = container_scheduler
                 .function_containers
                 .iter()

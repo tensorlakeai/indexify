@@ -85,7 +85,7 @@ pub async fn list_application_containers(
     Path((namespace, application)): Path<(String, String)>,
     State(state): State<RouteState>,
 ) -> Result<Json<ListContainersResponse>, IndexifyAPIError> {
-    let in_memory_state = state.indexify_state.in_memory_state.read().await;
+    let in_memory_state = state.indexify_state.in_memory_state.load();
 
     // Look up the application to get its functions and version
     let app_key = Application::key_from(&namespace, &application);
@@ -94,7 +94,7 @@ pub async fn list_application_containers(
         None => return Ok(Json(ListContainersResponse { containers: vec![] })),
     };
 
-    let container_scheduler = state.indexify_state.container_scheduler.read().await;
+    let container_scheduler = state.indexify_state.container_scheduler.load();
 
     // For each function, look up containers via the function URI index
     let mut containers = Vec::new();

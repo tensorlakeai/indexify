@@ -676,7 +676,7 @@ pub fn from_data_model_executor_metadata(
         executor_version: executor.executor_version,
         addr: executor.addr,
         function_allowlist,
-        labels: executor.labels,
+        labels: executor.labels.into_iter().collect(),
         containers: containers_list,
         server_only_containers,
         host_resources: executor.host_resources.into(),

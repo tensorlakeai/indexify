@@ -260,7 +260,7 @@ pub async fn list_sandbox_pools(
     Path(namespace): Path<String>,
     State(state): State<RouteState>,
 ) -> Result<Json<ListSandboxPoolsResponse>, IndexifyAPIError> {
-    let scheduler = state.indexify_state.container_scheduler.read().await;
+    let scheduler = state.indexify_state.container_scheduler.load();
 
     let pools: Vec<SandboxPoolInfo> = scheduler
         .sandbox_pools
@@ -289,7 +289,7 @@ pub async fn get_sandbox_pool(
 ) -> Result<Json<SandboxPoolDetail>, IndexifyAPIError> {
     let pool_key = ContainerPoolKey::new(&namespace, &ContainerPoolId::new(&pool_id));
 
-    let scheduler = state.indexify_state.container_scheduler.read().await;
+    let scheduler = state.indexify_state.container_scheduler.load();
     let pool = scheduler
         .sandbox_pools
         .get(&pool_key)
@@ -346,7 +346,7 @@ pub async fn update_sandbox_pool(
 
     // Check if pool exists and get created_at timestamp
     let created_at = {
-        let scheduler = state.indexify_state.container_scheduler.read().await;
+        let scheduler = state.indexify_state.container_scheduler.load();
         scheduler
             .sandbox_pools
             .get(&pool_key)
@@ -404,7 +404,7 @@ pub async fn create_pool_sandbox(
     let pool_key = ContainerPoolKey::new(&namespace, &pool_id_obj);
 
     // Look up the pool to get its configuration
-    let scheduler = state.indexify_state.container_scheduler.read().await;
+    let scheduler = state.indexify_state.container_scheduler.load();
     let pool = scheduler
         .sandbox_pools
         .get(&pool_key)
@@ -472,7 +472,7 @@ pub async fn delete_sandbox_pool(
 
     // Check if pool exists
     {
-        let scheduler = state.indexify_state.container_scheduler.read().await;
+        let scheduler = state.indexify_state.container_scheduler.load();
         if !scheduler.sandbox_pools.contains_key(&pool_key) {
             return Err(IndexifyAPIError::not_found("Sandbox pool not found"));
         }
@@ -480,7 +480,7 @@ pub async fn delete_sandbox_pool(
 
     // Check if any sandboxes are using this pool
     let active_sandboxes = {
-        let in_memory = state.indexify_state.in_memory_state.read().await;
+        let in_memory = state.indexify_state.in_memory_state.load();
         in_memory.sandboxes.values().any(|s| {
             s.pool_id.as_ref() == Some(&pool_id_obj) &&
                 s.namespace == namespace &&
