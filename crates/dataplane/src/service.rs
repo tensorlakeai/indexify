@@ -698,6 +698,18 @@ impl ServiceRuntime {
                         self.metrics.counters.record_heartbeat(true);
                         retry_interval = HEARTBEAT_MIN_RETRY_INTERVAL;
 
+                        // Any successful RPC means the server is reachable.
+                        self.monitoring_state.ready.store(true, Ordering::SeqCst);
+
+                        // Reset seq counters whenever we sent full_state. The
+                        // server creates a fresh ExecutorConnection with new
+                        // command/result buffers on re-registration, so old
+                        // acked_seq values would incorrectly drain new data.
+                        if is_first_fragment && full_state.is_some() {
+                            self.last_applied_command_seq.store(0, Ordering::SeqCst);
+                            self.last_applied_result_seq.store(0, Ordering::SeqCst);
+                        }
+
                         // Check send_state BEFORE draining buffers. When the
                         // server doesn't recognize this executor it drops all
                         // reports and responds with send_state=true. We must
@@ -719,18 +731,10 @@ impl ServiceRuntime {
                                 "Server requested full state, retaining buffered reports"
                             );
                             send_full_state = true;
-                            self.monitoring_state.ready.store(true, Ordering::SeqCst);
-                            if full_state.is_some() {
-                                self.last_applied_command_seq.store(0, Ordering::SeqCst);
-                                self.last_applied_result_seq.store(0, Ordering::SeqCst);
-                            }
                             self.transition_connection_state(
                                 ConnectionState::Registering,
                                 "server requested re-registration",
                             );
-                            // Break the fragment loop — remaining buffer items
-                            // will be sent with the next heartbeat that includes
-                            // full_state.
                             break;
                         }
 
@@ -742,18 +746,6 @@ impl ServiceRuntime {
                         self.state_reporter.drain_sent_log_entries(log_count).await;
 
                         if is_first_fragment {
-                            // Mark monitoring as ready after first successful heartbeat
-                            self.monitoring_state.ready.store(true, Ordering::SeqCst);
-
-                            // Reset seq counters whenever we sent full_state.
-                            // The server creates a fresh ExecutorConnection with new
-                            // command/result buffers on re-registration, so old
-                            // acked_seq values would incorrectly drain new data.
-                            if full_state.is_some() {
-                                self.last_applied_command_seq.store(0, Ordering::SeqCst);
-                                self.last_applied_result_seq.store(0, Ordering::SeqCst);
-                            }
-
                             self.heartbeat_healthy.store(true, Ordering::SeqCst);
                             self.transition_connection_state(
                                 ConnectionState::Ready,
