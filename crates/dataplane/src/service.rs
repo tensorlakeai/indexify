@@ -969,24 +969,24 @@ impl ServiceRuntime {
                     if let Err(e) = validation::validate_fe_description(&container) {
                         tracing::warn!(
                             seq,
-                            container_id = ?container.id,
-                            namespace = ?container.function.as_ref().and_then(|f| f.namespace.as_deref()),
-                            app = ?container.function.as_ref().and_then(|f| f.application_name.as_deref()),
-                            "fn" = ?container.function.as_ref().and_then(|f| f.function_name.as_deref()),
-                            sandbox_id = ?container.sandbox_metadata.as_ref().and_then(|m| m.sandbox_id.as_deref()),
-                            pool_id = ?container.pool_id.as_deref(),
+                            container_id = %container.id.as_deref().unwrap_or(""),
+                            namespace = %container.function.as_ref().and_then(|f| f.namespace.as_deref()).unwrap_or(""),
+                            app = %container.function.as_ref().and_then(|f| f.application_name.as_deref()).unwrap_or(""),
+                            "fn" = %container.function.as_ref().and_then(|f| f.function_name.as_deref()).unwrap_or(""),
+                            sandbox_id = %container.sandbox_metadata.as_ref().and_then(|m| m.sandbox_id.as_deref()).unwrap_or(""),
+                            pool_id = %container.pool_id.as_deref().unwrap_or(""),
                             error = %e,
                             "Skipping invalid AddContainer command"
                         );
                     } else {
                         tracing::info!(
                             seq,
-                            container_id = ?container.id,
-                            namespace = ?container.function.as_ref().and_then(|f| f.namespace.as_deref()),
-                            app = ?container.function.as_ref().and_then(|f| f.application_name.as_deref()),
-                            "fn" = ?container.function.as_ref().and_then(|f| f.function_name.as_deref()),
-                            sandbox_id = ?container.sandbox_metadata.as_ref().and_then(|m| m.sandbox_id.as_deref()),
-                            pool_id = ?container.pool_id.as_deref(),
+                            container_id = %container.id.as_deref().unwrap_or(""),
+                            namespace = %container.function.as_ref().and_then(|f| f.namespace.as_deref()).unwrap_or(""),
+                            app = %container.function.as_ref().and_then(|f| f.application_name.as_deref()).unwrap_or(""),
+                            "fn" = %container.function.as_ref().and_then(|f| f.function_name.as_deref()).unwrap_or(""),
+                            sandbox_id = %container.sandbox_metadata.as_ref().and_then(|m| m.sandbox_id.as_deref()).unwrap_or(""),
+                            pool_id = %container.pool_id.as_deref().unwrap_or(""),
                             "AddContainer command"
                         );
                         let mut reconciler = self.state_reconciler.lock().await;
@@ -1012,22 +1012,22 @@ impl ServiceRuntime {
                     if let Err(e) = validation::validate_allocation(&allocation) {
                         tracing::warn!(
                             seq,
-                            allocation_id = ?allocation.allocation_id,
-                            request_id = ?allocation.request_id,
-                            container_id = ?allocation.container_id,
-                            namespace = ?allocation.function.as_ref().and_then(|f| f.namespace.as_deref()),
-                            "fn" = ?allocation.function.as_ref().and_then(|f| f.function_name.as_deref()),
+                            allocation_id = %allocation.allocation_id.as_deref().unwrap_or(""),
+                            request_id = %allocation.request_id.as_deref().unwrap_or(""),
+                            container_id = %allocation.container_id.as_deref().unwrap_or(""),
+                            namespace = %allocation.function.as_ref().and_then(|f| f.namespace.as_deref()).unwrap_or(""),
+                            "fn" = %allocation.function.as_ref().and_then(|f| f.function_name.as_deref()).unwrap_or(""),
                             error = %e,
                             "Skipping invalid RunAllocation command"
                         );
                     } else if let Some(fe_id) = allocation.container_id.clone() {
                         tracing::info!(
                             seq,
-                            allocation_id = ?allocation.allocation_id,
-                            request_id = ?allocation.request_id,
+                            allocation_id = %allocation.allocation_id.as_deref().unwrap_or(""),
+                            request_id = %allocation.request_id.as_deref().unwrap_or(""),
                             container_id = %fe_id,
-                            namespace = ?allocation.function.as_ref().and_then(|f| f.namespace.as_deref()),
-                            "fn" = ?allocation.function.as_ref().and_then(|f| f.function_name.as_deref()),
+                            namespace = %allocation.function.as_ref().and_then(|f| f.namespace.as_deref()).unwrap_or(""),
+                            "fn" = %allocation.function.as_ref().and_then(|f| f.function_name.as_deref()).unwrap_or(""),
                             "RunAllocation command"
                         );
                         let mut reconciler = self.state_reconciler.lock().await;
@@ -1037,10 +1037,10 @@ impl ServiceRuntime {
                     } else {
                         tracing::warn!(
                             seq,
-                            allocation_id = ?allocation.allocation_id,
-                            request_id = ?allocation.request_id,
-                            namespace = ?allocation.function.as_ref().and_then(|f| f.namespace.as_deref()),
-                            "fn" = ?allocation.function.as_ref().and_then(|f| f.function_name.as_deref()),
+                            allocation_id = %allocation.allocation_id.as_deref().unwrap_or(""),
+                            request_id = %allocation.request_id.as_deref().unwrap_or(""),
+                            namespace = %allocation.function.as_ref().and_then(|f| f.namespace.as_deref()).unwrap_or(""),
+                            "fn" = %allocation.function.as_ref().and_then(|f| f.function_name.as_deref()).unwrap_or(""),
                             "RunAllocation missing container_id"
                         );
                     }
