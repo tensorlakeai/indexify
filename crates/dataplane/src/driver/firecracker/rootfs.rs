@@ -63,7 +63,6 @@ if [ -n "$ip_param" ]; then
         done
     else
         [ -n "$gateway" ] && echo "nameserver $gateway" >> /etc/resolv.conf
-        echo "nameserver 8.8.8.8" >> /etc/resolv.conf
     fi
 fi
 
