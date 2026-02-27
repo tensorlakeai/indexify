@@ -490,6 +490,10 @@ const METRICS_UPDATE_INTERVAL: Duration = Duration::from_secs(5);
 /// Periodically update resource availability metrics.
 async fn run_metrics_update_loop(metrics: Arc<DataplaneMetrics>, cancel_token: CancellationToken) {
     let mut interval = tokio::time::interval(METRICS_UPDATE_INTERVAL);
+    // Reuse a single System instance across ticks so that sysinfo can compute
+    // cpu_usage() as a delta between consecutive refreshes.  A fresh System on
+    // every tick would have no baseline and always report 0% CPU usage.
+    let mut sys = sysinfo::System::new();
 
     loop {
         tokio::select! {
@@ -498,7 +502,7 @@ async fn run_metrics_update_loop(metrics: Arc<DataplaneMetrics>, cancel_token: C
                 return;
             }
             _ = interval.tick() => {
-                let resources = probe_free_resources();
+                let resources = probe_free_resources(&mut sys);
                 metrics.update_resources(resources).await;
             }
         }
