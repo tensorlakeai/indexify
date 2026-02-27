@@ -266,7 +266,7 @@ jobs:
           sudo apt-get install -y runsc
           sudo runsc install
           sudo tee /etc/docker/daemon.json > /dev/null << 'EOF'
-          {"runtimes": {"runsc": {"path": "/usr/bin/runsc"}}}
+          {"runtimes": {"runsc": {"path": "/usr/bin/runsc", "runtimeArgs": ["--allow-rootfs-tar-annotation"]}}}
           EOF
           sudo systemctl restart docker
           sudo docker run --rm --runtime runsc alpine dmesg 2>&1 | grep -q gVisor
@@ -364,7 +364,7 @@ jobs:
           sudo apt-get install -y runsc
           sudo runsc install
           sudo tee /etc/docker/daemon.json > /dev/null << 'EOF'
-          {"runtimes": {"runsc": {"path": "/usr/bin/runsc"}}}
+          {"runtimes": {"runsc": {"path": "/usr/bin/runsc", "runtimeArgs": ["--allow-rootfs-tar-annotation"]}}}
           EOF
           sudo systemctl restart docker
           sudo docker run --rm --runtime runsc alpine dmesg 2>&1 | grep -q gVisor
