@@ -74,6 +74,7 @@ use crate::{
             create_or_update_application_with_metadata,
             healthz_handler,
             get_pending_resources,
+            get_sandbox_by_id,
         ),
         components(
             schemas(
@@ -98,6 +99,7 @@ use crate::{
                 ResourceProfileEntry,
                 ResourceProfileHistogram,
                 PendingResourcesResponse,
+                SandboxLookupResponse,
             )
         ),
         tags(
@@ -660,13 +662,29 @@ pub async fn create_or_update_application_with_metadata(
     validate_and_submit_application(&state, namespace, application, payload.upgrade_requests).await
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SandboxLookupResponse {
     pub id: String,
     pub status: String,
     pub dataplane_api_address: Option<String>,
 }
 
+/// Look up a sandbox by namespace and ID, returning its status and dataplane
+/// address
+#[utoipa::path(
+    get,
+    path = "/internal/v1/namespaces/{namespace}/sandboxes/{sandbox_id}",
+    tag = "operations",
+    params(
+        ("namespace" = String, Path, description = "Namespace of the sandbox"),
+        ("sandbox_id" = String, Path, description = "ID of the sandbox"),
+    ),
+    responses(
+        (status = 200, description = "Sandbox found", body = SandboxLookupResponse),
+        (status = 404, description = "Sandbox or container not found"),
+        (status = INTERNAL_SERVER_ERROR, description = "Internal Server Error"),
+    ),
+)]
 async fn get_sandbox_by_id(
     State(state): State<RouteState>,
     Path((namespace, sandbox_id)): Path<(String, String)>,
