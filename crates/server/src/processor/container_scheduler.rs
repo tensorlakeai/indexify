@@ -282,14 +282,13 @@ impl ContainerScheduler {
         let executor_id = &executor_metadata.id;
 
         // Remove from old class index if class changed
-        if let Some(old_class) = self.executor_classes.get(executor_id) {
-            if old_class != &new_class {
-                if let Some(set) = self.executors_by_class.get_mut(old_class) {
-                    set.remove(executor_id);
-                    if set.is_empty() {
-                        self.executors_by_class.remove(old_class);
-                    }
-                }
+        if let Some(old_class) = self.executor_classes.get(executor_id)
+            && old_class != &new_class
+            && let Some(set) = self.executors_by_class.get_mut(old_class)
+        {
+            set.remove(executor_id);
+            if set.is_empty() {
+                self.executors_by_class.remove(old_class);
             }
         }
 
@@ -319,12 +318,12 @@ impl ContainerScheduler {
         }
 
         // Remove from executor class indexes
-        if let Some(old_class) = self.executor_classes.remove(executor_id) {
-            if let Some(set) = self.executors_by_class.get_mut(&old_class) {
-                set.remove(executor_id);
-                if set.is_empty() {
-                    self.executors_by_class.remove(&old_class);
-                }
+        if let Some(old_class) = self.executor_classes.remove(executor_id)
+            && let Some(set) = self.executors_by_class.get_mut(&old_class)
+        {
+            set.remove(executor_id);
+            if set.is_empty() {
+                self.executors_by_class.remove(&old_class);
             }
         }
     }
@@ -339,6 +338,7 @@ impl ContainerScheduler {
             .cloned()
             .collect();
 
+        #[allow(clippy::type_complexity)]
         let mut containers_to_remove: Vec<(
             Option<ContainerPoolKey>,
             FunctionURI,
@@ -831,6 +831,7 @@ impl ContainerScheduler {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn create_container(
         &mut self,
         namespace: &str,
@@ -1393,21 +1394,21 @@ impl ContainerScheduler {
             });
 
         // Remove old idle entry if present
-        if let Some(old_fc) = self.function_containers.get(container_id) {
-            if let Some(old_idle) = old_fc.idle_since {
-                self.idle_containers
-                    .remove(&(old_idle, container_id.clone()));
-            }
+        if let Some(old_fc) = self.function_containers.get(container_id)
+            && let Some(old_idle) = old_fc.idle_since
+        {
+            self.idle_containers
+                .remove(&(old_idle, container_id.clone()));
         }
 
         // Add new idle entry if container is idle, not terminated, and is a
         // Function container. Sandbox containers are never reaped so keeping
         // them out of the idle set avoids unnecessary iteration.
-        if !is_terminated && meta.container_type == ContainerType::Function {
-            if let Some(idle_since) = meta.idle_since {
-                self.idle_containers
-                    .insert((idle_since, container_id.clone()));
-            }
+        if !is_terminated && meta.container_type == ContainerType::Function
+            && let Some(idle_since) = meta.idle_since
+        {
+            self.idle_containers
+                .insert((idle_since, container_id.clone()));
         }
 
         // Always update function_containers (keeps metadata for terminated containers)

@@ -113,6 +113,7 @@ pub fn compute_eligible_classes(
 ///    register_container) e. If feasible: add to candidates f. Stop after
 ///    `limit` feasible candidates
 /// 4. Return best by free memory (bin-packing)
+#[allow(clippy::too_many_arguments)]
 pub fn select_executor(
     scheduler: &ContainerScheduler,
     cache: &mut FeasibilityCache,
