@@ -390,6 +390,10 @@ impl ProcessDriver for FirecrackerDriver {
             .as_ref()
             .is_some_and(|img| img.ends_with(".delta"));
 
+        let raw_cpu_millicores = config.resources.as_ref().and_then(|r| r.cpu_millicores);
+        let raw_memory_bytes = config.resources.as_ref().and_then(|r| r.memory_bytes);
+        let raw_disk_bytes = config.resources.as_ref().and_then(|r| r.disk_bytes);
+
         tracing::info!(
             vm_id = %vm_id,
             pool = %pool,
@@ -397,7 +401,11 @@ impl ProcessDriver for FirecrackerDriver {
             container_id = %container_id,
             sandbox_id = %sandbox_id,
             is_restore,
+            raw_cpu_millicores = ?raw_cpu_millicores,
+            raw_memory_bytes = ?raw_memory_bytes,
+            raw_disk_bytes = ?raw_disk_bytes,
             rootfs_size_bytes,
+            base_image_size_bytes = self.base_image.size_bytes,
             "Starting VM creation"
         );
 
@@ -439,6 +447,7 @@ impl ProcessDriver for FirecrackerDriver {
             sandbox_id = %sandbox_id,
             elapsed_ms = start_time.elapsed().as_millis() as u64,
             lv_name = %snapshot.lv_name,
+            rootfs_size_bytes,
             is_restore,
             "Step 1: thin snapshot created"
         );
