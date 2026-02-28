@@ -85,18 +85,19 @@ sandbox_driver:
 #   cni_network_name: indexify-fc                      # CNI conflist "name"
 #   guest_gateway: "192.168.30.1"                      # Gateway IP for guests
 #
-#   # LVM thin provisioning for per-VM COW devices.
-#   # Each VM gets a thin logical volume as its dm-snapshot COW device.
+#   # LVM thin provisioning for per-VM rootfs volumes.
+#   # Each VM gets a thin snapshot of the base image (instant CoW clone).
+#   # Snapshots use thin_delta for efficient change tracking during snapshots.
 #   # Setup (one-time):
 #   #   pvcreate /dev/nvme1n1            # or use a loopback: see README
 #   #   vgcreate indexify-vg /dev/nvme1n1
-#   #   lvcreate -L 100G -T indexify-vg/thinpool
+#   #   lvcreate -l 100%FREE -T indexify-vg/thinpool
 #   lvm_volume_group: indexify-vg
 #   lvm_thin_pool: thinpool
 #
 #   # -- Optional (defaults shown) ----------------------------------------
 #   # firecracker_binary: firecracker        # Path or PATH lookup
-#   # default_rootfs_size_bytes: 1073741824  # Per-VM COW LV size (1 GiB)
+#   # default_rootfs_size_bytes: 1073741824  # Per-VM thin LV size (1 GiB)
 #   # cni_bin_path: /opt/cni/bin             # CNI plugin binaries
 #   # guest_netmask: "255.255.255.0"         # Guest network mask
 #   # default_vcpu_count: 2                  # vCPUs per VM
