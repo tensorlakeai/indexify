@@ -913,8 +913,15 @@ impl IndexifyState {
 
         let mut new_state_changes = request.state_changes(&self.state_change_id_seq)?;
         new_state_changes.extend(allocation_ingestion_events);
+        // Use the POST-increment clock so that state changes are stamped
+        // with the same clock value that update_state() will set on the
+        // in-memory snapshot.  This ensures the application processor's
+        // clock-based filter (created_at_clock > snapshot_clock) correctly
+        // defers state changes whose corresponding ArcSwap publish hasn't
+        // happened yet.
+        let post_clock = self.state_change_id_seq.load(atomic::Ordering::Relaxed);
         if !new_state_changes.is_empty() {
-            state_machine::save_state_changes(&txn, &new_state_changes, current_clock).await?;
+            state_machine::save_state_changes(&txn, &new_state_changes, post_clock).await?;
         }
 
         // Persist request state change events into the same transaction so they
