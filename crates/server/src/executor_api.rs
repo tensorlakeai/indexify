@@ -719,6 +719,33 @@ impl FunctionCallResultRouter {
         );
     }
 
+    /// Register only if no entry exists for this function_call_id.
+    ///
+    /// Returns `true` if inserted, `false` if an entry already exists.
+    /// This prevents `handle_log_entry` from overwriting a re-registration
+    /// made by `try_route_result` for tail-call chains.
+    pub async fn register_if_absent(
+        &self,
+        function_call_id: String,
+        parent_allocation_id: String,
+        original_function_call_id: String,
+        executor_id: ExecutorId,
+    ) -> bool {
+        use std::collections::hash_map::Entry;
+        let mut pending = self.pending.write().await;
+        match pending.entry(function_call_id) {
+            Entry::Occupied(_) => false,
+            Entry::Vacant(v) => {
+                v.insert(PendingFunctionCall {
+                    parent_allocation_id,
+                    original_function_call_id,
+                    executor_id,
+                });
+                true
+            }
+        }
+    }
+
     async fn take(&self, function_call_id: &str) -> Option<PendingFunctionCall> {
         self.pending.write().await.remove(function_call_id)
     }
@@ -1672,8 +1699,8 @@ async fn handle_log_entry(
                         let executor_api_pb::execution_plan_update::Op::FunctionCall(fc) = op &&
                         let Some(ref individual_fc_id) = fc.id
                     {
-                        router
-                            .register(
+                        let inserted = router
+                            .register_if_absent(
                                 individual_fc_id.clone(),
                                 allocation_id.clone(),
                                 individual_fc_id.clone(),
@@ -1681,12 +1708,22 @@ async fn handle_log_entry(
                             )
                             .await;
 
-                        debug!(
-                            executor_id = executor_id.get(),
-                            allocation_id = %allocation_id,
-                            function_call_id = %individual_fc_id,
-                            "heartbeat: registered individual function call in router"
-                        );
+                        if inserted {
+                            debug!(
+                                executor_id = executor_id.get(),
+                                allocation_id = %allocation_id,
+                                function_call_id = %individual_fc_id,
+                                "heartbeat: registered individual function call in router"
+                            );
+                        } else {
+                            debug!(
+                                executor_id = executor_id.get(),
+                                allocation_id = %allocation_id,
+                                function_call_id = %individual_fc_id,
+                                "heartbeat: function call already in router (tail-call \
+                                 re-registration), skipping overwrite"
+                            );
+                        }
                     }
                 }
             }
