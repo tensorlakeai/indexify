@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashSet, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     sync::Arc,
     vec,
 };
@@ -35,21 +35,17 @@ use crate::{
     state_store::{
         IndexifyState,
         in_memory_state::InMemoryState,
-        requests::{RequestPayload, SchedulerUpdatePayload, SchedulerUpdateRequest},
+        requests::SchedulerUpdateRequest,
     },
 };
 
 pub struct FunctionRunCreator {
     indexify_state: Arc<IndexifyState>,
-    clock: u64,
 }
 
 impl FunctionRunCreator {
-    pub fn new(indexify_state: Arc<IndexifyState>, clock: u64) -> Self {
-        Self {
-            indexify_state,
-            clock,
-        }
+    pub fn new(indexify_state: Arc<IndexifyState>) -> Self {
+        Self { indexify_state }
     }
 }
 
@@ -57,7 +53,7 @@ impl FunctionRunCreator {
     #[tracing::instrument(skip(self, in_memory_state, function_call_event))]
     pub async fn handle_blocking_function_call(
         &self,
-        in_memory_state: &mut InMemoryState,
+        in_memory_state: &InMemoryState,
         function_call_event: &FunctionCallEvent,
     ) -> Result<SchedulerUpdateRequest> {
         let Some(mut request_ctx) = in_memory_state
@@ -122,11 +118,6 @@ impl FunctionRunCreator {
             application_version,
         )?);
         scheduler_update.add_request_state(&request_ctx);
-        in_memory_state.update_state(
-            self.clock,
-            &RequestPayload::SchedulerUpdate(SchedulerUpdatePayload::new(scheduler_update.clone())),
-            "task_creator",
-        )?;
         Ok(scheduler_update)
     }
 
@@ -545,39 +536,37 @@ fn propagate_output_to_consumers(
     if function_run.output.is_none() {
         return Ok(scheduler_update);
     }
-    let mut finished_function_run = Some(function_run.clone());
-    let mut run_was_updated = true;
-    while run_was_updated {
-        run_was_updated = false;
-        // 1. Go through all the function runs
-        for fn_run in request_ctx.function_runs.values_mut() {
-            // 2. See if the function run is linked to a child function call for it's output
-            if let Some(child_function_call_id) = &fn_run.child_function_call {
-                let Some(function_run_to_propagate) = finished_function_run.clone() else {
-                    return Ok(scheduler_update);
-                };
-                // 3. If the function run that just finished is linked to this function run
-                // assign the output to the function run
-                if child_function_call_id == &function_run_to_propagate.id {
-                    fn_run.output = function_run_to_propagate.output.clone();
-                    fn_run.outcome = Some(FunctionRunOutcome::Success);
-                    fn_run.status = FunctionRunStatus::Completed;
-                    scheduler_update
-                        .updated_function_runs
-                        .entry(request_ctx_key.clone())
-                        .or_insert(imbl::HashSet::new())
-                        .insert(fn_run.id.clone());
-                    // 4. Now that this function run has an output, figure out which
-                    // function run this function run is linked to
-                    finished_function_run = Some(fn_run.clone());
 
-                    // 5. Since we need to go through this whole process again, set updated_run to
-                    //    true
-                    run_was_updated = true;
-                    break;
-                }
-            }
-        }
+    // Build reverse index: child_call_id → parent_run_id.
+    // A run with child_function_call = X is waiting for the run whose id = X.
+    // So when run X finishes, we look up which parent is waiting for it.
+    let child_to_parent: HashMap<FunctionCallId, FunctionCallId> = request_ctx
+        .function_runs
+        .iter()
+        .filter_map(|(_, run)| {
+            run.child_function_call
+                .as_ref()
+                .map(|child_id| (child_id.clone(), run.id.clone()))
+        })
+        .collect();
+
+    // Walk the chain using O(1) lookups instead of O(N) scans.
+    let mut current_id = function_run.id.clone();
+    let mut current_output = function_run.output.clone();
+    while let Some(parent_id) = child_to_parent.get(&current_id) {
+        let Some(parent_run) = request_ctx.function_runs.get_mut(parent_id) else {
+            break;
+        };
+        parent_run.output = current_output;
+        parent_run.outcome = Some(FunctionRunOutcome::Success);
+        parent_run.status = FunctionRunStatus::Completed;
+        scheduler_update
+            .updated_function_runs
+            .entry(request_ctx_key.clone())
+            .or_insert(imbl::HashSet::new())
+            .insert(parent_run.id.clone());
+        current_id = parent_run.id.clone();
+        current_output = parent_run.output.clone();
     }
     Ok(scheduler_update)
 }
