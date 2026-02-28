@@ -144,11 +144,11 @@ sandbox_driver:
   # base_rootfs_image: /opt/firecracker/rootfs.ext4
   # cni_network_name: indexify-fc
   # guest_gateway: "192.168.30.1"
-  # lvm_volume_group: indexify-vg    # required: LVM volume group for COW devices
+  # lvm_volume_group: indexify-vg    # required: LVM volume group for thin-provisioned volumes
   # lvm_thin_pool: thinpool          # required: LVM thin pool name
 
 # Snapshot storage URI for container filesystem snapshots (optional).
-# Enables snapshot/restore for Docker (docker export) and Firecracker (COW file).
+# Enables snapshot/restore for Docker (docker export) and Firecracker (thin_delta).
 # snapshot_storage_uri: "s3://my-bucket/snapshots"
 
 # HTTP proxy for sandbox routing
@@ -406,8 +406,9 @@ HTTP proxy request events include:
 ## Firecracker on EC2
 
 The Firecracker driver runs microVMs with hardware virtualization and requires
-an EC2 instance with KVM support, an LVM thin pool for per-VM COW devices, and
-CNI networking. Firecracker supports both **x86_64** and **aarch64** (Graviton).
+an EC2 instance with KVM support, an LVM thin pool for per-VM thin-provisioned
+volumes, and CNI networking. Firecracker supports both **x86_64** and
+**aarch64** (Graviton).
 
 See [`crates/dataplane/src/driver/firecracker/FIRECRACKER.md`](src/driver/firecracker/FIRECRACKER.md)
 for the full Firecracker driver reference.
@@ -463,11 +464,11 @@ aws ec2 run-instances \
 
 ```bash
 # Amazon Linux 2023
-sudo dnf install -y lvm2 device-mapper iptables jq golang
+sudo dnf install -y lvm2 device-mapper thin-provisioning-tools iptables jq golang
 
 # Ubuntu 22.04/24.04
 sudo apt-get update
-sudo apt-get install -y lvm2 dmsetup iptables jq golang-go
+sudo apt-get install -y lvm2 dmsetup thin-provisioning-tools iptables jq golang-go
 ```
 
 ### Step 3: Verify KVM access
@@ -618,25 +619,26 @@ http_proxy:
 # Build with Firecracker support
 cargo build --release -p indexify-dataplane --features firecracker
 
-# Run (requires root for dm-snapshot, LVM, and CNI operations)
+# Run (requires root for LVM thin provisioning and CNI operations)
 sudo ./target/release/indexify-dataplane --config /etc/indexify/dataplane.yaml
 ```
 
 ### Verifying the setup
 
 ```bash
-# Check that VMs create thin LVs (not loop devices)
+# Check that VMs create thin LVs
 sudo lvs indexify-vg
-# Should show indexify-cow-{vm_id} entries when VMs are running
+# Should show:
+#   indexify-base        (base image thin LV)
+#   indexify-vm-{vm_id}  (per-VM thin snapshots, one per running VM)
+#   thinpool             (the thin pool itself)
 
-# Check dm-snapshot devices
-sudo dmsetup ls | grep indexify
-# indexify-base       (origin)
-# indexify-vm-{id}    (per-VM snapshots)
+# Verify thin provisioning is working (data_percent shows actual usage)
+sudo lvs -o lv_name,data_percent indexify-vg
 
-# Confirm no COW loop devices (only the origin loop device should exist)
-losetup -l
-# Should show only one loop device for the base rootfs image
+# Check that thin_delta is available (used for efficient snapshots)
+which thin_delta
+# Should print a path like /usr/sbin/thin_delta
 ```
 
 ## Local Development

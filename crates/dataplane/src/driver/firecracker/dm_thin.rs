@@ -782,41 +782,15 @@ pub async fn resume_snapshot_async(lv_name: String, lvm_config: LvmConfig) -> Re
 // Stale device cleanup
 // ---------------------------------------------------------------------------
 
-/// Clean up stale `indexify-vm-*` thin LVs and old-format artifacts from
-/// previous runs.
+/// Clean up stale `indexify-vm-*` thin LVs from previous runs.
 ///
 /// Only removes VM LVs whose VM ID is NOT in `active_vm_ids`.
-/// Also removes old-format artifacts: `indexify-cow-*` LVs and the
-/// `indexify-base` dm device at `/dev/mapper/indexify-base`.
 pub fn cleanup_stale_devices(active_vm_ids: &HashSet<String>, lvm_config: &LvmConfig) {
-    // Clean up old-format dm devices (dm-snapshot era).
-    cleanup_old_format_dm_devices();
-
-    // Clean up stale and old-format LVs.
     let vg = &lvm_config.volume_group;
     if let Ok(output) = run_cmd("lvs", &["--noheadings", "-o", "lv_name", vg]) {
         for line in output.lines() {
             let lv_name = line.trim();
 
-            // Clean up old-format indexify-cow-* LVs.
-            if lv_name.starts_with("indexify-cow-") {
-                let lv_path = format!("{}/{}", vg, lv_name);
-                if let Err(e) = run_cmd("lvremove", &["-f", &lv_path]) {
-                    tracing::warn!(
-                        lv_name = %lv_name,
-                        error = ?e,
-                        "Failed to remove old-format COW thin LV"
-                    );
-                } else {
-                    tracing::info!(
-                        lv_name = %lv_name,
-                        "Removed old-format COW thin LV"
-                    );
-                }
-                continue;
-            }
-
-            // Clean up stale indexify-vm-* LVs not associated with active VMs.
             if let Some(vm_id) = lv_name.strip_prefix("indexify-vm-") {
                 if !active_vm_ids.contains(vm_id) {
                     let lv_path = format!("{}/{}", vg, lv_name);
@@ -832,50 +806,6 @@ pub fn cleanup_stale_devices(active_vm_ids: &HashSet<String>, lvm_config: &LvmCo
                             "Removed stale VM thin LV"
                         );
                     }
-                }
-            }
-        }
-    }
-}
-
-/// Remove old-format dm devices left over from the dm-snapshot era.
-fn cleanup_old_format_dm_devices() {
-    // Remove old indexify-base dm device at /dev/mapper/indexify-base.
-    if Path::new("/dev/mapper/indexify-base").exists() {
-        match run_cmd("dmsetup", &["remove", "indexify-base"]) {
-            Ok(_) => tracing::info!("Removed old-format indexify-base dm device"),
-            Err(e) => {
-                tracing::warn!(error = ?e, "Failed to remove old-format indexify-base dm device")
-            }
-        }
-    }
-
-    // Remove old indexify-vm-* dm devices and legacy thin-provisioning devices.
-    let legacy_prefixes = ["indexify-vm-", "indexify-thin-", "indexify-tpool"];
-    if let Ok(output) = run_cmd("dmsetup", &["ls"]) {
-        let mut devs: Vec<String> = output
-            .lines()
-            .filter_map(|line| line.split_whitespace().next())
-            .filter(|name| legacy_prefixes.iter().any(|p| name.starts_with(p)))
-            .map(|s| s.to_string())
-            .collect();
-        // Sort so thin volumes come before pools.
-        devs.sort();
-        for name in &devs {
-            if run_cmd("dmsetup", &["remove", name]).is_ok() {
-                tracing::info!(dm_name = %name, "Removed old-format dm device");
-            }
-        }
-    }
-
-    // Detach any orphaned loop devices for indexify base rootfs.
-    if let Ok(output) = run_cmd("losetup", &["-l", "--noheadings", "-O", "NAME,BACK-FILE"]) {
-        for line in output.lines() {
-            let parts: Vec<&str> = line.split_whitespace().collect();
-            if parts.len() >= 2 && parts[1].contains("rootfs.ext4") {
-                let loop_dev = parts[0];
-                if run_cmd("losetup", &["-d", loop_dev]).is_ok() {
-                    tracing::info!(loop_device = %loop_dev, "Detached orphaned loop device");
                 }
             }
         }

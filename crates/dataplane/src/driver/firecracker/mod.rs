@@ -176,8 +176,6 @@ impl FirecrackerDriver {
         let base_meta = BaseImageMetadata {
             base_image_path: base_rootfs_image.clone(),
             lv_name: base_image.lv_name.clone(),
-            loop_device: None,
-            dm_name: None,
         };
         base_meta.save(&state_dir)?;
 
@@ -256,8 +254,7 @@ impl FirecrackerDriver {
             driver.cleanup_dead_vm(metadata);
         }
 
-        // Clean up stale thin LVs and old-format artifacts from crashed VMs
-        // that lost their metadata files.
+        // Clean up stale thin LVs from crashed VMs that lost their metadata files.
         dm_thin::cleanup_stale_devices(&active_vm_ids, &driver.lvm_config);
 
         // Clean up leaked network namespaces from crashed VMs.
@@ -726,7 +723,6 @@ impl ProcessDriver for FirecrackerDriver {
             http_addr: http_addr.clone(),
             socket_path: socket_path.clone(),
             labels,
-            dm_name: None,
         };
         metadata.save(&self.state_dir)?;
 

@@ -156,12 +156,6 @@ pub struct VmMetadata {
     /// Labels from the application layer for log attribution.
     #[serde(default)]
     pub labels: HashMap<String, String>,
-
-    // -- Backward-compat fields (old dm-snapshot format) --
-    // Kept for one release so old metadata files still deserialize.
-    /// Old dm device name field (no longer used).
-    #[serde(default, skip_serializing)]
-    pub dm_name: Option<String>,
 }
 
 impl VmMetadata {
@@ -237,17 +231,7 @@ pub struct BaseImageMetadata {
     /// Path to the base rootfs image file.
     pub base_image_path: String,
     /// LV name for the base image (e.g., "indexify-base").
-    #[serde(default)]
     pub lv_name: String,
-
-    // -- Backward-compat fields (old dm-snapshot format) --
-    // Kept so old fc-origin.json files still deserialize.
-    /// Old loop device field (no longer used).
-    #[serde(default, skip_serializing)]
-    pub loop_device: Option<String>,
-    /// Old dm device name field (no longer used).
-    #[serde(default, skip_serializing)]
-    pub dm_name: Option<String>,
 }
 
 impl BaseImageMetadata {
@@ -350,49 +334,6 @@ mod tests {
     }
 
     #[test]
-    fn test_metadata_backward_compat_missing_new_fields() {
-        // Simulate loading old metadata that lacks lv_name.
-        // The #[serde(default)] annotations should handle this gracefully.
-        let old_json = r#"{
-            "handle_id": "fc-old-vm",
-            "vm_id": "old-vm",
-            "pid": 999,
-            "netns_name": "indexify-vm-old-vm",
-            "guest_ip": "192.168.30.5",
-            "daemon_addr": "192.168.30.5:9500",
-            "http_addr": "192.168.30.5:9501",
-            "socket_path": "/tmp/fc-old-vm.sock"
-        }"#;
-
-        let loaded: VmMetadata = serde_json::from_str(old_json).unwrap();
-        assert_eq!(loaded.vm_id, "old-vm");
-        assert_eq!(loaded.lv_name, "");
-        assert!(loaded.dm_name.is_none());
-    }
-
-    #[test]
-    fn test_metadata_backward_compat_old_dm_snapshot_format() {
-        // Old dm-snapshot format had dm_name as a string field.
-        let old_json = r#"{
-            "handle_id": "fc-old-vm",
-            "vm_id": "old-vm",
-            "pid": 999,
-            "lv_name": "indexify-cow-old-vm",
-            "dm_name": "indexify-vm-old-vm",
-            "netns_name": "indexify-vm-old-vm",
-            "guest_ip": "192.168.30.5",
-            "daemon_addr": "192.168.30.5:9500",
-            "http_addr": "192.168.30.5:9501",
-            "socket_path": "/tmp/fc-old-vm.sock"
-        }"#;
-
-        let loaded: VmMetadata = serde_json::from_str(old_json).unwrap();
-        assert_eq!(loaded.vm_id, "old-vm");
-        assert_eq!(loaded.lv_name, "indexify-cow-old-vm");
-        assert_eq!(loaded.dm_name, Some("indexify-vm-old-vm".to_string()));
-    }
-
-    #[test]
     fn test_metadata_remove() {
         let dir = tempfile::tempdir().unwrap();
         let metadata = sample_metadata();
@@ -456,8 +397,6 @@ mod tests {
         let base_meta = BaseImageMetadata {
             base_image_path: "/opt/rootfs.ext4".to_string(),
             lv_name: "indexify-base".to_string(),
-            loop_device: None,
-            dm_name: None,
         };
         base_meta.save(dir.path()).unwrap();
 
@@ -505,8 +444,6 @@ mod tests {
         let metadata = BaseImageMetadata {
             base_image_path: "/opt/firecracker/rootfs.ext4".to_string(),
             lv_name: "indexify-base".to_string(),
-            loop_device: None,
-            dm_name: None,
         };
         let json = serde_json::to_string(&metadata).unwrap();
         let loaded: BaseImageMetadata = serde_json::from_str(&json).unwrap();
@@ -520,8 +457,6 @@ mod tests {
         let metadata = BaseImageMetadata {
             base_image_path: "/opt/rootfs.ext4".to_string(),
             lv_name: "indexify-base".to_string(),
-            loop_device: None,
-            dm_name: None,
         };
 
         metadata.save(dir.path()).unwrap();
@@ -550,8 +485,6 @@ mod tests {
         let metadata = BaseImageMetadata {
             base_image_path: "/opt/rootfs.ext4".to_string(),
             lv_name: "indexify-base".to_string(),
-            loop_device: None,
-            dm_name: None,
         };
         metadata.save(dir.path()).unwrap();
         let path = dir.path().join("fc-origin.json");
@@ -559,22 +492,5 @@ mod tests {
 
         BaseImageMetadata::remove(dir.path());
         assert!(!path.exists(), "Base image metadata file should be removed");
-    }
-
-    #[test]
-    fn test_base_image_metadata_backward_compat_old_format() {
-        // Old fc-origin.json had loop_device and dm_name as required strings.
-        let old_json = r#"{
-            "base_image_path": "/opt/rootfs.ext4",
-            "loop_device": "/dev/loop0",
-            "dm_name": "indexify-base"
-        }"#;
-
-        let loaded: BaseImageMetadata = serde_json::from_str(old_json).unwrap();
-        assert_eq!(loaded.base_image_path, "/opt/rootfs.ext4");
-        // lv_name defaults to empty when missing from old format.
-        assert_eq!(loaded.lv_name, "");
-        assert_eq!(loaded.loop_device, Some("/dev/loop0".to_string()));
-        assert_eq!(loaded.dm_name, Some("indexify-base".to_string()));
     }
 }
