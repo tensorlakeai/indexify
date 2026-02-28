@@ -354,9 +354,7 @@ pub fn create_snapshot_from_delta(
     let base_lv_path = format!("{}/{}", lvm_config.volume_group, base.lv_name);
 
     // Get delta file size before opening.
-    let delta_file_bytes = std::fs::metadata(delta_file)
-        .map(|m| m.len())
-        .unwrap_or(0);
+    let delta_file_bytes = std::fs::metadata(delta_file).map(|m| m.len()).unwrap_or(0);
 
     // Open delta file and read header.
     let mut delta = std::io::BufReader::new(
