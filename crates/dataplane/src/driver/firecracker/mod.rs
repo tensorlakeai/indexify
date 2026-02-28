@@ -360,12 +360,14 @@ impl ProcessDriver for FirecrackerDriver {
         let handle_id = format!("fc-{}", vm_id);
 
         // Use per-container disk size if provided, otherwise fall back to the
-        // driver default.
+        // driver default. Clamp to at least the default so the CoW device is
+        // never smaller than the base image.
         let rootfs_size_bytes = config
             .resources
             .as_ref()
             .and_then(|r| r.disk_bytes)
-            .unwrap_or(self.default_rootfs_size_bytes);
+            .unwrap_or(self.default_rootfs_size_bytes)
+            .max(self.default_rootfs_size_bytes);
 
         // 1. Create dm-snapshot for this VM. Check if config.image points to a .cow
         //    file (restore path).
