@@ -583,14 +583,90 @@ impl ApplicationProcessor {
                 let mut scheduler_update = task_creator
                     .handle_allocation_ingestion(indexes_guard, container_scheduler_guard, req)
                     .await?;
+
+                // Apply intermediate result so allocate_function_runs
+                // sees updated request_ctx from handle_allocation_ingestion.
+                indexes_guard.apply_scheduler_update(
+                    clock,
+                    &scheduler_update,
+                    "alloc_output_ingested_intermediate",
+                )?;
+
+                // Allocate NEW function runs from output propagation.
                 let unallocated_function_runs = scheduler_update.unallocated_function_runs();
-                scheduler_update.extend(task_allocator.allocate_function_runs(
-                    indexes_guard,
-                    container_scheduler_guard,
-                    unallocated_function_runs,
-                    &self.allocate_function_runs_latency,
-                    feas_cache,
-                )?);
+                if !unallocated_function_runs.is_empty() {
+                    let alloc_result = task_allocator.allocate_function_runs(
+                        indexes_guard,
+                        container_scheduler_guard,
+                        unallocated_function_runs,
+                        &self.allocate_function_runs_latency,
+                        feas_cache,
+                    )?;
+                    indexes_guard.apply_scheduler_update(
+                        clock,
+                        &alloc_result,
+                        "alloc_output_ingested_new_runs",
+                    )?;
+                    scheduler_update.extend(alloc_result);
+                }
+
+                // Unblock previously-blocked work. The completed allocation
+                // freed a slot on the container — unblock work that was
+                // waiting on capacity for this executor's class.
+                let cid = &req.allocation_target.container_id;
+                let mut freed_memory_mb: u64 = 0;
+                if let Some(fc) = container_scheduler_guard.function_containers.get(cid) {
+                    let not_terminated = !matches!(
+                        fc.desired_state,
+                        data_model::ContainerState::Terminated { .. }
+                    );
+                    let capacity = self.queue_size * fc.function_container.max_concurrency;
+                    if not_terminated && fc.allocations.len() < capacity as usize {
+                        freed_memory_mb = fc.function_container.resources.memory_mb;
+                    }
+                }
+
+                if freed_memory_mb > 0 {
+                    let executor_class = container_scheduler_guard
+                        .executor_classes
+                        .get(&req.allocation_target.executor_id)
+                        .cloned()
+                        .unwrap_or_else(|| {
+                            container_scheduler_guard
+                                .executors
+                                .get(&req.allocation_target.executor_id)
+                                .map(|e| ExecutorClass::from_executor(e))
+                                .unwrap_or_default()
+                        });
+                    let unblocked = container_scheduler_guard
+                        .blocked_work
+                        .unblock_for_freed_resources(&executor_class, freed_memory_mb);
+
+                    if !unblocked.function_run_keys.is_empty() {
+                        let function_runs = indexes_guard
+                            .resolve_pending_function_runs(&unblocked.function_run_keys);
+                        if !function_runs.is_empty() {
+                            scheduler_update.extend(task_allocator.allocate_function_runs(
+                                indexes_guard,
+                                container_scheduler_guard,
+                                function_runs,
+                                &self.allocate_function_runs_latency,
+                                feas_cache,
+                            )?);
+                        }
+                    }
+
+                    for sandbox_key in &unblocked.sandbox_keys {
+                        scheduler_update.extend(sandbox_processor.allocate_sandbox_by_key(
+                            indexes_guard,
+                            container_scheduler_guard,
+                            sandbox_key.namespace(),
+                            sandbox_key.sandbox_id(),
+                            feas_cache,
+                        )?);
+                    }
+                }
+
                 scheduler_update
             }
             ChangeType::ExecutorUpserted(ev) => {
