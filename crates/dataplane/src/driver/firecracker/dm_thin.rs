@@ -438,13 +438,13 @@ pub fn create_snapshot_from_delta(
             .open(&device_path)
         {
             Ok(f) => (f, true),
-            Err(_direct_err) => {
+            Err(direct_err) => {
                 // Fallback: O_DIRECT may not be supported on all devices/filesystems.
                 // Open without it and log a warning (close will be slow).
                 tracing::warn!(
                     vm_id = %vm_id,
                     lv_name = %lv_name,
-                    error = ?_direct_err,
+                    error = ?direct_err,
                     "O_DIRECT not supported on target device, falling back to buffered I/O \
                      (close() may be slow due to sync_blockdev)"
                 );
