@@ -2576,6 +2576,7 @@ dependencies = [
  "sha2",
  "tempfile",
  "tokio",
+ "tokio-stream",
  "tokio-util",
  "tracing",
  "url",

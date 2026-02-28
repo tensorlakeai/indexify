@@ -1,6 +1,6 @@
 //! S3 backend implementation for blob store operations.
 
-use std::{ops::Range, time::Duration};
+use std::{ops::Range, sync::Arc, time::Duration};
 
 use anyhow::{Context, Result, anyhow};
 use aws_sdk_s3::{Client as S3Client, presigning::PresigningConfig};
@@ -50,6 +50,140 @@ pub(crate) async fn get_stream(
     let reader = resp.body.into_async_read();
     let stream = ReaderStream::new(reader).map(|r| r.map_err(|e| anyhow!("S3 read error: {}", e)));
     Ok(Box::pin(stream))
+}
+
+/// Part size for concurrent S3 downloads (8 MB).
+///
+/// Each concurrent GetObject request fetches one part. Smaller parts increase
+/// parallelism but add per-request overhead. 8 MB balances latency and
+/// throughput for typical snapshot sizes (100 MB – 1 GB).
+const DOWNLOAD_PART_SIZE: u64 = 8 * 1024 * 1024;
+
+/// Maximum number of concurrent GetObject range requests.
+const DOWNLOAD_CONCURRENCY: usize = 8;
+
+/// Maximum parts in the FuturesOrdered buffer (in-flight + completed but
+/// not yet forwarded). Caps peak memory to roughly
+/// `MAX_BUFFERED_PARTS × DOWNLOAD_PART_SIZE` ≈ 200 MB.
+const MAX_BUFFERED_PARTS: usize = 24;
+
+/// Minimum object size to use concurrent downloads. Below this threshold a
+/// single GetObject is faster because the HeadObject + request fan-out
+/// overhead exceeds the benefit of parallelism.
+const CONCURRENT_DOWNLOAD_THRESHOLD: u64 = 16 * 1024 * 1024; // 16 MB
+
+/// Download an S3 object using concurrent byte-range GetObject requests.
+///
+/// Issues up to [`DOWNLOAD_CONCURRENCY`] parallel range requests and yields
+/// parts in order. For objects smaller than [`CONCURRENT_DOWNLOAD_THRESHOLD`],
+/// falls back to a single GetObject request.
+pub(crate) async fn get_stream_concurrent(
+    client: &S3Client,
+    bucket: &str,
+    key: &str,
+) -> Result<BoxStream<'static, Result<Bytes>>> {
+    // Get object size.
+    let head = client
+        .head_object()
+        .bucket(bucket)
+        .key(key)
+        .send()
+        .await
+        .context("S3 head_object failed for concurrent download")?;
+    let size = head.content_length().unwrap_or(0) as u64;
+
+    if size <= CONCURRENT_DOWNLOAD_THRESHOLD {
+        return get_stream(client, bucket, key, None).await;
+    }
+
+    let num_parts = (size + DOWNLOAD_PART_SIZE - 1) / DOWNLOAD_PART_SIZE;
+
+    tracing::info!(
+        bucket,
+        key,
+        size,
+        num_parts,
+        part_size = DOWNLOAD_PART_SIZE,
+        concurrency = DOWNLOAD_CONCURRENCY,
+        "Starting concurrent S3 download"
+    );
+
+    let (tx, rx) = tokio::sync::mpsc::channel::<Result<Bytes>>(4);
+    let client = client.clone();
+    let bucket = bucket.to_string();
+    let key = key.to_string();
+
+    tokio::spawn(async move {
+        let sem = Arc::new(tokio::sync::Semaphore::new(DOWNLOAD_CONCURRENCY));
+        let mut futs = futures::stream::FuturesOrdered::new();
+        let mut buffered: usize = 0;
+
+        let mut part_start = 0u64;
+        while part_start < size {
+            // Drain completed parts before spawning more to cap memory.
+            while buffered >= MAX_BUFFERED_PARTS {
+                match futs.next().await {
+                    Some(result) => {
+                        buffered -= 1;
+                        let bytes = match result {
+                            Ok(Ok(b)) => Ok(b),
+                            Ok(Err(e)) => Err(e),
+                            Err(e) => Err(anyhow!("S3 download task panicked: {}", e)),
+                        };
+                        if tx.send(bytes).await.is_err() {
+                            return;
+                        }
+                    }
+                    None => break,
+                }
+            }
+
+            let part_end = (part_start + DOWNLOAD_PART_SIZE).min(size) - 1;
+            let range_header = format!("bytes={}-{}", part_start, part_end);
+
+            let client = client.clone();
+            let bucket = bucket.clone();
+            let key = key.clone();
+            let permit = sem.clone().acquire_owned().await.unwrap();
+
+            futs.push_back(tokio::spawn(async move {
+                let result = client
+                    .get_object()
+                    .bucket(&bucket)
+                    .key(&key)
+                    .range(&range_header)
+                    .send()
+                    .await;
+                drop(permit);
+                match result {
+                    Ok(resp) => resp
+                        .body
+                        .collect()
+                        .await
+                        .map(|b| b.into_bytes())
+                        .map_err(|e| anyhow!("S3 range read error: {}", e)),
+                    Err(e) => Err(anyhow!("S3 GetObject range failed: {}", e)),
+                }
+            }));
+
+            buffered += 1;
+            part_start += DOWNLOAD_PART_SIZE;
+        }
+
+        // Drain remaining parts.
+        while let Some(result) = futs.next().await {
+            let bytes = match result {
+                Ok(Ok(b)) => Ok(b),
+                Ok(Err(e)) => Err(e),
+                Err(e) => Err(anyhow!("S3 download task panicked: {}", e)),
+            };
+            if tx.send(bytes).await.is_err() {
+                break;
+            }
+        }
+    });
+
+    Ok(Box::pin(tokio_stream::wrappers::ReceiverStream::new(rx)))
 }
 
 pub(crate) async fn get_metadata(

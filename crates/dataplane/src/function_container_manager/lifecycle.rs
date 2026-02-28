@@ -207,7 +207,16 @@ pub(super) async fn start_container_with_daemon(
         pool_id = info.pool_id.unwrap_or(""),
         "Starting container process"
     );
-    let handle = driver.start(config).await?;
+    let handle = {
+        use tracing::Instrument;
+        let span = tracing::info_span!(
+            "start_container",
+            container_id = %info.container_id,
+            sandbox_id = info.sandbox_id.unwrap_or(""),
+            pool_id = info.pool_id.unwrap_or(""),
+        );
+        driver.start(config).instrument(span).await?
+    };
 
     // Apply network firewall rules BEFORE daemon connection.
     // Container has IP now (cached in handle), but hasn't done any network requests

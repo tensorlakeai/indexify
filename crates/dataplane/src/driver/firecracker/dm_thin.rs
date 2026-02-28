@@ -353,6 +353,11 @@ pub fn create_snapshot_from_delta(
     let device_path = PathBuf::from(format!("/dev/{}/{}", lvm_config.volume_group, lv_name));
     let base_lv_path = format!("{}/{}", lvm_config.volume_group, base.lv_name);
 
+    // Get delta file size before opening.
+    let delta_file_bytes = std::fs::metadata(delta_file)
+        .map(|m| m.len())
+        .unwrap_or(0);
+
     // Open delta file and read header.
     let mut delta = std::io::BufReader::new(
         std::fs::File::open(delta_file)
@@ -369,6 +374,7 @@ pub fn create_snapshot_from_delta(
         image_size,
         lv_size,
         delta_file = %delta_file.display(),
+        delta_file_bytes,
         "Starting snapshot restore from delta"
     );
 
@@ -431,6 +437,7 @@ pub fn create_snapshot_from_delta(
     };
 
     let mut blocks_written: u64 = 0;
+    let mut total_bytes_applied: u64 = 0;
     let mut record_header = [0u8; 12]; // offset: u64 + length: u32
     let mut data = vec![0u8; BLOCK_SIZE]; // reused across iterations
     loop {
@@ -476,12 +483,15 @@ pub fn create_snapshot_from_delta(
                 .context(format!("Failed to write delta block at offset {}", offset)));
         }
         blocks_written += 1;
+        total_bytes_applied += length as u64;
     }
 
     tracing::info!(
         vm_id = %vm_id,
         lv_name = %lv_name,
         blocks_written,
+        total_bytes_applied,
+        delta_file_bytes,
         elapsed_ms = t_apply.elapsed().as_millis() as u64,
         "Delta block records applied (COW preserved for unchanged blocks)"
     );
@@ -531,6 +541,8 @@ pub fn create_snapshot_from_delta(
         image_size,
         lv_size,
         blocks_written,
+        total_bytes_applied,
+        delta_file_bytes,
         total_ms = t0.elapsed().as_millis() as u64,
         "Thin snapshot created from delta"
     );
@@ -802,9 +814,13 @@ pub fn suspend_snapshot(lv_name: &str, lvm_config: &LvmConfig) -> Result<()> {
 
 /// Async version of suspend_snapshot.
 pub async fn suspend_snapshot_async(lv_name: String, lvm_config: LvmConfig) -> Result<()> {
-    tokio::task::spawn_blocking(move || suspend_snapshot(&lv_name, &lvm_config))
-        .await
-        .context("suspend_snapshot task panicked")?
+    let span = tracing::Span::current();
+    tokio::task::spawn_blocking(move || {
+        let _guard = span.enter();
+        suspend_snapshot(&lv_name, &lvm_config)
+    })
+    .await
+    .context("suspend_snapshot task panicked")?
 }
 
 /// Resume a previously suspended thin LV device.
@@ -819,9 +835,13 @@ pub fn resume_snapshot(lv_name: &str, lvm_config: &LvmConfig) -> Result<()> {
 
 /// Async version of resume_snapshot.
 pub async fn resume_snapshot_async(lv_name: String, lvm_config: LvmConfig) -> Result<()> {
-    tokio::task::spawn_blocking(move || resume_snapshot(&lv_name, &lvm_config))
-        .await
-        .context("resume_snapshot task panicked")?
+    let span = tracing::Span::current();
+    tokio::task::spawn_blocking(move || {
+        let _guard = span.enter();
+        resume_snapshot(&lv_name, &lvm_config)
+    })
+    .await
+    .context("resume_snapshot task panicked")?
 }
 
 // ---------------------------------------------------------------------------
@@ -892,7 +912,9 @@ pub async fn create_snapshot_async(
     lvm_config: LvmConfig,
     size_bytes: u64,
 ) -> Result<ThinSnapshotHandle> {
+    let span = tracing::Span::current();
     tokio::task::spawn_blocking(move || {
+        let _guard = span.enter();
         let base = BaseImageHandle {
             lv_name: base_lv_name,
             device_path: base_device_path,
@@ -914,7 +936,9 @@ pub async fn create_snapshot_from_delta_async(
     delta_file: PathBuf,
     requested_size: u64,
 ) -> Result<ThinSnapshotHandle> {
+    let span = tracing::Span::current();
     tokio::task::spawn_blocking(move || {
+        let _guard = span.enter();
         let base = BaseImageHandle {
             lv_name: base_lv_name,
             device_path: base_device_path,
@@ -928,9 +952,13 @@ pub async fn create_snapshot_from_delta_async(
 
 /// Async version of destroy_snapshot.
 pub async fn destroy_snapshot_async(lv_name: String, lvm_config: LvmConfig) -> Result<()> {
-    tokio::task::spawn_blocking(move || destroy_snapshot(&lv_name, &lvm_config))
-        .await
-        .context("destroy_snapshot task panicked")?
+    let span = tracing::Span::current();
+    tokio::task::spawn_blocking(move || {
+        let _guard = span.enter();
+        destroy_snapshot(&lv_name, &lvm_config)
+    })
+    .await
+    .context("destroy_snapshot task panicked")?
 }
 
 // ---------------------------------------------------------------------------
