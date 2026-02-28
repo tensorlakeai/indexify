@@ -814,9 +814,13 @@ pub fn suspend_snapshot(lv_name: &str, lvm_config: &LvmConfig) -> Result<()> {
 
 /// Async version of suspend_snapshot.
 pub async fn suspend_snapshot_async(lv_name: String, lvm_config: LvmConfig) -> Result<()> {
-    tokio::task::spawn_blocking(move || suspend_snapshot(&lv_name, &lvm_config))
-        .await
-        .context("suspend_snapshot task panicked")?
+    let span = tracing::Span::current();
+    tokio::task::spawn_blocking(move || {
+        let _guard = span.enter();
+        suspend_snapshot(&lv_name, &lvm_config)
+    })
+    .await
+    .context("suspend_snapshot task panicked")?
 }
 
 /// Resume a previously suspended thin LV device.
@@ -831,9 +835,13 @@ pub fn resume_snapshot(lv_name: &str, lvm_config: &LvmConfig) -> Result<()> {
 
 /// Async version of resume_snapshot.
 pub async fn resume_snapshot_async(lv_name: String, lvm_config: LvmConfig) -> Result<()> {
-    tokio::task::spawn_blocking(move || resume_snapshot(&lv_name, &lvm_config))
-        .await
-        .context("resume_snapshot task panicked")?
+    let span = tracing::Span::current();
+    tokio::task::spawn_blocking(move || {
+        let _guard = span.enter();
+        resume_snapshot(&lv_name, &lvm_config)
+    })
+    .await
+    .context("resume_snapshot task panicked")?
 }
 
 // ---------------------------------------------------------------------------
@@ -904,7 +912,9 @@ pub async fn create_snapshot_async(
     lvm_config: LvmConfig,
     size_bytes: u64,
 ) -> Result<ThinSnapshotHandle> {
+    let span = tracing::Span::current();
     tokio::task::spawn_blocking(move || {
+        let _guard = span.enter();
         let base = BaseImageHandle {
             lv_name: base_lv_name,
             device_path: base_device_path,
@@ -926,7 +936,9 @@ pub async fn create_snapshot_from_delta_async(
     delta_file: PathBuf,
     requested_size: u64,
 ) -> Result<ThinSnapshotHandle> {
+    let span = tracing::Span::current();
     tokio::task::spawn_blocking(move || {
+        let _guard = span.enter();
         let base = BaseImageHandle {
             lv_name: base_lv_name,
             device_path: base_device_path,
@@ -940,9 +952,13 @@ pub async fn create_snapshot_from_delta_async(
 
 /// Async version of destroy_snapshot.
 pub async fn destroy_snapshot_async(lv_name: String, lvm_config: LvmConfig) -> Result<()> {
-    tokio::task::spawn_blocking(move || destroy_snapshot(&lv_name, &lvm_config))
-        .await
-        .context("destroy_snapshot task panicked")?
+    let span = tracing::Span::current();
+    tokio::task::spawn_blocking(move || {
+        let _guard = span.enter();
+        destroy_snapshot(&lv_name, &lvm_config)
+    })
+    .await
+    .context("destroy_snapshot task panicked")?
 }
 
 // ---------------------------------------------------------------------------
