@@ -397,7 +397,7 @@ impl ApplicationProcessor {
         while let Some(state_change) = cached_state_changes.pop() {
             if state_change
                 .created_at_clock()
-                .map_or(false, |c| c > snapshot_clock)
+                .is_some_and(|c| c > snapshot_clock)
             {
                 debug!(
                     snapshot_clock,
