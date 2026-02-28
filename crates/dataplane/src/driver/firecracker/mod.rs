@@ -348,26 +348,26 @@ impl ProcessDriver for FirecrackerDriver {
             .labels
             .iter()
             .find(|(k, _)| k == "pool_id")
-            .map(|(_, v)| v.as_str())
-            .unwrap_or("");
+            .map(|(_, v)| v.clone())
+            .unwrap_or_default();
         let namespace = config
             .labels
             .iter()
             .find(|(k, _)| k == "namespace")
-            .map(|(_, v)| v.as_str())
-            .unwrap_or("");
+            .map(|(_, v)| v.clone())
+            .unwrap_or_default();
         let container_id = config
             .labels
             .iter()
             .find(|(k, _)| k == "container_id")
-            .map(|(_, v)| v.as_str())
-            .unwrap_or("");
+            .map(|(_, v)| v.clone())
+            .unwrap_or_default();
         let sandbox_id = config
             .labels
             .iter()
             .find(|(k, _)| k == "sandbox_id")
-            .map(|(_, v)| v.as_str())
-            .unwrap_or("");
+            .map(|(_, v)| v.clone())
+            .unwrap_or_default();
 
         // Use per-container disk size if provided, otherwise fall back to the
         // driver default. Clamp to at least the base image size so the thin

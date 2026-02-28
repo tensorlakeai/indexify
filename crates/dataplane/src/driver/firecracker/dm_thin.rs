@@ -236,9 +236,11 @@ pub fn create_snapshot(
     let base_lv_path = format!("{}/{}", lvm_config.volume_group, base.lv_name);
 
     // Create thin snapshot of the base image.
+    // Use -kn to clear the skip-activation flag so the device node
+    // appears immediately at /dev/{vg}/{lv_name}.
     run_cmd(
         "lvcreate",
-        &["--snapshot", &base_lv_path, "--name", &lv_name],
+        &["-kn", "--snapshot", &base_lv_path, "--name", &lv_name],
     )
     .with_context(|| format!("Failed to create thin snapshot {}", lv_name))?;
     tracing::info!(
@@ -353,9 +355,11 @@ pub fn create_snapshot_from_delta(
     );
 
     // Create thin snapshot of the base image.
+    // Use -kn to clear the skip-activation flag so the device node
+    // appears immediately at /dev/{vg}/{lv_name}.
     if let Err(e) = run_cmd(
         "lvcreate",
-        &["--snapshot", &base_lv_path, "--name", &lv_name],
+        &["-kn", "--snapshot", &base_lv_path, "--name", &lv_name],
     ) {
         return Err(e.context(format!(
             "Failed to create thin snapshot for restored VM {}",

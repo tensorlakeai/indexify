@@ -319,6 +319,7 @@ async fn test_custom_resource_limits() {
     config.resources = Some(ResourceLimits {
         memory_bytes: Some(256 * 1024 * 1024), // 256 MiB
         cpu_millicores: Some(1000),            // 1 vCPU
+        disk_bytes: None,
         gpu_device_ids: None,
     });
 
