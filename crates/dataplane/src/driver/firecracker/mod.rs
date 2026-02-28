@@ -263,6 +263,11 @@ impl FirecrackerDriver {
         Ok(driver)
     }
 
+    /// Returns the state directory path (used for VM metadata persistence).
+    pub fn state_dir(&self) -> &std::path::Path {
+        &self.state_dir
+    }
+
     /// Clean up resources for a dead VM (blocking, used during recovery).
     fn cleanup_dead_vm(&self, metadata: &VmMetadata) {
         // Remove metadata file

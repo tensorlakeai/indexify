@@ -38,17 +38,19 @@
 
 #![cfg(feature = "firecracker")]
 
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use anyhow::Result;
 use indexify_dataplane::driver::{
     FirecrackerDriver,
+    LvmConfig,
     ProcessConfig,
     ProcessDriver,
     ProcessHandle,
     ProcessType,
     ResourceLimits,
 };
+use indexify_dataplane::snapshotter::Snapshotter;
 
 /// Ensure tests run one at a time. The dm-snapshot origin uses a fixed device
 /// name, so concurrent tests would conflict.
@@ -766,5 +768,370 @@ async fn test_snapshot_provisioning_time() {
     // Clean up
     for handle in &handles {
         driver.kill(handle).await.expect("kill");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Test: Full snapshot lifecycle — create, snapshot, kill, restore, verify
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_snapshot_lifecycle() {
+    if !infra_available() {
+        return;
+    }
+    let _lock = serial();
+
+    let driver = create_test_driver().expect("driver creation");
+
+    // Use unique temp dirs for snapshot storage and snapshotter state.
+    let run_id = uuid::Uuid::new_v4();
+    let snapshot_dir = format!("/tmp/indexify-fc-snapshot-test-{}", run_id);
+    std::fs::create_dir_all(&snapshot_dir).expect("create snapshot dir");
+
+    let snapshot_file = format!("{}/test-snapshot.zst", snapshot_dir);
+    let snapshot_uri = format!("file://{}", snapshot_file);
+
+    // Build LvmConfig and snapshotter.
+    let lvm_vg = std::env::var("FC_LVM_VG").unwrap_or_else(|_| "indexify-vg".to_string());
+    let lvm_pool = std::env::var("FC_LVM_POOL").unwrap_or_else(|_| "thinpool".to_string());
+    let lvm_config = LvmConfig {
+        volume_group: lvm_vg,
+        thin_pool: lvm_pool,
+    };
+
+    // Re-use the driver's state_dir for the snapshotter (it reads VmMetadata
+    // from there).
+    let state_dir = driver.state_dir().to_path_buf();
+    let metrics = Arc::new(indexify_dataplane::DataplaneMetrics::new());
+    let blob_store = indexify_dataplane::blob_ops::BlobStore::new(metrics.clone());
+    let snapshotter =
+        indexify_dataplane::snapshotter::firecracker_snapshotter::FirecrackerSnapshotter::new(
+            state_dir,
+            blob_store,
+            metrics,
+            lvm_config,
+        );
+
+    // Use short unique suffix to avoid LV name collisions from previous runs.
+    let short_id = &run_id.to_string()[..8];
+
+    // ── Step 1: Boot original VM ──────────────────────────────────────────
+    let step1_start = std::time::Instant::now();
+    let handle = driver
+        .start(sandbox_config(&format!("snap-orig-{}", short_id)))
+        .await
+        .expect("Start original VM");
+    let step1_elapsed = step1_start.elapsed();
+
+    eprintln!(
+        "\n=== Snapshot Lifecycle Test ===\n\
+         Step 1: Boot original VM: {:?}",
+        step1_elapsed
+    );
+
+    // Wait for daemon HTTP API to be ready.
+    let http_addr = handle.http_addr.as_ref().expect("http_addr");
+    let http_base = format!("http://{}", http_addr);
+    let http_client = reqwest::Client::new();
+
+    wait_for_http_health(&http_client, &http_base).await;
+    eprintln!("  Original VM daemon healthy: {}", handle.id);
+
+    // ── Step 2: Write test files inside the VM ───────────────────────────
+    // Write several files of different sizes and content patterns, then
+    // compute SHA-256 checksums inside the VM.
+    // Write to /var (on the rootfs ext4), NOT /tmp (which is tmpfs/RAM).
+    let test_files: Vec<(&str, Vec<u8>)> = vec![
+        ("/var/marker.txt", b"SNAPSHOT_MARKER_12345\n".to_vec()),
+        (
+            "/var/binary_data.bin",
+            (0..=255u8).cycle().take(4096).collect(),
+        ),
+        (
+            "/var/large_file.dat",
+            b"x".repeat(1024 * 1024), // 1 MB of 'x'
+        ),
+        (
+            "/var/json_config.json",
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "snapshot_test": true,
+                "vm_id": handle.id,
+                "timestamp": "2026-02-28T00:00:00Z",
+                "nested": {"key": "value", "array": [1, 2, 3]},
+            }))
+            .unwrap(),
+        ),
+    ];
+
+    // Compute expected SHA-256 checksums.
+    let expected_checksums: Vec<(&str, String)> = test_files
+        .iter()
+        .map(|(path, data)| {
+            use sha2::{Digest, Sha256};
+            let hash = Sha256::digest(data);
+            (*path, format!("{:x}", hash))
+        })
+        .collect();
+
+    for (path, data) in &test_files {
+        let resp = http_client
+            .put(format!("{}/api/v1/files?path={}", http_base, path))
+            .body(data.clone())
+            .send()
+            .await
+            .expect("write file request");
+        assert!(
+            resp.status().is_success(),
+            "Failed to write {}: {}",
+            path,
+            resp.status()
+        );
+    }
+    eprintln!(
+        "Step 2: Wrote {} test files ({} total bytes)",
+        test_files.len(),
+        test_files.iter().map(|(_, d)| d.len()).sum::<usize>(),
+    );
+
+    // Verify files are readable before snapshot.
+    for (path, expected_checksum) in &expected_checksums {
+        let resp = http_client
+            .get(format!("{}/api/v1/files?path={}", http_base, path))
+            .send()
+            .await
+            .expect("read file request");
+        assert!(
+            resp.status().is_success(),
+            "Failed to read {} before snapshot: {}",
+            path,
+            resp.status()
+        );
+        let body = resp.bytes().await.unwrap();
+        let actual = {
+            use sha2::{Digest, Sha256};
+            format!("{:x}", Sha256::digest(&body))
+        };
+        assert_eq!(
+            &actual, expected_checksum,
+            "Checksum mismatch for {} BEFORE snapshot",
+            path
+        );
+    }
+    eprintln!("  All files verified before snapshot");
+
+    // ── Step 3: Create snapshot (delta via thin_delta) ────────────────────
+    let step3_start = std::time::Instant::now();
+    let snap_result = snapshotter
+        .create_snapshot(&handle.id, "snap-lifecycle-001", &snapshot_uri)
+        .await
+        .expect("Create snapshot");
+    let step3_elapsed = step3_start.elapsed();
+
+    assert!(
+        snap_result.size_bytes > 0,
+        "Snapshot should have non-zero size"
+    );
+    assert!(
+        std::path::Path::new(&snapshot_file).exists(),
+        "Snapshot file should exist on disk"
+    );
+
+    // Measure snapshot size and compare to base rootfs.
+    let rootfs_path = std::env::var("FC_BASE_ROOTFS").unwrap();
+    let rootfs_size = std::fs::metadata(&rootfs_path)
+        .map(|m| m.len())
+        .unwrap_or(0);
+
+    eprintln!(
+        "Step 3: Create snapshot: {:?}\n\
+         \x20 Snapshot size: {} bytes ({:.2} MB)\n\
+         \x20 Base rootfs size: {} bytes ({:.2} MB)\n\
+         \x20 Compression ratio: {:.1}x smaller than full rootfs",
+        step3_elapsed,
+        snap_result.size_bytes,
+        snap_result.size_bytes as f64 / (1024.0 * 1024.0),
+        rootfs_size,
+        rootfs_size as f64 / (1024.0 * 1024.0),
+        rootfs_size as f64 / snap_result.size_bytes as f64,
+    );
+
+    // ── Step 4: Kill the original VM ──────────────────────────────────────
+    let step4_start = std::time::Instant::now();
+    driver.kill(&handle).await.expect("Kill original VM");
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(
+        !driver.alive(&handle).await.unwrap(),
+        "Original VM should be dead after kill"
+    );
+    let step4_elapsed = step4_start.elapsed();
+    eprintln!("Step 4: Kill original VM: {:?}", step4_elapsed);
+
+    // ── Step 5: Restore snapshot (download + decompress to delta file) ────
+    let step5_start = std::time::Instant::now();
+    let restore_result = snapshotter
+        .restore_snapshot(&snapshot_uri)
+        .await
+        .expect("Restore snapshot");
+    let step5_elapsed = step5_start.elapsed();
+
+    assert!(
+        restore_result.image.ends_with(".delta"),
+        "Restore should produce a .delta file, got: {}",
+        restore_result.image
+    );
+    assert!(
+        std::path::Path::new(&restore_result.image).exists(),
+        "Delta file should exist: {}",
+        restore_result.image
+    );
+
+    let delta_size = std::fs::metadata(&restore_result.image)
+        .map(|m| m.len())
+        .unwrap_or(0);
+    eprintln!(
+        "Step 5: Restore (decompress) snapshot: {:?}\n\
+         \x20 Delta file: {}\n\
+         \x20 Delta file size: {} bytes ({:.2} MB)",
+        step5_elapsed,
+        restore_result.image,
+        delta_size,
+        delta_size as f64 / (1024.0 * 1024.0),
+    );
+
+    // ── Step 6: Boot restored VM from delta ───────────────────────────────
+    let step6_start = std::time::Instant::now();
+    let mut restore_config = sandbox_config(&format!("snap-rest-{}", short_id));
+    restore_config.image = Some(restore_result.image.clone());
+
+    let restored_handle = driver
+        .start(restore_config)
+        .await
+        .expect("Start restored VM");
+    let step6_elapsed = step6_start.elapsed();
+    eprintln!("Step 6: Boot restored VM: {:?}", step6_elapsed);
+
+    // Wait for restored daemon HTTP API.
+    let restored_http_addr = restored_handle
+        .http_addr
+        .as_ref()
+        .expect("restored http_addr");
+    let restored_http_base = format!("http://{}", restored_http_addr);
+
+    wait_for_http_health(&http_client, &restored_http_base).await;
+    eprintln!(
+        "  Restored VM daemon healthy: {}",
+        restored_handle.id
+    );
+
+    // ── Step 7: Verify all files survived snapshot/restore ────────────────
+    eprintln!("Step 7: Verifying data integrity...");
+    let mut all_ok = true;
+    for (path, expected_checksum) in &expected_checksums {
+        let resp = http_client
+            .get(format!(
+                "{}/api/v1/files?path={}",
+                restored_http_base, path
+            ))
+            .send()
+            .await
+            .expect("read file from restored VM");
+        assert!(
+            resp.status().is_success(),
+            "File {} missing in restored VM: {}",
+            path,
+            resp.status()
+        );
+        let body = resp.bytes().await.unwrap();
+        let actual = {
+            use sha2::{Digest, Sha256};
+            format!("{:x}", Sha256::digest(&body))
+        };
+        let ok = actual == *expected_checksum;
+        if !ok {
+            all_ok = false;
+        }
+        eprintln!(
+            "  {} {} (size={}, sha256={})",
+            if ok { "PASS" } else { "FAIL" },
+            path,
+            body.len(),
+            &actual[..16],
+        );
+        assert_eq!(
+            actual, *expected_checksum,
+            "CHECKSUM MISMATCH for {} after snapshot/restore!\n\
+             expected: {}\n\
+             actual:   {}",
+            path, expected_checksum, actual,
+        );
+    }
+    assert!(all_ok, "Some files failed checksum verification");
+    eprintln!(
+        "  All {} files verified — data integrity confirmed!",
+        expected_checksums.len()
+    );
+
+    // ── Summary ───────────────────────────────────────────────────────────
+    let total = step1_start.elapsed();
+    eprintln!(
+        "\n=== Snapshot Lifecycle Summary ===\n\
+         \x20 1. Boot original VM:     {:>8.1}ms\n\
+         \x20 2. Write test files:     {} files ({} bytes)\n\
+         \x20 3. Create snapshot:       {:>8.1}ms  ({:.2} MB)\n\
+         \x20 4. Kill original VM:      {:>8.1}ms\n\
+         \x20 5. Restore (decompress):  {:>8.1}ms  ({:.2} MB delta)\n\
+         \x20 6. Boot restored VM:      {:>8.1}ms\n\
+         \x20 7. Verify data:          {} files — ALL PASS\n\
+         \x20 Total:                    {:>8.1}ms\n\
+         \x20 Snapshot / rootfs ratio:  {:.1}x smaller\n\
+         =================================\n",
+        step1_elapsed.as_secs_f64() * 1000.0,
+        test_files.len(),
+        test_files.iter().map(|(_, d)| d.len()).sum::<usize>(),
+        step3_elapsed.as_secs_f64() * 1000.0,
+        snap_result.size_bytes as f64 / (1024.0 * 1024.0),
+        step4_elapsed.as_secs_f64() * 1000.0,
+        step5_elapsed.as_secs_f64() * 1000.0,
+        delta_size as f64 / (1024.0 * 1024.0),
+        step6_elapsed.as_secs_f64() * 1000.0,
+        expected_checksums.len(),
+        total.as_secs_f64() * 1000.0,
+        rootfs_size as f64 / snap_result.size_bytes.max(1) as f64,
+    );
+
+    // ── Cleanup ───────────────────────────────────────────────────────────
+    driver
+        .kill(&restored_handle)
+        .await
+        .expect("Kill restored VM");
+
+    // Clean up snapshot artifacts.
+    let _ = snapshotter.cleanup_local(&snapshot_uri).await;
+    let _ = std::fs::remove_dir_all(&snapshot_dir);
+}
+
+/// Wait for the daemon HTTP health endpoint to respond with 200.
+async fn wait_for_http_health(client: &reqwest::Client, base_url: &str) {
+    let deadline = std::time::Instant::now() + Duration::from_secs(30);
+    loop {
+        match client
+            .get(format!("{}/api/v1/health", base_url))
+            .timeout(Duration::from_secs(2))
+            .send()
+            .await
+        {
+            Ok(resp) if resp.status().is_success() => return,
+            Ok(resp) if std::time::Instant::now() < deadline => {
+                eprintln!("  health: {} (retrying)", resp.status());
+                tokio::time::sleep(Duration::from_millis(500)).await;
+            }
+            Err(e) if std::time::Instant::now() < deadline => {
+                eprintln!("  health error (retrying): {}", e);
+                tokio::time::sleep(Duration::from_millis(500)).await;
+            }
+            Ok(resp) => panic!("Daemon HTTP health never returned 200: {}", resp.status()),
+            Err(e) => panic!("Daemon HTTP health failed: {}", e),
+        }
     }
 }

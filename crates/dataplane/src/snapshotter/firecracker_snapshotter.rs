@@ -117,8 +117,10 @@ impl Snapshotter for FirecrackerSnapshotter {
             info!(container_id = %container_id, vm_id = %vm_id, "VM paused for snapshot");
         }
 
-        // Suspend the thin LV device to flush all pending host-side I/O,
-        // ensuring the device is consistent for reading.
+        // Suspend the thin LV device to flush all pending host-side I/O.
+        // After flushing we immediately resume so that
+        // `build_delta_compressed_stream` can read blocks from the device.
+        // The VM is still paused, so no new writes will arrive.
         if let Err(e) =
             dm_thin::suspend_snapshot_async(metadata.lv_name.clone(), self.lvm_config.clone()).await
         {
@@ -128,6 +130,20 @@ impl Snapshotter for FirecrackerSnapshotter {
                 lv_name = %metadata.lv_name,
                 error = %e,
                 "Failed to suspend thin LV (continuing with snapshot)"
+            );
+        }
+        // Resume immediately — suspend was only needed to flush I/O.
+        // A suspended device blocks ALL reads, so we must resume before
+        // reading delta blocks.
+        if let Err(e) =
+            dm_thin::resume_snapshot_async(metadata.lv_name.clone(), self.lvm_config.clone()).await
+        {
+            tracing::warn!(
+                container_id = %container_id,
+                vm_id = %vm_id,
+                lv_name = %metadata.lv_name,
+                error = %e,
+                "Failed to resume thin LV after flush (snapshot may hang)"
             );
         }
 
@@ -150,20 +166,6 @@ impl Snapshotter for FirecrackerSnapshotter {
             .put(upload_uri, compressed_stream, PutOptions::default())
             .await
             .context("Snapshot upload failed")?;
-
-        // Resume the thin LV device so it can be cleanly removed during
-        // the subsequent cleanup. `lvremove` fails on suspended devices.
-        if let Err(e) =
-            dm_thin::resume_snapshot_async(metadata.lv_name.clone(), self.lvm_config.clone()).await
-        {
-            tracing::warn!(
-                container_id = %container_id,
-                vm_id = %vm_id,
-                lv_name = %metadata.lv_name,
-                error = %e,
-                "Failed to resume thin LV after snapshot (cleanup may fail)"
-            );
-        }
 
         info!(
             container_id = %container_id,
