@@ -573,15 +573,30 @@ impl ApplicationProcessor {
                 scheduler_update.extend(alloc_result);
                 scheduler_update
             }
-            ChangeType::InvokeApplication(ev) => task_allocator.allocate_request(
-                indexes_guard,
-                container_scheduler_guard,
-                &ev.namespace,
-                &ev.application,
-                &ev.request_id,
-                &self.allocate_function_runs_latency,
-                feas_cache,
-            )?,
+            ChangeType::InvokeApplication(ev) => {
+                // The batch clone (indexes_guard) may not contain this
+                // request's context yet due to a race between the HTTP
+                // handler's write() (RocksDB commit → ArcSwap publish)
+                // and our snapshot. Patch the clone from the latest
+                // ArcSwap if needed.
+                let request_key =
+                    data_model::RequestCtxKey::new(&ev.namespace, &ev.application, &ev.request_id);
+                if !indexes_guard.request_ctx.contains_key(&request_key) {
+                    let latest = self.indexify_state.in_memory_state.load();
+                    if let Some(ctx) = latest.request_ctx.get(&request_key) {
+                        indexes_guard.request_ctx.insert(request_key, ctx.clone());
+                    }
+                }
+                task_allocator.allocate_request(
+                    indexes_guard,
+                    container_scheduler_guard,
+                    &ev.namespace,
+                    &ev.application,
+                    &ev.request_id,
+                    &self.allocate_function_runs_latency,
+                    feas_cache,
+                )?
+            }
             ChangeType::AllocationOutputsIngested(req) => {
                 let mut scheduler_update = task_creator
                     .handle_allocation_ingestion(indexes_guard, container_scheduler_guard, req)
