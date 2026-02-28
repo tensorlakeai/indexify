@@ -2474,6 +2474,11 @@ impl StateChange {
         }
         self.updated_at_clock = Some(clock);
     }
+
+    /// Returns the clock at which this state change was created.
+    pub fn created_at_clock(&self) -> Option<u64> {
+        self.created_at_clock
+    }
 }
 
 impl Display for StateChange {
