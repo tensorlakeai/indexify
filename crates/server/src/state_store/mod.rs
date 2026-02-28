@@ -488,7 +488,10 @@ impl IndexifyState {
 
         if let RequestPayload::SchedulerUpdate(payload) = &request.payload {
             // Container events FIRST (before allocations, so consumer sees
-            // AddContainer before RunAllocation for the same container)
+            // AddContainer before RunAllocation for the same container).
+            // Removals are emitted before additions so the dataplane frees
+            // resources (e.g. GPUs) before trying to allocate them for new
+            // containers — prevents transient resource exhaustion races.
             for (container_id, meta) in &payload.update.containers {
                 if matches!(meta.desired_state, ContainerState::Terminated { .. }) {
                     Self::send_event(
@@ -496,7 +499,13 @@ impl IndexifyState {
                         &meta.executor_id,
                         ExecutorEvent::ContainerRemoved(container_id.clone()),
                     );
-                } else if !pre_existing_containers.contains(container_id) {
+                }
+            }
+            for (container_id, meta) in &payload.update.containers {
+                if matches!(meta.desired_state, ContainerState::Terminated { .. }) {
+                    continue;
+                }
+                if !pre_existing_containers.contains(container_id) {
                     Self::send_event(
                         &connections,
                         &meta.executor_id,
