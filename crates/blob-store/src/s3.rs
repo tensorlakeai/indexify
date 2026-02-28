@@ -62,6 +62,11 @@ const DOWNLOAD_PART_SIZE: u64 = 8 * 1024 * 1024;
 /// Maximum number of concurrent GetObject range requests.
 const DOWNLOAD_CONCURRENCY: usize = 8;
 
+/// Maximum parts in the FuturesOrdered buffer (in-flight + completed but
+/// not yet forwarded). Caps peak memory to roughly
+/// `MAX_BUFFERED_PARTS × DOWNLOAD_PART_SIZE` ≈ 200 MB.
+const MAX_BUFFERED_PARTS: usize = 24;
+
 /// Minimum object size to use concurrent downloads. Below this threshold a
 /// single GetObject is faster because the HeadObject + request fan-out
 /// overhead exceeds the benefit of parallelism.
@@ -103,7 +108,7 @@ pub(crate) async fn get_stream_concurrent(
         "Starting concurrent S3 download"
     );
 
-    let (tx, rx) = tokio::sync::mpsc::channel::<Result<Bytes>>(DOWNLOAD_CONCURRENCY);
+    let (tx, rx) = tokio::sync::mpsc::channel::<Result<Bytes>>(4);
     let client = client.clone();
     let bucket = bucket.to_string();
     let key = key.to_string();
@@ -111,9 +116,28 @@ pub(crate) async fn get_stream_concurrent(
     tokio::spawn(async move {
         let sem = Arc::new(tokio::sync::Semaphore::new(DOWNLOAD_CONCURRENCY));
         let mut futs = futures::stream::FuturesOrdered::new();
+        let mut buffered: usize = 0;
 
         let mut part_start = 0u64;
         while part_start < size {
+            // Drain completed parts before spawning more to cap memory.
+            while buffered >= MAX_BUFFERED_PARTS {
+                match futs.next().await {
+                    Some(result) => {
+                        buffered -= 1;
+                        let bytes = match result {
+                            Ok(Ok(b)) => Ok(b),
+                            Ok(Err(e)) => Err(e),
+                            Err(e) => Err(anyhow!("S3 download task panicked: {}", e)),
+                        };
+                        if tx.send(bytes).await.is_err() {
+                            return;
+                        }
+                    }
+                    None => break,
+                }
+            }
+
             let part_end = (part_start + DOWNLOAD_PART_SIZE).min(size) - 1;
             let range_header = format!("bytes={}-{}", part_start, part_end);
 
@@ -142,9 +166,11 @@ pub(crate) async fn get_stream_concurrent(
                 }
             }));
 
+            buffered += 1;
             part_start += DOWNLOAD_PART_SIZE;
         }
 
+        // Drain remaining parts.
         while let Some(result) = futs.next().await {
             let bytes = match result {
                 Ok(Ok(b)) => Ok(b),
