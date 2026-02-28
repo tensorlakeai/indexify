@@ -6,3 +6,6 @@ sandbox_driver:
   type: fork_exec
 monitoring:
   port: 8100
+resource_overrides:
+  cpu_count: 4
+  memory_bytes: 17179869184

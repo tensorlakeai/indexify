@@ -43,6 +43,10 @@ class DataplaneProcessContextManager:
             },
             "monitoring": {"port": find_free_port(), "listen_addr": "0.0.0.0"},
             "labels": self._labels,
+            "resource_overrides": {
+                "cpu_count": 4,
+                "memory_bytes": 17179869184,  # 16 GB
+            },
         }
 
         # Merge overrides
