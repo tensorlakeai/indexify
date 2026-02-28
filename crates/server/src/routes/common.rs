@@ -49,8 +49,9 @@ pub async fn validate_and_submit_application(
 
     let executor_catalog = state
         .indexify_state
-        .in_memory_state
+        .app_state
         .load()
+        .indexes
         .executor_catalog
         .clone();
     application

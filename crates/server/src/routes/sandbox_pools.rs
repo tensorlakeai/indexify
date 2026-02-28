@@ -260,9 +260,10 @@ pub async fn list_sandbox_pools(
     Path(namespace): Path<String>,
     State(state): State<RouteState>,
 ) -> Result<Json<ListSandboxPoolsResponse>, IndexifyAPIError> {
-    let scheduler = state.indexify_state.container_scheduler.load();
+    let app_state = state.indexify_state.app_state.load();
 
-    let pools: Vec<SandboxPoolInfo> = scheduler
+    let pools: Vec<SandboxPoolInfo> = app_state
+        .scheduler
         .sandbox_pools
         .iter()
         .filter(|(key, _)| key.namespace == namespace)
@@ -289,22 +290,24 @@ pub async fn get_sandbox_pool(
 ) -> Result<Json<SandboxPoolDetail>, IndexifyAPIError> {
     let pool_key = ContainerPoolKey::new(&namespace, &ContainerPoolId::new(&pool_id));
 
-    let scheduler = state.indexify_state.container_scheduler.load();
-    let pool = scheduler
+    let app_state = state.indexify_state.app_state.load();
+    let pool = app_state
+        .scheduler
         .sandbox_pools
         .get(&pool_key)
         .ok_or_else(|| IndexifyAPIError::not_found("Sandbox pool not found"))?;
 
     let pool_info = SandboxPoolInfo::from_pool(pool);
 
-    let containers: Vec<ContainerInfo> = scheduler
+    let containers: Vec<ContainerInfo> = app_state
+        .scheduler
         .containers_by_pool
         .get(&pool_key)
         .map(|container_ids| {
             container_ids
                 .iter()
                 .filter_map(|cid| {
-                    let meta = scheduler.function_containers.get(cid)?;
+                    let meta = app_state.scheduler.function_containers.get(cid)?;
                     let c = &meta.function_container;
                     Some(ContainerInfo {
                         id: c.id.get().to_string(),
@@ -346,8 +349,9 @@ pub async fn update_sandbox_pool(
 
     // Check if pool exists and get created_at timestamp
     let created_at = {
-        let scheduler = state.indexify_state.container_scheduler.load();
-        scheduler
+        let app_state = state.indexify_state.app_state.load();
+        app_state
+            .scheduler
             .sandbox_pools
             .get(&pool_key)
             .ok_or_else(|| IndexifyAPIError::not_found("Sandbox pool not found"))?
@@ -404,8 +408,9 @@ pub async fn create_pool_sandbox(
     let pool_key = ContainerPoolKey::new(&namespace, &pool_id_obj);
 
     // Look up the pool to get its configuration
-    let scheduler = state.indexify_state.container_scheduler.load();
-    let pool = scheduler
+    let app_state = state.indexify_state.app_state.load();
+    let pool = app_state
+        .scheduler
         .sandbox_pools
         .get(&pool_key)
         .ok_or_else(|| IndexifyAPIError::not_found("Sandbox pool not found"))?;
@@ -429,8 +434,8 @@ pub async fn create_pool_sandbox(
         .build()
         .map_err(|e| IndexifyAPIError::internal_error_str(&e.to_string()))?;
 
-    // Drop the scheduler lock before writing
-    drop(scheduler);
+    // Drop the app_state guard before writing
+    drop(app_state);
 
     let state_request = StateMachineUpdateRequest {
         payload: RequestPayload::CreateSandbox(StateCreateSandboxRequest {
@@ -470,23 +475,18 @@ pub async fn delete_sandbox_pool(
     let pool_id_obj = ContainerPoolId::new(&pool_id);
     let pool_key = ContainerPoolKey::new(&namespace, &pool_id_obj);
 
-    // Check if pool exists
-    {
-        let scheduler = state.indexify_state.container_scheduler.load();
-        if !scheduler.sandbox_pools.contains_key(&pool_key) {
-            return Err(IndexifyAPIError::not_found("Sandbox pool not found"));
-        }
+    // Check if pool exists and if any sandboxes are using it
+    let app_state = state.indexify_state.app_state.load();
+    if !app_state.scheduler.sandbox_pools.contains_key(&pool_key) {
+        return Err(IndexifyAPIError::not_found("Sandbox pool not found"));
     }
 
-    // Check if any sandboxes are using this pool
-    let active_sandboxes = {
-        let in_memory = state.indexify_state.in_memory_state.load();
-        in_memory.sandboxes.values().any(|s| {
-            s.pool_id.as_ref() == Some(&pool_id_obj) &&
-                s.namespace == namespace &&
-                s.status != data_model::SandboxStatus::Terminated
-        })
-    };
+    let active_sandboxes = app_state.indexes.sandboxes.values().any(|s| {
+        s.pool_id.as_ref() == Some(&pool_id_obj) &&
+            s.namespace == namespace &&
+            s.status != data_model::SandboxStatus::Terminated
+    });
+    drop(app_state);
     if active_sandboxes {
         return Err(IndexifyAPIError::conflict(&format!(
             "Cannot delete pool '{}': active sandbox(es) are using it",

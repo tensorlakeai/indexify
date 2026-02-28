@@ -50,15 +50,15 @@ pub struct ContainerSchedulerGauges {
 }
 
 impl ContainerSchedulerGauges {
-    pub fn new(container_scheduler: Arc<ArcSwap<ContainerScheduler>>) -> Self {
+    pub fn new(app_state: Arc<ArcSwap<crate::state_store::AppState>>) -> Self {
         let meter = opentelemetry::global::meter("container_scheduler");
-        let scheduler_clone = container_scheduler.clone();
+        let state_clone = app_state.clone();
         let total_executors = meter
             .u64_observable_gauge("indexify.total_executors")
             .with_description("Total number of executors")
             .with_callback(move |observer| {
-                let scheduler = scheduler_clone.load();
-                observer.observe(scheduler.executor_states.len() as u64, &[]);
+                let state = state_clone.load();
+                observer.observe(state.scheduler.executor_states.len() as u64, &[]);
             })
             .build();
         Self { total_executors }

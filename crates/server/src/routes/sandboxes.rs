@@ -354,8 +354,8 @@ pub async fn list_sandboxes(
     let sandbox_domain = state.config.sandbox_proxy_domain.as_deref();
     let scheme = &state.config.sandbox_proxy_scheme;
 
-    // Get container scheduler to look up executor proxy addresses
-    let container_scheduler = state.indexify_state.container_scheduler.load();
+    // Get app state to look up executor proxy addresses
+    let app_state = state.indexify_state.app_state.load();
 
     let sandbox_infos: Vec<SandboxInfo> = sandboxes
         .iter()
@@ -364,7 +364,7 @@ pub async fn list_sandboxes(
             let dataplane_api_address = s
                 .executor_id
                 .as_ref()
-                .and_then(|eid| container_scheduler.executors.get(eid))
+                .and_then(|eid| app_state.scheduler.executors.get(eid))
                 .and_then(|executor| executor.proxy_address.as_deref());
 
             SandboxInfo::from_sandbox(s, sandbox_domain, scheme, dataplane_api_address)
@@ -402,11 +402,11 @@ pub async fn get_sandbox(
     let scheme = &state.config.sandbox_proxy_scheme;
 
     // Look up dataplane proxy address from the executor
-    let container_scheduler = state.indexify_state.container_scheduler.load();
+    let app_state = state.indexify_state.app_state.load();
     let dataplane_api_address = sandbox
         .executor_id
         .as_ref()
-        .and_then(|eid| container_scheduler.executors.get(eid))
+        .and_then(|eid| app_state.scheduler.executors.get(eid))
         .and_then(|executor| executor.proxy_address.as_deref());
 
     Ok(Json(SandboxInfo::from_sandbox(

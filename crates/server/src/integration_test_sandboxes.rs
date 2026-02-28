@@ -170,8 +170,8 @@ mod tests {
 
     /// Get count of pending sandboxes
     async fn get_pending_sandbox_count(indexify_state: &IndexifyState) -> usize {
-        let guard = indexify_state.in_memory_state.load();
-        guard.pending_sandboxes.len()
+        let guard = indexify_state.app_state.load();
+        guard.indexes.pending_sandboxes.len()
     }
 
     #[tokio::test]
