@@ -948,10 +948,10 @@ impl InMemoryState {
                     }
                 }
             }
-            RequestPayload::DeleteRequestRequest((req, _)) => {
+            RequestPayload::DeleteRequestRequest(req) => {
                 self.delete_request(&req.namespace, &req.application, &req.request_id);
             }
-            RequestPayload::DeleteApplicationRequest((req, _)) => {
+            RequestPayload::DeleteApplicationRequest(req) => {
                 // Remove app
                 let key = Application::key_from(&req.namespace, &req.name);
                 self.applications.remove(&key);

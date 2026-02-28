@@ -11,10 +11,19 @@ use opentelemetry::{
     metrics::{Counter, Gauge, Histogram},
 };
 use tokio::sync::Notify;
-use tracing::{debug, error, info, instrument, trace, warn};
+use tracing::{error, info, instrument, trace, warn};
 
 use crate::{
-    data_model::{self, Application, ApplicationState, ChangeType, SnapshotStatus, StateChange},
+    data_model::{
+        self,
+        Application,
+        ApplicationState,
+        ChangeType,
+        ContainerPoolKey,
+        ContainerState,
+        SnapshotStatus,
+        StateChange,
+    },
     metrics::{Timer, low_latency_boundaries},
     processor::{
         buffer_reconciler::BufferReconciler,
@@ -29,6 +38,7 @@ use crate::{
         placement::FeasibilityCache,
     },
     state_store::{
+        ExecutorEvent,
         IndexifyState,
         requests::{
             CreateOrUpdateApplicationRequest,
@@ -41,6 +51,7 @@ use crate::{
             SchedulerUpdateRequest,
             StateMachineUpdateRequest,
         },
+        state_changes,
     },
     utils::{TimeUnit, get_elapsed_time, get_epoch_time_in_ns},
 };
@@ -182,10 +193,7 @@ impl ApplicationProcessor {
 
     #[instrument(skip(self, shutdown_rx))]
     pub async fn start(&self, mut shutdown_rx: tokio::sync::watch::Receiver<()>) {
-        let mut cached_state_changes: Vec<StateChange> = vec![];
         let mut change_events_rx = self.indexify_state.change_events_rx.clone();
-        let mut last_global_state_change_cursor: Option<Vec<u8>> = None;
-        let mut last_namespace_state_change_cursor: Option<Vec<u8>> = None;
         // Used to run the loop when there are more than 1 change events queued up
         // The watch from the state store only notifies that there are N number of state
         // changes but if we only process one event from the queue then the
@@ -212,8 +220,9 @@ impl ApplicationProcessor {
             tokio::select! {
                 _ = change_events_rx.changed() => {
                     change_events_rx.borrow_and_update();
-                    match self.write_sm_update(&mut cached_state_changes, &mut last_global_state_change_cursor, &mut last_namespace_state_change_cursor, &notify).await {
-                        Ok(()) => { pool_reconciliation_pending = true; },
+                    match self.write_sm_update(&notify).await {
+                        Ok(true) => { pool_reconciliation_pending = true; },
+                        Ok(false) => {},
                         Err(err) => {
                             error!("error processing state change: {:?}", err);
                             continue;
@@ -221,8 +230,9 @@ impl ApplicationProcessor {
                     }
                 },
                 _ = notify.notified() => {
-                    match self.write_sm_update(&mut cached_state_changes, &mut last_global_state_change_cursor, &mut last_namespace_state_change_cursor, &notify).await {
-                        Ok(()) => { pool_reconciliation_pending = true; },
+                    match self.write_sm_update(&notify).await {
+                        Ok(true) => { pool_reconciliation_pending = true; },
+                        Ok(false) => {},
                         Err(err) => {
                             error!("error processing state change: {:?}", err);
                             continue;
@@ -240,72 +250,96 @@ impl ApplicationProcessor {
                 }
             }
 
-            // Run buffer reconciliation when the state change queue is drained.
+            // Run buffer reconciliation when the payload queue is drained.
             // This avoids blocking the critical scheduling path — pool
             // maintenance runs only when there are no pending real events.
-            if pool_reconciliation_pending && cached_state_changes.is_empty() {
-                pool_reconciliation_pending = false;
-                if let Err(err) = self.run_pool_reconciliation().await {
-                    error!("error during pool reconciliation: {:?}", err);
+            if pool_reconciliation_pending {
+                // Check if the queue has more payloads before running reconciliation.
+                let queue_empty = self
+                    .indexify_state
+                    .reader()
+                    .read_pending_payloads()
+                    .await
+                    .map(|p| p.is_empty())
+                    .unwrap_or(false);
+                if queue_empty {
+                    pool_reconciliation_pending = false;
+                    if let Err(err) = self.run_pool_reconciliation().await {
+                        error!("error during pool reconciliation: {:?}", err);
+                    }
                 }
             }
         }
     }
 
-    #[instrument(skip_all)]
-    pub async fn write_sm_update(
+    /// Generate ephemeral state changes from a payload.
+    ///
+    /// Replicates the state change generation that
+    /// `write_in_persistent_store()` performs, including secondary
+    /// `AllocationOutputsIngested` events for `UpsertExecutor` payloads.
+    fn generate_state_changes_for_payload(
         &self,
-        cached_state_changes: &mut Vec<StateChange>,
-        application_events_cursor: &mut Option<Vec<u8>>,
-        executor_events_cursor: &mut Option<Vec<u8>>,
-        notify: &Arc<Notify>,
-    ) -> Result<()> {
-        debug!("Waking up to process state changes; cached_state_changes={cached_state_changes:?}");
+        payload: &RequestPayload,
+    ) -> Result<Vec<StateChange>> {
+        let request = StateMachineUpdateRequest {
+            payload: payload.clone(),
+        };
+        let mut changes = request.state_changes(&self.indexify_state.state_change_id_seq)?;
+
+        // For UpsertExecutor, also generate secondary AllocationOutputsIngested
+        // events — replicating write_in_persistent_store logic.
+        if let RequestPayload::UpsertExecutor(req) = payload {
+            for allocation_output in &req.allocation_outputs {
+                changes.extend(state_changes::task_outputs_ingested(
+                    &self.indexify_state.state_change_id_seq,
+                    allocation_output,
+                )?);
+            }
+        }
+
+        Ok(changes)
+    }
+
+    /// Process pending payloads from the RocksDB PayloadQueue.
+    ///
+    /// Returns `true` if payloads were processed, `false` if the queue was
+    /// empty.
+    #[instrument(skip_all)]
+    pub async fn write_sm_update(&self, notify: &Arc<Notify>) -> Result<bool> {
         let metrics_kvs = &[KeyValue::new("op", "get")];
         let _timer_guard = Timer::start_with_labels(&self.write_sm_update_latency, metrics_kvs);
 
-        // 1. First load state changes. Process the `global` state changes first
-        // and then the `ns_` state changes
-        if cached_state_changes.is_empty() {
-            let unprocessed_state_changes = self
-                .indexify_state
-                .reader()
-                .unprocessed_state_changes(executor_events_cursor, application_events_cursor)
-                .await?;
-            if let Some(cursor) = unprocessed_state_changes.application_state_change_cursor {
-                application_events_cursor.replace(cursor);
-            };
-            if let Some(cursor) = unprocessed_state_changes.executor_state_change_cursor {
-                executor_events_cursor.replace(cursor);
-            };
-            let mut state_changes = unprocessed_state_changes.changes;
-            state_changes.reverse();
-            cached_state_changes.extend(state_changes);
-        }
+        // 1. Atomically read pending payloads and snapshot under write_mutex to prevent
+        //    the race where a payload is committed to RocksDB but its ArcSwap publish
+        //    hasn't happened yet.
+        let (pending, current) = {
+            let _write_guard = self.indexify_state.write_mutex.lock().await;
+            let pending = self.indexify_state.reader().read_pending_payloads().await?;
+            let current = self.indexify_state.app_state.load_full();
+            (pending, current)
+        };
 
         self.state_change_queue_depth
-            .record(cached_state_changes.len() as u64, &[]);
+            .record(pending.len() as u64, &[]);
 
-        // 2. If there are no state changes to process, return
-        if cached_state_changes.is_empty() {
-            return Ok(());
+        // 2. If no pending payloads, return.
+        if pending.is_empty() {
+            return Ok(false);
         }
 
-        // 3. Fire a notification so the event loop re-enters to fetch more
-        // state changes after this batch is done.
+        let max_seq = pending.last().unwrap().0;
+
+        // 3. Fire a notification so the event loop re-enters to check for
+        // more payloads after this batch is done.
         notify.notify_one();
 
         // 4. Take ONE snapshot for the entire batch. All state changes in the
         // batch share these mutable clones. Processors mutate them inline so
         // subsequent events see prior decisions (container placements, etc.).
-        let current = self.indexify_state.app_state.load_full();
         let mut indexes = current.indexes.clone();
         let mut container_scheduler = current.scheduler.clone();
 
-        let mut snapshot_clock = indexes.clock;
-
         let mut merged_update = SchedulerUpdateRequest::default();
-        let mut processed_state_changes: Vec<StateChange> = Vec::new();
         let mut feas_cache = FeasibilityCache::new();
 
         // 4b. Reap idle containers — frees resources so subsequent
@@ -387,164 +421,139 @@ impl ApplicationProcessor {
             }
         }
 
-        // 5. Process cached state changes, accumulating results.
-        // State changes whose created_at_clock exceeds the snapshot are
-        // deferred: write() commits to RocksDB before publishing the
-        // ArcSwap, so a state change can be visible in RocksDB while its
-        // data is not yet in our in-memory snapshot. Deferred changes are
-        // left in cached_state_changes for the next batch.
-        let mut deferred: Vec<StateChange> = Vec::new();
-        while let Some(state_change) = cached_state_changes.pop() {
-            if state_change
-                .created_at_clock()
-                .is_some_and(|c| c > snapshot_clock)
-            {
-                debug!(
-                    snapshot_clock,
-                    state_change_clock = ?state_change.created_at_clock(),
-                    change_type = %state_change.change_type,
-                    "deferring state change ahead of in-memory snapshot"
-                );
-                deferred.push(state_change);
-                continue;
-            }
-            let state_change_metrics_kvs = &[KeyValue::new(
-                "type",
-                if state_change.namespace.is_some() {
-                    "ns"
-                } else {
-                    "global"
-                },
-            )];
-            let _timer_guard =
-                Timer::start_with_labels(&self.state_change_latency, state_change_metrics_kvs);
-            self.state_changes_total.add(1, state_change_metrics_kvs);
+        // 5. Process payloads from the queue. For each payload:
+        // a) Apply raw state update (update_state + container_scheduler.update)
+        //    so handle_state_change sees the data. write() no longer updates
+        //    ArcSwap for enqueued payloads — the scheduler is the sole writer.
+        // b) Generate ephemeral state changes and route through scheduling.
+        let clock = self
+            .indexify_state
+            .state_change_id_seq
+            .load(std::sync::atomic::Ordering::Relaxed);
+        for (_seq, payload) in pending {
+            // 5a. Apply raw payload state to local clones.
+            let _ = indexes
+                .update_state(clock, &payload, "scheduler")
+                .map_err(|e| anyhow::anyhow!("error applying payload to in-memory state: {e:?}"))?;
+            container_scheduler.update(&payload).map_err(|e| {
+                anyhow::anyhow!("error applying payload to container scheduler: {e:?}")
+            })?;
 
-            // Capture creation time before potential moves.
-            let created_at = state_change.created_at;
+            // 5b. Generate ephemeral state changes for scheduling payloads.
+            // Non-scheduling payloads (CompleteSnapshot, CreateNameSpace, etc.)
+            // produce no state changes — their update_state above is sufficient.
+            let state_changes = self.generate_state_changes_for_payload(&payload)?;
 
-            let result = self
-                .handle_state_change(
-                    &mut indexes,
-                    &mut container_scheduler,
-                    &state_change,
-                    &mut feas_cache,
-                )
-                .await;
+            for state_change in state_changes {
+                let state_change_metrics_kvs = &[KeyValue::new(
+                    "type",
+                    if state_change.namespace.is_some() {
+                        "ns"
+                    } else {
+                        "global"
+                    },
+                )];
+                let _timer_guard =
+                    Timer::start_with_labels(&self.state_change_latency, state_change_metrics_kvs);
+                self.state_changes_total.add(1, state_change_metrics_kvs);
 
-            match result {
-                Ok(StateChangeResult::SchedulerUpdate(update)) => {
-                    // Apply to indexes first (by reference) so subsequent
-                    // events in this batch see updated function run / sandbox
-                    // states (e.g. unallocated_function_runs is current).
-                    // This fixes cross-event stale snapshot overwrites.
-                    let clock = indexes.clock;
-                    indexes.apply_scheduler_update(clock, &update, "batch_visibility")?;
-                    merged_update.extend(update);
-                    processed_state_changes.push(state_change);
-                }
-                Ok(StateChangeResult::ImmediateWrite(sm_update)) => {
-                    // Non-batchable payload (DeleteApplication, etc.) — write
-                    // immediately and refresh local clones so subsequent events
-                    // in this batch see the updated state.
-                    if let Err(err) = self.indexify_state.write(sm_update).await {
-                        error!(
-                            "error writing state change {}, marking as processed: {:?}",
-                            state_change.change_type, err,
-                        );
-                        self.indexify_state
-                            .write(StateMachineUpdateRequest {
-                                payload: RequestPayload::ProcessStateChanges(vec![state_change]),
-                            })
-                            .await?;
+                let created_at = state_change.created_at;
+
+                let result = self
+                    .handle_state_change(
+                        &mut indexes,
+                        &mut container_scheduler,
+                        &state_change,
+                        &mut feas_cache,
+                    )
+                    .await;
+
+                match result {
+                    Ok(StateChangeResult::SchedulerUpdate(update)) => {
+                        let clock = indexes.clock;
+                        indexes.apply_scheduler_update(clock, &update, "batch_visibility")?;
+                        container_scheduler.apply_container_update(&update);
+                        merged_update.extend(update);
                     }
-                    // Refresh clones to see the written state, preserving
-                    // ephemeral batch state across the refresh so blocked work
-                    // and reaped container tracking is not lost. Also advance
-                    // snapshot_clock so deferred changes become eligible.
-                    let refreshed = self.indexify_state.app_state.load_full();
-                    indexes = refreshed.indexes.clone();
-                    snapshot_clock = indexes.clock;
-                    let blocked_work = std::mem::take(&mut container_scheduler.blocked_work);
-                    let reaped_containers =
-                        std::mem::take(&mut container_scheduler.reaped_containers);
-                    container_scheduler = refreshed.scheduler.clone();
-                    container_scheduler.blocked_work = blocked_work;
-                    container_scheduler.reaped_containers = reaped_containers;
-                }
-                Err(err) => {
-                    if err.to_string().contains("Operation timed out") {
-                        warn!(
-                            "transient error processing state change {}, retrying later: {:?}",
+                    Ok(StateChangeResult::ImmediateWrite(sm_update)) => {
+                        // Non-batchable payload (DeleteApplication, etc.) — write
+                        // to RocksDB and apply to local clones directly. No ArcSwap
+                        // refresh needed since we publish complete clones at the end.
+                        let payload = sm_update.payload;
+                        if let Err(err) = self
+                            .indexify_state
+                            .write_scheduler_output(StateMachineUpdateRequest {
+                                payload: payload.clone(),
+                            })
+                            .await
+                        {
+                            error!(
+                                "error writing immediate state change {}: {:?}",
+                                state_change.change_type, err,
+                            );
+                        } else {
+                            let clock = indexes.clock;
+                            let _ = indexes.update_state(clock, &payload, "immediate")?;
+                            container_scheduler.update(&payload)?;
+                            // Emit FullSync to affected executors for deletions.
+                            self.emit_immediate_events(&payload, &container_scheduler)
+                                .await;
+                        }
+                    }
+                    Err(err) => {
+                        error!(
+                            "error processing state change {}: {:?}",
                             state_change.change_type, err
                         );
-                        cached_state_changes.push(state_change);
-                        // Flush accumulated work before retrying.
-                        if !processed_state_changes.is_empty() {
-                            self.indexify_state
-                                .write(StateMachineUpdateRequest {
-                                    payload: RequestPayload::SchedulerUpdate(
-                                        SchedulerUpdatePayload {
-                                            update: Box::new(merged_update),
-                                            processed_state_changes,
-                                        },
-                                    ),
-                                })
-                                .await?;
-                        }
-                        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-                        return Ok(());
                     }
-                    error!(
-                        "error processing state change {}, marking as processed: {:?}",
-                        state_change.change_type, err
-                    );
-                    // Mark the failing state change as processed (NOOP).
-                    processed_state_changes.push(state_change);
                 }
+
+                self.state_transition_latency.record(
+                    get_elapsed_time(created_at.into(), TimeUnit::Milliseconds),
+                    state_change_metrics_kvs,
+                );
             }
-
-            self.state_transition_latency.record(
-                get_elapsed_time(created_at.into(), TimeUnit::Milliseconds),
-                state_change_metrics_kvs,
-            );
         }
 
-        // Put deferred state changes back for the next batch.
-        cached_state_changes.extend(deferred);
+        // 6. Snapshot pre-existing containers BEFORE publishing, so we can
+        // distinguish ContainerAdded vs ContainerDescriptionChanged in events.
+        let pre_existing_containers: HashSet<data_model::ContainerId> = merged_update
+            .containers
+            .keys()
+            .filter(|id| current.scheduler.function_containers.contains_key(id))
+            .cloned()
+            .collect();
 
-        // 6. ONE RocksDB write for the entire batch.
-        if !processed_state_changes.is_empty() &&
-            let Err(err) = self
-                .indexify_state
-                .write(StateMachineUpdateRequest {
-                    payload: RequestPayload::SchedulerUpdate(SchedulerUpdatePayload {
-                        update: Box::new(merged_update),
-                        processed_state_changes: processed_state_changes.clone(),
-                    }),
-                })
-                .await
+        // 6a. Write scheduler results to RocksDB (allocations, updated runs, etc.).
+        if let Err(err) = self
+            .indexify_state
+            .write_scheduler_output(StateMachineUpdateRequest {
+                payload: RequestPayload::SchedulerUpdate(SchedulerUpdatePayload {
+                    update: Box::new(merged_update.clone()),
+                }),
+            })
+            .await
         {
-            error!(
-                "error writing batched state changes, marking as processed: {:?}",
-                err,
-            );
-            self.indexify_state
-                .write(StateMachineUpdateRequest {
-                    payload: RequestPayload::ProcessStateChanges(processed_state_changes),
-                })
-                .await?;
+            error!("error writing batched scheduler update: {:?}", err);
         }
 
-        // 7. Persist BlockedWorkTracker state from batch processing.
-        // The batch clone's blocked_work reflects all block/unblock
-        // mutations from this batch. Merge it into the persisted
-        // AppState so the next batch sees it.
+        // 6b. Publish complete clones to ArcSwap (sole writer).
         self.indexify_state
-            .persist_blocked_work(container_scheduler.blocked_work)
+            .app_state
+            .store(Arc::new(crate::state_store::AppState {
+                indexes,
+                scheduler: container_scheduler,
+            }));
+
+        // 6c. Emit events AFTER ArcSwap publish so long-poll consumers see
+        // consistent state when they wake.
+        self.emit_scheduler_events(&merged_update, &pre_existing_containers)
             .await;
 
-        Ok(())
+        // 7. Dequeue processed payloads from the queue.
+        self.indexify_state.dequeue_payloads(max_seq).await?;
+
+        Ok(true)
     }
 
     #[instrument(skip_all)]
@@ -784,27 +793,23 @@ impl ApplicationProcessor {
             ChangeType::TombstoneApplication(request) => {
                 return Ok(StateChangeResult::ImmediateWrite(
                     StateMachineUpdateRequest {
-                        payload: RequestPayload::DeleteApplicationRequest((
+                        payload: RequestPayload::DeleteApplicationRequest(
                             DeleteApplicationRequest {
                                 namespace: request.namespace.clone(),
                                 name: request.application.clone(),
                             },
-                            vec![state_change.clone()],
-                        )),
+                        ),
                     },
                 ));
             }
             ChangeType::TombstoneRequest(request) => {
                 return Ok(StateChangeResult::ImmediateWrite(
                     StateMachineUpdateRequest {
-                        payload: RequestPayload::DeleteRequestRequest((
-                            DeleteRequestRequest {
-                                namespace: request.namespace.clone(),
-                                application: request.application.clone(),
-                                request_id: request.request_id.clone(),
-                            },
-                            vec![state_change.clone()],
-                        )),
+                        payload: RequestPayload::DeleteRequestRequest(DeleteRequestRequest {
+                            namespace: request.namespace.clone(),
+                            application: request.application.clone(),
+                            request_id: request.request_id.clone(),
+                        }),
                     },
                 ));
             }
@@ -828,6 +833,39 @@ impl ApplicationProcessor {
                     snapshot_id = %ev.snapshot_id,
                     "processing SnapshotSandbox event"
                 );
+
+                // Emit SnapshotContainer event to the executor running this
+                // sandbox so the dataplane can snapshot the container filesystem.
+                let sandbox_key = data_model::SandboxKey::new(&ev.namespace, ev.sandbox_id.get());
+                if let Some(sandbox) = indexes_guard.sandboxes.get(&sandbox_key) {
+                    if let (Some(container_id), Some(executor_id)) =
+                        (&sandbox.container_id, &sandbox.executor_id)
+                    {
+                        let connections = self.indexify_state.executor_connections.read().await;
+                        IndexifyState::send_event(
+                            &connections,
+                            executor_id,
+                            ExecutorEvent::SnapshotContainer {
+                                container_id: container_id.clone(),
+                                snapshot_id: ev.snapshot_id.get().to_string(),
+                                upload_uri: ev.upload_uri.clone(),
+                            },
+                        );
+                    } else {
+                        warn!(
+                            namespace = %ev.namespace,
+                            sandbox_id = %ev.sandbox_id,
+                            "SnapshotSandbox: sandbox has no container_id or executor_id"
+                        );
+                    }
+                } else {
+                    warn!(
+                        namespace = %ev.namespace,
+                        sandbox_id = %ev.sandbox_id,
+                        "SnapshotSandbox: sandbox not found in state"
+                    );
+                }
+
                 // No container or pool changes — return empty batchable update.
                 return Ok(StateChangeResult::SchedulerUpdate(
                     SchedulerUpdateRequest::default(),
@@ -859,13 +897,10 @@ impl ApplicationProcessor {
                 );
                 return Ok(StateChangeResult::ImmediateWrite(
                     StateMachineUpdateRequest {
-                        payload: RequestPayload::DeleteContainerPool((
-                            DeleteContainerPoolRequest {
-                                namespace: ev.namespace.clone(),
-                                pool_id: ev.pool_id.clone(),
-                            },
-                            vec![state_change.clone()],
-                        )),
+                        payload: RequestPayload::DeleteContainerPool(DeleteContainerPoolRequest {
+                            namespace: ev.namespace.clone(),
+                            pool_id: ev.pool_id.clone(),
+                        }),
                     },
                 ));
             }
@@ -1107,6 +1142,137 @@ impl ApplicationProcessor {
         Ok(StateChangeResult::SchedulerUpdate(scheduler_update))
     }
 
+    /// Emit container, allocation, and executor notification events from a
+    /// scheduler update. Must be called AFTER ArcSwap publish so that
+    /// long-poll consumers see consistent state when they wake.
+    async fn emit_scheduler_events(
+        &self,
+        update: &SchedulerUpdateRequest,
+        pre_existing_containers: &HashSet<data_model::ContainerId>,
+    ) {
+        let connections = self.indexify_state.executor_connections.read().await;
+        let mut changed_executors: HashSet<data_model::ExecutorId> = HashSet::new();
+
+        // Container events FIRST (before allocations, so consumer sees
+        // AddContainer before RunAllocation for the same container).
+        // Removals are emitted before additions so the dataplane frees
+        // resources (e.g. GPUs) before trying to allocate them for new
+        // containers — prevents transient resource exhaustion races.
+        for (container_id, meta) in &update.containers {
+            if matches!(meta.desired_state, ContainerState::Terminated { .. }) {
+                IndexifyState::send_event(
+                    &connections,
+                    &meta.executor_id,
+                    ExecutorEvent::ContainerRemoved(container_id.clone()),
+                );
+            }
+        }
+        for (container_id, meta) in &update.containers {
+            if matches!(meta.desired_state, ContainerState::Terminated { .. }) {
+                continue;
+            }
+            if !pre_existing_containers.contains(container_id) {
+                IndexifyState::send_event(
+                    &connections,
+                    &meta.executor_id,
+                    ExecutorEvent::ContainerAdded(container_id.clone()),
+                );
+            } else {
+                IndexifyState::send_event(
+                    &connections,
+                    &meta.executor_id,
+                    ExecutorEvent::ContainerDescriptionChanged(container_id.clone()),
+                );
+            }
+        }
+
+        // Allocation events
+        for allocation in &update.new_allocations {
+            IndexifyState::send_event(
+                &connections,
+                &allocation.target.executor_id,
+                ExecutorEvent::AllocationCreated(Box::new(allocation.clone())),
+            );
+        }
+
+        for executor_id in update.updated_executor_states.keys() {
+            changed_executors.insert(executor_id.clone());
+        }
+
+        for container_meta in update.containers.values() {
+            changed_executors.insert(container_meta.executor_id.clone());
+        }
+
+        drop(connections);
+
+        // Notify executors with state changes
+        let mut executor_states = self.indexify_state.executor_states.write().await;
+        for executor_id in &changed_executors {
+            info!(
+                executor_id = executor_id.get(),
+                "notifying executor of state change"
+            );
+            if let Some(executor_state) = executor_states.get_mut(executor_id) {
+                executor_state.notify();
+            }
+        }
+    }
+
+    /// Emit events for ImmediateWrite payloads (DeleteContainerPool,
+    /// DeleteApplicationRequest). These send FullSync to affected executors.
+    async fn emit_immediate_events(
+        &self,
+        payload: &RequestPayload,
+        container_scheduler: &crate::processor::container_scheduler::ContainerScheduler,
+    ) {
+        let connections = self.indexify_state.executor_connections.read().await;
+        let mut changed_executors: HashSet<data_model::ExecutorId> = HashSet::new();
+
+        if let RequestPayload::DeleteContainerPool(delete_req) = payload {
+            let pool_key = ContainerPoolKey::new(&delete_req.namespace, &delete_req.pool_id);
+            for (_, meta) in container_scheduler.function_containers.iter() {
+                if meta.function_container.belongs_to_pool(&pool_key) {
+                    changed_executors.insert(meta.executor_id.clone());
+                    IndexifyState::send_event(
+                        &connections,
+                        &meta.executor_id,
+                        ExecutorEvent::FullSync,
+                    );
+                }
+            }
+        }
+
+        if let RequestPayload::DeleteApplicationRequest(delete_req) = payload {
+            for (_, meta) in container_scheduler.function_containers.iter() {
+                if meta.function_container.namespace == delete_req.namespace &&
+                    meta.function_container.application_name == delete_req.name
+                {
+                    changed_executors.insert(meta.executor_id.clone());
+                    IndexifyState::send_event(
+                        &connections,
+                        &meta.executor_id,
+                        ExecutorEvent::FullSync,
+                    );
+                }
+            }
+        }
+
+        drop(connections);
+
+        if !changed_executors.is_empty() {
+            let mut executor_states = self.indexify_state.executor_states.write().await;
+            for executor_id in &changed_executors {
+                info!(
+                    executor_id = executor_id.get(),
+                    "notifying executor of state change"
+                );
+                if let Some(executor_state) = executor_states.get_mut(executor_id) {
+                    executor_state.notify();
+                }
+            }
+        }
+    }
+
     #[instrument(skip(self))]
     async fn handle_cluster_vacuum(&self) -> Result<()> {
         // Reap idle containers on the timer so quiescent systems (no incoming
@@ -1193,19 +1359,34 @@ impl ApplicationProcessor {
                 merged_update.extend(sb_batch);
             }
 
+            // Determine pre-existing containers for event emission.
+            let pre_existing_containers: HashSet<data_model::ContainerId> = merged_update
+                .containers
+                .keys()
+                .filter(|id| current.scheduler.function_containers.contains_key(id))
+                .cloned()
+                .collect();
+
+            // Write scheduler results to RocksDB.
             self.indexify_state
-                .write(StateMachineUpdateRequest {
+                .write_scheduler_output(StateMachineUpdateRequest {
                     payload: RequestPayload::SchedulerUpdate(SchedulerUpdatePayload {
-                        update: Box::new(merged_update),
-                        processed_state_changes: vec![],
+                        update: Box::new(merged_update.clone()),
                     }),
                 })
                 .await?;
 
-            // Persist BlockedWorkTracker state so the next batch sees the
-            // unblock mutations made above.
+            // Publish to ArcSwap (sole writer). The next batch loads from
+            // ArcSwap and gets the updated blocked_work automatically.
             self.indexify_state
-                .persist_blocked_work(container_scheduler.blocked_work)
+                .app_state
+                .store(Arc::new(crate::state_store::AppState {
+                    indexes,
+                    scheduler: container_scheduler,
+                }));
+
+            // Emit events after ArcSwap publish.
+            self.emit_scheduler_events(&merged_update, &pre_existing_containers)
                 .await;
         }
 
@@ -1229,14 +1410,38 @@ impl ApplicationProcessor {
 
         if !buffer_update.containers.is_empty() || !buffer_update.updated_executor_states.is_empty()
         {
+            // Determine pre-existing containers for event emission.
+            let pre_existing_containers: HashSet<data_model::ContainerId> = buffer_update
+                .containers
+                .keys()
+                .filter(|id| current.scheduler.function_containers.contains_key(id))
+                .cloned()
+                .collect();
+
+            // Write to RocksDB.
             self.indexify_state
-                .write(StateMachineUpdateRequest {
+                .write_scheduler_output(StateMachineUpdateRequest {
                     payload: RequestPayload::SchedulerUpdate(SchedulerUpdatePayload {
-                        update: Box::new(buffer_update),
-                        processed_state_changes: vec![],
+                        update: Box::new(buffer_update.clone()),
                     }),
                 })
                 .await?;
+
+            // Publish to ArcSwap (sole writer).
+            let mut indexes = indexes;
+            let clock = indexes.clock;
+            indexes.apply_scheduler_update(clock, &buffer_update, "pool_reconciliation")?;
+            container_scheduler.apply_container_update(&buffer_update);
+            self.indexify_state
+                .app_state
+                .store(Arc::new(crate::state_store::AppState {
+                    indexes,
+                    scheduler: container_scheduler,
+                }));
+
+            // Emit events after ArcSwap publish.
+            self.emit_scheduler_events(&buffer_update, &pre_existing_containers)
+                .await;
         }
 
         Ok(())

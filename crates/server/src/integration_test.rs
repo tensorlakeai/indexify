@@ -59,6 +59,20 @@ mod tests {
             );
         }
         for col in IndexifyObjectsColumns::iter() {
+            // Skip infrastructure CFs that intentionally retain data:
+            // - Executors: executor metadata persists across deregistration
+            // - PayloadQueue: entries consumed asynchronously by the scheduler
+            // - ExecutorStateChanges / ApplicationStateChanges: legacy CFs that accumulate
+            //   during the transition to payload-queue-based scheduling. The scheduler
+            //   reads from PayloadQueue instead; these CFs will be removed in a follow-up
+            //   cleanup step.
+            if col == IndexifyObjectsColumns::Executors ||
+                col == IndexifyObjectsColumns::PayloadQueue ||
+                col == IndexifyObjectsColumns::ExecutorStateChanges ||
+                col == IndexifyObjectsColumns::ApplicationStateChanges
+            {
+                continue;
+            }
             let count_options = IterOptions::default();
             let count = db.iter(col.as_ref(), count_options).await.count();
 
@@ -89,29 +103,26 @@ mod tests {
         // Invoke a simple graph
         test_state_store::with_simple_application(&indexify_state).await;
 
-        // Should have 1 unprocessed state - one task created event
-        let unprocessed_state_changes = indexify_state
-            .reader()
-            .unprocessed_state_changes(&None, &None)
-            .await?;
+        // Should have 2 pending payloads in the queue:
+        // 1. CreateOrUpdateApplication
+        // 2. InvokeApplication
+        let pending_payloads = indexify_state.reader().read_pending_payloads().await?;
         assert_eq!(
-            1,
-            unprocessed_state_changes.changes.len(),
-            "{unprocessed_state_changes:?}"
+            2,
+            pending_payloads.len(),
+            "expected 2 pending payloads, got {}",
+            pending_payloads.len()
         );
 
         // Do the processing
         test_srv.process_all_state_changes().await?;
 
-        // Should have 0 unprocessed state changes
-        let unprocessed_state_changes = indexify_state
-            .reader()
-            .unprocessed_state_changes(&None, &None)
-            .await?;
+        // Should have 0 pending payloads in the queue
+        let pending_payloads = indexify_state.reader().read_pending_payloads().await?;
         assert_eq!(
-            unprocessed_state_changes.changes.len(),
+            pending_payloads.len(),
             0,
-            "{unprocessed_state_changes:#?}"
+            "expected 0 pending payloads after processing"
         );
 
         // And now, we should have an unallocated task

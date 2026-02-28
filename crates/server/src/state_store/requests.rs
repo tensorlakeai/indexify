@@ -1,6 +1,7 @@
 use std::sync::{Arc, atomic::AtomicU64};
 
 use anyhow::Result;
+use serde::{Deserialize, Serialize};
 use tracing::info;
 
 use crate::{
@@ -118,7 +119,7 @@ impl StateMachineUpdateRequest {
     }
 }
 
-#[derive(Debug, Clone, strum::Display)]
+#[derive(Debug, Clone, Serialize, Deserialize, strum::Display)]
 pub enum RequestPayload {
     InvokeApplication(InvokeApplicationRequest),
     CreateFunctionCall(FunctionCallRequest),
@@ -143,38 +144,30 @@ pub enum RequestPayload {
 
     // App Processor -> State Machine requests
     SchedulerUpdate(SchedulerUpdatePayload),
-    DeleteApplicationRequest((DeleteApplicationRequest, Vec<StateChange>)),
-    DeleteRequestRequest((DeleteRequestRequest, Vec<StateChange>)),
+    DeleteApplicationRequest(DeleteApplicationRequest),
+    DeleteRequestRequest(DeleteRequestRequest),
     TombstoneContainerPool(DeleteContainerPoolRequest),
-    DeleteContainerPool((DeleteContainerPoolRequest, Vec<StateChange>)),
-    ProcessStateChanges(Vec<StateChange>),
+    DeleteContainerPool(DeleteContainerPoolRequest),
 }
 
-/// Wraps a SchedulerUpdateRequest together with the state changes it processed.
+/// Wraps a SchedulerUpdateRequest.
 ///
 /// `update` contains the mutations to apply (new allocations, updated runs,
 /// etc.) along with any *new* state changes produced during processing.
-///
-/// `processed_state_changes` are the input state changes that were consumed to
-/// produce this update — they get marked as processed in the persistent store.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SchedulerUpdatePayload {
     pub update: Box<SchedulerUpdateRequest>,
-    pub processed_state_changes: Vec<StateChange>,
 }
 
 impl SchedulerUpdatePayload {
-    /// Creates a payload with no processed state changes (used for intermediate
-    /// scheduler updates that don't consume state changes from the queue).
     pub fn new(update: SchedulerUpdateRequest) -> Self {
         Self {
             update: Box::new(update),
-            processed_state_changes: vec![],
         }
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SchedulerUpdateRequest {
     pub new_allocations: Vec<Allocation>,
     pub updated_allocations: Vec<Allocation>,
@@ -306,7 +299,7 @@ impl SchedulerUpdateRequest {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RequestUpdates {
     pub request_updates: Vec<ComputeOp>,
     // The function call id which is the root of the call graph of the functions
@@ -314,7 +307,7 @@ pub struct RequestUpdates {
     pub output_function_call_id: FunctionCallId,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AllocationOutput {
     pub request_id: String,
     pub allocation: Allocation,
@@ -324,14 +317,14 @@ pub struct AllocationOutput {
     pub graph_updates: Option<RequestUpdates>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InvokeApplicationRequest {
     pub namespace: String,
     pub application_name: String,
     pub ctx: RequestCtx,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FunctionCallRequest {
     pub namespace: String,
     pub application_name: String,
@@ -340,14 +333,14 @@ pub struct FunctionCallRequest {
     pub source_function_call_id: FunctionCallId,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NamespaceRequest {
     pub name: String,
     pub blob_storage_bucket: Option<String>,
     pub blob_storage_region: Option<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateOrUpdateApplicationRequest {
     pub namespace: String,
     pub application: Application,
@@ -355,13 +348,13 @@ pub struct CreateOrUpdateApplicationRequest {
     pub container_pools: Vec<ContainerPool>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeleteApplicationRequest {
     pub namespace: String,
     pub name: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeleteRequestRequest {
     pub namespace: String,
     pub application: String,
@@ -371,12 +364,12 @@ pub struct DeleteRequestRequest {
 /// Request to upsert an executor, including its metadata and diagnostics.
 /// **DO NOT** construct this directly, use `UpsertExecutorRequest::build`
 /// instead.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpsertExecutorRequest {
     pub executor: ExecutorMetadata,
     pub allocation_outputs: Vec<AllocationOutput>,
     pub update_executor_state: bool,
-    state_changes: Vec<StateChange>,
+    pub state_changes: Vec<StateChange>,
 }
 
 impl UpsertExecutorRequest {
@@ -410,64 +403,64 @@ impl UpsertExecutorRequest {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeregisterExecutorRequest {
     pub executor_id: ExecutorId,
     pub state_changes: Vec<StateChange>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateSandboxRequest {
     pub sandbox: Sandbox,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TerminateSandboxRequest {
     pub namespace: String,
     pub sandbox_id: SandboxId,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateContainerPoolRequest {
     pub pool: ContainerPool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateContainerPoolRequest {
     pub pool: ContainerPool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeleteContainerPoolRequest {
     pub namespace: String,
     pub pool_id: ContainerPoolId,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DataplaneResultsRequest {
     pub event: DataplaneResultsIngestedEvent,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SnapshotSandboxRequest {
     pub snapshot: Snapshot,
     pub upload_uri: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompleteSnapshotRequest {
     pub snapshot_id: SnapshotId,
     pub snapshot_uri: String,
     pub size_bytes: u64,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FailSnapshotRequest {
     pub snapshot_id: SnapshotId,
     pub error: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeleteSnapshotRequest {
     pub namespace: String,
     pub snapshot_id: SnapshotId,

@@ -23,8 +23,8 @@ use crate::{
         AllocationUsageId,
         Application,
         ApplicationVersion,
-        ChangeType,
         ContainerPool,
+        ExecutorMetadata,
         FunctionCall,
         FunctionRun,
         GcUrlBuilder,
@@ -34,7 +34,6 @@ use crate::{
         Sandbox,
         Snapshot,
         SnapshotKey,
-        StateChange,
     },
     state_store::{
         driver::{self, Transaction, Writer, rocksdb::RocksDBDriver},
@@ -42,6 +41,7 @@ use crate::{
             DeleteRequestRequest,
             InvokeApplicationRequest,
             NamespaceRequest,
+            RequestPayload,
             SchedulerUpdateRequest,
         },
     },
@@ -100,6 +100,12 @@ pub enum IndexifyObjectsColumns {
 
     // Snapshots - Namespace|SnapshotId -> Snapshot
     Snapshots,
+
+    // Executors - ExecutorId -> ExecutorMetadata
+    Executors,
+
+    // PayloadQueue - SequenceId (u64 big-endian) -> RequestPayload
+    PayloadQueue,
 }
 
 pub(crate) async fn upsert_namespace(
@@ -901,48 +907,6 @@ pub(crate) async fn handle_scheduler_update(
     Ok(result)
 }
 
-pub(crate) async fn save_state_changes(
-    txn: &Transaction,
-    state_changes: &[StateChange],
-    clock: u64,
-) -> Result<()> {
-    for state_change in state_changes {
-        let key = &state_change.key();
-        let mut state_change_for_persistence = state_change.clone();
-        state_change_for_persistence.prepare_for_persistence(clock);
-        let serialized_state_change = StateStoreEncoder::encode(&state_change_for_persistence)?;
-        let cf = match &state_change.change_type {
-            ChangeType::ExecutorUpserted(_) | ChangeType::TombStoneExecutor(_) => {
-                IndexifyObjectsColumns::ExecutorStateChanges.as_ref()
-            }
-            _ => IndexifyObjectsColumns::ApplicationStateChanges.as_ref(),
-        };
-        txn.put(cf, key, &serialized_state_change).await?;
-    }
-    Ok(())
-}
-
-pub(crate) async fn mark_state_changes_processed(
-    txn: &Transaction,
-    processed_state_changes: &[StateChange],
-) -> Result<()> {
-    for state_change in processed_state_changes {
-        trace!(
-            change_type = %state_change.change_type,
-            "marking state change as processed"
-        );
-        let key = &state_change.key();
-        let cf = match &state_change.change_type {
-            ChangeType::ExecutorUpserted(_) | ChangeType::TombStoneExecutor(_) => {
-                IndexifyObjectsColumns::ExecutorStateChanges.as_ref()
-            }
-            _ => IndexifyObjectsColumns::ApplicationStateChanges.as_ref(),
-        };
-        txn.delete(cf, key).await?;
-    }
-    Ok(())
-}
-
 pub(crate) async fn remove_allocation_usage_events(
     txn: &Transaction,
     usage_events: &[AllocationUsageEvent],
@@ -1002,5 +966,60 @@ pub(crate) async fn persist_single_request_state_change_event(
     )
     .await?;
 
+    Ok(())
+}
+
+/// Persist executor metadata to the Executors CF.
+pub(crate) async fn upsert_executor(txn: &Transaction, executor: &ExecutorMetadata) -> Result<()> {
+    let serialized = StateStoreEncoder::encode(executor)?;
+    txn.put(
+        IndexifyObjectsColumns::Executors.as_ref(),
+        executor.id.get().as_bytes(),
+        &serialized,
+    )
+    .await?;
+    debug!(
+        executor_id = executor.id.get(),
+        "persisted executor metadata"
+    );
+    Ok(())
+}
+
+/// Enqueue a RequestPayload into the PayloadQueue CF.
+/// The key is a u64 sequence number in big-endian format for ordered iteration.
+pub(crate) async fn enqueue_payload(
+    txn: &Transaction,
+    seq: u64,
+    payload: &RequestPayload,
+) -> Result<()> {
+    let key = seq.to_be_bytes();
+    let serialized = StateStoreEncoder::encode(payload)?;
+    txn.put(
+        IndexifyObjectsColumns::PayloadQueue.as_ref(),
+        &key,
+        &serialized,
+    )
+    .await?;
+    trace!("enqueued payload seq={seq}");
+    Ok(())
+}
+
+/// Delete all payloads from the PayloadQueue CF with sequence <= `through_seq`.
+pub(crate) async fn dequeue_payloads(txn: &Transaction, through_seq: u64) -> Result<()> {
+    let iter = txn
+        .iter(IndexifyObjectsColumns::PayloadQueue.as_ref(), Vec::new())
+        .await;
+    for kv in iter {
+        let (key, _) = kv?;
+        if key.len() == 8 {
+            let seq = u64::from_be_bytes(key[..8].try_into().unwrap());
+            if seq <= through_seq {
+                txn.delete(IndexifyObjectsColumns::PayloadQueue.as_ref(), &key)
+                    .await?;
+            } else {
+                break;
+            }
+        }
+    }
     Ok(())
 }

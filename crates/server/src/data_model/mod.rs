@@ -2033,7 +2033,7 @@ impl Container {
     }
 }
 
-#[derive(Debug, Clone, Builder)]
+#[derive(Debug, Clone, Builder, Serialize, Deserialize)]
 pub struct ExecutorServerMetadata {
     pub executor_id: ExecutorId,
     pub function_container_ids: imbl::HashSet<ContainerId>,
@@ -2438,13 +2438,6 @@ impl AsRef<u64> for StateChangeId {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct UnprocessedStateChanges {
-    pub changes: Vec<StateChange>,
-    pub application_state_change_cursor: Option<Vec<u8>>,
-    pub executor_state_change_cursor: Option<Vec<u8>>,
-}
-
 #[derive(Clone, Serialize, Deserialize, Debug, Builder)]
 pub struct StateChange {
     pub id: StateChangeId,
@@ -2462,24 +2455,7 @@ pub struct StateChange {
     updated_at_clock: Option<u64>,
 }
 
-impl StateChange {
-    pub fn key(&self) -> [u8; 8] {
-        self.id.0.to_be_bytes()
-    }
-
-    /// Prepares for persistence by setting the server clock.
-    pub fn prepare_for_persistence(&mut self, clock: u64) {
-        if self.created_at_clock.is_none() {
-            self.created_at_clock = Some(clock);
-        }
-        self.updated_at_clock = Some(clock);
-    }
-
-    /// Returns the clock at which this state change was created.
-    pub fn created_at_clock(&self) -> Option<u64> {
-        self.created_at_clock
-    }
-}
+impl StateChange {}
 
 impl Display for StateChange {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -2778,7 +2754,7 @@ impl Display for SandboxFailureReason {
 }
 
 /// Key for sandbox storage: namespace|sandbox_id
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct SandboxKey(pub String);
 
 impl SandboxKey {
@@ -2942,6 +2918,7 @@ pub struct SnapshotSandboxEvent {
     pub namespace: String,
     pub sandbox_id: SandboxId,
     pub snapshot_id: SnapshotId,
+    pub upload_uri: String,
 }
 
 // ================================

@@ -92,41 +92,22 @@ impl TestService {
     }
 
     pub async fn process_all_state_changes(&self) -> Result<()> {
-        while !self
+        let notify = Arc::new(tokio::sync::Notify::new());
+        // Process payloads from the queue until it's empty.
+        while self
             .service
-            .indexify_state
-            .reader()
-            .unprocessed_state_changes(&None, &None)
+            .application_processor
+            .write_sm_update(&notify)
             .await?
-            .changes
-            .is_empty()
         {
-            self.process_graph_processor().await?;
+            // Loop until write_sm_update returns false (queue empty).
         }
-        // Run deferred pool reconciliation after all state changes are
+        // Run deferred pool reconciliation after all payloads are
         // processed, matching the event loop behavior in start().
         self.service
             .application_processor
             .run_pool_reconciliation()
             .await?;
-        Ok(())
-    }
-
-    async fn process_graph_processor(&self) -> Result<()> {
-        let notify = Arc::new(tokio::sync::Notify::new());
-        let mut cached_state_changes = self
-            .service
-            .indexify_state
-            .reader()
-            .unprocessed_state_changes(&None, &None)
-            .await?
-            .changes;
-        while !cached_state_changes.is_empty() {
-            self.service
-                .application_processor
-                .write_sm_update(&mut cached_state_changes, &mut None, &mut None, &notify)
-                .await?;
-        }
         Ok(())
     }
 
