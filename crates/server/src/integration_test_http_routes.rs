@@ -496,9 +496,11 @@ mod tests {
 
         // Reap idle containers (eager — no age threshold)
         let scheduler_update = {
-            let current = indexify_state.container_scheduler.load_full();
+            let current = indexify_state.app_state.load_full();
             let mut guard = (*current).clone();
-            guard.reap_idle_containers(std::time::Duration::ZERO)
+            guard
+                .scheduler
+                .reap_idle_containers(std::time::Duration::ZERO)
         };
 
         assert!(

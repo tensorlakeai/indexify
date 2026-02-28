@@ -349,16 +349,14 @@ pub(crate) async fn list_executors(
         .await
         .map_err(IndexifyAPIError::internal_error)?;
 
-    let container_sched = state.indexify_state.container_scheduler.load();
-    let in_memory_state = state.indexify_state.in_memory_state.load();
+    let app = state.indexify_state.app_state.load();
 
     let mut http_executors = vec![];
     for executor in executors {
-        if let Some(fe_server_metadata) = container_sched.executor_states.get(&executor.id) {
+        if let Some(fe_server_metadata) = app.scheduler.executor_states.get(&executor.id) {
             let mut function_container_server_meta = HashMap::new();
             for container_id in &fe_server_metadata.function_container_ids {
-                let Some(fe_metadata) = container_sched.function_containers.get(container_id)
-                else {
+                let Some(fe_metadata) = app.scheduler.function_containers.get(container_id) else {
                     continue;
                 };
                 function_container_server_meta.insert(container_id.clone(), fe_metadata.clone());
@@ -367,8 +365,8 @@ pub(crate) async fn list_executors(
             // Compute readiness for teardown
             let ready_for_teardown = is_executor_ready_for_teardown(
                 &executor.id,
-                &in_memory_state.allocations_by_executor,
-                &in_memory_state.sandboxes_by_executor,
+                &app.indexes.allocations_by_executor,
+                &app.indexes.sandboxes_by_executor,
                 &function_container_server_meta,
             );
 
@@ -438,13 +436,14 @@ async fn list_unprocessed_state_changes(
 async fn list_unallocated_function_runs(
     State(state): State<RouteState>,
 ) -> Result<Json<UnallocatedFunctionRuns>, IndexifyAPIError> {
-    let state = state.indexify_state.in_memory_state.load();
-    let unallocated_function_runs: Vec<http_objects_v1::FunctionRun> = state
+    let app = state.indexify_state.app_state.load();
+    let unallocated_function_runs: Vec<http_objects_v1::FunctionRun> = app
+        .indexes
         .unallocated_function_runs
         .clone()
         .iter()
         .filter_map(|unallocated_function_run_id| {
-            state.function_runs.get(unallocated_function_run_id)
+            app.indexes.function_runs.get(unallocated_function_run_id)
         })
         .map(|t| {
             http_objects_v1::FunctionRun::from_data_model_function_run(*t.clone(), vec![], vec![])
@@ -470,8 +469,8 @@ async fn list_unallocated_function_runs(
 async fn list_executor_catalog(
     State(state): State<RouteState>,
 ) -> Result<Json<ExecutorCatalog>, IndexifyAPIError> {
-    let in_memory_state = state.indexify_state.in_memory_state.load();
-    let catalog = &in_memory_state.executor_catalog;
+    let app = state.indexify_state.app_state.load();
+    let catalog = &app.indexes.executor_catalog;
     Ok(Json(ExecutorCatalog::from(catalog)))
 }
 
@@ -494,8 +493,8 @@ async fn list_executor_catalog(
 async fn get_pending_resources(
     State(state): State<RouteState>,
 ) -> Result<Json<PendingResourcesResponse>, IndexifyAPIError> {
-    let in_memory_state = state.indexify_state.in_memory_state.load();
-    let pending = in_memory_state.get_pending_resources().clone();
+    let app = state.indexify_state.app_state.load();
+    let pending = app.indexes.get_pending_resources().clone();
     Ok(Json(pending.into()))
 }
 
@@ -680,10 +679,11 @@ async fn get_sandbox_by_id(
     State(state): State<RouteState>,
     Path((namespace, sandbox_id)): Path<(String, String)>,
 ) -> Result<Json<SandboxLookupResponse>, IndexifyAPIError> {
-    let in_memory_state = state.indexify_state.in_memory_state.load();
+    let app = state.indexify_state.app_state.load();
 
     let sandbox_key = crate::data_model::SandboxKey::new(&namespace, &sandbox_id);
-    let sandbox = in_memory_state
+    let sandbox = app
+        .indexes
         .sandboxes
         .get(&sandbox_key)
         .ok_or_else(|| IndexifyAPIError::not_found("Sandbox not found"))?;
@@ -693,9 +693,8 @@ async fn get_sandbox_by_id(
         .as_ref()
         .ok_or_else(|| IndexifyAPIError::not_found("Sandbox has no container assigned"))?;
 
-    let container_scheduler = state.indexify_state.container_scheduler.load();
-
-    let container_meta = container_scheduler
+    let container_meta = app
+        .scheduler
         .function_containers
         .get(container_id)
         .ok_or_else(|| IndexifyAPIError::not_found("Container not found"))?;
@@ -707,7 +706,8 @@ async fn get_sandbox_by_id(
         crate::data_model::ContainerState::Unknown => "Unknown",
     };
 
-    let dataplane_api_address = container_scheduler
+    let dataplane_api_address = app
+        .scheduler
         .executors
         .get(&container_meta.executor_id)
         .and_then(|executor| executor.proxy_address.clone());

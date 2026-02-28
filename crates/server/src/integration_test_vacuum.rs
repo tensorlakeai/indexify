@@ -280,8 +280,8 @@ mod tests {
 
         // Check container scheduler state - should have a container for app_a
         let container_count_before = {
-            let container_scheduler = indexify_state.container_scheduler.load();
-            container_scheduler.function_containers.len()
+            let app = indexify_state.app_state.load();
+            app.scheduler.function_containers.len()
         };
         assert!(
             container_count_before >= 1,
@@ -299,8 +299,9 @@ mod tests {
 
         // Check that app_a's container is marked for termination
         {
-            let container_scheduler = indexify_state.container_scheduler.load();
-            let app_a_containers: Vec<_> = container_scheduler
+            let app = indexify_state.app_state.load();
+            let app_a_containers: Vec<_> = app
+                .scheduler
                 .function_containers
                 .iter()
                 .filter(|(_, fc)| fc.function_container.application_name == "app_a")
@@ -415,8 +416,8 @@ mod tests {
 
         // Check current container count for app_a
         let container_count = {
-            let container_scheduler = indexify_state.container_scheduler.load();
-            container_scheduler
+            let app = indexify_state.app_state.load();
+            app.scheduler
                 .function_containers
                 .iter()
                 .filter(|(_, fc)| fc.function_container.application_name == "app_a")
@@ -445,8 +446,9 @@ mod tests {
 
         // Verify app_a still has its containers (not marked for termination)
         {
-            let container_scheduler = indexify_state.container_scheduler.load();
-            let active_app_a_containers: Vec<_> = container_scheduler
+            let app = indexify_state.app_state.load();
+            let active_app_a_containers: Vec<_> = app
+                .scheduler
                 .function_containers
                 .iter()
                 .filter(|(_, fc)| fc.function_container.application_name == "app_a")
@@ -533,8 +535,9 @@ mod tests {
 
         // Verify app_a has a container
         {
-            let container_scheduler = indexify_state.container_scheduler.load();
-            let app_a_containers: Vec<_> = container_scheduler
+            let app = indexify_state.app_state.load();
+            let app_a_containers: Vec<_> = app
+                .scheduler
                 .function_containers
                 .iter()
                 .filter(|(_, fc)| fc.function_container.application_name == "app_a")
@@ -556,8 +559,9 @@ mod tests {
 
         // Verify app_a's container is NOT marked for termination
         {
-            let container_scheduler = indexify_state.container_scheduler.load();
-            let app_a_containers: Vec<_> = container_scheduler
+            let app = indexify_state.app_state.load();
+            let app_a_containers: Vec<_> = app
+                .scheduler
                 .function_containers
                 .iter()
                 .filter(|(_, fc)| fc.function_container.application_name == "app_a")
@@ -643,9 +647,9 @@ mod tests {
 
         // Verify executor1 is tombstoned
         {
-            let container_scheduler = indexify_state.container_scheduler.load();
+            let app = indexify_state.app_state.load();
             let executor1_id = crate::data_model::ExecutorId::new("executor_1".to_string());
-            if let Some(executor) = container_scheduler.executors.get(&executor1_id) {
+            if let Some(executor) = app.scheduler.executors.get(&executor1_id) {
                 assert!(executor.tombstoned, "executor_1 should be tombstoned");
             }
         }
@@ -722,8 +726,8 @@ mod tests {
 
         // Verify we have 3 containers
         let container_count = {
-            let container_scheduler = indexify_state.container_scheduler.load();
-            container_scheduler
+            let app = indexify_state.app_state.load();
+            app.scheduler
                 .function_containers
                 .iter()
                 .filter(|(_, fc)| {
@@ -747,8 +751,9 @@ mod tests {
 
         // Check how many containers are now marked for termination
         {
-            let container_scheduler = indexify_state.container_scheduler.load();
-            let terminated_count = container_scheduler
+            let app = indexify_state.app_state.load();
+            let terminated_count = app
+                .scheduler
                 .function_containers
                 .iter()
                 .filter(|(_, fc)| {
@@ -919,8 +924,8 @@ mod tests {
 
         // Check that containers are marked for termination
         let terminated_containers: Vec<_> = {
-            let container_scheduler = indexify_state.container_scheduler.load();
-            container_scheduler
+            let app = indexify_state.app_state.load();
+            app.scheduler
                 .function_containers
                 .iter()
                 .filter(|(_, fc)| {
@@ -1035,8 +1040,9 @@ mod tests {
 
         // Verify app_1's container is terminated
         {
-            let container_scheduler = indexify_state.container_scheduler.load();
-            let app_1_containers: Vec<_> = container_scheduler
+            let app = indexify_state.app_state.load();
+            let app_1_containers: Vec<_> = app
+                .scheduler
                 .function_containers
                 .iter()
                 .filter(|(_, fc)| fc.function_container.application_name == "app_1")
@@ -1071,8 +1077,9 @@ mod tests {
         // Verify that app_2's container is now marked for termination (if needed for
         // resources)
         {
-            let container_scheduler = indexify_state.container_scheduler.load();
-            let app_2_containers: Vec<_> = container_scheduler
+            let app = indexify_state.app_state.load();
+            let app_2_containers: Vec<_> = app
+                .scheduler
                 .function_containers
                 .iter()
                 .filter(|(_, fc)| fc.function_container.application_name == "app_2")
@@ -1134,8 +1141,9 @@ mod tests {
 
         // Verify container has num_allocations = 1
         {
-            let container_scheduler = indexify_state.container_scheduler.load();
-            let app_a_containers: Vec<_> = container_scheduler
+            let app = indexify_state.app_state.load();
+            let app_a_containers: Vec<_> = app
+                .scheduler
                 .function_containers
                 .iter()
                 .filter(|(_, fc)| fc.function_container.application_name == "app_a")
@@ -1170,8 +1178,9 @@ mod tests {
 
         // Verify app_a's container is NOT marked for termination
         {
-            let container_scheduler = indexify_state.container_scheduler.load();
-            let app_a_containers: Vec<_> = container_scheduler
+            let app = indexify_state.app_state.load();
+            let app_a_containers: Vec<_> = app
+                .scheduler
                 .function_containers
                 .iter()
                 .filter(|(_, fc)| fc.function_container.application_name == "app_a")
@@ -1314,8 +1323,9 @@ mod tests {
 
         // Verify protected app's container is NOT terminated
         {
-            let container_scheduler = indexify_state.container_scheduler.load();
-            let protected_containers: Vec<_> = container_scheduler
+            let app = indexify_state.app_state.load();
+            let protected_containers: Vec<_> = app
+                .scheduler
                 .function_containers
                 .iter()
                 .filter(|(_, fc)| fc.function_container.application_name == "app_protected")
@@ -1386,8 +1396,9 @@ mod tests {
 
         // Get the container ID for app_a
         let container_id_before = {
-            let container_scheduler = indexify_state.container_scheduler.load();
-            let app_a_containers: Vec<_> = container_scheduler
+            let app = indexify_state.app_state.load();
+            let app_a_containers: Vec<_> = app
+                .scheduler
                 .function_containers
                 .iter()
                 .filter(|(_, fc)| fc.function_container.application_name == "app_a")
@@ -1422,8 +1433,9 @@ mod tests {
 
         // Verify container is now idle (num_allocations = 0)
         {
-            let container_scheduler = indexify_state.container_scheduler.load();
-            let fc = container_scheduler
+            let app = indexify_state.app_state.load();
+            let fc = app
+                .scheduler
                 .function_containers
                 .get(&container_id_before)
                 .expect("Container should exist");
@@ -1449,11 +1461,8 @@ mod tests {
 
         // Now app_a's container should be terminated
         {
-            let container_scheduler = indexify_state.container_scheduler.load();
-            if let Some(fc) = container_scheduler
-                .function_containers
-                .get(&container_id_before)
-            {
+            let app = indexify_state.app_state.load();
+            if let Some(fc) = app.scheduler.function_containers.get(&container_id_before) {
                 tracing::info!(
                     "After vacuum: app_a container {} desired_state: {:?}",
                     container_id_before.get(),

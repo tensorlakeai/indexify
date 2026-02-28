@@ -317,11 +317,11 @@ mod tests {
 
         // Check for stale data in in-memory state
         {
-            let in_memory_state = indexify_state.in_memory_state.load();
+            let app = indexify_state.app_state.load();
 
             // Check allocations_by_executor - should have no allocations for this request
             let executor_id = crate::data_model::ExecutorId::new(TEST_EXECUTOR_ID.to_string());
-            if let Some(allocs_by_fe) = in_memory_state.allocations_by_executor.get(&executor_id) {
+            if let Some(allocs_by_fe) = app.indexes.allocations_by_executor.get(&executor_id) {
                 let total_allocs: usize = allocs_by_fe.values().map(|m| m.len()).sum();
                 tracing::info!(
                     "allocations_by_executor for {}: {} allocations across {} function executors",
@@ -340,28 +340,29 @@ mod tests {
             // Check function_runs count
             tracing::info!(
                 "function_runs count after tombstone: {}",
-                in_memory_state.function_runs.len()
+                app.indexes.function_runs.len()
             );
 
             // Check unallocated_function_runs count
             tracing::info!(
                 "unallocated_function_runs count after tombstone: {}",
-                in_memory_state.unallocated_function_runs.len()
+                app.indexes.unallocated_function_runs.len()
             );
 
             // Check request_ctx count
             tracing::info!(
                 "request_ctx count after tombstone: {}",
-                in_memory_state.request_ctx.len()
+                app.indexes.request_ctx.len()
             );
         }
 
         // Check for stale data in container scheduler
         {
-            let container_scheduler = indexify_state.container_scheduler.load();
+            let app = indexify_state.app_state.load();
 
             // Check if containers for this app still exist
-            let app_containers: Vec<_> = container_scheduler
+            let app_containers: Vec<_> = app
+                .scheduler
                 .function_containers
                 .iter()
                 .filter(|(_, fc)| {
@@ -387,12 +388,12 @@ mod tests {
             // Check containers_by_function_uri
             tracing::info!(
                 "containers_by_function_uri count: {}",
-                container_scheduler.containers_by_function_uri.len()
+                app.scheduler.containers_by_function_uri.len()
             );
 
             // Check executor_states
             let executor_id = crate::data_model::ExecutorId::new(TEST_EXECUTOR_ID.to_string());
-            if let Some(executor_state) = container_scheduler.executor_states.get(&executor_id) {
+            if let Some(executor_state) = app.scheduler.executor_states.get(&executor_id) {
                 tracing::info!(
                     "Executor state: function_container_ids={}, free_resources.cpu_ms_per_sec={}",
                     executor_state.function_container_ids.len(),
@@ -468,10 +469,11 @@ mod tests {
 
         // Check for stale data in container scheduler after app deletion
         {
-            let container_scheduler = indexify_state.container_scheduler.load();
+            let app = indexify_state.app_state.load();
 
             // Check if containers for this app still exist
-            let app_containers: Vec<_> = container_scheduler
+            let app_containers: Vec<_> = app
+                .scheduler
                 .function_containers
                 .iter()
                 .filter(|(_, fc)| {
@@ -538,9 +540,10 @@ mod tests {
 
         // Check container scheduler state AFTER heartbeat
         {
-            let container_scheduler = indexify_state.container_scheduler.load();
+            let app = indexify_state.app_state.load();
 
-            let app_containers: Vec<_> = container_scheduler
+            let app_containers: Vec<_> = app
+                .scheduler
                 .function_containers
                 .iter()
                 .filter(|(_, fc)| {
@@ -563,7 +566,8 @@ mod tests {
             }
 
             // Check containers_by_function_uri for this app
-            let app_uri_containers: Vec<_> = container_scheduler
+            let app_uri_containers: Vec<_> = app
+                .scheduler
                 .containers_by_function_uri
                 .iter()
                 .filter(|(uri, _)| uri.namespace == TEST_NAMESPACE && uri.application == "graph_A")
@@ -575,7 +579,7 @@ mod tests {
 
             // Check executor_states
             let executor_id = crate::data_model::ExecutorId::new(TEST_EXECUTOR_ID.to_string());
-            if let Some(executor_state) = container_scheduler.executor_states.get(&executor_id) {
+            if let Some(executor_state) = app.scheduler.executor_states.get(&executor_id) {
                 tracing::info!(
                     "Executor state AFTER heartbeat: function_container_ids={}",
                     executor_state.function_container_ids.len()
@@ -1686,12 +1690,10 @@ mod tests {
         // Clear executor state but keep allocations (as if loaded from DB)
         // Fork-mutate-publish via ArcSwap.
         {
-            let current = indexify_state.in_memory_state.load_full();
+            let current = indexify_state.app_state.load_full();
             let mut next = (*current).clone();
-            next.simulate_server_restart_clear_executor_state();
-            indexify_state
-                .in_memory_state
-                .store(std::sync::Arc::new(next));
+            next.indexes.simulate_server_restart_clear_executor_state();
+            indexify_state.app_state.store(std::sync::Arc::new(next));
         }
 
         // Now deregister the executor - this will take the FALLBACK path

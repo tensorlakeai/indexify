@@ -143,9 +143,9 @@ impl ApplicationProcessor {
 
     pub async fn validate_app_constraints(&self) -> Result<()> {
         let updated_applications = {
-            let in_memory_state = self.indexify_state.in_memory_state.load();
-            let executor_catalog = &in_memory_state.executor_catalog;
-            in_memory_state.applications.values().filter_map(|application| {
+            let state = self.indexify_state.app_state.load();
+            let executor_catalog = &state.indexes.executor_catalog;
+            state.indexes.applications.values().filter_map(|application| {
                 let target_state = if application.can_be_scheduled(executor_catalog).is_ok() {
                         ApplicationState::Active
                 } else {
@@ -298,10 +298,9 @@ impl ApplicationProcessor {
         // 4. Take ONE snapshot for the entire batch. All state changes in the
         // batch share these mutable clones. Processors mutate them inline so
         // subsequent events see prior decisions (container placements, etc.).
-        let current_state = self.indexify_state.in_memory_state.load_full();
-        let mut indexes = (*current_state).clone();
-        let current_sched = self.indexify_state.container_scheduler.load_full();
-        let mut container_scheduler = (*current_sched).clone();
+        let current = self.indexify_state.app_state.load_full();
+        let mut indexes = current.indexes.clone();
+        let mut container_scheduler = current.scheduler.clone();
 
         let mut snapshot_clock = indexes.clock;
 
@@ -463,14 +462,13 @@ impl ApplicationProcessor {
                     // ephemeral batch state across the refresh so blocked work
                     // and reaped container tracking is not lost. Also advance
                     // snapshot_clock so deferred changes become eligible.
-                    let refreshed_state = self.indexify_state.in_memory_state.load_full();
-                    indexes = (*refreshed_state).clone();
+                    let refreshed = self.indexify_state.app_state.load_full();
+                    indexes = refreshed.indexes.clone();
                     snapshot_clock = indexes.clock;
                     let blocked_work = std::mem::take(&mut container_scheduler.blocked_work);
                     let reaped_containers =
                         std::mem::take(&mut container_scheduler.reaped_containers);
-                    let refreshed_sched = self.indexify_state.container_scheduler.load_full();
-                    container_scheduler = (*refreshed_sched).clone();
+                    container_scheduler = refreshed.scheduler.clone();
                     container_scheduler.blocked_work = blocked_work;
                     container_scheduler.reaped_containers = reaped_containers;
                 }
@@ -541,15 +539,10 @@ impl ApplicationProcessor {
         // 7. Persist BlockedWorkTracker state from batch processing.
         // The batch clone's blocked_work reflects all block/unblock
         // mutations from this batch. Merge it into the persisted
-        // ContainerScheduler so the next batch sees it.
-        {
-            let current = self.indexify_state.container_scheduler.load_full();
-            let mut next = (*current).clone();
-            next.blocked_work = container_scheduler.blocked_work;
-            self.indexify_state
-                .container_scheduler
-                .store(Arc::new(next));
-        }
+        // AppState so the next batch sees it.
+        self.indexify_state
+            .persist_blocked_work(container_scheduler.blocked_work)
+            .await;
 
         Ok(())
     }
@@ -1120,14 +1113,13 @@ impl ApplicationProcessor {
         // state changes) still free resources. The event-loop reaper in
         // write_sm_update uses min_idle_age=0 for immediate capacity recovery;
         // here we use the configured age threshold for background cleanup.
-        let current_sched = self.indexify_state.container_scheduler.load_full();
-        let mut container_scheduler = (*current_sched).clone();
+        let current = self.indexify_state.app_state.load_full();
+        let mut container_scheduler = current.scheduler.clone();
 
         let reap_update =
             container_scheduler.reap_idle_containers(self.cluster_vacuum_max_idle_age);
         if !reap_update.containers.is_empty() {
-            let current_state = self.indexify_state.in_memory_state.load_full();
-            let mut indexes = (*current_state).clone();
+            let mut indexes = current.indexes.clone();
             let clock = indexes.clock;
             indexes.apply_scheduler_update(clock, &reap_update, "vacuum_reap")?;
 
@@ -1212,14 +1204,9 @@ impl ApplicationProcessor {
 
             // Persist BlockedWorkTracker state so the next batch sees the
             // unblock mutations made above.
-            {
-                let current = self.indexify_state.container_scheduler.load_full();
-                let mut next = (*current).clone();
-                next.blocked_work = container_scheduler.blocked_work;
-                self.indexify_state
-                    .container_scheduler
-                    .store(Arc::new(next));
-            }
+            self.indexify_state
+                .persist_blocked_work(container_scheduler.blocked_work)
+                .await;
         }
 
         // Fail snapshots that have been stuck in InProgress for too long
@@ -1231,10 +1218,9 @@ impl ApplicationProcessor {
     /// Run buffer reconciliation for warm pool containers.
     /// Called from the event loop only when no real state changes are pending.
     pub async fn run_pool_reconciliation(&self) -> Result<()> {
-        let current_state = self.indexify_state.in_memory_state.load_full();
-        let indexes = (*current_state).clone();
-        let current_sched = self.indexify_state.container_scheduler.load_full();
-        let mut container_scheduler = (*current_sched).clone();
+        let current = self.indexify_state.app_state.load_full();
+        let indexes = current.indexes.clone();
+        let mut container_scheduler = current.scheduler.clone();
 
         let buffer_reconciler = BufferReconciler::new();
         let mut feas_cache = FeasibilityCache::new();
@@ -1268,8 +1254,9 @@ impl ApplicationProcessor {
         let timeout_ns = self.snapshot_timeout.as_nanos();
 
         let stale_snapshot_ids: Vec<_> = {
-            let in_memory = self.indexify_state.in_memory_state.load();
-            in_memory
+            let state = self.indexify_state.app_state.load();
+            state
+                .indexes
                 .snapshots
                 .values()
                 .filter(|s| {

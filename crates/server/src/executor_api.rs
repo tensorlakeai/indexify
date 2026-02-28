@@ -946,8 +946,8 @@ async fn build_add_container_command(
     blob_storage_registry: &BlobStorageRegistry,
     indexify_state: &IndexifyState,
 ) -> Option<executor_api_pb::Command> {
-    let container_scheduler = indexify_state.container_scheduler.load();
-    let fc = container_scheduler.function_containers.get(container_id)?;
+    let state = indexify_state.app_state.load();
+    let fc = state.scheduler.function_containers.get(container_id)?;
 
     // Skip terminated containers
     if matches!(
@@ -958,9 +958,9 @@ async fn build_add_container_command(
     }
 
     let fe = &fc.function_container;
-    let indexes = indexify_state.in_memory_state.load();
 
-    let cg_version = indexes
+    let cg_version = state
+        .indexes
         .application_versions
         .get(&data_model::ApplicationVersion::key_from(
             &fe.namespace,
@@ -1033,7 +1033,7 @@ async fn build_add_container_command(
             function_name: Some(fe.function_name.clone()),
             application_version: Some(fe.version.to_string()),
         }),
-        secret_names: cg_node_secret_names(&indexes, fe),
+        secret_names: cg_node_secret_names(&state.indexes, fe),
         initialization_timeout_ms: Some(initialization_timeout_ms),
         application: code_payload_pb,
         allocation_timeout_ms: Some(allocation_timeout_ms),
@@ -1044,8 +1044,7 @@ async fn build_add_container_command(
         pool_id: fe.pool_id.as_ref().map(|p| p.get().to_string()),
     };
 
-    drop(indexes);
-    drop(container_scheduler);
+    drop(state);
 
     let seq = emitter.next_seq();
     Some(executor_api_pb::Command {
@@ -1069,8 +1068,8 @@ async fn build_update_container_description_command(
     container_id: &ContainerId,
     indexify_state: &IndexifyState,
 ) -> Option<executor_api_pb::Command> {
-    let container_scheduler = indexify_state.container_scheduler.load();
-    let fc = container_scheduler.function_containers.get(container_id)?;
+    let state = indexify_state.app_state.load();
+    let fc = state.scheduler.function_containers.get(container_id)?;
     let fe = &fc.function_container;
 
     // Skip non-sandbox containers -- only sandbox descriptions change today.
