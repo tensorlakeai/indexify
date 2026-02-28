@@ -954,9 +954,26 @@ impl ServiceRuntime {
         let allocation_id = log_entry.allocation_id.clone();
         let dispatcher = self.allocation_result_dispatcher.clone();
         tokio::spawn(async move {
-            if !dispatcher.dispatch(&allocation_id, log_entry).await {
+            if !dispatcher.dispatch(&allocation_id, log_entry.clone()).await {
+                // Extract context from the inner entry for debugging.
+                let (namespace, request_id, function_call_id) = match &log_entry.entry {
+                    Some(proto_api::executor_api_pb::allocation_log_entry::Entry::FunctionCallResult(r)) => (
+                        r.namespace.as_deref().unwrap_or("?"),
+                        r.request_id.as_deref().unwrap_or("?"),
+                        r.function_call_id.as_deref().unwrap_or("?"),
+                    ),
+                    Some(proto_api::executor_api_pb::allocation_log_entry::Entry::CallFunction(r)) => (
+                        r.namespace.as_deref().unwrap_or("?"),
+                        r.request_id.as_deref().unwrap_or("?"),
+                        r.source_function_call_id.as_deref().unwrap_or("?"),
+                    ),
+                    None => ("?", "?", "?"),
+                };
                 tracing::warn!(
                     allocation_id = %allocation_id,
+                    namespace = namespace,
+                    request_id = request_id,
+                    function_call_id = function_call_id,
                     "No allocation runner for result dispatch"
                 );
             }
