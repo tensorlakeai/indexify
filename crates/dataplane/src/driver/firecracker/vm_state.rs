@@ -84,9 +84,8 @@ impl VmProcess {
     ///
     /// SIGKILL should terminate the process nearly instantly, but we add a
     /// 5-second timeout to avoid blocking indefinitely.  This must be called
-    /// after `kill()` and before attempting to tear down the dm-snapshot
-    /// device, because the device cannot be removed while Firecracker still
-    /// has it open.
+    /// after `kill()` and before attempting to tear down the thin LV,
+    /// because it cannot be removed while Firecracker still has it open.
     pub async fn wait_for_exit(&mut self) {
         const EXIT_TIMEOUT: Duration = Duration::from_secs(5);
         match self {
@@ -141,12 +140,9 @@ pub struct VmMetadata {
     pub vm_id: String,
     /// PID of the Firecracker process.
     pub pid: u32,
-    /// LV name for the COW thin LV (e.g., "indexify-cow-abc123").
+    /// LV name for the VM's thin LV (e.g., "indexify-vm-abc123").
     #[serde(default)]
     pub lv_name: String,
-    /// dm device name (e.g., "indexify-vm-abc123").
-    #[serde(default)]
-    pub dm_name: String,
     /// Name of the network namespace.
     pub netns_name: String,
     /// Guest IP address.
@@ -160,6 +156,12 @@ pub struct VmMetadata {
     /// Labels from the application layer for log attribution.
     #[serde(default)]
     pub labels: HashMap<String, String>,
+
+    // -- Backward-compat fields (old dm-snapshot format) --
+    // Kept for one release so old metadata files still deserialize.
+    /// Old dm device name field (no longer used).
+    #[serde(default, skip_serializing)]
+    pub dm_name: Option<String>,
 }
 
 impl VmMetadata {
@@ -226,45 +228,59 @@ pub fn scan_metadata_files(state_dir: &Path) -> Result<Vec<VmMetadata>> {
     Ok(results)
 }
 
-/// Metadata for the origin device (base rootfs loop mount).
+/// Metadata for the base image thin LV.
 ///
-/// Tracks the loop device and dm name for the origin so we can detect
+/// Tracks the base image path and LV name so we can detect changes
 /// and reuse it across restarts.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct OriginMetadata {
+pub struct BaseImageMetadata {
     /// Path to the base rootfs image file.
     pub base_image_path: String,
-    /// Loop device backing the origin (e.g., "/dev/loop0").
-    pub loop_device: String,
-    /// dm device name (e.g., "indexify-base").
-    pub dm_name: String,
+    /// LV name for the base image (e.g., "indexify-base").
+    #[serde(default)]
+    pub lv_name: String,
+
+    // -- Backward-compat fields (old dm-snapshot format) --
+    // Kept so old fc-origin.json files still deserialize.
+    /// Old loop device field (no longer used).
+    #[serde(default, skip_serializing)]
+    pub loop_device: Option<String>,
+    /// Old dm device name field (no longer used).
+    #[serde(default, skip_serializing)]
+    pub dm_name: Option<String>,
 }
 
-impl OriginMetadata {
+impl BaseImageMetadata {
     /// Write this metadata to `{state_dir}/fc-origin.json`.
     pub fn save(&self, state_dir: &Path) -> Result<()> {
         let path = state_dir.join("fc-origin.json");
-        let json =
-            serde_json::to_string_pretty(self).context("Failed to serialize origin metadata")?;
-        std::fs::write(&path, json)
-            .with_context(|| format!("Failed to write origin metadata to {}", path.display()))?;
+        let json = serde_json::to_string_pretty(self)
+            .context("Failed to serialize base image metadata")?;
+        std::fs::write(&path, json).with_context(|| {
+            format!("Failed to write base image metadata to {}", path.display())
+        })?;
         Ok(())
     }
 
-    /// Load origin metadata from `{state_dir}/fc-origin.json`.
+    /// Load base image metadata from `{state_dir}/fc-origin.json`.
     pub fn load(state_dir: &Path) -> Result<Option<Self>> {
         let path = state_dir.join("fc-origin.json");
         if !path.exists() {
             return Ok(None);
         }
-        let json = std::fs::read_to_string(&path)
-            .with_context(|| format!("Failed to read origin metadata from {}", path.display()))?;
-        let metadata: Self = serde_json::from_str(&json)
-            .with_context(|| format!("Failed to parse origin metadata from {}", path.display()))?;
+        let json = std::fs::read_to_string(&path).with_context(|| {
+            format!("Failed to read base image metadata from {}", path.display())
+        })?;
+        let metadata: Self = serde_json::from_str(&json).with_context(|| {
+            format!(
+                "Failed to parse base image metadata from {}",
+                path.display()
+            )
+        })?;
         Ok(Some(metadata))
     }
 
-    /// Remove the origin metadata file.
+    /// Remove the base image metadata file.
     pub fn remove(state_dir: &Path) {
         let path = state_dir.join("fc-origin.json");
         let _ = std::fs::remove_file(path);
@@ -289,14 +305,14 @@ mod tests {
             handle_id: "fc-test-vm-1".to_string(),
             vm_id: "test-vm-1".to_string(),
             pid: 12345,
-            lv_name: "indexify-cow-test-vm-1".to_string(),
-            dm_name: "indexify-vm-test-vm-1".to_string(),
+            lv_name: "indexify-vm-test-vm-1".to_string(),
             netns_name: "indexify-vm-test-vm-1".to_string(),
             guest_ip: "192.168.30.2".to_string(),
             daemon_addr: "192.168.30.2:9500".to_string(),
             http_addr: "192.168.30.2:9501".to_string(),
             socket_path: "/tmp/fc-test-vm-1.sock".to_string(),
             labels: HashMap::new(),
+            dm_name: None,
         }
     }
 
@@ -309,7 +325,6 @@ mod tests {
         assert_eq!(loaded.vm_id, metadata.vm_id);
         assert_eq!(loaded.pid, metadata.pid);
         assert_eq!(loaded.lv_name, metadata.lv_name);
-        assert_eq!(loaded.dm_name, metadata.dm_name);
         assert_eq!(loaded.netns_name, metadata.netns_name);
         assert_eq!(loaded.guest_ip, metadata.guest_ip);
         assert_eq!(loaded.daemon_addr, metadata.daemon_addr);
@@ -331,8 +346,7 @@ mod tests {
         assert_eq!(loaded.handle_id, "fc-test-vm-1");
         assert_eq!(loaded.vm_id, "test-vm-1");
         assert_eq!(loaded.pid, 12345);
-        assert_eq!(loaded.lv_name, "indexify-cow-test-vm-1");
-        assert_eq!(loaded.dm_name, "indexify-vm-test-vm-1");
+        assert_eq!(loaded.lv_name, "indexify-vm-test-vm-1");
     }
 
     #[test]
@@ -353,7 +367,29 @@ mod tests {
         let loaded: VmMetadata = serde_json::from_str(old_json).unwrap();
         assert_eq!(loaded.vm_id, "old-vm");
         assert_eq!(loaded.lv_name, "");
-        assert_eq!(loaded.dm_name, "");
+        assert!(loaded.dm_name.is_none());
+    }
+
+    #[test]
+    fn test_metadata_backward_compat_old_dm_snapshot_format() {
+        // Old dm-snapshot format had dm_name as a string field.
+        let old_json = r#"{
+            "handle_id": "fc-old-vm",
+            "vm_id": "old-vm",
+            "pid": 999,
+            "lv_name": "indexify-cow-old-vm",
+            "dm_name": "indexify-vm-old-vm",
+            "netns_name": "indexify-vm-old-vm",
+            "guest_ip": "192.168.30.5",
+            "daemon_addr": "192.168.30.5:9500",
+            "http_addr": "192.168.30.5:9501",
+            "socket_path": "/tmp/fc-old-vm.sock"
+        }"#;
+
+        let loaded: VmMetadata = serde_json::from_str(old_json).unwrap();
+        assert_eq!(loaded.vm_id, "old-vm");
+        assert_eq!(loaded.lv_name, "indexify-cow-old-vm");
+        assert_eq!(loaded.dm_name, Some("indexify-vm-old-vm".to_string()));
     }
 
     #[test]
@@ -416,13 +452,14 @@ mod tests {
         // Save a VM metadata file
         sample_metadata().save(dir.path()).unwrap();
 
-        // Save an origin metadata file (should be skipped)
-        let origin = OriginMetadata {
+        // Save a base image metadata file (should be skipped)
+        let base_meta = BaseImageMetadata {
             base_image_path: "/opt/rootfs.ext4".to_string(),
-            loop_device: "/dev/loop0".to_string(),
-            dm_name: "indexify-base".to_string(),
+            lv_name: "indexify-base".to_string(),
+            loop_device: None,
+            dm_name: None,
         };
-        origin.save(dir.path()).unwrap();
+        base_meta.save(dir.path()).unwrap();
 
         let results = scan_metadata_files(dir.path()).unwrap();
         assert_eq!(results.len(), 1, "Should skip fc-origin.json");
@@ -464,26 +501,27 @@ mod tests {
     }
 
     #[test]
-    fn test_origin_metadata_serialize_roundtrip() {
-        let metadata = OriginMetadata {
+    fn test_base_image_metadata_serialize_roundtrip() {
+        let metadata = BaseImageMetadata {
             base_image_path: "/opt/firecracker/rootfs.ext4".to_string(),
-            loop_device: "/dev/loop0".to_string(),
-            dm_name: "indexify-base".to_string(),
+            lv_name: "indexify-base".to_string(),
+            loop_device: None,
+            dm_name: None,
         };
         let json = serde_json::to_string(&metadata).unwrap();
-        let loaded: OriginMetadata = serde_json::from_str(&json).unwrap();
+        let loaded: BaseImageMetadata = serde_json::from_str(&json).unwrap();
         assert_eq!(loaded.base_image_path, "/opt/firecracker/rootfs.ext4");
-        assert_eq!(loaded.loop_device, "/dev/loop0");
-        assert_eq!(loaded.dm_name, "indexify-base");
+        assert_eq!(loaded.lv_name, "indexify-base");
     }
 
     #[test]
-    fn test_origin_metadata_save_and_load() {
+    fn test_base_image_metadata_save_and_load() {
         let dir = tempfile::tempdir().unwrap();
-        let metadata = OriginMetadata {
+        let metadata = BaseImageMetadata {
             base_image_path: "/opt/rootfs.ext4".to_string(),
-            loop_device: "/dev/loop0".to_string(),
-            dm_name: "indexify-base".to_string(),
+            lv_name: "indexify-base".to_string(),
+            loop_device: None,
+            dm_name: None,
         };
 
         metadata.save(dir.path()).unwrap();
@@ -491,35 +529,52 @@ mod tests {
         let expected_path = dir.path().join("fc-origin.json");
         assert!(
             expected_path.exists(),
-            "Origin metadata file should be created"
+            "Base image metadata file should be created"
         );
 
-        let loaded = OriginMetadata::load(dir.path()).unwrap().unwrap();
+        let loaded = BaseImageMetadata::load(dir.path()).unwrap().unwrap();
         assert_eq!(loaded.base_image_path, "/opt/rootfs.ext4");
-        assert_eq!(loaded.loop_device, "/dev/loop0");
-        assert_eq!(loaded.dm_name, "indexify-base");
+        assert_eq!(loaded.lv_name, "indexify-base");
     }
 
     #[test]
-    fn test_origin_metadata_load_missing() {
+    fn test_base_image_metadata_load_missing() {
         let dir = tempfile::tempdir().unwrap();
-        let loaded = OriginMetadata::load(dir.path()).unwrap();
+        let loaded = BaseImageMetadata::load(dir.path()).unwrap();
         assert!(loaded.is_none(), "Should return None for missing file");
     }
 
     #[test]
-    fn test_origin_metadata_remove() {
+    fn test_base_image_metadata_remove() {
         let dir = tempfile::tempdir().unwrap();
-        let metadata = OriginMetadata {
+        let metadata = BaseImageMetadata {
             base_image_path: "/opt/rootfs.ext4".to_string(),
-            loop_device: "/dev/loop0".to_string(),
-            dm_name: "indexify-base".to_string(),
+            lv_name: "indexify-base".to_string(),
+            loop_device: None,
+            dm_name: None,
         };
         metadata.save(dir.path()).unwrap();
         let path = dir.path().join("fc-origin.json");
         assert!(path.exists());
 
-        OriginMetadata::remove(dir.path());
-        assert!(!path.exists(), "Origin metadata file should be removed");
+        BaseImageMetadata::remove(dir.path());
+        assert!(!path.exists(), "Base image metadata file should be removed");
+    }
+
+    #[test]
+    fn test_base_image_metadata_backward_compat_old_format() {
+        // Old fc-origin.json had loop_device and dm_name as required strings.
+        let old_json = r#"{
+            "base_image_path": "/opt/rootfs.ext4",
+            "loop_device": "/dev/loop0",
+            "dm_name": "indexify-base"
+        }"#;
+
+        let loaded: BaseImageMetadata = serde_json::from_str(old_json).unwrap();
+        assert_eq!(loaded.base_image_path, "/opt/rootfs.ext4");
+        // lv_name defaults to empty when missing from old format.
+        assert_eq!(loaded.lv_name, "");
+        assert_eq!(loaded.loop_device, Some("/dev/loop0".to_string()));
+        assert_eq!(loaded.dm_name, Some("indexify-base".to_string()));
     }
 }

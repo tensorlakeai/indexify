@@ -1,14 +1,15 @@
 //! Firecracker microVM driver for Indexify dataplane.
 //!
 //! Provides hardware-virtualized isolation using Firecracker microVMs with
-//! dm-snapshot CoW volumes for rootfs and CNI networking.
+//! dm-thin native snapshots for rootfs and CNI networking.
 //!
-//! Uses dm-snapshot (not dm-thin) so each VM's COW data lives in a separate
-//! file on disk, making snapshot/restore trivial (the COW file IS the delta).
+//! Uses LVM thin provisioning's native snapshot capability. The base rootfs
+//! is imported into a thin LV, and each VM gets a thin snapshot that can be
+//! independently resized for per-VM disk sizing with COW block sharing.
 
 pub(crate) mod api;
 mod cni;
-pub(crate) mod dm_snapshot;
+pub(crate) mod dm_thin;
 mod log_stream;
 mod rootfs;
 pub(crate) mod vm_state;
@@ -18,7 +19,7 @@ use std::{
     path::PathBuf,
     process::Stdio,
     sync::Arc,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use anyhow::{Context, Result, bail};
@@ -28,9 +29,9 @@ use tokio::sync::Mutex;
 use self::{
     api::FirecrackerApiClient,
     cni::CniManager,
-    dm_snapshot::OriginHandle,
+    dm_thin::BaseImageHandle,
     vm_state::{
-        OriginMetadata,
+        BaseImageMetadata,
         VmMetadata,
         VmProcess,
         VmState,
@@ -68,10 +69,10 @@ pub struct FirecrackerDriver {
     firecracker_binary: String,
     /// Path to the Linux kernel image.
     kernel_image_path: PathBuf,
-    /// Origin (base rootfs) device handle.
-    origin: OriginHandle,
-    /// LVM thin pool configuration for per-VM COW devices.
-    lvm_config: dm_snapshot::LvmConfig,
+    /// Base image thin LV handle.
+    base_image: BaseImageHandle,
+    /// LVM thin pool configuration for per-VM thin snapshots.
+    lvm_config: dm_thin::LvmConfig,
     /// CNI networking manager.
     cni: CniManager,
     /// Guest gateway IP address.
@@ -82,7 +83,7 @@ pub struct FirecrackerDriver {
     default_vcpu_count: u32,
     /// Default memory in MiB per VM.
     default_memory_mib: u64,
-    /// Per-VM COW LV size in bytes.
+    /// Default rootfs size in bytes per VM.
     default_rootfs_size_bytes: u64,
     /// Directory for API sockets and VM metadata.
     state_dir: PathBuf,
@@ -136,52 +137,49 @@ impl FirecrackerDriver {
         std::fs::create_dir_all(&log_dir)
             .with_context(|| format!("Failed to create log dir {}", log_dir.display()))?;
 
-        let lvm_config = dm_snapshot::LvmConfig {
+        let lvm_config = dm_thin::LvmConfig {
             volume_group: lvm_volume_group,
             thin_pool: lvm_thin_pool,
         };
-        dm_snapshot::validate_lvm_config(&lvm_config).context("LVM thin pool validation failed")?;
+        dm_thin::validate_lvm_config(&lvm_config).context("LVM thin pool validation failed")?;
 
         let cni = CniManager::new(cni_network_name, cni_bin_path);
 
-        // --- Origin device lifecycle ---
+        // --- Base image lifecycle ---
         //
-        // The origin is a read-only linear dm device backed by the base rootfs
-        // file via a loop device. Each per-VM volume is a dm-snapshot of this
-        // origin, with CoW data stored in a separate file.
+        // The base image is a thin LV containing the rootfs. Each per-VM
+        // volume is a native thin snapshot of this LV, with COW block sharing
+        // and independent sizing.
         //
         // If the base image path has changed since last run, tear down the old
-        // origin first so setup_origin() creates a fresh one.
-        if let Ok(Some(old_meta)) = OriginMetadata::load(&state_dir) &&
+        // base LV first so setup_base_image() creates a fresh one.
+        if let Ok(Some(old_meta)) = BaseImageMetadata::load(&state_dir) &&
             old_meta.base_image_path != base_rootfs_image
         {
             tracing::info!(
                 old_image = %old_meta.base_image_path,
                 new_image = %base_rootfs_image,
-                "Base rootfs image changed, tearing down old origin"
+                "Base rootfs image changed, tearing down old base LV"
             );
-            let old_handle = dm_snapshot::OriginHandle {
-                dm_name: old_meta.dm_name,
-                loop_device: old_meta.loop_device,
-                device_path: PathBuf::from("/dev/mapper/indexify-base"),
-                size_sectors: 0, // not needed for teardown
-            };
-            if let Err(e) = dm_snapshot::teardown_origin(&old_handle) {
-                tracing::warn!(error = ?e, "Failed to tear down old origin (continuing)");
+            if !old_meta.lv_name.is_empty() {
+                if let Err(e) = dm_thin::teardown_base_image(&old_meta.lv_name, &lvm_config) {
+                    tracing::warn!(error = ?e, "Failed to tear down old base LV (continuing)");
+                }
             }
-            OriginMetadata::remove(&state_dir);
+            BaseImageMetadata::remove(&state_dir);
         }
 
-        let origin =
-            dm_snapshot::setup_origin(&rootfs_path).context("Failed to set up origin device")?;
+        let base_image = dm_thin::setup_base_image(&rootfs_path, &lvm_config)
+            .context("Failed to set up base image thin LV")?;
 
-        // Persist origin metadata for recovery.
-        let origin_meta = OriginMetadata {
+        // Persist base image metadata for recovery.
+        let base_meta = BaseImageMetadata {
             base_image_path: base_rootfs_image.clone(),
-            loop_device: origin.loop_device.clone(),
-            dm_name: origin.dm_name.clone(),
+            lv_name: base_image.lv_name.clone(),
+            loop_device: None,
+            dm_name: None,
         };
-        origin_meta.save(&state_dir)?;
+        base_meta.save(&state_dir)?;
 
         // Recover VMs from metadata files.
         let metadata_list = scan_metadata_files(&state_dir)?;
@@ -193,11 +191,11 @@ impl FirecrackerDriver {
                 tracing::info!(
                     vm_id = %metadata.vm_id,
                     pid = metadata.pid,
-                    dm_name = %metadata.dm_name,
+                    lv_name = %metadata.lv_name,
                     "Recovered running Firecracker VM"
                 );
 
-                // dm-snapshot targets persist in the kernel across dataplane
+                // Thin LVs persist in LVM metadata across dataplane
                 // restarts — no reconnection needed.
 
                 if metadata.labels.is_empty() {
@@ -241,7 +239,7 @@ impl FirecrackerDriver {
         let driver = Self {
             firecracker_binary,
             kernel_image_path: kernel_path,
-            origin,
+            base_image,
             lvm_config,
             cni,
             guest_gateway,
@@ -258,9 +256,9 @@ impl FirecrackerDriver {
             driver.cleanup_dead_vm(metadata);
         }
 
-        // Clean up leaked dm-snapshot devices from crashed VMs that lost
-        // their metadata files (metadata gone, but kernel devices remain).
-        dm_snapshot::cleanup_stale_devices(&active_vm_ids, &driver.lvm_config);
+        // Clean up stale thin LVs and old-format artifacts from crashed VMs
+        // that lost their metadata files.
+        dm_thin::cleanup_stale_devices(&active_vm_ids, &driver.lvm_config);
 
         // Clean up leaked network namespaces from crashed VMs.
         driver.cni.cleanup_orphaned_netns_sync(&active_vm_ids);
@@ -283,8 +281,7 @@ impl FirecrackerDriver {
                 .join(format!("fc-{}-serial.log", metadata.vm_id)),
         );
 
-        // dm-snapshot and thin LV cleanup happen asynchronously.
-        let dm_name = metadata.dm_name.clone();
+        // Thin LV cleanup happens asynchronously.
         let lv_name = metadata.lv_name.clone();
         let vm_id = metadata.vm_id.clone();
         let lvm_config = self.lvm_config.clone();
@@ -292,13 +289,13 @@ impl FirecrackerDriver {
         let cni_bin_path = self.cni.cni_bin_path().to_string();
 
         tokio::spawn(async move {
-            if let Err(e) =
-                dm_snapshot::destroy_snapshot_by_parts_async(dm_name, lv_name, lvm_config).await
-            {
-                tracing::warn!(
-                    error = ?e,
-                    "Failed to destroy dm-snapshot for dead VM"
-                );
+            if !lv_name.is_empty() {
+                if let Err(e) = dm_thin::destroy_snapshot_async(lv_name, lvm_config).await {
+                    tracing::warn!(
+                        error = ?e,
+                        "Failed to destroy thin LV for dead VM"
+                    );
+                }
             }
 
             // Teardown CNI
@@ -308,14 +305,7 @@ impl FirecrackerDriver {
     }
 
     /// Clean up all resources for a VM after it has been killed.
-    async fn cleanup_vm(
-        &self,
-        handle_id: &str,
-        vm_id: &str,
-        dm_name: &str,
-        lv_name: &str,
-        socket_path: &str,
-    ) {
+    async fn cleanup_vm(&self, handle_id: &str, vm_id: &str, lv_name: &str, socket_path: &str) {
         // Cancel log streamer and remove from registry.
         {
             let mut vms = self.vms.lock().await;
@@ -326,15 +316,11 @@ impl FirecrackerDriver {
             }
         }
 
-        // Destroy dm-snapshot and remove COW thin LV.
-        if let Err(e) = dm_snapshot::destroy_snapshot_by_parts_async(
-            dm_name.to_string(),
-            lv_name.to_string(),
-            self.lvm_config.clone(),
-        )
-        .await
+        // Destroy thin LV.
+        if let Err(e) =
+            dm_thin::destroy_snapshot_async(lv_name.to_string(), self.lvm_config.clone()).await
         {
-            tracing::warn!(dm_name, error = ?e, "Failed to destroy dm-snapshot");
+            tracing::warn!(lv_name, error = ?e, "Failed to destroy thin LV");
         }
 
         // Teardown CNI networking
@@ -358,94 +344,173 @@ impl ProcessDriver for FirecrackerDriver {
     async fn start(&self, config: ProcessConfig) -> Result<ProcessHandle> {
         let vm_id = config.id.clone();
         let handle_id = format!("fc-{}", vm_id);
+        let start_time = Instant::now();
+
+        // Extract tracing labels early (before config.labels is consumed).
+        let pool = config
+            .labels
+            .iter()
+            .find(|(k, _)| k == "pool_id")
+            .map(|(_, v)| v.as_str())
+            .unwrap_or("");
+        let namespace = config
+            .labels
+            .iter()
+            .find(|(k, _)| k == "namespace")
+            .map(|(_, v)| v.as_str())
+            .unwrap_or("");
+        let container_id = config
+            .labels
+            .iter()
+            .find(|(k, _)| k == "container_id")
+            .map(|(_, v)| v.as_str())
+            .unwrap_or("");
+        let sandbox_id = config
+            .labels
+            .iter()
+            .find(|(k, _)| k == "sandbox_id")
+            .map(|(_, v)| v.as_str())
+            .unwrap_or("");
 
         // Use per-container disk size if provided, otherwise fall back to the
-        // driver default. Clamp to at least the default so the CoW device is
-        // never smaller than the base image.
+        // driver default. Clamp to at least the base image size so the thin
+        // snapshot is never smaller than the base.
         let rootfs_size_bytes = config
             .resources
             .as_ref()
             .and_then(|r| r.disk_bytes)
             .unwrap_or(self.default_rootfs_size_bytes)
-            .max(self.default_rootfs_size_bytes);
+            .max(self.base_image.size_bytes);
 
-        // 1. Create dm-snapshot for this VM. Check if config.image points to a .cow
-        //    file (restore path).
-        let snapshot = if let Some(ref image) = config.image {
-            if image.ends_with(".cow") {
-                // Restore path: use existing COW file from snapshotter.
-                dm_snapshot::create_snapshot_from_cow_async(
-                    self.origin.dm_name.clone(),
-                    self.origin.device_path.clone(),
-                    self.origin.size_sectors,
-                    vm_id.clone(),
-                    self.lvm_config.clone(),
-                    PathBuf::from(image),
-                )
-                .await
-                .with_context(|| {
-                    format!(
-                        "Failed to create dm-snapshot from COW file for VM {}",
-                        vm_id
-                    )
-                })?
-            } else {
-                // Normal path: create fresh thin LV COW device.
-                dm_snapshot::create_snapshot_async(
-                    self.origin.dm_name.clone(),
-                    self.origin.device_path.clone(),
-                    self.origin.size_sectors,
-                    vm_id.clone(),
-                    self.lvm_config.clone(),
-                    rootfs_size_bytes,
-                )
-                .await
-                .with_context(|| format!("Failed to create dm-snapshot for VM {}", vm_id))?
-            }
+        // Detect restore path: image ends with .img (full image from snapshotter).
+        let is_restore = config
+            .image
+            .as_ref()
+            .is_some_and(|img| img.ends_with(".img"));
+
+        tracing::info!(
+            vm_id = %vm_id,
+            pool = %pool,
+            namespace = %namespace,
+            container_id = %container_id,
+            sandbox_id = %sandbox_id,
+            is_restore,
+            rootfs_size_bytes,
+            "Starting VM creation"
+        );
+
+        // 1. Create thin snapshot for this VM.
+        let snapshot = if is_restore {
+            let image_file = PathBuf::from(config.image.as_ref().unwrap());
+            // Restore path: create thin snapshot of base, overwrite with restored image.
+            dm_thin::create_snapshot_from_image_async(
+                self.base_image.lv_name.clone(),
+                self.base_image.device_path.clone(),
+                self.base_image.size_bytes,
+                vm_id.clone(),
+                self.lvm_config.clone(),
+                image_file,
+                rootfs_size_bytes,
+            )
+            .await
+            .with_context(|| {
+                format!("Failed to create thin snapshot from image for VM {}", vm_id)
+            })?
         } else {
-            // Normal path: create fresh thin LV COW device.
-            dm_snapshot::create_snapshot_async(
-                self.origin.dm_name.clone(),
-                self.origin.device_path.clone(),
-                self.origin.size_sectors,
+            // Normal path: create thin snapshot of the base image.
+            dm_thin::create_snapshot_async(
+                self.base_image.lv_name.clone(),
+                self.base_image.device_path.clone(),
+                self.base_image.size_bytes,
                 vm_id.clone(),
                 self.lvm_config.clone(),
                 rootfs_size_bytes,
             )
             .await
-            .with_context(|| format!("Failed to create dm-snapshot for VM {}", vm_id))?
+            .with_context(|| format!("Failed to create thin snapshot for VM {}", vm_id))?
         };
+        tracing::info!(
+            vm_id = %vm_id,
+            pool = %pool,
+            namespace = %namespace,
+            container_id = %container_id,
+            sandbox_id = %sandbox_id,
+            elapsed_ms = start_time.elapsed().as_millis() as u64,
+            lv_name = %snapshot.lv_name,
+            is_restore,
+            "Step 1: thin snapshot created"
+        );
 
-        // 2. Get the daemon binary path
-        let daemon_binary =
-            crate::daemon_binary::get_daemon_path().context("Daemon binary not available")?;
-        tracing::info!(vm_id = %vm_id, daemon_path = %daemon_binary.display(), "Injecting rootfs");
-
-        // 3. Inject daemon, init script, and env vars into the snapshot. Include the
-        //    host's DNS nameservers so the VM can resolve names.
+        // 2. Inject rootfs files into the snapshot.
+        let step2 = Instant::now();
         let mut env_vars = config.env.clone();
         if let Some(dns) = rootfs::read_host_dns() {
             env_vars.push(("DNS_NAMESERVERS".to_string(), dns));
         }
-        if let Err(e) =
-            rootfs::inject_rootfs(&snapshot.device_path, daemon_binary, &env_vars, &vm_id).await
-        {
-            let _ = dm_snapshot::destroy_snapshot_async(snapshot, self.lvm_config.clone()).await;
-            return Err(e.context("Failed to inject rootfs"));
+        if is_restore {
+            // Restore path: snapshot already contains daemon + init script from
+            // the original VM. Only inject the env file (secrets/DNS may differ
+            // on this host).
+            if let Err(e) = rootfs::inject_env_only(&snapshot.device_path, &env_vars, &vm_id).await
+            {
+                let _ = dm_thin::destroy_snapshot_async(
+                    snapshot.lv_name.clone(),
+                    self.lvm_config.clone(),
+                )
+                .await;
+                return Err(e.context("Failed to inject env vars into restored snapshot"));
+            }
+        } else {
+            // Normal path: inject daemon binary, init script, and env vars.
+            let daemon_binary =
+                crate::daemon_binary::get_daemon_path().context("Daemon binary not available")?;
+            if let Err(e) =
+                rootfs::inject_rootfs(&snapshot.device_path, daemon_binary, &env_vars, &vm_id).await
+            {
+                let _ = dm_thin::destroy_snapshot_async(
+                    snapshot.lv_name.clone(),
+                    self.lvm_config.clone(),
+                )
+                .await;
+                return Err(e.context("Failed to inject rootfs"));
+            }
         }
-        tracing::info!(vm_id = %vm_id, "Rootfs injection complete, setting up CNI");
+        tracing::info!(
+            vm_id = %vm_id,
+            pool = %pool,
+            namespace = %namespace,
+            container_id = %container_id,
+            sandbox_id = %sandbox_id,
+            elapsed_ms = step2.elapsed().as_millis() as u64,
+            is_restore,
+            "Step 2: rootfs injection complete"
+        );
 
-        // 4. Setup CNI networking
+        // 3. Setup CNI networking
+        let step3 = Instant::now();
         let cni_result = match self.cni.setup_network(&vm_id).await {
             Ok(result) => result,
             Err(e) => {
-                let _ =
-                    dm_snapshot::destroy_snapshot_async(snapshot, self.lvm_config.clone()).await;
+                let _ = dm_thin::destroy_snapshot_async(
+                    snapshot.lv_name.clone(),
+                    self.lvm_config.clone(),
+                )
+                .await;
                 return Err(e.context("Failed to setup CNI networking"));
             }
         };
+        tracing::info!(
+            vm_id = %vm_id,
+            pool = %pool,
+            namespace = %namespace,
+            container_id = %container_id,
+            sandbox_id = %sandbox_id,
+            elapsed_ms = step3.elapsed().as_millis() as u64,
+            guest_ip = %cni_result.guest_ip,
+            "Step 3: CNI networking setup complete"
+        );
 
-        // 5. Compute resource limits
+        // 4. Compute resource limits
         let vcpus = config
             .resources
             .as_ref()
@@ -459,7 +524,19 @@ impl ProcessDriver for FirecrackerDriver {
             .map(|b| (b / (1024 * 1024)).max(128))
             .unwrap_or(self.default_memory_mib);
 
-        // 6. Build kernel boot args
+        tracing::info!(
+            vm_id = %vm_id,
+            pool = %pool,
+            namespace = %namespace,
+            container_id = %container_id,
+            sandbox_id = %sandbox_id,
+            vcpus,
+            memory_mib,
+            rootfs_size_bytes,
+            "Step 4: resource limits computed"
+        );
+
+        // 5. Build kernel boot args
         let boot_args = format!(
             "console=ttyS0 reboot=k panic=1 pci=off \
              ip={}::{}:{}::eth0:off \
@@ -467,9 +544,16 @@ impl ProcessDriver for FirecrackerDriver {
             cni_result.guest_ip, self.guest_gateway, self.guest_netmask,
         );
 
-        tracing::info!(vm_id = %vm_id, guest_ip = %cni_result.guest_ip, "CNI setup complete, spawning Firecracker");
-
-        // 7. Spawn Firecracker process
+        // 6. Spawn Firecracker process
+        tracing::info!(
+            vm_id = %vm_id,
+            pool = %pool,
+            namespace = %namespace,
+            container_id = %container_id,
+            sandbox_id = %sandbox_id,
+            "Step 5-6: spawning Firecracker process"
+        );
+        let step6 = Instant::now();
         let socket_path = self
             .state_dir
             .join(format!("fc-{}.sock", vm_id))
@@ -520,20 +604,34 @@ impl ProcessDriver for FirecrackerDriver {
             Ok(child) => child,
             Err(e) => {
                 self.cni.teardown_network(&vm_id).await;
-                let _ =
-                    dm_snapshot::destroy_snapshot_async(snapshot, self.lvm_config.clone()).await;
+                let _ = dm_thin::destroy_snapshot_async(
+                    snapshot.lv_name.clone(),
+                    self.lvm_config.clone(),
+                )
+                .await;
                 return Err(anyhow::anyhow!("Failed to spawn firecracker: {}", e));
             }
         };
 
         let fc_pid = child.id().unwrap_or(0);
+        tracing::info!(
+            vm_id = %vm_id,
+            pool = %pool,
+            namespace = %namespace,
+            container_id = %container_id,
+            sandbox_id = %sandbox_id,
+            pid = fc_pid,
+            elapsed_ms = step6.elapsed().as_millis() as u64,
+            "Step 6: Firecracker process spawned"
+        );
 
-        // 8. Spawn log streamer
+        // 7. Spawn log streamer
         let labels: HashMap<String, String> = config.labels.into_iter().collect();
         let log_cancel =
             log_stream::spawn_log_streamer(vm_id.clone(), self.log_dir.clone(), labels.clone());
 
-        // 9. Wait for API socket
+        // 8. Wait for API socket
+        let step8 = Instant::now();
         let api_client = FirecrackerApiClient::new(&socket_path);
         if let Err(e) = api_client
             .wait_for_socket(API_SOCKET_TIMEOUT, API_SOCKET_POLL_INTERVAL)
@@ -543,12 +641,24 @@ impl ProcessDriver for FirecrackerDriver {
             let mut child = child;
             let _ = child.kill().await;
             self.cni.teardown_network(&vm_id).await;
-            let _ = dm_snapshot::destroy_snapshot_async(snapshot, self.lvm_config.clone()).await;
+            let _ =
+                dm_thin::destroy_snapshot_async(snapshot.lv_name.clone(), self.lvm_config.clone())
+                    .await;
             let _ = std::fs::remove_file(&socket_path);
             return Err(e.context("Firecracker API socket not ready"));
         }
+        tracing::info!(
+            vm_id = %vm_id,
+            pool = %pool,
+            namespace = %namespace,
+            container_id = %container_id,
+            sandbox_id = %sandbox_id,
+            elapsed_ms = step8.elapsed().as_millis() as u64,
+            "Step 7-8: API socket ready"
+        );
 
-        // 10. Configure VM via API
+        // 9. Configure VM via API and start the instance
+        let step9 = Instant::now();
         let dev_path_str = snapshot.device_path.to_string_lossy().to_string();
         let kernel_str = self.kernel_image_path.to_string_lossy().to_string();
 
@@ -569,8 +679,6 @@ impl ProcessDriver for FirecrackerDriver {
                 .configure_network(&cni_result.tap_device, &cni_result.guest_mac)
                 .await
                 .context("Failed to configure network interface")?;
-
-            // 11. Start the instance
             api_client
                 .start_instance()
                 .await
@@ -585,32 +693,44 @@ impl ProcessDriver for FirecrackerDriver {
             let mut child = child;
             let _ = child.kill().await;
             self.cni.teardown_network(&vm_id).await;
-            let _ = dm_snapshot::destroy_snapshot_async(snapshot, self.lvm_config.clone()).await;
+            let _ =
+                dm_thin::destroy_snapshot_async(snapshot.lv_name.clone(), self.lvm_config.clone())
+                    .await;
             let _ = std::fs::remove_file(&socket_path);
             return Err(e);
         }
+        tracing::info!(
+            vm_id = %vm_id,
+            pool = %pool,
+            namespace = %namespace,
+            container_id = %container_id,
+            sandbox_id = %sandbox_id,
+            elapsed_ms = step9.elapsed().as_millis() as u64,
+            total_ms = start_time.elapsed().as_millis() as u64,
+            "Step 9: VM configured and started"
+        );
 
-        // 12. Build addresses
+        // 10. Build addresses
         let daemon_addr = format!("{}:{}", cni_result.guest_ip, DAEMON_GRPC_PORT);
         let http_addr = format!("{}:{}", cni_result.guest_ip, DAEMON_HTTP_PORT);
 
-        // 13. Persist metadata for recovery
+        // 11. Persist metadata for recovery
         let metadata = VmMetadata {
             handle_id: handle_id.clone(),
             vm_id: vm_id.clone(),
             pid: fc_pid,
             lv_name: snapshot.lv_name.clone(),
-            dm_name: snapshot.dm_name.clone(),
             netns_name: cni_result.netns_name,
             guest_ip: cni_result.guest_ip.clone(),
             daemon_addr: daemon_addr.clone(),
             http_addr: http_addr.clone(),
             socket_path: socket_path.clone(),
             labels,
+            dm_name: None,
         };
         metadata.save(&self.state_dir)?;
 
-        // 14. Insert into in-memory registry
+        // 12. Insert into in-memory registry
         self.vms.lock().await.insert(
             handle_id.clone(),
             VmState {
@@ -618,6 +738,18 @@ impl ProcessDriver for FirecrackerDriver {
                 metadata,
                 log_cancel: Some(log_cancel),
             },
+        );
+
+        tracing::info!(
+            vm_id = %vm_id,
+            pool = %pool,
+            namespace = %namespace,
+            container_id = %container_id,
+            sandbox_id = %sandbox_id,
+            daemon_addr = %daemon_addr,
+            total_ms = start_time.elapsed().as_millis() as u64,
+            is_restore,
+            "VM creation complete"
         );
 
         Ok(ProcessHandle {
@@ -638,7 +770,7 @@ impl ProcessDriver for FirecrackerDriver {
     }
 
     async fn kill(&self, handle: &ProcessHandle) -> Result<()> {
-        let (vm_id, dm_name, lv_name, socket_path) = {
+        let (vm_id, lv_name, socket_path) = {
             let mut vms = self.vms.lock().await;
             if let Some(vm) = vms.get_mut(&handle.id) {
                 // Kill the Firecracker process
@@ -650,12 +782,11 @@ impl ProcessDriver for FirecrackerDriver {
                     );
                 }
                 // Wait for the process to actually exit before releasing
-                // its dm-snapshot device.  Without this, `dmsetup remove`
-                // fails with "Device or resource busy".
+                // its thin LV. Without this, `lvremove` may fail because
+                // the device is still in use.
                 vm.process.wait_for_exit().await;
                 (
                     vm.metadata.vm_id.clone(),
-                    vm.metadata.dm_name.clone(),
                     vm.metadata.lv_name.clone(),
                     vm.metadata.socket_path.clone(),
                 )
@@ -665,7 +796,7 @@ impl ProcessDriver for FirecrackerDriver {
         };
 
         // Clean up all resources
-        self.cleanup_vm(&handle.id, &vm_id, &dm_name, &lv_name, &socket_path)
+        self.cleanup_vm(&handle.id, &vm_id, &lv_name, &socket_path)
             .await;
 
         Ok(())

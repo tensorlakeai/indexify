@@ -135,7 +135,7 @@ pub enum DriverConfig {
         /// Default: "/var/log/indexify/firecracker".
         #[serde(default)]
         log_dir: Option<String>,
-        /// LVM volume group for thin-provisioned COW devices.
+        /// LVM volume group for thin-provisioned VM devices.
         lvm_volume_group: String,
         /// LVM thin pool LV name within the volume group.
         lvm_thin_pool: String,
