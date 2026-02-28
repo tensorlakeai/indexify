@@ -353,6 +353,11 @@ pub fn create_snapshot_from_delta(
     let device_path = PathBuf::from(format!("/dev/{}/{}", lvm_config.volume_group, lv_name));
     let base_lv_path = format!("{}/{}", lvm_config.volume_group, base.lv_name);
 
+    // Get delta file size before opening.
+    let delta_file_bytes = std::fs::metadata(delta_file)
+        .map(|m| m.len())
+        .unwrap_or(0);
+
     // Open delta file and read header.
     let mut delta = std::io::BufReader::new(
         std::fs::File::open(delta_file)
@@ -369,6 +374,7 @@ pub fn create_snapshot_from_delta(
         image_size,
         lv_size,
         delta_file = %delta_file.display(),
+        delta_file_bytes,
         "Starting snapshot restore from delta"
     );
 
@@ -431,6 +437,7 @@ pub fn create_snapshot_from_delta(
     };
 
     let mut blocks_written: u64 = 0;
+    let mut total_bytes_applied: u64 = 0;
     let mut record_header = [0u8; 12]; // offset: u64 + length: u32
     let mut data = vec![0u8; BLOCK_SIZE]; // reused across iterations
     loop {
@@ -476,12 +483,15 @@ pub fn create_snapshot_from_delta(
                 .context(format!("Failed to write delta block at offset {}", offset)));
         }
         blocks_written += 1;
+        total_bytes_applied += length as u64;
     }
 
     tracing::info!(
         vm_id = %vm_id,
         lv_name = %lv_name,
         blocks_written,
+        total_bytes_applied,
+        delta_file_bytes,
         elapsed_ms = t_apply.elapsed().as_millis() as u64,
         "Delta block records applied (COW preserved for unchanged blocks)"
     );
@@ -531,6 +541,8 @@ pub fn create_snapshot_from_delta(
         image_size,
         lv_size,
         blocks_written,
+        total_bytes_applied,
+        delta_file_bytes,
         total_ms = t0.elapsed().as_millis() as u64,
         "Thin snapshot created from delta"
     );

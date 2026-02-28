@@ -197,6 +197,25 @@ impl BlobStore {
         .await
     }
 
+    /// Stream a blob using concurrent byte-range downloads.
+    ///
+    /// For S3, issues multiple parallel GetObject range requests to saturate
+    /// network bandwidth. For local filesystem or small objects, falls back
+    /// to a single sequential read.
+    pub async fn get_stream_concurrent(
+        &self,
+        uri: &str,
+    ) -> Result<futures_util::stream::BoxStream<'static, Result<Bytes>>> {
+        let backend = self.backend_for(uri).await?;
+        record_blob_op(
+            &self.metrics.counters.blob_store_get_requests,
+            &self.metrics.histograms.blob_store_get_latency_seconds,
+            &self.metrics.counters.blob_store_get_errors,
+            backend.get_stream_concurrent(uri),
+        )
+        .await
+    }
+
     /// Create a multipart upload session.
     pub async fn create_multipart_upload(&self, uri: &str) -> Result<MultipartUploadHandle> {
         let backend = self.backend_for(uri).await?;

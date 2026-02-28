@@ -209,14 +209,22 @@ impl Snapshotter for FirecrackerSnapshotter {
             let mut output = std::io::BufWriter::new(file);
             std::io::copy(&mut decoder, &mut output).context("Failed to decompress snapshot")?;
             output.flush()?;
-            info!(delta_path = %delta_clone, "Delta file restored (streaming)");
+            let delta_file_bytes = std::fs::metadata(&delta_clone)
+                .map(|m| m.len())
+                .unwrap_or(0);
+            info!(
+                delta_path = %delta_clone,
+                delta_file_bytes,
+                "Delta file restored (streaming)"
+            );
             Ok::<(), anyhow::Error>(())
         });
 
-        // Async: stream download, feed chunks into channel.
+        // Async: stream download with concurrent byte-range requests,
+        // feed chunks into channel for streaming decompression.
         let stream = self
             .blob_store
-            .get_stream(snapshot_uri)
+            .get_stream_concurrent(snapshot_uri)
             .await
             .context("Failed to open snapshot stream")?;
         futures_util::pin_mut!(stream);
@@ -360,6 +368,7 @@ fn build_delta_from_ranges(
 
     let mut buf = vec![0u8; BLOCK_SIZE];
     let mut blocks_written: u64 = 0;
+    let mut total_uncompressed_bytes: u64 = 0;
 
     for range in ranges {
         // Clamp to device size: thin_delta ranges are in data_block_size
@@ -383,6 +392,7 @@ fn build_delta_from_ranges(
             encoder.write_all(&(chunk_len as u32).to_le_bytes())?;
             encoder.write_all(&buf[..chunk_len])?;
             blocks_written += 1;
+            total_uncompressed_bytes += chunk_len as u64;
 
             range_offset += chunk_len as u64;
 
@@ -403,6 +413,7 @@ fn build_delta_from_ranges(
     tracing::info!(
         blocks_written,
         image_size,
+        total_uncompressed_bytes,
         "Delta snapshot stream complete (thin_delta path)"
     );
 

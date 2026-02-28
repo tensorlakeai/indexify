@@ -168,6 +168,27 @@ impl BlobStore {
         }
     }
 
+    /// Download an S3 object using concurrent byte-range requests.
+    ///
+    /// Uses multiple parallel GetObject range requests to saturate network
+    /// bandwidth. For local filesystem or small S3 objects, falls back to a
+    /// single sequential read.
+    pub async fn get_stream_concurrent(
+        &self,
+        uri: &str,
+    ) -> Result<BoxStream<'static, Result<Bytes>>> {
+        match &self.inner.backend {
+            BlobStoreBackend::S3 { client } => {
+                let (bucket, key) = parse_s3_uri(uri)?;
+                s3::get_stream_concurrent(client, &bucket, &key).await
+            }
+            BlobStoreBackend::LocalFs => {
+                let path = file_uri_to_path(uri)?;
+                local::get_stream(&path, None).await
+            }
+        }
+    }
+
     /// Get metadata (currently just size) for a blob.
     pub async fn get_metadata(&self, uri: &str) -> Result<BlobMetadata> {
         match &self.inner.backend {
