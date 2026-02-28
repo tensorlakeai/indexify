@@ -396,10 +396,18 @@ pub fn create_snapshot_from_delta(
 
     // Apply delta block records to the thin snapshot.
     let t_apply = Instant::now();
-    let target = std::fs::OpenOptions::new()
+    let target = match std::fs::OpenOptions::new()
         .write(true)
         .open(&device_path)
-        .with_context(|| format!("Failed to open target device {}", device_path.display()))?;
+    {
+        Ok(f) => f,
+        Err(e) => {
+            let lv_path = format!("{}/{}", lvm_config.volume_group, lv_name);
+            let _ = run_cmd("lvremove", &["-f", &lv_path]);
+            return Err(anyhow::Error::from(e)
+                .context(format!("Failed to open target device {}", device_path.display())));
+        }
+    };
 
     let mut blocks_written: u64 = 0;
     let mut record_header = [0u8; 12]; // offset: u64 + length: u32
