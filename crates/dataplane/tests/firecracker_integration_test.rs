@@ -41,16 +41,18 @@
 use std::{sync::Arc, time::Duration};
 
 use anyhow::Result;
-use indexify_dataplane::driver::{
-    FirecrackerDriver,
-    LvmConfig,
-    ProcessConfig,
-    ProcessDriver,
-    ProcessHandle,
-    ProcessType,
-    ResourceLimits,
+use indexify_dataplane::{
+    driver::{
+        FirecrackerDriver,
+        LvmConfig,
+        ProcessConfig,
+        ProcessDriver,
+        ProcessHandle,
+        ProcessType,
+        ResourceLimits,
+    },
+    snapshotter::Snapshotter,
 };
-use indexify_dataplane::snapshotter::Snapshotter;
 
 /// Ensure tests run one at a time. The dm-snapshot origin uses a fixed device
 /// name, so concurrent tests would conflict.
@@ -807,10 +809,7 @@ async fn test_snapshot_lifecycle() {
     let blob_store = indexify_dataplane::blob_ops::BlobStore::new(metrics.clone());
     let snapshotter =
         indexify_dataplane::snapshotter::firecracker_snapshotter::FirecrackerSnapshotter::new(
-            state_dir,
-            blob_store,
-            metrics,
-            lvm_config,
+            state_dir, blob_store, metrics, lvm_config,
         );
 
     // Use short unique suffix to avoid LV name collisions from previous runs.
@@ -1019,20 +1018,14 @@ async fn test_snapshot_lifecycle() {
     let restored_http_base = format!("http://{}", restored_http_addr);
 
     wait_for_http_health(&http_client, &restored_http_base).await;
-    eprintln!(
-        "  Restored VM daemon healthy: {}",
-        restored_handle.id
-    );
+    eprintln!("  Restored VM daemon healthy: {}", restored_handle.id);
 
     // ── Step 7: Verify all files survived snapshot/restore ────────────────
     eprintln!("Step 7: Verifying data integrity...");
     let mut all_ok = true;
     for (path, expected_checksum) in &expected_checksums {
         let resp = http_client
-            .get(format!(
-                "{}/api/v1/files?path={}",
-                restored_http_base, path
-            ))
+            .get(format!("{}/api/v1/files?path={}", restored_http_base, path))
             .send()
             .await
             .expect("read file from restored VM");
