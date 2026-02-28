@@ -303,6 +303,8 @@ impl ApplicationProcessor {
         let current_sched = self.indexify_state.container_scheduler.load_full();
         let mut container_scheduler = (*current_sched).clone();
 
+        let mut snapshot_clock = indexes.clock;
+
         let mut merged_update = SchedulerUpdateRequest::default();
         let mut processed_state_changes: Vec<StateChange> = Vec::new();
         let mut feas_cache = FeasibilityCache::new();
@@ -386,8 +388,27 @@ impl ApplicationProcessor {
             }
         }
 
-        // 5. Process ALL cached state changes, accumulating results.
+        // 5. Process cached state changes, accumulating results.
+        // State changes whose created_at_clock exceeds the snapshot are
+        // deferred: write() commits to RocksDB before publishing the
+        // ArcSwap, so a state change can be visible in RocksDB while its
+        // data is not yet in our in-memory snapshot. Deferred changes are
+        // left in cached_state_changes for the next batch.
+        let mut deferred: Vec<StateChange> = Vec::new();
         while let Some(state_change) = cached_state_changes.pop() {
+            if state_change
+                .created_at_clock()
+                .map_or(false, |c| c > snapshot_clock)
+            {
+                debug!(
+                    snapshot_clock,
+                    state_change_clock = ?state_change.created_at_clock(),
+                    change_type = %state_change.change_type,
+                    "deferring state change ahead of in-memory snapshot"
+                );
+                deferred.push(state_change);
+                continue;
+            }
             let state_change_metrics_kvs = &[KeyValue::new(
                 "type",
                 if state_change.namespace.is_some() {
@@ -440,9 +461,11 @@ impl ApplicationProcessor {
                     }
                     // Refresh clones to see the written state, preserving
                     // ephemeral batch state across the refresh so blocked work
-                    // and reaped container tracking is not lost.
+                    // and reaped container tracking is not lost. Also advance
+                    // snapshot_clock so deferred changes become eligible.
                     let refreshed_state = self.indexify_state.in_memory_state.load_full();
                     indexes = (*refreshed_state).clone();
+                    snapshot_clock = indexes.clock;
                     let blocked_work = std::mem::take(&mut container_scheduler.blocked_work);
                     let reaped_containers =
                         std::mem::take(&mut container_scheduler.reaped_containers);
@@ -488,6 +511,9 @@ impl ApplicationProcessor {
                 state_change_metrics_kvs,
             );
         }
+
+        // Put deferred state changes back for the next batch.
+        cached_state_changes.extend(deferred);
 
         // 6. ONE RocksDB write for the entire batch.
         if !processed_state_changes.is_empty() &&
@@ -573,30 +599,15 @@ impl ApplicationProcessor {
                 scheduler_update.extend(alloc_result);
                 scheduler_update
             }
-            ChangeType::InvokeApplication(ev) => {
-                // The batch clone (indexes_guard) may not contain this
-                // request's context yet due to a race between the HTTP
-                // handler's write() (RocksDB commit → ArcSwap publish)
-                // and our snapshot. Patch the clone from the latest
-                // ArcSwap if needed.
-                let request_key =
-                    data_model::RequestCtxKey::new(&ev.namespace, &ev.application, &ev.request_id);
-                if !indexes_guard.request_ctx.contains_key(&request_key) {
-                    let latest = self.indexify_state.in_memory_state.load();
-                    if let Some(ctx) = latest.request_ctx.get(&request_key) {
-                        indexes_guard.request_ctx.insert(request_key, ctx.clone());
-                    }
-                }
-                task_allocator.allocate_request(
-                    indexes_guard,
-                    container_scheduler_guard,
-                    &ev.namespace,
-                    &ev.application,
-                    &ev.request_id,
-                    &self.allocate_function_runs_latency,
-                    feas_cache,
-                )?
-            }
+            ChangeType::InvokeApplication(ev) => task_allocator.allocate_request(
+                indexes_guard,
+                container_scheduler_guard,
+                &ev.namespace,
+                &ev.application,
+                &ev.request_id,
+                &self.allocate_function_runs_latency,
+                feas_cache,
+            )?,
             ChangeType::AllocationOutputsIngested(req) => {
                 let mut scheduler_update = task_creator
                     .handle_allocation_ingestion(indexes_guard, container_scheduler_guard, req)
