@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use rand::seq::SliceRandom;
+use rand::RngExt;
 
 use crate::{
     data_model::{ExecutorId, ExecutorMetadata, Function, FunctionResources},
@@ -13,9 +13,11 @@ use crate::{
 /// Caches the result of constraint checks keyed by (workload, executor class).
 /// If one executor of a class fails a constraint check, all executors of the
 /// same class will also fail — avoiding redundant evaluation.
+///
+/// Uses a nested HashMap so `get()` can look up by reference without cloning.
 #[derive(Debug, Default)]
 pub struct FeasibilityCache {
-    cache: HashMap<(WorkloadKey, ExecutorClass), bool>,
+    cache: HashMap<WorkloadKey, HashMap<ExecutorClass, bool>>,
 }
 
 impl FeasibilityCache {
@@ -25,12 +27,15 @@ impl FeasibilityCache {
 
     /// Look up whether a workload is feasible on a given executor class.
     pub fn get(&self, workload: &WorkloadKey, class: &ExecutorClass) -> Option<bool> {
-        self.cache.get(&(workload.clone(), class.clone())).copied()
+        self.cache.get(workload)?.get(class).copied()
     }
 
     /// Record the feasibility result for a workload on an executor class.
     pub fn insert(&mut self, workload: WorkloadKey, class: ExecutorClass, feasible: bool) {
-        self.cache.insert((workload, class), feasible);
+        self.cache
+            .entry(workload)
+            .or_default()
+            .insert(class, feasible);
     }
 }
 
@@ -131,17 +136,15 @@ pub fn select_executor(
 
     let min_memory_bytes = resources.memory_mb * 1024 * 1024;
 
-    // Range scan: all executors with >= min_memory_bytes free memory in the
-    // snapshot. Note: some may have less effective free memory due to
-    // in-flight placements within this batch.
-    let range_start = (min_memory_bytes, ExecutorId::default());
-    let candidates_from_index: Vec<(u64, ExecutorId)> = scheduler
+    // Check if any executor has enough free memory (O(log N) range start).
+    let range_start = || (min_memory_bytes, ExecutorId::default());
+    let max_memory = scheduler
         .executors_by_free_memory
-        .range(range_start..)
-        .cloned()
-        .collect();
+        .get_max()
+        .map(|(mem, _)| *mem)
+        .unwrap_or(0);
 
-    if candidates_from_index.is_empty() {
+    if max_memory < min_memory_bytes {
         // No executor has enough free memory, but still compute feasibility
         // per class so the caller gets proper class info instead of escaped.
         result.eligible_classes = compute_eligible_classes(
@@ -155,14 +158,27 @@ pub fn select_executor(
         return result;
     }
 
-    // Randomize the order for power-of-two-choices style selection
-    let mut shuffled = candidates_from_index;
+    // Random starting point for power-of-two-choices style selection.
+    // Pick a random memory threshold in [min_memory, max_memory], start
+    // iterating from there, then wrap around. This avoids the O(N)
+    // .count() + .skip(offset) and naturally biases toward higher-memory
+    // executors (desirable for bin-packing).
     let mut rng = rand::rng();
-    shuffled.shuffle(&mut rng);
+    let random_mem = rng.random_range(min_memory_bytes..=max_memory);
+    let split_start = (random_mem, ExecutorId::default());
+    let split_end = (random_mem, ExecutorId::default());
+    let wrapped_iter = scheduler
+        .executors_by_free_memory
+        .range(split_start..)
+        .chain(
+            scheduler
+                .executors_by_free_memory
+                .range(range_start()..split_end),
+        );
 
     let mut feasible_candidates: Vec<(ExecutorId, u64)> = Vec::new();
 
-    for (snapshot_free_memory, executor_id) in &shuffled {
+    for (snapshot_free_memory, executor_id) in wrapped_iter {
         // Look up executor metadata
         let Some(executor) = scheduler.executors.get(executor_id) else {
             continue;

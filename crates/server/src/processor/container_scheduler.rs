@@ -380,14 +380,14 @@ impl ContainerScheduler {
 
             if let Some(ref pool_key) = pool_key {
                 if let Some(pool_ids) = self.containers_by_pool.get_mut(pool_key) {
-                    pool_ids.retain(|id| id != &container_id);
+                    pool_ids.remove(&container_id);
                     if pool_ids.is_empty() {
                         self.containers_by_pool.remove(pool_key);
                     }
                 }
 
                 if was_warm && let Some(warm_ids) = self.warm_containers_by_pool.get_mut(pool_key) {
-                    warm_ids.retain(|id| id != &container_id);
+                    warm_ids.remove(&container_id);
                     if warm_ids.is_empty() {
                         self.warm_containers_by_pool.remove(pool_key);
                     }
@@ -395,7 +395,7 @@ impl ContainerScheduler {
             }
 
             if let Some(container_ids) = self.containers_by_function_uri.get_mut(&fn_uri) {
-                container_ids.retain(|id| id != &container_id);
+                container_ids.remove(&container_id);
                 if container_ids.is_empty() {
                     self.containers_by_function_uri.remove(&fn_uri);
                 }
@@ -674,20 +674,20 @@ impl ContainerScheduler {
             }
             let fn_uri = FunctionURI::from(&fc.function_container);
             if let Some(container_ids) = self.containers_by_function_uri.get_mut(&fn_uri) {
-                container_ids.retain(|id| id != container_id);
+                container_ids.remove(container_id);
                 if container_ids.is_empty() {
                     self.containers_by_function_uri.remove(&fn_uri);
                 }
             }
             if let Some(pool_key) = fc.function_container.pool_key() {
                 if let Some(pool_ids) = self.containers_by_pool.get_mut(&pool_key) {
-                    pool_ids.retain(|id| id != container_id);
+                    pool_ids.remove(container_id);
                     if pool_ids.is_empty() {
                         self.containers_by_pool.remove(&pool_key);
                     }
                 }
                 if let Some(warm_ids) = self.warm_containers_by_pool.get_mut(&pool_key) {
-                    warm_ids.retain(|id| id != container_id);
+                    warm_ids.remove(container_id);
                     if warm_ids.is_empty() {
                         self.warm_containers_by_pool.remove(&pool_key);
                     }
@@ -1016,14 +1016,14 @@ impl ContainerScheduler {
         // Remove from pool indices only if container belongs to a pool
         if let Some(ref pool_key) = pool_key {
             if let Some(warm_ids) = self.warm_containers_by_pool.get_mut(pool_key) {
-                warm_ids.retain(|id| id != container_id);
+                warm_ids.remove(container_id);
                 if warm_ids.is_empty() {
                     self.warm_containers_by_pool.remove(pool_key);
                 }
             }
 
             if let Some(pool_ids) = self.containers_by_pool.get_mut(pool_key) {
-                pool_ids.retain(|id| id != container_id);
+                pool_ids.remove(container_id);
                 if pool_ids.is_empty() {
                     self.containers_by_pool.remove(pool_key);
                 }
@@ -1032,7 +1032,7 @@ impl ContainerScheduler {
 
         // Remove from containers_by_function_uri
         if let Some(container_ids) = self.containers_by_function_uri.get_mut(&fn_uri) {
-            container_ids.retain(|id| id != container_id);
+            container_ids.remove(container_id);
             if container_ids.is_empty() {
                 self.containers_by_function_uri.remove(&fn_uri);
             }
@@ -1240,6 +1240,16 @@ impl ContainerScheduler {
             .unwrap_or(0)
     }
 
+    /// O(1) total count of non-terminated containers for a function.
+    /// Uses the containers_by_function_uri index (terminated containers are
+    /// removed at index update time).
+    pub fn total_containers_for_function(&self, fn_uri: &FunctionURI) -> u32 {
+        self.containers_by_function_uri
+            .get(fn_uri)
+            .map(|ids| ids.len() as u32)
+            .unwrap_or(0)
+    }
+
     /// Count active (with allocations) and idle (without) containers for a
     /// function. Terminated containers are excluded from
     /// containers_by_function_uri at index update time.
@@ -1260,6 +1270,20 @@ impl ContainerScheduler {
         }
 
         (active, idle)
+    }
+
+    /// Look up the executor class for a given executor ID.
+    /// Falls back to computing it from executor metadata if not cached.
+    pub fn get_executor_class(&self, executor_id: &ExecutorId) -> ExecutorClass {
+        self.executor_classes
+            .get(executor_id)
+            .cloned()
+            .unwrap_or_else(|| {
+                self.executors
+                    .get(executor_id)
+                    .map(|e| ExecutorClass::from_executor(e))
+                    .unwrap_or_default()
+            })
     }
 
     /// Count claimed and warm containers for a pool.
@@ -1419,7 +1443,7 @@ impl ContainerScheduler {
         if is_terminated {
             // Remove terminated containers from count/lookup indices
             if let Some(container_ids) = self.containers_by_function_uri.get_mut(&fn_uri) {
-                container_ids.retain(|id| id != container_id);
+                container_ids.remove(container_id);
                 if container_ids.is_empty() {
                     self.containers_by_function_uri.remove(&fn_uri);
                 }
@@ -1428,14 +1452,14 @@ impl ContainerScheduler {
             // Only update pool indices if container belongs to a pool
             if let Some(ref pool_key) = pool_key {
                 if let Some(pool_ids) = self.containers_by_pool.get_mut(pool_key) {
-                    pool_ids.retain(|id| id != container_id);
+                    pool_ids.remove(container_id);
                     if pool_ids.is_empty() {
                         self.containers_by_pool.remove(pool_key);
                     }
                 }
 
                 if was_warm && let Some(warm_ids) = self.warm_containers_by_pool.get_mut(pool_key) {
-                    warm_ids.retain(|id| id != container_id);
+                    warm_ids.remove(container_id);
                     if warm_ids.is_empty() {
                         self.warm_containers_by_pool.remove(pool_key);
                     }
@@ -1472,7 +1496,7 @@ impl ContainerScheduler {
                 } else if was_warm {
                     // Container was warm but is now claimed - remove from warm index
                     if let Some(warm_ids) = self.warm_containers_by_pool.get_mut(&pool_key) {
-                        warm_ids.retain(|id| id != container_id);
+                        warm_ids.remove(container_id);
                         if warm_ids.is_empty() {
                             self.warm_containers_by_pool.remove(&pool_key);
                         }
@@ -1529,7 +1553,7 @@ impl ContainerScheduler {
 
         // Remove from warm index (container is no longer warm after claiming)
         if let Some(warm_ids) = self.warm_containers_by_pool.get_mut(pool_key) {
-            warm_ids.retain(|id| id != &container_id);
+            warm_ids.remove(&container_id);
             if warm_ids.is_empty() {
                 self.warm_containers_by_pool.remove(pool_key);
             }

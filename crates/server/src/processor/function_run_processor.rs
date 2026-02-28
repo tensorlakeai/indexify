@@ -469,8 +469,7 @@ impl FunctionRunProcessor {
                     function: function_run.name.clone(),
                     version: function_run.version.clone(),
                 };
-                let (active, idle) = container_scheduler.count_active_idle_containers(&fn_uri);
-                let current = active + idle;
+                let current = container_scheduler.total_containers_for_function(&fn_uri);
 
                 if current >= max {
                     warn!(
@@ -552,22 +551,13 @@ impl FunctionRunProcessor {
         // persistence.
         if let Some(fc) = container_scheduler
             .function_containers
-            .get(&allocation.target.container_id)
+            .get_mut(&allocation.target.container_id)
         {
-            let mut updated_fc = *fc.clone();
-            updated_fc.allocations.insert(allocation.id.clone());
-            updated_fc.idle_since = None; // now busy
-            update.containers.insert(
-                updated_fc.function_container.id.clone(),
-                Box::new(updated_fc.clone()),
-            );
-
-            // Write directly to container_scheduler so subsequent
-            // find_available_container calls see the allocation count.
-            container_scheduler.function_containers.insert(
-                updated_fc.function_container.id.clone(),
-                Box::new(updated_fc),
-            );
+            fc.allocations.insert(allocation.id.clone());
+            fc.idle_since = None; // now busy
+            update
+                .containers
+                .insert(fc.function_container.id.clone(), fc.clone());
         }
 
         // Remove from blocked work tracker if it was previously blocked

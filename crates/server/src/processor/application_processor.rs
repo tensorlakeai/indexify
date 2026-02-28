@@ -324,11 +324,7 @@ impl ApplicationProcessor {
                     meta.desired_state,
                     data_model::ContainerState::Terminated { .. }
                 ) {
-                    let exec_class = container_scheduler
-                        .executor_classes
-                        .get(&meta.executor_id)
-                        .cloned()
-                        .unwrap_or_default();
+                    let exec_class = container_scheduler.get_executor_class(&meta.executor_id);
                     *freed_per_class.entry(exec_class).or_default() +=
                         meta.function_container.resources.memory_mb;
                 }
@@ -372,20 +368,21 @@ impl ApplicationProcessor {
                 }
             }
 
-            // Allocate unblocked sandboxes.
+            // Allocate unblocked sandboxes (batched apply).
             if !unblocked.sandbox_keys.is_empty() {
                 let sandbox_processor = SandboxProcessor::new();
+                let mut sb_batch = SchedulerUpdateRequest::default();
                 for sandbox_key in &unblocked.sandbox_keys {
-                    let sb_result = sandbox_processor.allocate_sandbox_by_key(
+                    sb_batch.extend(sandbox_processor.allocate_sandbox_by_key(
                         &indexes,
                         &mut container_scheduler,
                         sandbox_key.namespace(),
                         sandbox_key.sandbox_id(),
                         &mut feas_cache,
-                    )?;
-                    indexes.apply_scheduler_update(clock, &sb_result, "reap_unblock_sandbox")?;
-                    merged_update.extend(sb_result);
+                    )?);
                 }
+                indexes.apply_scheduler_update(clock, &sb_batch, "reap_unblock_sandbox")?;
+                merged_update.extend(sb_batch);
             }
         }
 
@@ -548,7 +545,7 @@ impl ApplicationProcessor {
         let clock = indexes_guard.clock;
 
         let task_creator =
-            function_run_creator::FunctionRunCreator::new(self.indexify_state.clone(), clock);
+            function_run_creator::FunctionRunCreator::new(self.indexify_state.clone());
         let container_reconciler =
             container_reconciler::ContainerReconciler::new(clock, self.indexify_state.clone());
         let task_allocator = FunctionRunProcessor::new(self.queue_size);
@@ -559,6 +556,12 @@ impl ApplicationProcessor {
                 let mut scheduler_update = task_creator
                     .handle_blocking_function_call(indexes_guard, req)
                     .await?;
+                // Apply so allocate_function_runs sees the new request_ctx.
+                indexes_guard.apply_scheduler_update(
+                    clock,
+                    &scheduler_update,
+                    "create_function_call",
+                )?;
                 let unallocated_function_runs = scheduler_update.unallocated_function_runs();
                 let alloc_result = task_allocator.allocate_function_runs(
                     indexes_guard,
@@ -628,16 +631,7 @@ impl ApplicationProcessor {
 
                 if freed_memory_mb > 0 {
                     let executor_class = container_scheduler_guard
-                        .executor_classes
-                        .get(&req.allocation_target.executor_id)
-                        .cloned()
-                        .unwrap_or_else(|| {
-                            container_scheduler_guard
-                                .executors
-                                .get(&req.allocation_target.executor_id)
-                                .map(|e| ExecutorClass::from_executor(e))
-                                .unwrap_or_default()
-                        });
+                        .get_executor_class(&req.allocation_target.executor_id);
                     let unblocked = container_scheduler_guard
                         .blocked_work
                         .unblock_for_freed_resources(&executor_class, freed_memory_mb);
@@ -712,20 +706,16 @@ impl ApplicationProcessor {
                     // Compute the executor's class and unblock work that was
                     // previously blocked on this class. This ensures previously
                     // blocked work gets retried now that capacity is available.
-                    let executor_class = container_scheduler_guard
-                        .executor_classes
+                    let executor_class =
+                        container_scheduler_guard.get_executor_class(&ev.executor_id);
+                    let budget_mb = container_scheduler_guard
+                        .executor_states
                         .get(&ev.executor_id)
-                        .cloned()
-                        .unwrap_or_else(|| {
-                            container_scheduler_guard
-                                .executors
-                                .get(&ev.executor_id)
-                                .map(|e| ExecutorClass::from_executor(e))
-                                .unwrap_or_default()
-                        });
+                        .map(|s| s.free_resources.memory_bytes / (1024 * 1024))
+                        .unwrap_or(0);
                     let unblocked = container_scheduler_guard
                         .blocked_work
-                        .unblock_for_class(&executor_class);
+                        .unblock_for_class(&executor_class, budget_mb);
 
                     if !unblocked.is_empty() {
                         // Resolve function run keys to actual FunctionRun objects
@@ -1016,17 +1006,8 @@ impl ApplicationProcessor {
                 // capacity for this executor's class.
                 let mut unblocked = UnblockedWork::default();
                 if freed_memory_mb > 0 {
-                    let executor_class = container_scheduler_guard
-                        .executor_classes
-                        .get(&ev.executor_id)
-                        .cloned()
-                        .unwrap_or_else(|| {
-                            container_scheduler_guard
-                                .executors
-                                .get(&ev.executor_id)
-                                .map(|e| ExecutorClass::from_executor(e))
-                                .unwrap_or_default()
-                        });
+                    let executor_class =
+                        container_scheduler_guard.get_executor_class(&ev.executor_id);
                     unblocked = container_scheduler_guard
                         .blocked_work
                         .unblock_for_freed_resources(&executor_class, freed_memory_mb);
@@ -1136,11 +1117,7 @@ impl ApplicationProcessor {
                     meta.desired_state,
                     data_model::ContainerState::Terminated { .. }
                 ) {
-                    let exec_class = container_scheduler
-                        .executor_classes
-                        .get(&meta.executor_id)
-                        .cloned()
-                        .unwrap_or_default();
+                    let exec_class = container_scheduler.get_executor_class(&meta.executor_id);
                     *freed_per_class.entry(exec_class).or_default() +=
                         meta.function_container.resources.memory_mb;
                 }
@@ -1181,20 +1158,21 @@ impl ApplicationProcessor {
                 }
             }
 
-            // Allocate unblocked sandboxes.
+            // Allocate unblocked sandboxes (batched apply).
             if !unblocked.sandbox_keys.is_empty() {
                 let sandbox_processor = SandboxProcessor::new();
+                let mut sb_batch = SchedulerUpdateRequest::default();
                 for sandbox_key in &unblocked.sandbox_keys {
-                    let sb_result = sandbox_processor.allocate_sandbox_by_key(
+                    sb_batch.extend(sandbox_processor.allocate_sandbox_by_key(
                         &indexes,
                         &mut container_scheduler,
                         sandbox_key.namespace(),
                         sandbox_key.sandbox_id(),
                         &mut feas_cache,
-                    )?;
-                    indexes.apply_scheduler_update(clock, &sb_result, "vacuum_unblock_sandbox")?;
-                    merged_update.extend(sb_result);
+                    )?);
                 }
+                indexes.apply_scheduler_update(clock, &sb_batch, "vacuum_unblock_sandbox")?;
+                merged_update.extend(sb_batch);
             }
 
             self.indexify_state
