@@ -359,6 +359,14 @@ impl ProcessDriver for FirecrackerDriver {
         let vm_id = config.id.clone();
         let handle_id = format!("fc-{}", vm_id);
 
+        // Use per-container disk size if provided, otherwise fall back to the
+        // driver default.
+        let rootfs_size_bytes = config
+            .resources
+            .as_ref()
+            .and_then(|r| r.disk_bytes)
+            .unwrap_or(self.default_rootfs_size_bytes);
+
         // 1. Create dm-snapshot for this VM. Check if config.image points to a .cow
         //    file (restore path).
         let snapshot = if let Some(ref image) = config.image {
@@ -387,7 +395,7 @@ impl ProcessDriver for FirecrackerDriver {
                     self.origin.size_sectors,
                     vm_id.clone(),
                     self.lvm_config.clone(),
-                    self.default_rootfs_size_bytes,
+                    rootfs_size_bytes,
                 )
                 .await
                 .with_context(|| format!("Failed to create dm-snapshot for VM {}", vm_id))?
@@ -400,7 +408,7 @@ impl ProcessDriver for FirecrackerDriver {
                 self.origin.size_sectors,
                 vm_id.clone(),
                 self.lvm_config.clone(),
-                self.default_rootfs_size_bytes,
+                rootfs_size_bytes,
             )
             .await
             .with_context(|| format!("Failed to create dm-snapshot for VM {}", vm_id))?

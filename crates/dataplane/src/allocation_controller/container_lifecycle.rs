@@ -814,6 +814,7 @@ async fn start_fe_process(
                 .map(|r| crate::driver::ResourceLimits {
                     cpu_millicores: r.cpu_ms_per_sec.map(|v| v as u64),
                     memory_bytes: r.memory_bytes,
+                    disk_bytes: r.disk_bytes,
                     gpu_device_ids,
                 })
         },
