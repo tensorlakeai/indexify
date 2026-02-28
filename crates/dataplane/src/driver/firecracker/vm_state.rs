@@ -141,9 +141,8 @@ pub struct VmMetadata {
     pub vm_id: String,
     /// PID of the Firecracker process.
     pub pid: u32,
-    /// LV name for the COW thin LV (e.g., "indexify-cow-abc123").
-    #[serde(default)]
-    pub lv_name: String,
+    /// Thin device ID for the COW device in the thin pool.
+    pub thin_device_id: u32,
     /// dm device name (e.g., "indexify-vm-abc123").
     #[serde(default)]
     pub dm_name: String,
@@ -289,7 +288,7 @@ mod tests {
             handle_id: "fc-test-vm-1".to_string(),
             vm_id: "test-vm-1".to_string(),
             pid: 12345,
-            lv_name: "indexify-cow-test-vm-1".to_string(),
+            thin_device_id: 10_000_000,
             dm_name: "indexify-vm-test-vm-1".to_string(),
             netns_name: "indexify-vm-test-vm-1".to_string(),
             guest_ip: "192.168.30.2".to_string(),
@@ -308,7 +307,7 @@ mod tests {
         assert_eq!(loaded.handle_id, metadata.handle_id);
         assert_eq!(loaded.vm_id, metadata.vm_id);
         assert_eq!(loaded.pid, metadata.pid);
-        assert_eq!(loaded.lv_name, metadata.lv_name);
+        assert_eq!(loaded.thin_device_id, metadata.thin_device_id);
         assert_eq!(loaded.dm_name, metadata.dm_name);
         assert_eq!(loaded.netns_name, metadata.netns_name);
         assert_eq!(loaded.guest_ip, metadata.guest_ip);
@@ -331,29 +330,8 @@ mod tests {
         assert_eq!(loaded.handle_id, "fc-test-vm-1");
         assert_eq!(loaded.vm_id, "test-vm-1");
         assert_eq!(loaded.pid, 12345);
-        assert_eq!(loaded.lv_name, "indexify-cow-test-vm-1");
+        assert_eq!(loaded.thin_device_id, 10_000_000);
         assert_eq!(loaded.dm_name, "indexify-vm-test-vm-1");
-    }
-
-    #[test]
-    fn test_metadata_backward_compat_missing_new_fields() {
-        // Simulate loading old metadata that lacks lv_name.
-        // The #[serde(default)] annotations should handle this gracefully.
-        let old_json = r#"{
-            "handle_id": "fc-old-vm",
-            "vm_id": "old-vm",
-            "pid": 999,
-            "netns_name": "indexify-vm-old-vm",
-            "guest_ip": "192.168.30.5",
-            "daemon_addr": "192.168.30.5:9500",
-            "http_addr": "192.168.30.5:9501",
-            "socket_path": "/tmp/fc-old-vm.sock"
-        }"#;
-
-        let loaded: VmMetadata = serde_json::from_str(old_json).unwrap();
-        assert_eq!(loaded.vm_id, "old-vm");
-        assert_eq!(loaded.lv_name, "");
-        assert_eq!(loaded.dm_name, "");
     }
 
     #[test]
