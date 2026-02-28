@@ -22,10 +22,21 @@ use std::{
     collections::HashSet,
     io::{Read, Write},
     path::{Path, PathBuf},
+    sync::Mutex,
     time::Instant,
 };
 
 use anyhow::{Context, Result, bail};
+
+/// Process-wide lock protecting thin pool metadata snapshot operations.
+///
+/// A thin pool can hold only ONE metadata snapshot at a time
+/// (`reserve_metadata_snap` / `release_metadata_snap`). If two
+/// `query_thin_delta` calls run concurrently, the second call's
+/// `release_metadata_snap` in `MetadataSnapGuard::new` would destroy
+/// the first call's reserved snapshot, causing `thin_delta -m` to read
+/// invalid data. This mutex serializes all metadata snapshot usage.
+static METADATA_SNAP_LOCK: Mutex<()> = Mutex::new(());
 
 /// Name of the shared base image thin LV.
 pub const BASE_LV_NAME: &str = "indexify-base";
@@ -183,12 +194,16 @@ pub fn setup_base_image(base_rootfs: &Path, lvm_config: &LvmConfig) -> Result<Ba
     .with_context(|| format!("Failed to create base image thin LV {}", lv_path))?;
 
     // Import the base rootfs into the thin LV.
+    // conv=fdatasync flushes data to the device before dd returns, so that a
+    // crash before writeback completes cannot leave the LV with partial data
+    // (which would be silently reused on the next startup).
     run_cmd(
         "dd",
         &[
             &format!("if={}", base_rootfs.display()),
             &format!("of={}", device_path.display()),
             "bs=4M",
+            "conv=fdatasync",
         ],
     )
     .with_context(|| format!("Failed to dd base rootfs into {}", device_path.display()))?;
@@ -596,19 +611,30 @@ fn release_metadata_snap(config: &LvmConfig) -> Result<()> {
     Ok(())
 }
 
-/// RAII guard that releases the thin pool metadata snapshot on drop.
+/// RAII guard that serializes access to the pool-global metadata snapshot.
+///
+/// Holds `METADATA_SNAP_LOCK` for its entire lifetime so that concurrent
+/// `query_thin_delta` calls cannot release each other's metadata snapshot.
 struct MetadataSnapGuard {
     config: Option<LvmConfig>,
+    /// Held to prevent concurrent metadata snapshot operations.
+    _lock: std::sync::MutexGuard<'static, ()>,
 }
 
 impl MetadataSnapGuard {
     fn new(config: &LvmConfig) -> Result<Self> {
+        // Acquire the process-wide lock first.
+        let lock = METADATA_SNAP_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+
         // Release any stale metadata snap left over from a prior crash.
         // This is a no-op if no snap is held (the error is ignored).
         let _ = release_metadata_snap(config);
         reserve_metadata_snap(config)?;
         Ok(Self {
             config: Some(config.clone()),
+            _lock: lock,
         })
     }
 
@@ -617,6 +643,7 @@ impl MetadataSnapGuard {
         if let Some(config) = self.config.take() {
             release_metadata_snap(&config)?;
         }
+        // _lock is dropped here, releasing the mutex.
         Ok(())
     }
 }
@@ -628,6 +655,7 @@ impl Drop for MetadataSnapGuard {
                 tracing::warn!(error = ?e, "Failed to release metadata snap in drop");
             }
         }
+        // _lock is dropped after this, releasing the mutex.
     }
 }
 
@@ -793,15 +821,18 @@ pub async fn resume_snapshot_async(lv_name: String, lvm_config: LvmConfig) -> Re
 // Stale device cleanup
 // ---------------------------------------------------------------------------
 
-/// Clean up stale `indexify-vm-*` thin LVs from previous runs.
+/// Clean up stale thin LVs from previous runs.
 ///
-/// Only removes VM LVs whose VM ID is NOT in `active_vm_ids`.
+/// Removes:
+/// - `indexify-vm-*` thin LVs whose VM ID is NOT in `active_vm_ids`
+/// - `indexify-cow-*` thin LVs (orphaned old-format COW devices)
 pub fn cleanup_stale_devices(active_vm_ids: &HashSet<String>, lvm_config: &LvmConfig) {
     let vg = &lvm_config.volume_group;
     if let Ok(output) = run_cmd("lvs", &["--noheadings", "-o", "lv_name", vg]) {
         for line in output.lines() {
             let lv_name = line.trim();
 
+            // Current format: indexify-vm-{vm_id}
             if let Some(vm_id) = lv_name.strip_prefix("indexify-vm-") {
                 if !active_vm_ids.contains(vm_id) {
                     let lv_path = format!("{}/{}", vg, lv_name);
@@ -817,6 +848,24 @@ pub fn cleanup_stale_devices(active_vm_ids: &HashSet<String>, lvm_config: &LvmCo
                             "Removed stale VM thin LV"
                         );
                     }
+                }
+            }
+
+            // Old format: indexify-cow-{vm_id} — always remove these since
+            // the current code never creates them.
+            if lv_name.starts_with("indexify-cow-") {
+                let lv_path = format!("{}/{}", vg, lv_name);
+                if let Err(e) = run_cmd("lvremove", &["-f", &lv_path]) {
+                    tracing::warn!(
+                        lv_name = %lv_name,
+                        error = ?e,
+                        "Failed to remove orphaned old-format COW LV"
+                    );
+                } else {
+                    tracing::info!(
+                        lv_name = %lv_name,
+                        "Removed orphaned old-format COW LV"
+                    );
                 }
             }
         }
