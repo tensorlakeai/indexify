@@ -382,11 +382,11 @@ impl ProcessDriver for FirecrackerDriver {
             .unwrap_or(self.default_rootfs_size_bytes)
             .max(self.base_image.size_bytes);
 
-        // Detect restore path: image ends with .img (full image from snapshotter).
+        // Detect restore path: image ends with .delta (delta from snapshotter).
         let is_restore = config
             .image
             .as_ref()
-            .is_some_and(|img| img.ends_with(".img"));
+            .is_some_and(|img| img.ends_with(".delta"));
 
         tracing::info!(
             vm_id = %vm_id,
@@ -401,20 +401,20 @@ impl ProcessDriver for FirecrackerDriver {
 
         // 1. Create thin snapshot for this VM.
         let snapshot = if is_restore {
-            let image_file = PathBuf::from(config.image.as_ref().unwrap());
-            // Restore path: create thin snapshot of base, overwrite with restored image.
-            dm_thin::create_snapshot_from_image_async(
+            let delta_file = PathBuf::from(config.image.as_ref().unwrap());
+            // Restore path: create thin snapshot of base, apply delta blocks.
+            dm_thin::create_snapshot_from_delta_async(
                 self.base_image.lv_name.clone(),
                 self.base_image.device_path.clone(),
                 self.base_image.size_bytes,
                 vm_id.clone(),
                 self.lvm_config.clone(),
-                image_file,
+                delta_file,
                 rootfs_size_bytes,
             )
             .await
             .with_context(|| {
-                format!("Failed to create thin snapshot from image for VM {}", vm_id)
+                format!("Failed to create thin snapshot from delta for VM {}", vm_id)
             })?
         } else {
             // Normal path: create thin snapshot of the base image.

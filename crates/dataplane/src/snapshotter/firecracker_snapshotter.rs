@@ -1,17 +1,21 @@
 //! Firecracker-based snapshotter using dm-thin LVs + zstd + blob store.
 //!
-//! **Snapshot**: read thin LV device → streaming zstd compress → blob store put
-//! **Restore**: blob store streaming download → zstd decompress → write temp
-//! image file (driver's create_snapshot_from_image copies into thin LV)
+//! **Snapshot**: `thin_delta` metadata query identifies changed blocks → read
+//! only those blocks from the VM device → emit as delta records → streaming
+//! zstd compress → blob store put
+//! **Restore**: blob store streaming download → zstd decompress → write delta
+//! file (driver's create_snapshot_from_delta applies block records into thin
+//! LV)
 //!
-//! Thin LVs are read in full, but unprovisioned zero blocks compress to nearly
-//! nothing via zstd, so compressed size is comparable to delta-only COW.
+//! Only blocks that differ from the base image are uploaded, so a 10GB rootfs
+//! with 500MB of changes produces a ~500MB compressed blob instead of ~10GB.
 
 use std::{io::Write, path::PathBuf, sync::Arc};
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use bytes::Bytes;
+use futures_util::StreamExt;
 use indexify_blob_store::PutOptions;
 use sha2::{Digest, Sha256};
 use tracing::info;
@@ -28,9 +32,10 @@ const COMPRESSED_CHUNK_SIZE: usize = 100 * 1024 * 1024;
 
 /// Firecracker snapshotter using dm-thin LVs.
 ///
-/// Snapshot: read thin LV device → zstd compress → blob store put (streaming)
-/// Restore:  blob store streaming download → zstd decompress → image file
-///           (driver's create_snapshot_from_image copies into thin LV)
+/// Snapshot: thin_delta metadata query → read changed blocks → delta records
+///           → zstd → blob store put
+/// Restore:  blob store streaming download → zstd decompress → delta file
+///           (driver's create_snapshot_from_delta applies records into thin LV)
 pub struct FirecrackerSnapshotter {
     state_dir: PathBuf,
     blob_store: BlobStore,
@@ -129,11 +134,16 @@ impl Snapshotter for FirecrackerSnapshotter {
         info!(
             container_id = %container_id,
             lv_device = %lv_path.display(),
-            "Reading thin LV device for snapshot"
+            "Building delta snapshot via thin_delta metadata query"
         );
 
-        // Build a compressed stream from the thin LV.
-        let compressed_stream = build_compressed_stream(lv_path);
+        // Build a delta-compressed stream: thin_delta identifies changed
+        // blocks, then only those blocks are read from the VM device.
+        let compressed_stream = build_delta_compressed_stream(
+            lv_path,
+            self.lvm_config.clone(),
+            metadata.lv_name.clone(),
+        );
 
         let result = self
             .blob_store
@@ -171,123 +181,141 @@ impl Snapshotter for FirecrackerSnapshotter {
 
     async fn restore_snapshot(&self, snapshot_uri: &str) -> Result<RestoreResult> {
         let hash = hash_uri(snapshot_uri);
-        let img_path = format!("/tmp/indexify-snapshot-{}.img", hash);
+        let delta_path = format!("/tmp/indexify-snapshot-{}.delta", hash);
 
         info!(
             snapshot_uri = %snapshot_uri,
-            img_path = %img_path,
-            "Starting Firecracker snapshot restore"
+            delta_path = %delta_path,
+            "Starting Firecracker snapshot restore (delta)"
         );
 
-        // Stream download from blob store.
-        let compressed_stream = self
+        // Channel bridges async download → sync decompression.
+        // 16 items gives enough slack so the downloader and decompressor rarely
+        // block on each other, without buffering the entire blob in memory.
+        let (tx, rx) = tokio::sync::mpsc::channel::<Bytes>(16);
+
+        // Spawn blocking decompression task.
+        let delta_clone = delta_path.clone();
+        let span = tracing::Span::current();
+        let decompress_handle = tokio::task::spawn_blocking(move || {
+            let _guard = span.enter();
+            let reader = ChannelReader::new(rx);
+            let mut decoder =
+                zstd::stream::Decoder::new(reader).context("Failed to create zstd decoder")?;
+            let file = std::fs::File::create(&delta_clone)
+                .with_context(|| format!("Failed to create delta file {}", delta_clone))?;
+            let mut output = std::io::BufWriter::new(file);
+            std::io::copy(&mut decoder, &mut output).context("Failed to decompress snapshot")?;
+            output.flush()?;
+            info!(delta_path = %delta_clone, "Delta file restored (streaming)");
+            Ok::<(), anyhow::Error>(())
+        });
+
+        // Async: stream download, feed chunks into channel.
+        let stream = self
             .blob_store
             .get_stream(snapshot_uri)
             .await
             .context("Failed to open snapshot stream")?;
-
-        // Collect compressed data.
-        use futures_util::StreamExt;
-        let mut compressed = Vec::new();
-        futures_util::pin_mut!(compressed_stream);
-        while let Some(chunk) = compressed_stream.next().await {
+        futures_util::pin_mut!(stream);
+        while let Some(chunk) = stream.next().await {
             let chunk = chunk.context("Failed to read snapshot stream")?;
-            compressed.extend_from_slice(&chunk);
+            if tx.send(chunk).await.is_err() {
+                break; // Decompress task errored/dropped
+            }
         }
+        drop(tx); // Signal EOF to decompressor
 
-        info!(
-            snapshot_uri = %snapshot_uri,
-            compressed_size = compressed.len(),
-            "Downloaded snapshot, decompressing"
-        );
-
-        // Decompress and write to image file.
-        let img_path_clone = img_path.clone();
-        let span = tracing::Span::current();
-        tokio::task::spawn_blocking(move || {
-            let _guard = span.enter();
-            let decompressed =
-                zstd::decode_all(compressed.as_slice()).context("Failed to decompress snapshot")?;
-            std::fs::write(&img_path_clone, &decompressed)
-                .with_context(|| format!("Failed to write image file {}", img_path_clone))?;
-            info!(
-                img_path = %img_path_clone,
-                decompressed_size = decompressed.len(),
-                "Image file restored"
-            );
-            Ok::<(), anyhow::Error>(())
-        })
-        .await
-        .context("Snapshot restore task panicked")??;
+        decompress_handle
+            .await
+            .context("Snapshot restore task panicked")??;
 
         Ok(RestoreResult {
-            image: img_path,
+            image: delta_path,
             rootfs_overlay: None,
         })
     }
 
     async fn cleanup_local(&self, snapshot_uri: &str) -> Result<()> {
         let hash = hash_uri(snapshot_uri);
-        let img_path = format!("/tmp/indexify-snapshot-{}.img", hash);
-        if std::path::Path::new(&img_path).exists() {
-            let _ = std::fs::remove_file(&img_path);
+        let delta_path = format!("/tmp/indexify-snapshot-{}.delta", hash);
+        if std::path::Path::new(&delta_path).exists() {
+            let _ = std::fs::remove_file(&delta_path);
         }
         Ok(())
     }
 }
 
-/// Build an async stream that yields zstd-compressed chunks from a block
-/// device.
-fn build_compressed_stream(
+/// Adapter that bridges a `tokio::sync::mpsc::Receiver<Bytes>` into a
+/// synchronous `std::io::Read`.
+///
+/// Must only be used inside `spawn_blocking` — calls `blocking_recv()`.
+struct ChannelReader {
+    rx: tokio::sync::mpsc::Receiver<Bytes>,
+    /// Current chunk being consumed.
+    current: Option<Bytes>,
+    /// Read offset into `current`.
+    offset: usize,
+}
+
+impl ChannelReader {
+    fn new(rx: tokio::sync::mpsc::Receiver<Bytes>) -> Self {
+        Self {
+            rx,
+            current: None,
+            offset: 0,
+        }
+    }
+}
+
+impl std::io::Read for ChannelReader {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        loop {
+            if let Some(ref chunk) = self.current {
+                let remaining = &chunk[self.offset..];
+                if !remaining.is_empty() {
+                    let n = remaining.len().min(buf.len());
+                    buf[..n].copy_from_slice(&remaining[..n]);
+                    self.offset += n;
+                    return Ok(n);
+                }
+            }
+            // Current chunk exhausted — get the next one.
+            match self.rx.blocking_recv() {
+                Some(chunk) => {
+                    self.current = Some(chunk);
+                    self.offset = 0;
+                }
+                None => return Ok(0), // Channel closed = EOF
+            }
+        }
+    }
+}
+
+/// Build an async stream that yields zstd-compressed delta chunks.
+///
+/// Uses `thin_delta` metadata query to discover exactly which blocks changed,
+/// then reads only those blocks from the VM device. The base device is never
+/// opened.
+fn build_delta_compressed_stream(
     device_path: PathBuf,
+    lvm_config: dm_thin::LvmConfig,
+    vm_lv_name: String,
 ) -> impl futures_util::Stream<Item = Result<Bytes>> + Send + Unpin {
     let (tx, rx) = tokio::sync::mpsc::channel::<Result<Bytes>>(4);
 
     tokio::task::spawn_blocking(move || {
         let result = (|| -> Result<()> {
-            use std::{io::Read, os::unix::io::AsRawFd};
-            let file = std::fs::File::open(&device_path)
-                .with_context(|| format!("Failed to open device {}", device_path.display()))?;
+            let ranges =
+                dm_thin::query_thin_delta(&lvm_config, dm_thin::BASE_LV_NAME, &vm_lv_name)?;
 
-            // Drop page cache for this device before reading. LVM thin
-            // provisioning writes through the kernel bio layer, which may
-            // bypass the page cache. Without this, buffered reads could
-            // return stale data.
-            unsafe {
-                libc::posix_fadvise(file.as_raw_fd(), 0, 0, libc::POSIX_FADV_DONTNEED);
-            }
+            tracing::info!(
+                num_ranges = ranges.len(),
+                total_changed_bytes = ranges.iter().map(|r| r.byte_length).sum::<u64>(),
+                "Using thin_delta metadata query for delta snapshot"
+            );
 
-            let mut reader = std::io::BufReader::new(file);
-            let mut encoder = zstd::stream::Encoder::new(
-                Vec::with_capacity(COMPRESSED_CHUNK_SIZE + 4 * 1024 * 1024),
-                3,
-            )
-            .context("Failed to create zstd encoder")?;
-
-            let mut buf = vec![0u8; 4 * 1024 * 1024];
-            loop {
-                let n = reader.read(&mut buf).context("Failed to read device")?;
-                if n == 0 {
-                    break;
-                }
-                encoder
-                    .write_all(&buf[..n])
-                    .context("zstd compression write failed")?;
-
-                if encoder.get_ref().len() >= COMPRESSED_CHUNK_SIZE {
-                    let data = std::mem::take(encoder.get_mut());
-                    if tx.blocking_send(Ok(Bytes::from(data))).is_err() {
-                        return Ok(()); // Receiver dropped
-                    }
-                }
-            }
-
-            let remaining = encoder.finish().context("Failed to finish zstd encoder")?;
-            if !remaining.is_empty() {
-                let _ = tx.blocking_send(Ok(Bytes::from(remaining)));
-            }
-
-            Ok(())
+            build_delta_from_ranges(&device_path, &ranges, &tx)
         })();
 
         if let Err(e) = result {
@@ -296,6 +324,122 @@ fn build_compressed_stream(
     });
 
     tokio_stream::wrappers::ReceiverStream::new(rx)
+}
+
+/// Build delta stream by reading only the changed ranges from the VM device.
+///
+/// Uses `pread` (`read_at`) to seek directly to each changed range, avoiding
+/// any reads of unchanged blocks. The base device is never opened.
+fn build_delta_from_ranges(
+    device_path: &std::path::Path,
+    ranges: &[dm_thin::ThinDeltaRange],
+    tx: &tokio::sync::mpsc::Sender<Result<Bytes>>,
+) -> Result<()> {
+    use std::os::unix::fs::FileExt;
+
+    const BLOCK_SIZE: usize = 4 * 1024 * 1024;
+
+    let vm_file = std::fs::File::open(device_path)
+        .with_context(|| format!("Failed to open VM device {}", device_path.display()))?;
+
+    #[cfg(target_os = "linux")]
+    unsafe {
+        use std::os::unix::io::AsRawFd;
+        libc::posix_fadvise(vm_file.as_raw_fd(), 0, 0, libc::POSIX_FADV_DONTNEED);
+    }
+
+    let image_size = block_device_size(&vm_file).context("Failed to get VM device size")?;
+
+    let mut encoder =
+        zstd::stream::Encoder::new(Vec::with_capacity(COMPRESSED_CHUNK_SIZE + BLOCK_SIZE), 3)
+            .context("Failed to create zstd encoder")?;
+
+    dm_thin::write_delta_header(&mut encoder, BLOCK_SIZE as u32, image_size)?;
+
+    let mut buf = vec![0u8; BLOCK_SIZE];
+    let mut blocks_written: u64 = 0;
+
+    for range in ranges {
+        // Clamp to device size: thin_delta ranges are in data_block_size
+        // units which should align with the device size, but clamp defensively
+        // in case of any metadata/kernel discrepancy.
+        if range.byte_offset >= image_size {
+            continue;
+        }
+        let mut range_offset = range.byte_offset;
+        let range_end = (range.byte_offset + range.byte_length).min(image_size);
+
+        while range_offset < range_end {
+            let chunk_len = ((range_end - range_offset) as usize).min(BLOCK_SIZE);
+
+            vm_file
+                .read_exact_at(&mut buf[..chunk_len], range_offset)
+                .with_context(|| format!("Failed to read VM device at offset {}", range_offset))?;
+
+            // Write block record: offset (u64 LE) + length (u32 LE) + data
+            encoder.write_all(&range_offset.to_le_bytes())?;
+            encoder.write_all(&(chunk_len as u32).to_le_bytes())?;
+            encoder.write_all(&buf[..chunk_len])?;
+            blocks_written += 1;
+
+            range_offset += chunk_len as u64;
+
+            if encoder.get_ref().len() >= COMPRESSED_CHUNK_SIZE {
+                let data = std::mem::take(encoder.get_mut());
+                if tx.blocking_send(Ok(Bytes::from(data))).is_err() {
+                    return Ok(());
+                }
+            }
+        }
+    }
+
+    let remaining = encoder.finish().context("Failed to finish zstd encoder")?;
+    if !remaining.is_empty() {
+        let _ = tx.blocking_send(Ok(Bytes::from(remaining)));
+    }
+
+    tracing::info!(
+        blocks_written,
+        image_size,
+        "Delta snapshot stream complete (thin_delta path)"
+    );
+
+    Ok(())
+}
+
+/// Get the size of a block device in bytes.
+///
+/// On Linux, block devices report size 0 via `stat(2)` /
+/// `File::metadata().len()`. The actual size must be queried via `ioctl(fd,
+/// BLKGETSIZE64, &size)`. Falls back to `File::metadata().len()` on non-Linux
+/// (for tests on macOS with regular files).
+fn block_device_size(file: &std::fs::File) -> anyhow::Result<u64> {
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::io::AsRawFd;
+
+        // Try stat first — works for regular files (e.g., in tests).
+        let stat_size = file.metadata()?.len();
+        if stat_size > 0 {
+            return Ok(stat_size);
+        }
+
+        // Block device: use ioctl(BLKGETSIZE64).
+        nix::ioctl_read!(blkgetsize64, 0x12, 114, u64);
+        let mut size: u64 = 0;
+        // SAFETY: BLKGETSIZE64 writes a u64 to the provided pointer.
+        unsafe {
+            blkgetsize64(file.as_raw_fd(), &mut size)
+                .context("ioctl BLKGETSIZE64 failed on block device")?;
+        }
+        anyhow::ensure!(size > 0, "Block device reported size 0 via BLKGETSIZE64");
+        Ok(size)
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        Ok(file.metadata()?.len())
+    }
 }
 
 /// Derive a short hash from a snapshot URI for use in temp file names.

@@ -20,11 +20,51 @@
 
 use std::{
     collections::HashSet,
+    io::{Read, Write},
     path::{Path, PathBuf},
     time::Instant,
 };
 
 use anyhow::{Context, Result, bail};
+
+/// Name of the shared base image thin LV.
+pub const BASE_LV_NAME: &str = "indexify-base";
+
+// ---------------------------------------------------------------------------
+// Delta binary format constants
+// ---------------------------------------------------------------------------
+
+/// Magic bytes identifying the delta snapshot format (8 bytes).
+const DELTA_MAGIC: [u8; 8] = *b"IXDELTA\x01";
+/// Total header size in bytes.
+const DELTA_HEADER_SIZE: usize = 32;
+/// Block size used for delta comparison and records (4 MB).
+const BLOCK_SIZE: usize = 4 * 1024 * 1024;
+
+/// Write the 32-byte delta header into `w`.
+pub fn write_delta_header(w: &mut impl Write, block_size: u32, image_size: u64) -> Result<()> {
+    w.write_all(&DELTA_MAGIC)?;
+    w.write_all(&block_size.to_le_bytes())?;
+    w.write_all(&image_size.to_le_bytes())?;
+    w.write_all(&[0u8; 12])?; // reserved
+    Ok(())
+}
+
+/// Read and validate the 32-byte delta header from `r`.
+/// Returns `(block_size, image_size)`.
+pub fn read_delta_header(r: &mut impl Read) -> Result<(u32, u64)> {
+    let mut header = [0u8; DELTA_HEADER_SIZE];
+    r.read_exact(&mut header)
+        .context("Failed to read delta header")?;
+
+    if header[..8] != DELTA_MAGIC {
+        bail!("Invalid delta header: bad magic");
+    }
+
+    let block_size = u32::from_le_bytes(header[8..12].try_into().unwrap());
+    let image_size = u64::from_le_bytes(header[12..20].try_into().unwrap());
+    Ok((block_size, image_size))
+}
 
 /// LVM thin pool configuration for per-VM thin snapshots.
 #[derive(Debug, Clone)]
@@ -273,36 +313,43 @@ pub fn create_snapshot(
     })
 }
 
-/// Create a thin snapshot from a restored image file (snapshot restore path).
+/// Create a thin snapshot from a delta file (snapshot restore path).
 ///
-/// Creates a thin snapshot of the base image, resizes if needed, then
-/// overwrites the snapshot content with the restored image via `dd`.
-/// The temporary image file is deleted after import.
-pub fn create_snapshot_from_image(
+/// The delta file contains a header followed by block records (offset + length
+/// + data) for blocks that differ from the base image. Only those blocks are
+/// written into the thin snapshot; unchanged blocks stay as COW references to
+/// the base LV. The delta file is deleted after import.
+pub fn create_snapshot_from_delta(
     base: &BaseImageHandle,
     vm_id: &str,
     lvm_config: &LvmConfig,
-    image_file: &Path,
-    size_bytes: u64,
+    delta_file: &Path,
+    requested_size: u64,
 ) -> Result<ThinSnapshotHandle> {
+    use std::os::unix::fs::FileExt;
+
     let t0 = Instant::now();
     let lv_name = format!("indexify-vm-{}", vm_id);
     let device_path = PathBuf::from(format!("/dev/{}/{}", lvm_config.volume_group, lv_name));
     let base_lv_path = format!("{}/{}", lvm_config.volume_group, base.lv_name);
 
-    let image_size = std::fs::metadata(image_file)
-        .with_context(|| format!("Failed to stat image file {}", image_file.display()))?
-        .len();
+    // Open delta file and read header.
+    let mut delta = std::io::BufReader::new(
+        std::fs::File::open(delta_file)
+            .with_context(|| format!("Failed to open delta file {}", delta_file.display()))?,
+    );
+    let (_block_size, image_size) = read_delta_header(&mut delta)
+        .with_context(|| format!("Failed to read delta header from {}", delta_file.display()))?;
 
-    let lv_size = size_bytes.max(image_size);
+    let lv_size = requested_size.max(image_size);
 
     tracing::info!(
         vm_id = %vm_id,
         lv_name = %lv_name,
         image_size,
         lv_size,
-        image_file = %image_file.display(),
-        "Starting snapshot restore from image"
+        delta_file = %delta_file.display(),
+        "Starting snapshot restore from delta"
     );
 
     // Create thin snapshot of the base image.
@@ -343,36 +390,74 @@ pub fn create_snapshot_from_image(
         );
     }
 
-    // Copy the restored image data into the snapshot. Deliberately omit
-    // conv=fdatasync — flushing hundreds of MB to physical storage adds
-    // latency. The data stays in the page cache where Firecracker reads
-    // it immediately.
-    let t_dd = Instant::now();
-    if let Err(e) = run_cmd(
-        "dd",
-        &[
-            &format!("if={}", image_file.display()),
-            &format!("of={}", device_path.display()),
-            "bs=4M",
-        ],
-    ) {
-        let lv_path = format!("{}/{}", lvm_config.volume_group, lv_name);
-        let _ = run_cmd("lvremove", &["-f", &lv_path]);
-        return Err(e.context(format!("Failed to dd image into {}", lv_name)));
+    // Apply delta block records to the thin snapshot.
+    let t_apply = Instant::now();
+    let target = std::fs::OpenOptions::new()
+        .write(true)
+        .open(&device_path)
+        .with_context(|| format!("Failed to open target device {}", device_path.display()))?;
+
+    let mut blocks_written: u64 = 0;
+    let mut record_header = [0u8; 12]; // offset: u64 + length: u32
+    let mut data = vec![0u8; BLOCK_SIZE]; // reused across iterations
+    loop {
+        match delta.read_exact(&mut record_header) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => break,
+            Err(e) => {
+                let lv_path = format!("{}/{}", lvm_config.volume_group, lv_name);
+                let _ = run_cmd("lvremove", &["-f", &lv_path]);
+                return Err(
+                    anyhow::Error::from(e).context("Failed to read delta block record header")
+                );
+            }
+        }
+
+        let offset = u64::from_le_bytes(record_header[..8].try_into().unwrap());
+        let length = u32::from_le_bytes(record_header[8..12].try_into().unwrap()) as usize;
+
+        if length > BLOCK_SIZE {
+            let lv_path = format!("{}/{}", lvm_config.volume_group, lv_name);
+            let _ = run_cmd("lvremove", &["-f", &lv_path]);
+            bail!(
+                "Corrupt delta: block record at offset {} has length {} (max {})",
+                offset,
+                length,
+                BLOCK_SIZE
+            );
+        }
+
+        if let Err(e) = delta.read_exact(&mut data[..length]) {
+            let lv_path = format!("{}/{}", lvm_config.volume_group, lv_name);
+            let _ = run_cmd("lvremove", &["-f", &lv_path]);
+            return Err(anyhow::Error::from(e).context(format!(
+                "Failed to read delta block data at offset {}",
+                offset
+            )));
+        }
+
+        if let Err(e) = target.write_all_at(&data[..length], offset) {
+            let lv_path = format!("{}/{}", lvm_config.volume_group, lv_name);
+            let _ = run_cmd("lvremove", &["-f", &lv_path]);
+            return Err(anyhow::Error::from(e)
+                .context(format!("Failed to write delta block at offset {}", offset)));
+        }
+        blocks_written += 1;
     }
+
     tracing::info!(
         vm_id = %vm_id,
         lv_name = %lv_name,
-        image_size,
-        elapsed_ms = t_dd.elapsed().as_millis() as u64,
-        "dd image into snapshot complete (restore)"
+        blocks_written,
+        elapsed_ms = t_apply.elapsed().as_millis() as u64,
+        "Delta block records applied (COW preserved for unchanged blocks)"
     );
 
-    // Delete the temp image file now that data is in the LV.
-    let _ = std::fs::remove_file(image_file);
+    // Delete the delta file now that data is in the LV.
+    let _ = std::fs::remove_file(delta_file);
 
-    // Resize filesystem if the LV is larger than the image.
-    if size_bytes > image_size {
+    // Resize filesystem if the LV is larger than the original image.
+    if requested_size > image_size {
         let t_fsck = Instant::now();
         let dev_str = device_path.to_string_lossy().to_string();
         if let Err(e) = run_cmd("e2fsck", &["-f", "-y", &dev_str]) {
@@ -412,8 +497,9 @@ pub fn create_snapshot_from_image(
         lv_name = %lv_name,
         image_size,
         lv_size,
+        blocks_written,
         total_ms = t0.elapsed().as_millis() as u64,
-        "Thin snapshot created from restored image"
+        "Thin snapshot created from delta"
     );
 
     Ok(ThinSnapshotHandle {
@@ -430,6 +516,214 @@ pub fn destroy_snapshot(lv_name: &str, lvm_config: &LvmConfig) -> Result<()> {
         .with_context(|| format!("Failed to remove thin LV {}", lv_path))?;
     tracing::info!(lv_name = %lv_name, "Thin snapshot LV removed");
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// thin_delta metadata-based change detection
+// ---------------------------------------------------------------------------
+
+/// A byte range of changed blocks reported by `thin_delta`.
+#[derive(Debug, Clone)]
+pub struct ThinDeltaRange {
+    /// Byte offset on the device.
+    pub byte_offset: u64,
+    /// Byte length of the changed region.
+    pub byte_length: u64,
+}
+
+/// Get the thin device ID for an LV within the thin pool.
+fn get_thin_id(config: &LvmConfig, lv_name: &str) -> Result<u32> {
+    let lv_path = format!("{}/{}", config.volume_group, lv_name);
+    let output = run_cmd("lvs", &["--noheadings", "-o", "thin_id", &lv_path])
+        .with_context(|| format!("Failed to get thin_id for {}", lv_path))?;
+    output.trim().parse::<u32>().with_context(|| {
+        format!(
+            "Failed to parse thin_id '{}' for {}",
+            output.trim(),
+            lv_path
+        )
+    })
+}
+
+/// Escape a VG and thin pool name into the device-mapper base name.
+///
+/// LVM doubles hyphens in VG/LV names and joins with a single hyphen:
+/// VG "indexify-vg", pool "thinpool" → "indexify--vg-thinpool"
+fn dm_base_name_for_pool(config: &LvmConfig) -> String {
+    let vg_escaped = config.volume_group.replace('-', "--");
+    let tpool_escaped = config.thin_pool.replace('-', "--");
+    format!("{}-{}", vg_escaped, tpool_escaped)
+}
+
+/// Compute the device-mapper target name for the thin pool.
+///
+/// This is the target that accepts `dmsetup message` commands:
+/// `{vg_escaped}-{tpool_escaped}-tpool`
+fn dm_name_for_pool(config: &LvmConfig) -> String {
+    format!("{}-tpool", dm_base_name_for_pool(config))
+}
+
+/// Reserve a point-in-time snapshot of the thin pool metadata btree.
+fn reserve_metadata_snap(config: &LvmConfig) -> Result<()> {
+    let pool_dm = dm_name_for_pool(config);
+    run_cmd(
+        "dmsetup",
+        &["message", &pool_dm, "0", "reserve_metadata_snap"],
+    )
+    .with_context(|| format!("Failed to reserve metadata snap on {}", pool_dm))?;
+    Ok(())
+}
+
+/// Release a previously reserved thin pool metadata snapshot.
+fn release_metadata_snap(config: &LvmConfig) -> Result<()> {
+    let pool_dm = dm_name_for_pool(config);
+    run_cmd(
+        "dmsetup",
+        &["message", &pool_dm, "0", "release_metadata_snap"],
+    )
+    .with_context(|| format!("Failed to release metadata snap on {}", pool_dm))?;
+    Ok(())
+}
+
+/// RAII guard that releases the thin pool metadata snapshot on drop.
+struct MetadataSnapGuard {
+    config: Option<LvmConfig>,
+}
+
+impl MetadataSnapGuard {
+    fn new(config: &LvmConfig) -> Result<Self> {
+        // Release any stale metadata snap left over from a prior crash.
+        // This is a no-op if no snap is held (the error is ignored).
+        let _ = release_metadata_snap(config);
+        reserve_metadata_snap(config)?;
+        Ok(Self {
+            config: Some(config.clone()),
+        })
+    }
+
+    /// Explicitly release the metadata snapshot and disarm the guard.
+    fn release(mut self) -> Result<()> {
+        if let Some(config) = self.config.take() {
+            release_metadata_snap(&config)?;
+        }
+        Ok(())
+    }
+}
+
+impl Drop for MetadataSnapGuard {
+    fn drop(&mut self) {
+        if let Some(ref config) = self.config {
+            if let Err(e) = release_metadata_snap(config) {
+                tracing::warn!(error = ?e, "Failed to release metadata snap in drop");
+            }
+        }
+    }
+}
+
+/// Query `thin_delta` for the byte ranges that differ between two thin LVs.
+///
+/// Returns only blocks that are `<different>` (modified) or `<right_only>`
+/// (newly allocated by the VM). Blocks that are `<same>` (unchanged) or
+/// `<left_only>` (discarded by guest) are skipped.
+pub fn query_thin_delta(
+    config: &LvmConfig,
+    base_lv: &str,
+    vm_lv: &str,
+) -> Result<Vec<ThinDeltaRange>> {
+    let base_id = get_thin_id(config, base_lv)?;
+    let vm_id = get_thin_id(config, vm_lv)?;
+
+    let guard = MetadataSnapGuard::new(config)?;
+
+    // Metadata device path: /dev/mapper/{vg_escaped}-{tpool_escaped}_tmeta
+    let meta_dev = format!("/dev/mapper/{}_tmeta", dm_base_name_for_pool(config));
+
+    let base_id_str = base_id.to_string();
+    let vm_id_str = vm_id.to_string();
+    let output = run_cmd(
+        "thin_delta",
+        &[
+            "-m",
+            "--snap1",
+            &base_id_str,
+            "--snap2",
+            &vm_id_str,
+            &meta_dev,
+        ],
+    )
+    .with_context(|| {
+        format!(
+            "thin_delta failed (base_id={}, vm_id={}, meta_dev={})",
+            base_id, vm_id, meta_dev
+        )
+    })?;
+
+    // Explicitly release before parsing (guard is backup).
+    guard.release()?;
+
+    parse_thin_delta_xml(&output)
+}
+
+/// Parse thin_delta XML output into byte ranges.
+///
+/// Extracts `data_block_size` from the `<superblock>` element, then collects
+/// `<different>` and `<right_only>` entries. Block offsets and lengths in the
+/// XML are in units of `data_block_size * 512` bytes.
+fn parse_thin_delta_xml(xml: &str) -> Result<Vec<ThinDeltaRange>> {
+    // Extract data_block_size from <superblock ... data_block_size="128" ...>
+    let data_block_size: u64 = xml
+        .find("data_block_size=\"")
+        .and_then(|pos| {
+            let start = pos + "data_block_size=\"".len();
+            let end = xml[start..].find('"')? + start;
+            xml[start..end].parse::<u64>().ok()
+        })
+        .context("Failed to parse data_block_size from thin_delta output")?;
+
+    let block_bytes = data_block_size * 512;
+    let mut ranges = Vec::new();
+
+    // Match <different .../> and <right_only .../> elements.
+    for line in xml.lines() {
+        let trimmed = line.trim();
+        if !trimmed.starts_with("<different ") && !trimmed.starts_with("<right_only ") {
+            continue;
+        }
+
+        let begin = extract_xml_attr(trimmed, "begin")
+            .with_context(|| format!("Missing 'begin' in: {}", trimmed))?;
+        let length = extract_xml_attr(trimmed, "length")
+            .with_context(|| format!("Missing 'length' in: {}", trimmed))?;
+
+        ranges.push(ThinDeltaRange {
+            byte_offset: begin * block_bytes,
+            byte_length: length * block_bytes,
+        });
+    }
+
+    // Sort by offset for sequential I/O.
+    ranges.sort_by_key(|r| r.byte_offset);
+
+    tracing::info!(
+        data_block_size,
+        block_bytes,
+        num_ranges = ranges.len(),
+        total_changed_bytes = ranges.iter().map(|r| r.byte_length).sum::<u64>(),
+        "Parsed thin_delta metadata"
+    );
+
+    Ok(ranges)
+}
+
+/// Extract a numeric attribute value from a simple XML element string.
+/// E.g., `extract_xml_attr(r#"<different begin="10" length="5"/>"#, "begin")` →
+/// `Some(10)`.
+fn extract_xml_attr(element: &str, attr: &str) -> Option<u64> {
+    let pattern = format!("{}=\"", attr);
+    let pos = element.find(&pattern)?;
+    let start = pos + pattern.len();
+    let end = element[start..].find('"')? + start;
+    element[start..end].parse::<u64>().ok()
 }
 
 // ---------------------------------------------------------------------------
@@ -613,15 +907,15 @@ pub async fn create_snapshot_async(
     .context("create_snapshot task panicked")?
 }
 
-/// Async version of create_snapshot_from_image.
-pub async fn create_snapshot_from_image_async(
+/// Async version of create_snapshot_from_delta.
+pub async fn create_snapshot_from_delta_async(
     base_lv_name: String,
     base_device_path: PathBuf,
     base_size_bytes: u64,
     vm_id: String,
     lvm_config: LvmConfig,
-    image_file: PathBuf,
-    size_bytes: u64,
+    delta_file: PathBuf,
+    requested_size: u64,
 ) -> Result<ThinSnapshotHandle> {
     tokio::task::spawn_blocking(move || {
         let base = BaseImageHandle {
@@ -629,10 +923,10 @@ pub async fn create_snapshot_from_image_async(
             device_path: base_device_path,
             size_bytes: base_size_bytes,
         };
-        create_snapshot_from_image(&base, &vm_id, &lvm_config, &image_file, size_bytes)
+        create_snapshot_from_delta(&base, &vm_id, &lvm_config, &delta_file, requested_size)
     })
     .await
-    .context("create_snapshot_from_image task panicked")?
+    .context("create_snapshot_from_delta task panicked")?
 }
 
 /// Async version of destroy_snapshot.
