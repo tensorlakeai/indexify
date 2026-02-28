@@ -2447,15 +2447,7 @@ pub struct StateChange {
     pub processed_at: Option<u64>,
     pub namespace: Option<String>,
     pub application: Option<String>,
-    #[builder(default)]
-    #[serde(default)]
-    created_at_clock: Option<u64>,
-    #[builder(default)]
-    #[serde(default)]
-    updated_at_clock: Option<u64>,
 }
-
-impl StateChange {}
 
 impl Display for StateChange {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
