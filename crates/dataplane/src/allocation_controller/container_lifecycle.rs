@@ -128,6 +128,11 @@ impl AllocationController {
             return;
         }
 
+        let remove_ctx = self
+            .containers
+            .get(fe_id)
+            .map(|fe| FELogCtx::from_description(&fe.description));
+
         if is_running {
             let fe = self.containers.get(fe_id).unwrap();
             if let ContainerState::Running {
@@ -136,11 +141,13 @@ impl AllocationController {
                 ..
             } = &fe.state
             {
-                let ctx = FELogCtx::from_description(&fe.description);
                 info!(
                     container_id = %fe_id,
-                    sandbox_id = %ctx.sandbox_id,
-                    pool_id = %ctx.pool_id,
+                    namespace = %remove_ctx.as_ref().map(|c| c.namespace.as_str()).unwrap_or(""),
+                    app = %remove_ctx.as_ref().map(|c| c.app.as_str()).unwrap_or(""),
+                    "fn" = %remove_ctx.as_ref().map(|c| c.fn_name.as_str()).unwrap_or(""),
+                    sandbox_id = %remove_ctx.as_ref().map(|c| c.sandbox_id.as_str()).unwrap_or(""),
+                    pool_id = %remove_ctx.as_ref().map(|c| c.pool_id.as_str()).unwrap_or(""),
                     "Removing Running container"
                 );
                 health_checker_cancel.cancel();
@@ -152,12 +159,14 @@ impl AllocationController {
             tokio::spawn(async move {
                 let _ = state_file.remove(&id).await;
             });
-        } else if is_starting && let Some(fe) = self.containers.get(fe_id) {
-            let ctx = FELogCtx::from_description(&fe.description);
+        } else if is_starting {
             info!(
                 container_id = %fe_id,
-                sandbox_id = %ctx.sandbox_id,
-                pool_id = %ctx.pool_id,
+                namespace = %remove_ctx.as_ref().map(|c| c.namespace.as_str()).unwrap_or(""),
+                app = %remove_ctx.as_ref().map(|c| c.app.as_str()).unwrap_or(""),
+                "fn" = %remove_ctx.as_ref().map(|c| c.fn_name.as_str()).unwrap_or(""),
+                sandbox_id = %remove_ctx.as_ref().map(|c| c.sandbox_id.as_str()).unwrap_or(""),
+                pool_id = %remove_ctx.as_ref().map(|c| c.pool_id.as_str()).unwrap_or(""),
                 "Removing Starting container, marking Terminated"
             );
         }
@@ -201,12 +210,23 @@ impl AllocationController {
             .and_then(|g| g.count)
             .unwrap_or(0);
 
+        let create_ctx = FELogCtx::from_description(&description);
+
         let allocated_gpu_uuids = if gpu_count > 0 {
             match self.config.gpu_allocator.allocate(gpu_count) {
                 Ok(uuids) => uuids,
                 Err(e) => {
-                    let ctx = FELogCtx::from_description(&description);
-                    warn!(container_id = %fe_id, sandbox_id = %ctx.sandbox_id, pool_id = %ctx.pool_id, gpu_count = gpu_count, error = %e, "GPU allocation failed");
+                    warn!(
+                        container_id = %fe_id,
+                        namespace = %create_ctx.namespace,
+                        app = %create_ctx.app,
+                        "fn" = %create_ctx.fn_name,
+                        sandbox_id = %create_ctx.sandbox_id,
+                        pool_id = %create_ctx.pool_id,
+                        gpu_count = gpu_count,
+                        error = %e,
+                        "GPU allocation failed"
+                    );
                     Vec::new()
                 }
             }
@@ -214,8 +234,17 @@ impl AllocationController {
             Vec::new()
         };
 
-        let ctx = FELogCtx::from_description(&description);
-        info!(container_id = %fe_id, sandbox_id = %ctx.sandbox_id, pool_id = %ctx.pool_id, max_concurrency = max_concurrency, gpus = ?allocated_gpu_uuids, "Creating container");
+        info!(
+            container_id = %fe_id,
+            namespace = %create_ctx.namespace,
+            app = %create_ctx.app,
+            "fn" = %create_ctx.fn_name,
+            sandbox_id = %create_ctx.sandbox_id,
+            pool_id = %create_ctx.pool_id,
+            max_concurrency = max_concurrency,
+            gpus = ?allocated_gpu_uuids,
+            "Creating container"
+        );
 
         self.config
             .metrics
@@ -323,13 +352,22 @@ impl AllocationController {
             return;
         };
 
+        let startup_ctx = FELogCtx::from_description(&fe.description);
+
         match &fe.state {
             ContainerState::Terminated { .. } => {
                 // FE was removed during startup — kill the returned handle
                 // This is the KEY FIX for orphaned Docker containers.
                 if let Ok((handle, _)) = result {
-                    let ctx = FELogCtx::from_description(&fe.description);
-                    warn!(container_id = %fe_id, sandbox_id = %ctx.sandbox_id, pool_id = %ctx.pool_id, "Startup completed but FE is Terminated, killing handle");
+                    warn!(
+                        container_id = %fe_id,
+                        namespace = %startup_ctx.namespace,
+                        app = %startup_ctx.app,
+                        "fn" = %startup_ctx.fn_name,
+                        sandbox_id = %startup_ctx.sandbox_id,
+                        pool_id = %startup_ctx.pool_id,
+                        "Startup completed but FE is Terminated, killing handle"
+                    );
                     self.kill_process_fire_and_forget(handle);
                 }
                 return;
@@ -337,8 +375,15 @@ impl AllocationController {
             ContainerState::Running { .. } => {
                 // Already running (duplicate event?) — kill if we got a new handle
                 if let Ok((handle, _)) = result {
-                    let ctx = FELogCtx::from_description(&fe.description);
-                    warn!(container_id = %fe_id, sandbox_id = %ctx.sandbox_id, pool_id = %ctx.pool_id, "Startup completed but FE is already Running, killing duplicate");
+                    warn!(
+                        container_id = %fe_id,
+                        namespace = %startup_ctx.namespace,
+                        app = %startup_ctx.app,
+                        "fn" = %startup_ctx.fn_name,
+                        sandbox_id = %startup_ctx.sandbox_id,
+                        pool_id = %startup_ctx.pool_id,
+                        "Startup completed but FE is already Running, killing duplicate"
+                    );
                     self.kill_process_fire_and_forget(handle);
                 }
                 return;
@@ -438,9 +483,10 @@ impl AllocationController {
                     )),
                 };
                 let state_file = self.state_file.clone();
+                let persist_fe_id = fe_id.clone();
                 tokio::spawn(async move {
                     if let Err(e) = state_file.upsert(persisted).await {
-                        tracing::warn!(error = ?e, "Failed to persist AC container state");
+                        tracing::warn!(container_id = %persist_fe_id, error = ?e, "Failed to persist AC container state");
                     }
                 });
 
@@ -681,13 +727,13 @@ async fn start_fe_process(
 
     // Resolve image
     let ctx = FELogCtx::from_description(description);
-    tracing::debug!(container_id = %fe_id, %namespace, %app, %function, %version, "Resolving function image");
+    tracing::debug!(container_id = %fe_id, %namespace, %app, "fn" = %function, %version, "Resolving function image");
     let image = config
         .image_resolver
         .function_image(namespace, app, function, version)
         .await
         .inspect_err(|err| {
-            tracing::error!(container_id = %fe_id, %namespace, %app, %function, %version, error = ?err, "Failed to resolve function image");
+            tracing::error!(container_id = %fe_id, %namespace, %app, "fn" = %function, %version, error = ?err, "Failed to resolve function image");
         })?;
 
     info!(
@@ -726,12 +772,23 @@ async fn start_fe_process(
     let pool_id = description.pool_id.as_deref().unwrap_or("").to_string();
 
     let labels = vec![
-        ("indexify.container_id".to_string(), fe_id.clone()),
-        ("indexify.namespace".to_string(), namespace.to_string()),
-        ("indexify.application".to_string(), app.to_string()),
-        ("indexify.function".to_string(), function.to_string()),
-        ("indexify.sandbox_id".to_string(), sandbox_id),
-        ("indexify.pool_id".to_string(), pool_id),
+        ("is_function_executor".to_string(), "true".to_string()),
+        ("container_id".to_string(), fe_id.clone()),
+        ("fn_executor_id".to_string(), fe_id.clone()),
+        ("executor_id".to_string(), config.executor_id.clone()),
+        ("namespace".to_string(), namespace.to_string()),
+        ("app".to_string(), app.to_string()),
+        ("app_version".to_string(), version.to_string()),
+        ("fn".to_string(), function.to_string()),
+        ("sandbox_id".to_string(), sandbox_id),
+        ("pool_id".to_string(), pool_id),
+        (
+            "com.datadoghq.ad.tags".to_string(),
+            format!(
+                "[\"namespace:{}\", \"app:{}\", \"app_version:{}\", \"fn:{}\"]",
+                namespace, app, version, function
+            ),
+        ),
     ];
 
     let process_config = ProcessConfig {

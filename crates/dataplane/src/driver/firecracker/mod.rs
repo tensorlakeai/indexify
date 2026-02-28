@@ -423,9 +423,14 @@ impl ProcessDriver for FirecrackerDriver {
             crate::daemon_binary::get_daemon_path().context("Daemon binary not available")?;
         tracing::info!(vm_id = %vm_id, daemon_path = %daemon_binary.display(), "Injecting rootfs");
 
-        // 3. Inject daemon, init script, and env vars into the snapshot.
+        // 3. Inject daemon, init script, and env vars into the snapshot. Include the
+        //    host's DNS nameservers so the VM can resolve names.
+        let mut env_vars = config.env.clone();
+        if let Some(dns) = rootfs::read_host_dns() {
+            env_vars.push(("DNS_NAMESERVERS".to_string(), dns));
+        }
         if let Err(e) =
-            rootfs::inject_rootfs(&snapshot.device_path, daemon_binary, &config.env, &vm_id).await
+            rootfs::inject_rootfs(&snapshot.device_path, daemon_binary, &env_vars, &vm_id).await
         {
             let _ = dm_snapshot::destroy_snapshot_async(snapshot, self.lvm_config.clone()).await;
             return Err(e.context("Failed to inject rootfs"));

@@ -717,50 +717,60 @@ impl ServiceRuntime {
                             .record(report_start.elapsed().as_secs_f64(), &[]);
                         self.metrics.counters.record_heartbeat(true);
                         retry_interval = HEARTBEAT_MIN_RETRY_INTERVAL;
+
+                        // Any successful RPC means the server is reachable.
+                        self.monitoring_state.ready.store(true, Ordering::SeqCst);
+
+                        // Reset seq counters whenever we sent full_state. The
+                        // server creates a fresh ExecutorConnection with new
+                        // command/result buffers on re-registration, so old
+                        // acked_seq values would incorrectly drain new data.
+                        if is_first_fragment && full_state.is_some() {
+                            self.last_applied_command_seq.store(0, Ordering::SeqCst);
+                            self.last_applied_result_seq.store(0, Ordering::SeqCst);
+                        }
+
+                        // Check send_state BEFORE draining buffers. When the
+                        // server doesn't recognize this executor it drops all
+                        // reports and responds with send_state=true. We must
+                        // keep buffered items so they are resent on the next
+                        // heartbeat (which will include full_state).
+                        let server_needs_state = if is_first_fragment {
+                            let resp = response.into_inner();
+                            resp.send_state.unwrap_or(false)
+                        } else {
+                            false
+                        };
+
+                        if server_needs_state {
+                            // Server didn't process our reports — retain them.
+                            tracing::info!(
+                                resp_count,
+                                out_count,
+                                log_count,
+                                "Server requested full state, retaining buffered reports"
+                            );
+                            send_full_state = true;
+                            self.transition_connection_state(
+                                ConnectionState::Registering,
+                                "server requested re-registration",
+                            );
+                            break;
+                        }
+
                         send_full_state = false;
 
-                        // Drain sent items from all three buffers
+                        // Server accepted our reports — safe to drain.
                         self.state_reporter.drain_sent(resp_count).await;
                         self.state_reporter.drain_sent_outcomes(out_count).await;
                         self.state_reporter.drain_sent_log_entries(log_count).await;
 
                         if is_first_fragment {
-                            // Check if server needs full state
-                            let resp = response.into_inner();
-                            let server_needs_state = resp.send_state.unwrap_or(false);
-                            if server_needs_state {
-                                tracing::info!("Server requested full state");
-                                send_full_state = true;
-                            }
-
-                            // Mark monitoring as ready after first successful heartbeat
-                            self.monitoring_state.ready.store(true, Ordering::SeqCst);
-
-                            // Reset seq counters whenever we sent full_state.
-                            // The server creates a fresh ExecutorConnection with new
-                            // command/result buffers on re-registration, so old
-                            // acked_seq values would incorrectly drain new data.
-                            if full_state.is_some() {
-                                self.last_applied_command_seq.store(0, Ordering::SeqCst);
-                                self.last_applied_result_seq.store(0, Ordering::SeqCst);
-                            }
-
-                            // Only mark healthy when the server knows our executor
-                            // (send_state == false). When the server asks for full state,
-                            // the executor isn't registered in runtime_data yet, so the
-                            // poll loops would be rejected with "executor not found".
-                            if !server_needs_state {
-                                self.heartbeat_healthy.store(true, Ordering::SeqCst);
-                                self.transition_connection_state(
-                                    ConnectionState::Ready,
-                                    "server accepted registration",
-                                );
-                            } else {
-                                self.transition_connection_state(
-                                    ConnectionState::Registering,
-                                    "server requested re-registration",
-                                );
-                            }
+                            self.heartbeat_healthy.store(true, Ordering::SeqCst);
+                            self.transition_connection_state(
+                                ConnectionState::Ready,
+                                "server accepted registration",
+                            );
                         }
                     }
                     Err(e) => {
@@ -989,24 +999,24 @@ impl ServiceRuntime {
                     if let Err(e) = validation::validate_fe_description(&container) {
                         tracing::warn!(
                             seq,
-                            container_id = ?container.id,
-                            namespace = ?container.function.as_ref().and_then(|f| f.namespace.as_deref()),
-                            app = ?container.function.as_ref().and_then(|f| f.application_name.as_deref()),
-                            "fn" = ?container.function.as_ref().and_then(|f| f.function_name.as_deref()),
-                            sandbox_id = ?container.sandbox_metadata.as_ref().and_then(|m| m.sandbox_id.as_deref()),
-                            pool_id = ?container.pool_id.as_deref(),
+                            container_id = %container.id.as_deref().unwrap_or(""),
+                            namespace = %container.function.as_ref().and_then(|f| f.namespace.as_deref()).unwrap_or(""),
+                            app = %container.function.as_ref().and_then(|f| f.application_name.as_deref()).unwrap_or(""),
+                            "fn" = %container.function.as_ref().and_then(|f| f.function_name.as_deref()).unwrap_or(""),
+                            sandbox_id = %container.sandbox_metadata.as_ref().and_then(|m| m.sandbox_id.as_deref()).unwrap_or(""),
+                            pool_id = %container.pool_id.as_deref().unwrap_or(""),
                             error = %e,
                             "Skipping invalid AddContainer command"
                         );
                     } else {
                         tracing::info!(
                             seq,
-                            container_id = ?container.id,
-                            namespace = ?container.function.as_ref().and_then(|f| f.namespace.as_deref()),
-                            app = ?container.function.as_ref().and_then(|f| f.application_name.as_deref()),
-                            "fn" = ?container.function.as_ref().and_then(|f| f.function_name.as_deref()),
-                            sandbox_id = ?container.sandbox_metadata.as_ref().and_then(|m| m.sandbox_id.as_deref()),
-                            pool_id = ?container.pool_id.as_deref(),
+                            container_id = %container.id.as_deref().unwrap_or(""),
+                            namespace = %container.function.as_ref().and_then(|f| f.namespace.as_deref()).unwrap_or(""),
+                            app = %container.function.as_ref().and_then(|f| f.application_name.as_deref()).unwrap_or(""),
+                            "fn" = %container.function.as_ref().and_then(|f| f.function_name.as_deref()).unwrap_or(""),
+                            sandbox_id = %container.sandbox_metadata.as_ref().and_then(|m| m.sandbox_id.as_deref()).unwrap_or(""),
+                            pool_id = %container.pool_id.as_deref().unwrap_or(""),
                             "AddContainer command"
                         );
                         let mut reconciler = self.state_reconciler.lock().await;
@@ -1032,22 +1042,22 @@ impl ServiceRuntime {
                     if let Err(e) = validation::validate_allocation(&allocation) {
                         tracing::warn!(
                             seq,
-                            allocation_id = ?allocation.allocation_id,
-                            request_id = ?allocation.request_id,
-                            container_id = ?allocation.container_id,
-                            namespace = ?allocation.function.as_ref().and_then(|f| f.namespace.as_deref()),
-                            "fn" = ?allocation.function.as_ref().and_then(|f| f.function_name.as_deref()),
+                            allocation_id = %allocation.allocation_id.as_deref().unwrap_or(""),
+                            request_id = %allocation.request_id.as_deref().unwrap_or(""),
+                            container_id = %allocation.container_id.as_deref().unwrap_or(""),
+                            namespace = %allocation.function.as_ref().and_then(|f| f.namespace.as_deref()).unwrap_or(""),
+                            "fn" = %allocation.function.as_ref().and_then(|f| f.function_name.as_deref()).unwrap_or(""),
                             error = %e,
                             "Skipping invalid RunAllocation command"
                         );
                     } else if let Some(fe_id) = allocation.container_id.clone() {
                         tracing::info!(
                             seq,
-                            allocation_id = ?allocation.allocation_id,
-                            request_id = ?allocation.request_id,
+                            allocation_id = %allocation.allocation_id.as_deref().unwrap_or(""),
+                            request_id = %allocation.request_id.as_deref().unwrap_or(""),
                             container_id = %fe_id,
-                            namespace = ?allocation.function.as_ref().and_then(|f| f.namespace.as_deref()),
-                            "fn" = ?allocation.function.as_ref().and_then(|f| f.function_name.as_deref()),
+                            namespace = %allocation.function.as_ref().and_then(|f| f.namespace.as_deref()).unwrap_or(""),
+                            "fn" = %allocation.function.as_ref().and_then(|f| f.function_name.as_deref()).unwrap_or(""),
                             "RunAllocation command"
                         );
                         let mut reconciler = self.state_reconciler.lock().await;
@@ -1057,10 +1067,10 @@ impl ServiceRuntime {
                     } else {
                         tracing::warn!(
                             seq,
-                            allocation_id = ?allocation.allocation_id,
-                            request_id = ?allocation.request_id,
-                            namespace = ?allocation.function.as_ref().and_then(|f| f.namespace.as_deref()),
-                            "fn" = ?allocation.function.as_ref().and_then(|f| f.function_name.as_deref()),
+                            allocation_id = %allocation.allocation_id.as_deref().unwrap_or(""),
+                            request_id = %allocation.request_id.as_deref().unwrap_or(""),
+                            namespace = %allocation.function.as_ref().and_then(|f| f.namespace.as_deref()).unwrap_or(""),
+                            "fn" = %allocation.function.as_ref().and_then(|f| f.function_name.as_deref()).unwrap_or(""),
                             "RunAllocation missing container_id"
                         );
                     }

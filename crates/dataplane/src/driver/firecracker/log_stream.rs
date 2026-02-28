@@ -64,20 +64,11 @@ async fn run_log_streamer(
     let vmm_path = log_dir.join(format!("fc-{}.log", vm_id));
     let serial_path = log_dir.join(format!("fc-{}-serial.log", vm_id));
 
-    let container_id = labels
-        .get("indexify.container_id")
-        .cloned()
-        .unwrap_or_default();
-    let sandbox_id = labels
-        .get("indexify.sandbox_id")
-        .cloned()
-        .unwrap_or_default();
-    let pool_id = labels.get("indexify.pool_id").cloned().unwrap_or_default();
-    let namespace = labels
-        .get("indexify.namespace")
-        .cloned()
-        .unwrap_or_default();
-    let function = labels.get("indexify.function").cloned().unwrap_or_default();
+    let container_id = labels.get("container_id").cloned().unwrap_or_default();
+    let sandbox_id = labels.get("sandbox_id").cloned().unwrap_or_default();
+    let pool_id = labels.get("pool_id").cloned().unwrap_or_default();
+    let namespace = labels.get("namespace").cloned().unwrap_or_default();
+    let function = labels.get("fn").cloned().unwrap_or_default();
 
     let mut vmm_state: Option<TailState> = None;
     let mut serial_state: Option<TailState> = None;
