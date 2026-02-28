@@ -1043,14 +1043,103 @@ impl ApplicationProcessor {
         let reap_update =
             container_scheduler.reap_idle_containers(self.cluster_vacuum_max_idle_age);
         if !reap_update.containers.is_empty() {
+            let current_state = self.indexify_state.in_memory_state.load_full();
+            let mut indexes = (*current_state).clone();
+            let clock = indexes.clock;
+            indexes.apply_scheduler_update(clock, &reap_update, "vacuum_reap")?;
+
+            // Unblock work that was waiting on freed resources from reaped
+            // containers. Without this, the write() below removes the
+            // containers from function_containers (via update_scheduler_update
+            // → remove_container_from_indices), so subsequent
+            // DataplaneResultsIngested events can't find them to trigger
+            // unblocking — causing blocked function runs to be stuck forever.
+            let mut freed_per_class: HashMap<ExecutorClass, u64> = HashMap::new();
+            for meta in reap_update.containers.values() {
+                if matches!(
+                    meta.desired_state,
+                    data_model::ContainerState::Terminated { .. }
+                ) {
+                    let exec_class = container_scheduler
+                        .executor_classes
+                        .get(&meta.executor_id)
+                        .cloned()
+                        .unwrap_or_default();
+                    *freed_per_class.entry(exec_class).or_default() +=
+                        meta.function_container.resources.memory_mb;
+                }
+            }
+            let mut unblocked = UnblockedWork::default();
+            for (class, freed_mb) in &freed_per_class {
+                let batch = container_scheduler
+                    .blocked_work
+                    .unblock_for_freed_resources(class, *freed_mb);
+                unblocked.function_run_keys.extend(batch.function_run_keys);
+                unblocked.sandbox_keys.extend(batch.sandbox_keys);
+            }
+
+            // Extend reap_update into merged FIRST so allocations below can
+            // restore reaped containers (last-wins ordering).
+            let mut merged_update = reap_update;
+            let mut feas_cache = FeasibilityCache::new();
+
+            // Allocate unblocked function runs.
+            if !unblocked.function_run_keys.is_empty() {
+                let function_runs =
+                    indexes.resolve_pending_function_runs(&unblocked.function_run_keys);
+                if !function_runs.is_empty() {
+                    info!(
+                        num_unblocked = function_runs.len(),
+                        "cluster_vacuum: scheduling unblocked function runs"
+                    );
+                    let task_allocator = FunctionRunProcessor::new(self.queue_size);
+                    let alloc_result = task_allocator.allocate_function_runs(
+                        &indexes,
+                        &mut container_scheduler,
+                        function_runs,
+                        &self.allocate_function_runs_latency,
+                        &mut feas_cache,
+                    )?;
+                    indexes.apply_scheduler_update(clock, &alloc_result, "vacuum_unblock_alloc")?;
+                    merged_update.extend(alloc_result);
+                }
+            }
+
+            // Allocate unblocked sandboxes.
+            if !unblocked.sandbox_keys.is_empty() {
+                let sandbox_processor = SandboxProcessor::new();
+                for sandbox_key in &unblocked.sandbox_keys {
+                    let sb_result = sandbox_processor.allocate_sandbox_by_key(
+                        &indexes,
+                        &mut container_scheduler,
+                        sandbox_key.namespace(),
+                        sandbox_key.sandbox_id(),
+                        &mut feas_cache,
+                    )?;
+                    indexes.apply_scheduler_update(clock, &sb_result, "vacuum_unblock_sandbox")?;
+                    merged_update.extend(sb_result);
+                }
+            }
+
             self.indexify_state
                 .write(StateMachineUpdateRequest {
                     payload: RequestPayload::SchedulerUpdate(SchedulerUpdatePayload {
-                        update: Box::new(reap_update),
+                        update: Box::new(merged_update),
                         processed_state_changes: vec![],
                     }),
                 })
                 .await?;
+
+            // Persist BlockedWorkTracker state so the next batch sees the
+            // unblock mutations made above.
+            {
+                let current = self.indexify_state.container_scheduler.load_full();
+                let mut next = (*current).clone();
+                next.blocked_work = container_scheduler.blocked_work;
+                self.indexify_state
+                    .container_scheduler
+                    .store(Arc::new(next));
+            }
         }
 
         // Fail snapshots that have been stuck in InProgress for too long
