@@ -333,6 +333,7 @@ pub fn snapshot_sandbox(
             namespace: request.snapshot.namespace.clone(),
             sandbox_id: request.snapshot.sandbox_id.clone(),
             snapshot_id: request.snapshot.id.clone(),
+            upload_uri: request.upload_uri.clone(),
         }))
         .created_at(get_epoch_time_in_ms())
         .object_id(request.snapshot.id.to_string())

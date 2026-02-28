@@ -30,22 +30,16 @@ mod tests {
         let test_srv = TestService::new().await?;
         let indexify_state = test_srv.service.indexify_state.clone();
 
-        // Initially, no unprocessed state changes
-        let changes = indexify_state
-            .reader()
-            .all_unprocessed_state_changes()
-            .await?;
-        assert_eq!(changes.len(), 0);
+        // Initially, no pending payloads in the queue
+        let pending = indexify_state.reader().read_pending_payloads().await?;
+        assert_eq!(pending.len(), 0);
 
-        // Create an application to generate state changes
+        // Create an application to enqueue payloads
         test_state_store::with_simple_application(&indexify_state).await;
 
-        // Should have state changes now
-        let changes = indexify_state
-            .reader()
-            .all_unprocessed_state_changes()
-            .await?;
-        assert!(!changes.is_empty());
+        // Should have pending payloads now
+        let pending = indexify_state.reader().read_pending_payloads().await?;
+        assert!(!pending.is_empty());
 
         Ok(())
     }
@@ -55,25 +49,19 @@ mod tests {
         let test_srv = TestService::new().await?;
         let indexify_state = test_srv.service.indexify_state.clone();
 
-        // Create an application to generate state changes
+        // Create an application to generate pending payloads
         test_state_store::with_simple_application(&indexify_state).await;
 
-        // Get unprocessed state changes
-        let unprocessed = indexify_state
-            .reader()
-            .unprocessed_state_changes(&None, &None)
-            .await?;
-        assert!(!unprocessed.changes.is_empty());
+        // Get pending payloads from the queue
+        let pending = indexify_state.reader().read_pending_payloads().await?;
+        assert!(!pending.is_empty());
 
         // Process them
         test_srv.process_all_state_changes().await?;
 
-        // Should be no more unprocessed
-        let unprocessed = indexify_state
-            .reader()
-            .unprocessed_state_changes(&None, &None)
-            .await?;
-        assert_eq!(unprocessed.changes.len(), 0);
+        // Should be no more pending payloads
+        let pending = indexify_state.reader().read_pending_payloads().await?;
+        assert_eq!(pending.len(), 0);
 
         Ok(())
     }

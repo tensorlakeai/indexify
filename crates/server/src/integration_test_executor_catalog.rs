@@ -73,7 +73,10 @@ mod tests {
             })
             .await?;
 
-        // Step 4: Run constraint validation which should disable the graph
+        // Step 4: Process enqueued payloads so the app appears in ArcSwap
+        test_srv.process_all_state_changes().await?;
+
+        // Step 4b: Run constraint validation which should disable the graph
         test_srv
             .service
             .application_processor
@@ -134,7 +137,10 @@ mod tests {
             })
             .await?;
 
-        // Step 8: Run constraint validation again which should keep the graph active
+        // Step 8: Process enqueued payloads so the app appears in ArcSwap
+        test_srv.process_all_state_changes().await?;
+
+        // Step 8b: Run constraint validation again which should keep the graph active
         test_srv
             .service
             .application_processor
@@ -257,6 +263,9 @@ mod tests {
                 })
                 .await?;
         }
+
+        // Process enqueued payloads so the apps appear in ArcSwap
+        test_srv.process_all_state_changes().await?;
 
         // Run constraint validation which should disable the unsatisfiable graphs
         test_srv
@@ -454,6 +463,9 @@ mod tests {
                 })
                 .await?;
         }
+
+        // Process enqueued payloads so the apps appear in ArcSwap
+        test_srv.process_all_state_changes().await?;
 
         // Validate constraints
         test_srv

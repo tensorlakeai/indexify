@@ -202,7 +202,7 @@ impl ContainerScheduler {
             RequestPayload::UpsertExecutor(request) => {
                 self.upsert_executor(&request.executor);
             }
-            RequestPayload::DeleteApplicationRequest((request, _)) => {
+            RequestPayload::DeleteApplicationRequest(request) => {
                 self.delete_application(&request.namespace, &request.name);
             }
             RequestPayload::SchedulerUpdate(payload) => {
@@ -230,7 +230,7 @@ impl ContainerScheduler {
                 self.sandbox_pools.remove(&pool_key);
                 self.mark_pool_dirty(pool_key);
             }
-            RequestPayload::DeleteContainerPool((request, _)) => {
+            RequestPayload::DeleteContainerPool(request) => {
                 self.delete_container_pool(&request.namespace, &request.pool_id);
             }
             RequestPayload::CreateOrUpdateApplication(req) => {
@@ -268,7 +268,7 @@ impl ContainerScheduler {
         Ok(())
     }
 
-    fn upsert_executor(&mut self, executor_metadata: &ExecutorMetadata) {
+    pub fn upsert_executor(&mut self, executor_metadata: &ExecutorMetadata) {
         // Only update executor metadata here.
         // num_allocations updates are handled in update_scheduler_update
         // when processing updated_allocations from the processors.
@@ -1518,6 +1518,11 @@ impl ContainerScheduler {
         // Update executor states
         for (id, state) in &update.updated_executor_states {
             self.set_executor_state(id.clone(), state.clone());
+        }
+
+        // Remove deregistered executors
+        for executor_id in &update.remove_executors {
+            self.remove_executor_state(executor_id);
         }
     }
 
