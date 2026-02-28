@@ -96,7 +96,7 @@ pub(crate) async fn get_stream_concurrent(
         return get_stream(client, bucket, key, None).await;
     }
 
-    let num_parts = (size + DOWNLOAD_PART_SIZE - 1) / DOWNLOAD_PART_SIZE;
+    let num_parts = size.div_ceil(DOWNLOAD_PART_SIZE);
 
     tracing::info!(
         bucket,
