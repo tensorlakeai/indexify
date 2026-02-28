@@ -261,6 +261,9 @@ pub fn create_snapshot(
     tracing::info!(
         vm_id = %vm_id,
         lv_name = %lv_name,
+        base_size_bytes = base.size_bytes,
+        requested_size_bytes = size_bytes,
+        needs_resize = size_bytes > base.size_bytes,
         elapsed_ms = t0.elapsed().as_millis() as u64,
         "lvcreate --snapshot complete"
     );
@@ -384,6 +387,10 @@ pub fn create_snapshot_from_delta(
     tracing::info!(
         vm_id = %vm_id,
         lv_name = %lv_name,
+        base_size_bytes = base.size_bytes,
+        requested_size_bytes = requested_size,
+        lv_size,
+        needs_resize = lv_size > base.size_bytes,
         elapsed_ms = t0.elapsed().as_millis() as u64,
         "lvcreate --snapshot complete (restore)"
     );
