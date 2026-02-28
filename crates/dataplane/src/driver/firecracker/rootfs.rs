@@ -113,6 +113,46 @@ pub fn read_host_dns() -> Option<String> {
     }
 }
 
+/// Mount a snapshot, inject only environment variables, unmount.
+///
+/// Used for snapshot restores where the daemon binary and init script
+/// are already present in the snapshot. Only the env file needs updating
+/// (secrets and DNS may differ on the new host).
+pub async fn inject_env_only(
+    thin_dev_path: &Path,
+    env_vars: &[(String, String)],
+    vm_id: &str,
+) -> Result<()> {
+    let mount_point = format!("/tmp/indexify-mount-{}", vm_id);
+    std::fs::create_dir_all(&mount_point)
+        .with_context(|| format!("Failed to create mount point {}", mount_point))?;
+    mount_device(thin_dev_path, &mount_point).await?;
+
+    let result = async {
+        let root = Path::new(&mount_point);
+        let env_dest = root.join("etc/indexify-env");
+        if let Some(parent) = env_dest.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let env_content: String = env_vars
+            .iter()
+            .map(|(k, v)| format!("{}={}", k, v))
+            .collect::<Vec<_>>()
+            .join("\n");
+        std::fs::write(&env_dest, &env_content)
+            .with_context(|| format!("Failed to write env file to {}", env_dest.display()))?;
+        Ok::<(), anyhow::Error>(())
+    }
+    .await;
+
+    if let Err(e) = unmount(&mount_point).await {
+        tracing::warn!(mount_point, error = ?e, "Failed to unmount rootfs");
+    }
+    let _ = std::fs::remove_dir(&mount_point);
+
+    result
+}
+
 /// Mount a thin volume, inject daemon + init + env, unmount.
 ///
 /// Each per-VM volume is a CoW snapshot of the origin — the base image

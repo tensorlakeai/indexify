@@ -216,7 +216,7 @@ impl Service {
                 ..
             } => {
                 let state_dir_path = config.firecracker_state_dir(&config.sandbox_driver);
-                let lvm_config = crate::driver::firecracker::dm_snapshot::LvmConfig {
+                let lvm_config = crate::driver::firecracker::dm_thin::LvmConfig {
                     volume_group: lvm_volume_group.clone(),
                     thin_pool: lvm_thin_pool.clone(),
                 };

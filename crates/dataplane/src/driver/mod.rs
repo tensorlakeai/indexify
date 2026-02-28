@@ -8,6 +8,8 @@ use async_trait::async_trait;
 pub use docker::{DockerDriver, ImageError};
 #[cfg(feature = "firecracker")]
 pub use firecracker::FirecrackerDriver;
+#[cfg(feature = "firecracker")]
+pub use firecracker::dm_thin::LvmConfig;
 pub use fork_exec::ForkExecDriver;
 
 /// Container port for the daemon gRPC server (internal API).

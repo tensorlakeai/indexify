@@ -59,3 +59,4 @@ firecracker = ["libc"]
 [dev-dependencies]
 tempfile.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
+reqwest.workspace = true

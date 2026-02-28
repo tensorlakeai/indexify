@@ -501,6 +501,7 @@ async fn test_docker_resource_limits() {
         resources: Some(ResourceLimits {
             memory_bytes: Some(256 * 1024 * 1024), // 256 MB
             cpu_millicores: Some(500),             // 0.5 CPU cores
+            disk_bytes: None,
             gpu_device_ids: None,
         }),
         labels: vec![],
