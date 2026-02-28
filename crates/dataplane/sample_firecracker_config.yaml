@@ -12,8 +12,8 @@ state_dir: /var/lib/indexify
 
 sandbox_driver:
   type: firecracker
-  kernel_image_path: /home/diptanuc/Projects/firecracker/vmlinux-6.1.155
-  base_rootfs_image: /home/diptanuc/Projects/firecracker/ubuntu-24.04.ext4
+  kernel_image_path: /opt/firecracker/vmlinux
+  base_rootfs_image: /opt/firecracker/rootfs.ext4
   cni_network_name: indexify-fc
   guest_gateway: "192.168.30.1"
   lvm_volume_group: indexify-vg
