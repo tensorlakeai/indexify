@@ -153,6 +153,8 @@ pub(super) async fn start_container_with_daemon(
 
     // Build labels for container identification
     let container_type = container_type_str(desc);
+    let sandbox_id_str = info.sandbox_id.unwrap_or("").to_string();
+    let pool_id_str = info.pool_id.unwrap_or("").to_string();
     let labels = vec![
         ("managed".to_string(), "true".to_string()),
         ("type".to_string(), container_type.to_string()),
@@ -161,6 +163,8 @@ pub(super) async fn start_container_with_daemon(
         ("namespace".to_string(), info.namespace.to_string()),
         ("app_version".to_string(), info.app_version.to_string()),
         ("container_id".to_string(), info.container_id.to_string()),
+        ("sandbox_id".to_string(), sandbox_id_str),
+        ("pool_id".to_string(), pool_id_str),
         (
             "com.datadoghq.ad.tags".to_string(),
             format!(
