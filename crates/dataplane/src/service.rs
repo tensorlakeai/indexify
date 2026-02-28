@@ -957,12 +957,18 @@ impl ServiceRuntime {
             if !dispatcher.dispatch(&allocation_id, log_entry.clone()).await {
                 // Extract context from the inner entry for debugging.
                 let (namespace, request_id, function_call_id) = match &log_entry.entry {
-                    Some(proto_api::executor_api_pb::allocation_log_entry::Entry::FunctionCallResult(r)) => (
+                    Some(
+                        proto_api::executor_api_pb::allocation_log_entry::Entry::FunctionCallResult(
+                            r,
+                        ),
+                    ) => (
                         r.namespace.as_deref().unwrap_or("?"),
                         r.request_id.as_deref().unwrap_or("?"),
                         r.function_call_id.as_deref().unwrap_or("?"),
                     ),
-                    Some(proto_api::executor_api_pb::allocation_log_entry::Entry::CallFunction(r)) => (
+                    Some(
+                        proto_api::executor_api_pb::allocation_log_entry::Entry::CallFunction(r),
+                    ) => (
                         r.namespace.as_deref().unwrap_or("?"),
                         r.request_id.as_deref().unwrap_or("?"),
                         r.source_function_call_id.as_deref().unwrap_or("?"),
