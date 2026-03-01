@@ -260,14 +260,15 @@ pub async fn list_sandbox_pools(
     Path(namespace): Path<String>,
     State(state): State<RouteState>,
 ) -> Result<Json<ListSandboxPoolsResponse>, IndexifyAPIError> {
-    let app_state = state.indexify_state.app_state.load();
-
-    let pools: Vec<SandboxPoolInfo> = app_state
-        .scheduler
-        .sandbox_pools
+    // Read from RocksDB for read-after-write consistency.
+    let pools: Vec<SandboxPoolInfo> = state
+        .indexify_state
+        .reader()
+        .list_sandbox_pools(&namespace)
+        .await
+        .map_err(IndexifyAPIError::internal_error)?
         .iter()
-        .filter(|(key, _)| key.namespace == namespace)
-        .map(|(_, pool)| SandboxPoolInfo::from_pool(pool))
+        .map(SandboxPoolInfo::from_pool)
         .collect();
 
     Ok(Json(ListSandboxPoolsResponse { pools }))
@@ -288,17 +289,20 @@ pub async fn get_sandbox_pool(
     Path((namespace, pool_id)): Path<(String, String)>,
     State(state): State<RouteState>,
 ) -> Result<Json<SandboxPoolDetail>, IndexifyAPIError> {
-    let pool_key = ContainerPoolKey::new(&namespace, &ContainerPoolId::new(&pool_id));
-
-    let app_state = state.indexify_state.app_state.load();
-    let pool = app_state
-        .scheduler
-        .sandbox_pools
-        .get(&pool_key)
+    // Read pool from RocksDB (durable state) for read-after-write consistency.
+    let pool = state
+        .indexify_state
+        .reader()
+        .get_sandbox_pool(&namespace, &pool_id)
+        .await
+        .map_err(IndexifyAPIError::internal_error)?
         .ok_or_else(|| IndexifyAPIError::not_found("Sandbox pool not found"))?;
 
-    let pool_info = SandboxPoolInfo::from_pool(pool);
+    let pool_info = SandboxPoolInfo::from_pool(&pool);
 
+    // Container info is runtime scheduler state — read from ArcSwap.
+    let pool_key = ContainerPoolKey::new(&namespace, &ContainerPoolId::new(&pool_id));
+    let app_state = state.indexify_state.app_state.load();
     let containers: Vec<ContainerInfo> = app_state
         .scheduler
         .containers_by_pool
@@ -345,18 +349,16 @@ pub async fn update_sandbox_pool(
     Json(request): Json<UpdateSandboxPoolRequest>,
 ) -> Result<Json<SandboxPoolInfo>, IndexifyAPIError> {
     let pool_id_obj = ContainerPoolId::new(&pool_id);
-    let pool_key = ContainerPoolKey::new(&namespace, &pool_id_obj);
 
-    // Check if pool exists and get created_at timestamp
-    let created_at = {
-        let app_state = state.indexify_state.app_state.load();
-        app_state
-            .scheduler
-            .sandbox_pools
-            .get(&pool_key)
-            .ok_or_else(|| IndexifyAPIError::not_found("Sandbox pool not found"))?
-            .created_at
-    };
+    // Check if pool exists and get created_at timestamp from RocksDB.
+    let created_at = state
+        .indexify_state
+        .reader()
+        .get_sandbox_pool(&namespace, &pool_id)
+        .await
+        .map_err(IndexifyAPIError::internal_error)?
+        .ok_or_else(|| IndexifyAPIError::not_found("Sandbox pool not found"))?
+        .created_at;
 
     let pool = build_pool(
         pool_id_obj,
@@ -405,14 +407,14 @@ pub async fn create_pool_sandbox(
     State(state): State<RouteState>,
 ) -> Result<Json<CreatePoolSandboxResponse>, IndexifyAPIError> {
     let pool_id_obj = ContainerPoolId::new(&pool_id);
-    let pool_key = ContainerPoolKey::new(&namespace, &pool_id_obj);
 
-    // Look up the pool to get its configuration
-    let app_state = state.indexify_state.app_state.load();
-    let pool = app_state
-        .scheduler
-        .sandbox_pools
-        .get(&pool_key)
+    // Look up the pool from RocksDB (durable state).
+    let pool = state
+        .indexify_state
+        .reader()
+        .get_sandbox_pool(&namespace, &pool_id)
+        .await
+        .map_err(IndexifyAPIError::internal_error)?
         .ok_or_else(|| IndexifyAPIError::not_found("Sandbox pool not found"))?;
 
     // Build a sandbox using the pool's configuration
@@ -433,9 +435,6 @@ pub async fn create_pool_sandbox(
         .pool_id(Some(pool_id_obj))
         .build()
         .map_err(|e| IndexifyAPIError::internal_error_str(&e.to_string()))?;
-
-    // Drop the app_state guard before writing
-    drop(app_state);
 
     let state_request = StateMachineUpdateRequest {
         payload: RequestPayload::CreateSandbox(StateCreateSandboxRequest {
@@ -473,14 +472,21 @@ pub async fn delete_sandbox_pool(
     State(state): State<RouteState>,
 ) -> Result<(), IndexifyAPIError> {
     let pool_id_obj = ContainerPoolId::new(&pool_id);
-    let pool_key = ContainerPoolKey::new(&namespace, &pool_id_obj);
 
-    // Check if pool exists and if any sandboxes are using it
-    let app_state = state.indexify_state.app_state.load();
-    if !app_state.scheduler.sandbox_pools.contains_key(&pool_key) {
+    // Check pool exists in RocksDB (durable state).
+    if state
+        .indexify_state
+        .reader()
+        .get_sandbox_pool(&namespace, &pool_id)
+        .await
+        .map_err(IndexifyAPIError::internal_error)?
+        .is_none()
+    {
         return Err(IndexifyAPIError::not_found("Sandbox pool not found"));
     }
 
+    // Check for active sandboxes from ArcSwap (runtime state).
+    let app_state = state.indexify_state.app_state.load();
     let active_sandboxes = app_state.indexes.sandboxes.values().any(|s| {
         s.pool_id.as_ref() == Some(&pool_id_obj) &&
             s.namespace == namespace &&

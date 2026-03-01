@@ -1158,10 +1158,10 @@ impl InMemoryState {
                         (snapshot.namespace.clone(), snapshot.sandbox_id.clone())
                     };
 
-                    // Revert sandbox to Running
+                    // Mark sandbox as Terminated on snapshot failure.
                     let sandbox_key = SandboxKey::new(&ns, sb_id.get());
                     if let Some(sandbox) = self.sandboxes.get_mut(&sandbox_key) {
-                        sandbox.status = SandboxStatus::Running;
+                        sandbox.status = SandboxStatus::Terminated;
                     }
                 }
             }
