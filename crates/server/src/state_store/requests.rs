@@ -31,6 +31,7 @@ use crate::{
         SandboxKey,
         Snapshot,
         SnapshotId,
+        SnapshotKey,
         StateChange,
     },
     state_store::{IndexifyState, state_changes},
@@ -179,6 +180,7 @@ pub struct SchedulerUpdateRequest {
     pub containers: imbl::HashMap<ContainerId, Box<ContainerServerMetadata>>,
     pub new_state_changes: Vec<StateChange>,
     pub updated_sandboxes: imbl::HashMap<SandboxKey, Sandbox>,
+    pub updated_snapshots: imbl::HashMap<SnapshotKey, Snapshot>,
     pub updated_pools: imbl::HashMap<ContainerPoolKey, ContainerPool>,
     pub deleted_pools: imbl::HashSet<ContainerPoolKey>,
     pub function_pool_deficits: Option<super::in_memory_state::ResourceProfileHistogram>,
@@ -217,6 +219,7 @@ impl SchedulerUpdateRequest {
         }
         self.containers.extend(other.containers);
         self.updated_sandboxes.extend(other.updated_sandboxes);
+        self.updated_snapshots.extend(other.updated_snapshots);
         self.updated_pools.extend(other.updated_pools);
         self.deleted_pools.extend(other.deleted_pools);
         if other.function_pool_deficits.is_some() {

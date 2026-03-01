@@ -903,6 +903,9 @@ pub(crate) async fn handle_scheduler_update(
     for sandbox in request.updated_sandboxes.values() {
         upsert_sandbox(txn, sandbox, clock).await?;
     }
+    for snapshot in request.updated_snapshots.values() {
+        upsert_snapshot(txn, snapshot).await?;
+    }
 
     Ok(result)
 }

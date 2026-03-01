@@ -13,7 +13,6 @@ use crate::{
         SandboxPendingReason,
         SandboxStatus,
         SandboxSuccessReason,
-        SnapshotId,
         SnapshotStatus,
     },
     processor::container_scheduler::{self, ContainerScheduler},
@@ -287,28 +286,46 @@ impl SandboxProcessor {
         Ok(update)
     }
 
-    /// Returns in-progress snapshots whose sandbox was running on the given
-    /// executor. Used when an executor is tombstoned so those snapshots can be
-    /// failed immediately.
-    pub fn in_progress_snapshot_ids_for_executor(
+    /// Marks in-progress snapshots as failed for sandboxes on the given
+    /// executor and marks those sandboxes as terminated.
+    pub fn fail_in_progress_snapshots_for_executor(
         &self,
         in_memory_state: &InMemoryState,
         executor_id: &ExecutorId,
-    ) -> Vec<SnapshotId> {
-        in_memory_state
+        error: &str,
+    ) -> SchedulerUpdateRequest {
+        let mut update = SchedulerUpdateRequest::default();
+
+        for snapshot in in_memory_state
             .snapshots
             .values()
             .filter(|snapshot| matches!(snapshot.status, SnapshotStatus::InProgress))
-            .filter_map(|snapshot| {
-                let sandbox_key = SandboxKey::new(&snapshot.namespace, snapshot.sandbox_id.get());
-                let sandbox = in_memory_state.sandboxes.get(&sandbox_key)?;
-                if sandbox.executor_id.as_ref() == Some(executor_id) {
-                    Some(snapshot.id.clone())
-                } else {
-                    None
-                }
-            })
-            .collect()
+        {
+            let sandbox_key = SandboxKey::new(&snapshot.namespace, snapshot.sandbox_id.get());
+            let Some(sandbox) = in_memory_state.sandboxes.get(&sandbox_key) else {
+                continue;
+            };
+            if sandbox.executor_id.as_ref() != Some(executor_id) {
+                continue;
+            }
+
+            let mut failed_snapshot = snapshot.as_ref().clone();
+            failed_snapshot.status = SnapshotStatus::Failed {
+                error: error.to_string(),
+            };
+            update.updated_snapshots.insert(
+                crate::data_model::SnapshotKey::from_snapshot(&failed_snapshot),
+                failed_snapshot,
+            );
+
+            let mut terminated_sandbox = sandbox.as_ref().clone();
+            terminated_sandbox.status = SandboxStatus::Terminated;
+            update
+                .updated_sandboxes
+                .insert(sandbox_key, terminated_sandbox);
+        }
+
+        update
     }
 
     /// Try to claim a warm container from a sandbox pool

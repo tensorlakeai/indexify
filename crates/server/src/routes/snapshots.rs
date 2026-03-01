@@ -149,6 +149,7 @@ pub async fn create_snapshot(
         resources: sandbox.resources.clone(),
         entrypoint: sandbox.entrypoint.clone(),
         secret_names: sandbox.secret_names.clone(),
+        upload_uri: Some(upload_uri.clone()),
     };
 
     state

@@ -189,6 +189,7 @@ pub struct DesiredExecutorState {
     pub containers: Vec<Box<DesiredStateFunctionExecutor>>,
     #[allow(clippy::box_collection)]
     pub function_run_allocations: std::collections::HashMap<ContainerId, Vec<Allocation>>,
+    pub pending_snapshots: Vec<crate::executors::PendingSnapshot>,
     pub clock: u64,
 }
 
@@ -819,6 +820,10 @@ impl InMemoryState {
                     self.sandboxes.remove(sandbox_key);
                 }
             }
+        }
+        for (snapshot_key, snapshot) in &req.updated_snapshots {
+            self.snapshots
+                .insert(snapshot_key.clone(), Box::new(snapshot.clone()));
         }
 
         for fc_metadata in req.containers.values() {

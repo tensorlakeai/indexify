@@ -17,23 +17,15 @@ use requests::{RequestPayload, StateMachineUpdateRequest};
 use rocksdb::{ColumnFamilyDescriptor, Options};
 use state_machine::IndexifyObjectsColumns;
 use strum::IntoEnumIterator;
-use tokio::sync::{Notify, RwLock, mpsc, watch};
+use tokio::sync::{Notify, RwLock, watch};
 use tracing::{debug, error, info, span};
 
 use crate::{
     config::ExecutorCatalogEntry,
-    data_model::{
-        Allocation,
-        ContainerId,
-        ExecutorId,
-        SandboxKey,
-        SandboxStatus,
-        SnapshotStatus,
-        StateMachineMetadata,
-    },
+    data_model::{ExecutorId, SandboxKey, SandboxStatus, SnapshotStatus, StateMachineMetadata},
     executor_api::executor_api_pb,
     metrics::{StateStoreMetrics, Timer},
-    processor::container_scheduler::{ContainerScheduler, ContainerSchedulerGauges},
+    processor::container_scheduler::ContainerScheduler,
     state_store::{
         driver::{
             Transaction,
@@ -60,52 +52,13 @@ impl ExecutorCatalog {
     }
 }
 
-/// Typed event pushed onto per-executor channels from `write()`.
-/// Consumers convert to proto commands — O(1) per event instead of
-/// O(total-state) per notification.
-#[derive(Debug, Clone)]
-pub enum ExecutorEvent {
-    /// New allocation assigned to this executor. Carries full data so
-    /// the consumer only needs blob store for URL conversion.
-    AllocationCreated(Box<Allocation>),
-
-    /// New container added. Consumer looks up ContainerServerMetadata
-    /// + ApplicationVersion from state for proto conversion.
-    ContainerAdded(ContainerId),
-
-    /// Container should be removed.
-    ContainerRemoved(ContainerId),
-
-    /// Pre-existing container's description changed (e.g. sandbox_id set
-    /// on warm-pool claim). Consumer builds an UpdateContainerDescription
-    /// command with only the changed fields.
-    ContainerDescriptionChanged(ContainerId),
-
-    /// Snapshot a container's filesystem.
-    SnapshotContainer {
-        container_id: ContainerId,
-        snapshot_id: String,
-        upload_uri: String,
-    },
-
-    /// Fallback: consumer does full state recompute via
-    /// get_executor_state() + CommandEmitter.
-    /// Used for bulk ops (DeleteApplication, DeleteContainerPool)
-    /// and edge cases.
-    FullSync,
-}
-
 /// Server-side connection state for a single executor.
 /// Created on registration, destroyed on deregistration.
 ///
-/// Consolidates the event channel, command emitter, and buffered
-/// commands/results for long-poll delivery into one place.
+/// Holds the command emitter and buffered commands/results for long-poll
+/// delivery. Command generation is driven by the global executor wake
+/// channel — the background task diffs ArcSwap state on each wake.
 pub struct ExecutorConnection {
-    /// Sender half — used by state_store to push events.
-    event_tx: mpsc::UnboundedSender<ExecutorEvent>,
-    /// Receiver half — consumed by the background command generator task.
-    /// Events buffer here when no task is consuming.
-    pub event_rx: Arc<tokio::sync::Mutex<mpsc::UnboundedReceiver<ExecutorEvent>>>,
     /// Command emitter — persists across reconnections.
     /// Fresh emitter (has_synced=false) on first registration.
     pub emitter: Arc<tokio::sync::Mutex<CommandEmitter>>,
@@ -122,7 +75,7 @@ pub struct ExecutorConnection {
     /// Wakes a held poll_allocation_results request when new results arrive.
     results_notify: Arc<Notify>,
 
-    /// Background task that consumes events and produces commands.
+    /// Background task that diffs state and produces commands.
     /// Spawned externally (in executor_api.rs) because it needs
     /// executor_manager and blob_storage_registry.
     pub command_generator_handle: Option<tokio::task::JoinHandle<()>>,
@@ -131,10 +84,7 @@ pub struct ExecutorConnection {
 impl ExecutorConnection {
     /// Create a new connection (executor just registered).
     pub fn new() -> Self {
-        let (tx, rx) = mpsc::unbounded_channel();
         Self {
-            event_tx: tx,
-            event_rx: Arc::new(tokio::sync::Mutex::new(rx)),
             emitter: Arc::new(tokio::sync::Mutex::new(CommandEmitter::new())),
             pending_commands: Arc::new(tokio::sync::Mutex::new(Vec::new())),
             commands_notify: Arc::new(Notify::new()),
@@ -208,14 +158,6 @@ impl ExecutorConnection {
         let mut emitter = self.emitter.lock().await;
         *emitter = CommandEmitter::new();
     }
-
-    /// Send an event. Buffers if no task is consuming.
-    pub fn send_event(
-        &self,
-        event: ExecutorEvent,
-    ) -> Result<(), mpsc::error::SendError<ExecutorEvent>> {
-        self.event_tx.send(event)
-    }
 }
 
 /// Use forward declaration to avoid circular dependency with executor_api
@@ -239,33 +181,6 @@ pub mod state_machine;
 #[cfg(test)]
 pub mod test_state_store;
 
-#[derive(Debug)]
-pub struct ExecutorState {
-    pub new_state_channel: watch::Sender<()>,
-}
-
-impl ExecutorState {
-    pub fn new() -> Self {
-        let (new_state_channel, _) = watch::channel(());
-        Self { new_state_channel }
-    }
-
-    pub fn notify(&mut self) {
-        if let Err(err) = self.new_state_channel.send(()) {
-            debug!(
-                "failed to notify executor state change, ignoring: {:?}",
-                err
-            );
-        }
-    }
-}
-
-impl Default for ExecutorState {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 /// Combined snapshot of in-memory indexes and container scheduler.
 /// One `ArcSwap<AppState>` replaces the two independent ArcSwaps so readers
 /// always get a consistent pair (no race window between loads).
@@ -277,7 +192,6 @@ pub struct AppState {
 
 pub struct IndexifyState {
     pub db: Arc<RocksDBDriver>,
-    pub executor_states: RwLock<HashMap<ExecutorId, ExecutorState>>,
     pub db_version: u64,
 
     pub state_change_id_seq: Arc<AtomicU64>,
@@ -291,20 +205,24 @@ pub struct IndexifyState {
     pub usage_events_tx: watch::Sender<()>,
     pub usage_events_rx: watch::Receiver<()>,
 
+    /// Global wake channel for diff-based command generation.
+    /// The scheduler fires this after publishing to ArcSwap; per-executor
+    /// command generator tasks subscribe and diff against the new state.
+    pub executor_wake_tx: watch::Sender<()>,
+
     pub metrics: Arc<StateStoreMetrics>,
     pub app_state: Arc<ArcSwap<AppState>>,
     /// Serializes writers to app_state.
     /// ArcSwap provides lock-free reads but concurrent fork-mutate-publish
     /// cycles need serialization to prevent lost updates.
     pub write_mutex: tokio::sync::Mutex<()>,
-    /// Per-executor connection state for event-driven command generation.
-    /// `write()` pushes typed events; a background task consumes them and
-    /// buffers commands/results for long-poll delivery.
+    /// Per-executor connection state for diff-based command generation.
+    /// A background task diffs against ArcSwap on wake and buffers
+    /// commands/results for long-poll delivery.
     pub executor_connections: RwLock<HashMap<ExecutorId, ExecutorConnection>>,
     pub request_event_buffers: RequestEventBuffers,
     // Observable gauges - must be kept alive for callbacks to fire
     _in_memory_store_gauges: InMemoryStoreGauges,
-    _container_scheduler_gauges: ContainerSchedulerGauges,
 }
 
 pub(crate) fn open_database<I>(
@@ -371,6 +289,7 @@ impl IndexifyState {
 
         let (change_events_tx, change_events_rx) = watch::channel(());
         let (usage_events_tx, usage_events_rx) = watch::channel(());
+        let (executor_wake_tx, _executor_wake_rx) = watch::channel(());
 
         let state_reader = scanner::StateReader::new(db.clone(), state_store_metrics.clone());
 
@@ -412,7 +331,6 @@ impl IndexifyState {
             indexes: in_memory_state,
             scheduler: container_scheduler,
         }));
-        let container_scheduler_gauges = ContainerSchedulerGauges::new(app_state.clone());
         let in_memory_store_gauges = InMemoryStoreGauges::new(app_state.clone());
 
         let s = Arc::new(Self {
@@ -422,18 +340,17 @@ impl IndexifyState {
             usage_event_id_seq: Arc::new(AtomicU64::new(sm_meta.last_usage_idx)),
             request_event_id_seq: Arc::new(AtomicU64::new(sm_meta.last_request_event_idx)),
             payload_seq: AtomicU64::new(initial_payload_seq),
-            executor_states: RwLock::new(HashMap::new()),
             metrics: state_store_metrics,
             change_events_tx,
             change_events_rx,
             app_state,
             usage_events_tx,
             usage_events_rx,
+            executor_wake_tx,
             executor_connections: RwLock::new(HashMap::new()),
             request_event_buffers,
             write_mutex: tokio::sync::Mutex::new(()),
             _in_memory_store_gauges: in_memory_store_gauges,
-            _container_scheduler_gauges: container_scheduler_gauges,
         });
 
         info!(
@@ -497,10 +414,30 @@ impl IndexifyState {
         Ok(())
     }
 
+    /// Subscribe to the global executor wake channel. Each subscriber gets
+    /// its own independent receiver that tracks which notifications it has
+    /// seen.
+    pub fn subscribe_executor_wake(&self) -> watch::Receiver<()> {
+        self.executor_wake_tx.subscribe()
+    }
+
     async fn write_in_persistent_store(
         &self,
         request: &mut StateMachineUpdateRequest,
         timer_kv: &[KeyValue],
+    ) -> Result<PersistentWriteResult> {
+        self.write_in_persistent_store_inner(request, timer_kv, None)
+            .await
+    }
+
+    /// Core persistent write. When `dequeue_through_seq` is Some, processed
+    /// payloads up through that sequence are deleted in the same RocksDB
+    /// transaction — making the scheduler output + dequeue atomic.
+    async fn write_in_persistent_store_inner(
+        &self,
+        request: &mut StateMachineUpdateRequest,
+        timer_kv: &[KeyValue],
+        dequeue_through_seq: Option<u64>,
     ) -> Result<PersistentWriteResult> {
         let _timer =
             Timer::start_with_labels(&self.metrics.state_write_persistent_storage, timer_kv);
@@ -575,20 +512,8 @@ impl IndexifyState {
             RequestPayload::UpsertExecutor(request) => {
                 // Persist executor metadata to RocksDB so it survives restarts.
                 state_machine::upsert_executor(&txn, &request.executor).await?;
-
-                if request.update_executor_state {
-                    self.executor_states
-                        .write()
-                        .await
-                        .entry(request.executor.id.clone())
-                        .or_default();
-                }
             }
             RequestPayload::DeregisterExecutor(request) => {
-                self.executor_states
-                    .write()
-                    .await
-                    .remove(&request.executor_id);
                 info!(
                     executor_id = request.executor_id.get(),
                     "marking executor as tombstoned"
@@ -598,8 +523,10 @@ impl IndexifyState {
                 state_machine::upsert_sandbox(&txn, &request.sandbox, current_clock).await?;
             }
             RequestPayload::SnapshotSandbox(request) => {
-                // 1) Persist the new Snapshot object
-                state_machine::upsert_snapshot(&txn, &request.snapshot).await?;
+                // 1) Persist the new Snapshot object with upload_uri
+                let mut snapshot = request.snapshot.clone();
+                snapshot.upload_uri = Some(request.upload_uri.clone());
+                state_machine::upsert_snapshot(&txn, &snapshot).await?;
 
                 // 2) Transition the sandbox to Snapshotting status
                 let reader = scanner::StateReader::new(self.db.clone(), self.metrics.clone());
@@ -809,6 +736,13 @@ impl IndexifyState {
             },
         )
         .await?;
+
+        // When dequeue_through_seq is provided, delete processed payloads in
+        // the same transaction so the scheduler output + dequeue are atomic.
+        if let Some(through_seq) = dequeue_through_seq {
+            state_machine::dequeue_payloads(&txn, through_seq).await?;
+        }
+
         txn.commit().await?;
 
         Ok(PersistentWriteResult {
@@ -851,8 +785,8 @@ impl IndexifyState {
     /// If a connection already exists (re-registration without prior
     /// deregister), the emitter is reset to `has_synced = false` so the
     /// next command generation cycle does a full sync with accurate
-    /// tracking state. The event channel and pending buffers are preserved
-    /// so buffered events are not lost.
+    /// tracking state. Pending buffers are preserved so buffered
+    /// commands are not lost.
     pub async fn register_executor_connection(&self, executor_id: &ExecutorId) {
         let mut connections = self.executor_connections.write().await;
         match connections.entry(executor_id.clone()) {
@@ -874,8 +808,8 @@ impl IndexifyState {
     }
 
     /// Remove the connection for an executor. Called on deregistration.
-    /// Drops the sender, which causes any active command generator task to
-    /// exit.
+    /// Aborts the background command generator task and wakes any held
+    /// long-poll requests.
     pub async fn deregister_executor_connection(&self, executor_id: &ExecutorId) {
         let removed = self.executor_connections.write().await.remove(executor_id);
         if let Some(conn) = removed {
@@ -895,39 +829,6 @@ impl IndexifyState {
         }
     }
 
-    /// Send an event to an executor's connection. Logs a warning if the
-    /// connection is missing or the channel is closed.
-    pub(crate) fn send_event(
-        connections: &HashMap<ExecutorId, ExecutorConnection>,
-        executor_id: &ExecutorId,
-        event: ExecutorEvent,
-    ) {
-        match connections.get(executor_id) {
-            Some(conn) => {
-                if conn.send_event(event).is_err() {
-                    info!(
-                        executor_id = executor_id.get(),
-                        "executor event dropped: channel closed"
-                    );
-                }
-            }
-            None => {
-                info!(
-                    executor_id = executor_id.get(),
-                    "executor event dropped: executor not registered"
-                );
-            }
-        }
-    }
-
-    /// Delete processed payloads from the queue up through the given sequence.
-    pub async fn dequeue_payloads(&self, through_seq: u64) -> Result<()> {
-        let txn = self.db.transaction();
-        state_machine::dequeue_payloads(&txn, through_seq).await?;
-        txn.commit().await?;
-        Ok(())
-    }
-
     /// Persist a scheduler-generated write (allocations, updated requests,
     /// etc.) without enqueuing a payload or updating the ArcSwap. The
     /// scheduler handles ArcSwap publishing itself after processing.
@@ -940,6 +841,31 @@ impl IndexifyState {
 
         let write_result = self
             .write_in_persistent_store(&mut request, timer_kv)
+            .await?;
+
+        if write_result.should_notify_usage_reporter {
+            let _ = self.usage_events_tx.send(());
+        }
+        self.request_event_buffers
+            .push_events(write_result.request_state_changes)
+            .await;
+        Ok(())
+    }
+
+    /// Persist scheduler output AND dequeue processed payloads in a single
+    /// RocksDB transaction. This makes the two operations atomic — on crash
+    /// recovery either both are committed or neither is, avoiding redundant
+    /// payload replay.
+    pub async fn write_scheduler_output_and_dequeue(
+        &self,
+        mut request: StateMachineUpdateRequest,
+        dequeue_through_seq: u64,
+    ) -> Result<()> {
+        let timer_kv = &[KeyValue::new("request", request.payload.to_string())];
+        let _write_guard = self.write_mutex.lock().await;
+
+        let write_result = self
+            .write_in_persistent_store_inner(&mut request, timer_kv, Some(dequeue_through_seq))
             .await?;
 
         if write_result.should_notify_usage_reporter {
@@ -1215,48 +1141,7 @@ mod tests {
             .await
     }
 
-    // --- Event emission tests ---
-
-    use crate::data_model::{
-        AllocationBuilder,
-        AllocationTarget,
-        FunctionCallId,
-        FunctionRunOutcome,
-    };
-
-    fn test_allocation(executor_id: &ExecutorId) -> crate::data_model::Allocation {
-        AllocationBuilder::default()
-            .target(AllocationTarget::new(
-                executor_id.clone(),
-                ContainerId::new("c1".to_string()),
-            ))
-            .function_call_id(FunctionCallId("fc-1".to_string()))
-            .namespace("ns".to_string())
-            .application("app".to_string())
-            .application_version("v1".to_string())
-            .function("fn1".to_string())
-            .request_id("req-1".to_string())
-            .outcome(FunctionRunOutcome::Unknown)
-            .input_args(vec![])
-            .call_metadata(bytes::Bytes::new())
-            .build()
-            .unwrap()
-    }
-
-    /// Helper: get the event_rx from a registered executor connection.
-    async fn get_event_rx(
-        state: &IndexifyState,
-        executor_id: &ExecutorId,
-    ) -> Arc<tokio::sync::Mutex<mpsc::UnboundedReceiver<ExecutorEvent>>> {
-        state
-            .executor_connections
-            .read()
-            .await
-            .get(executor_id)
-            .expect("executor connection should exist")
-            .event_rx
-            .clone()
-    }
+    // --- Executor wake channel tests ---
 
     /// Helper: get the emitter from a registered executor connection.
     async fn get_emitter(
@@ -1274,115 +1159,16 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_event_delivery_allocation_created() -> Result<()> {
+    async fn test_executor_wake_channel() -> Result<()> {
         let state = TestStateStore::new().await?.indexify_state;
-        let executor_id = ExecutorId::new(TEST_EXECUTOR_ID.to_string());
 
-        // Register executor connection
-        state.register_executor_connection(&executor_id).await;
-        let event_rx = get_event_rx(&state, &executor_id).await;
+        // Subscribe before sending
+        let mut rx = state.subscribe_executor_wake();
 
-        // Send an AllocationCreated event directly via send_event
-        let allocation = test_allocation(&executor_id);
-        {
-            let connections = state.executor_connections.read().await;
-            IndexifyState::send_event(
-                &connections,
-                &executor_id,
-                ExecutorEvent::AllocationCreated(Box::new(allocation.clone())),
-            );
-        }
+        // Fire wake — should be received
+        let _ = state.executor_wake_tx.send(());
+        rx.changed().await.unwrap();
 
-        // Verify AllocationCreated event
-        let event = event_rx.lock().await.try_recv().unwrap();
-        assert!(
-            matches!(&event, ExecutorEvent::AllocationCreated(a) if a.id == allocation.id),
-            "expected AllocationCreated, got {event:?}"
-        );
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_event_delivery_container_added_and_removed() -> Result<()> {
-        let state = TestStateStore::new().await?.indexify_state;
-        let executor_id = ExecutorId::new(TEST_EXECUTOR_ID.to_string());
-        state.register_executor_connection(&executor_id).await;
-        let event_rx = get_event_rx(&state, &executor_id).await;
-
-        // Send ContainerAdded
-        {
-            let connections = state.executor_connections.read().await;
-            IndexifyState::send_event(
-                &connections,
-                &executor_id,
-                ExecutorEvent::ContainerAdded(ContainerId::new("c1".to_string())),
-            );
-        }
-
-        let event = event_rx.lock().await.try_recv().unwrap();
-        assert!(
-            matches!(&event, ExecutorEvent::ContainerAdded(id) if id.get() == "c1"),
-            "expected ContainerAdded, got {event:?}"
-        );
-
-        // Send ContainerRemoved
-        {
-            let connections = state.executor_connections.read().await;
-            IndexifyState::send_event(
-                &connections,
-                &executor_id,
-                ExecutorEvent::ContainerRemoved(ContainerId::new("c2".to_string())),
-            );
-        }
-
-        let event = event_rx.lock().await.try_recv().unwrap();
-        assert!(
-            matches!(&event, ExecutorEvent::ContainerRemoved(id) if id.get() == "c2"),
-            "expected ContainerRemoved, got {event:?}"
-        );
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_event_delivery_full_sync() -> Result<()> {
-        let state = TestStateStore::new().await?.indexify_state;
-        let executor_id = ExecutorId::new(TEST_EXECUTOR_ID.to_string());
-        state.register_executor_connection(&executor_id).await;
-        let event_rx = get_event_rx(&state, &executor_id).await;
-
-        // Send FullSync event
-        {
-            let connections = state.executor_connections.read().await;
-            IndexifyState::send_event(&connections, &executor_id, ExecutorEvent::FullSync);
-        }
-
-        // Should receive FullSync
-        let event = event_rx.lock().await.try_recv().unwrap();
-        assert!(
-            matches!(&event, ExecutorEvent::FullSync),
-            "expected FullSync, got {event:?}"
-        );
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_event_no_delivery_when_no_connection() -> Result<()> {
-        // Events are silently dropped when no connection is registered.
-        let state = TestStateStore::new().await?.indexify_state;
-        let executor_id = ExecutorId::new(TEST_EXECUTOR_ID.to_string());
-
-        // No connection registered — should not panic or error.
-        let connections = state.executor_connections.read().await;
-        IndexifyState::send_event(
-            &connections,
-            &executor_id,
-            ExecutorEvent::AllocationCreated(Box::new(test_allocation(&executor_id))),
-        );
-
-        // Success — no panic, no error.
         Ok(())
     }
 
@@ -1443,8 +1229,10 @@ mod tests {
         {
             let mut emitter = emitter.lock().await;
             emitter.has_synced = true;
-            emitter.track_allocation("alloc-1".to_string());
-            emitter.track_container("container-1".to_string(), Default::default());
+            emitter.known_allocations.insert("alloc-1".to_string());
+            emitter
+                .known_containers
+                .insert("container-1".to_string(), Default::default());
         }
 
         // Re-register (simulates server asking for full state again)

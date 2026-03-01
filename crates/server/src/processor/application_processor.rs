@@ -13,15 +13,7 @@ use tokio::sync::Notify;
 use tracing::{error, info, instrument, trace, warn};
 
 use crate::{
-    data_model::{
-        self,
-        Application,
-        ApplicationState,
-        ChangeType,
-        ContainerPoolKey,
-        ContainerState,
-        StateChange,
-    },
+    data_model::{self, Application, ApplicationState, ChangeType, StateChange},
     metrics::{Timer, low_latency_boundaries},
     processor::{
         buffer_reconciler::BufferReconciler,
@@ -36,14 +28,12 @@ use crate::{
         placement::FeasibilityCache,
     },
     state_store::{
-        ExecutorEvent,
         IndexifyState,
         requests::{
             CreateOrUpdateApplicationRequest,
             DeleteApplicationRequest,
             DeleteContainerPoolRequest,
             DeleteRequestRequest,
-            FailSnapshotRequest,
             RequestPayload,
             SchedulerUpdatePayload,
             SchedulerUpdateRequest,
@@ -478,23 +468,18 @@ impl ApplicationProcessor {
             }
         }
 
-        // 6. Snapshot pre-existing containers BEFORE publishing, so we can
-        // distinguish ContainerAdded vs ContainerDescriptionChanged in events.
-        let pre_existing_containers: HashSet<data_model::ContainerId> = merged_update
-            .containers
-            .keys()
-            .filter(|id| current.scheduler.function_containers.contains_key(id))
-            .cloned()
-            .collect();
-
-        // 6a. Write scheduler results to RocksDB (allocations, updated runs, etc.).
+        // 6a. Write scheduler results + dequeue processed payloads in one
+        //     RocksDB transaction — atomic commit-and-dequeue.
         if let Err(err) = self
             .indexify_state
-            .write_scheduler_output(StateMachineUpdateRequest {
-                payload: RequestPayload::SchedulerUpdate(SchedulerUpdatePayload {
-                    update: Box::new(merged_update.clone()),
-                }),
-            })
+            .write_scheduler_output_and_dequeue(
+                StateMachineUpdateRequest {
+                    payload: RequestPayload::SchedulerUpdate(SchedulerUpdatePayload {
+                        update: Box::new(merged_update.clone()),
+                    }),
+                },
+                max_seq,
+            )
             .await
         {
             error!("error writing batched scheduler update: {:?}", err);
@@ -508,13 +493,8 @@ impl ApplicationProcessor {
                 scheduler: container_scheduler,
             }));
 
-        // 6c. Emit events AFTER ArcSwap publish so long-poll consumers see
-        // consistent state when they wake.
-        self.emit_scheduler_events(&merged_update, &pre_existing_containers)
-            .await;
-
-        // 7. Dequeue processed payloads from the queue.
-        self.indexify_state.dequeue_payloads(max_seq).await?;
+        // 6c. Wake command generators — they'll diff against the new ArcSwap state.
+        let _ = self.indexify_state.executor_wake_tx.send(());
 
         Ok(true)
     }
@@ -751,23 +731,20 @@ impl ApplicationProcessor {
                     &self.allocate_function_runs_latency,
                     feas_cache,
                 )?);
-                let snapshots_to_fail = sandbox_processor
-                    .in_progress_snapshot_ids_for_executor(indexes_guard, &ev.executor_id);
-                for snapshot_id in snapshots_to_fail {
+                let snapshot_fail_update = sandbox_processor
+                    .fail_in_progress_snapshots_for_executor(
+                        indexes_guard,
+                        &ev.executor_id,
+                        "Executor became unavailable during snapshot",
+                    );
+                if !snapshot_fail_update.updated_snapshots.is_empty() {
                     warn!(
                         executor_id = ev.executor_id.get(),
-                        snapshot_id = snapshot_id.get(),
-                        "failing snapshot because executor was tombstoned"
+                        num_snapshots = snapshot_fail_update.updated_snapshots.len(),
+                        "failing in-progress snapshots because executor was tombstoned"
                     );
-                    self.indexify_state
-                        .write(StateMachineUpdateRequest {
-                            payload: RequestPayload::FailSnapshot(FailSnapshotRequest {
-                                snapshot_id,
-                                error: "Executor became unavailable during snapshot".to_string(),
-                            }),
-                        })
-                        .await?;
                 }
+                scheduler_update.extend(snapshot_fail_update);
                 scheduler_update
             }
             ChangeType::TombstoneApplication(request) => {
@@ -813,39 +790,9 @@ impl ApplicationProcessor {
                     snapshot_id = %ev.snapshot_id,
                     "processing SnapshotSandbox event"
                 );
-
-                // Emit SnapshotContainer event to the executor running this
-                // sandbox so the dataplane can snapshot the container filesystem.
-                let sandbox_key = data_model::SandboxKey::new(&ev.namespace, ev.sandbox_id.get());
-                if let Some(sandbox) = indexes_guard.sandboxes.get(&sandbox_key) {
-                    if let (Some(container_id), Some(executor_id)) =
-                        (&sandbox.container_id, &sandbox.executor_id)
-                    {
-                        let connections = self.indexify_state.executor_connections.read().await;
-                        IndexifyState::send_event(
-                            &connections,
-                            executor_id,
-                            ExecutorEvent::SnapshotContainer {
-                                container_id: container_id.clone(),
-                                snapshot_id: ev.snapshot_id.get().to_string(),
-                                upload_uri: ev.upload_uri.clone(),
-                            },
-                        );
-                    } else {
-                        warn!(
-                            namespace = %ev.namespace,
-                            sandbox_id = %ev.sandbox_id,
-                            "SnapshotSandbox: sandbox has no container_id or executor_id"
-                        );
-                    }
-                } else {
-                    warn!(
-                        namespace = %ev.namespace,
-                        sandbox_id = %ev.sandbox_id,
-                        "SnapshotSandbox: sandbox not found in state"
-                    );
-                }
-
+                // Snapshot commands are now generated by diff-based command
+                // generation — the snapshot is persisted with upload_uri and
+                // the command generator picks it up via pending_snapshots.
                 // No container or pool changes — return empty batchable update.
                 return Ok(StateChangeResult::SchedulerUpdate(
                     SchedulerUpdateRequest::default(),
@@ -1122,137 +1069,6 @@ impl ApplicationProcessor {
         Ok(StateChangeResult::SchedulerUpdate(scheduler_update))
     }
 
-    /// Emit container, allocation, and executor notification events from a
-    /// scheduler update. Must be called AFTER ArcSwap publish so that
-    /// long-poll consumers see consistent state when they wake.
-    async fn emit_scheduler_events(
-        &self,
-        update: &SchedulerUpdateRequest,
-        pre_existing_containers: &HashSet<data_model::ContainerId>,
-    ) {
-        let connections = self.indexify_state.executor_connections.read().await;
-        let mut changed_executors: HashSet<data_model::ExecutorId> = HashSet::new();
-
-        // Container events FIRST (before allocations, so consumer sees
-        // AddContainer before RunAllocation for the same container).
-        // Removals are emitted before additions so the dataplane frees
-        // resources (e.g. GPUs) before trying to allocate them for new
-        // containers — prevents transient resource exhaustion races.
-        for (container_id, meta) in &update.containers {
-            if matches!(meta.desired_state, ContainerState::Terminated { .. }) {
-                IndexifyState::send_event(
-                    &connections,
-                    &meta.executor_id,
-                    ExecutorEvent::ContainerRemoved(container_id.clone()),
-                );
-            }
-        }
-        for (container_id, meta) in &update.containers {
-            if matches!(meta.desired_state, ContainerState::Terminated { .. }) {
-                continue;
-            }
-            if !pre_existing_containers.contains(container_id) {
-                IndexifyState::send_event(
-                    &connections,
-                    &meta.executor_id,
-                    ExecutorEvent::ContainerAdded(container_id.clone()),
-                );
-            } else {
-                IndexifyState::send_event(
-                    &connections,
-                    &meta.executor_id,
-                    ExecutorEvent::ContainerDescriptionChanged(container_id.clone()),
-                );
-            }
-        }
-
-        // Allocation events
-        for allocation in &update.new_allocations {
-            IndexifyState::send_event(
-                &connections,
-                &allocation.target.executor_id,
-                ExecutorEvent::AllocationCreated(Box::new(allocation.clone())),
-            );
-        }
-
-        for executor_id in update.updated_executor_states.keys() {
-            changed_executors.insert(executor_id.clone());
-        }
-
-        for container_meta in update.containers.values() {
-            changed_executors.insert(container_meta.executor_id.clone());
-        }
-
-        drop(connections);
-
-        // Notify executors with state changes
-        let mut executor_states = self.indexify_state.executor_states.write().await;
-        for executor_id in &changed_executors {
-            info!(
-                executor_id = executor_id.get(),
-                "notifying executor of state change"
-            );
-            if let Some(executor_state) = executor_states.get_mut(executor_id) {
-                executor_state.notify();
-            }
-        }
-    }
-
-    /// Emit events for ImmediateWrite payloads (DeleteContainerPool,
-    /// DeleteApplicationRequest). These send FullSync to affected executors.
-    async fn emit_immediate_events(
-        &self,
-        payload: &RequestPayload,
-        container_scheduler: &crate::processor::container_scheduler::ContainerScheduler,
-    ) {
-        let connections = self.indexify_state.executor_connections.read().await;
-        let mut changed_executors: HashSet<data_model::ExecutorId> = HashSet::new();
-
-        if let RequestPayload::DeleteContainerPool(delete_req) = payload {
-            let pool_key = ContainerPoolKey::new(&delete_req.namespace, &delete_req.pool_id);
-            for (_, meta) in container_scheduler.function_containers.iter() {
-                if meta.function_container.belongs_to_pool(&pool_key) {
-                    changed_executors.insert(meta.executor_id.clone());
-                    IndexifyState::send_event(
-                        &connections,
-                        &meta.executor_id,
-                        ExecutorEvent::FullSync,
-                    );
-                }
-            }
-        }
-
-        if let RequestPayload::DeleteApplicationRequest(delete_req) = payload {
-            for (_, meta) in container_scheduler.function_containers.iter() {
-                if meta.function_container.namespace == delete_req.namespace &&
-                    meta.function_container.application_name == delete_req.name
-                {
-                    changed_executors.insert(meta.executor_id.clone());
-                    IndexifyState::send_event(
-                        &connections,
-                        &meta.executor_id,
-                        ExecutorEvent::FullSync,
-                    );
-                }
-            }
-        }
-
-        drop(connections);
-
-        if !changed_executors.is_empty() {
-            let mut executor_states = self.indexify_state.executor_states.write().await;
-            for executor_id in &changed_executors {
-                info!(
-                    executor_id = executor_id.get(),
-                    "notifying executor of state change"
-                );
-                if let Some(executor_state) = executor_states.get_mut(executor_id) {
-                    executor_state.notify();
-                }
-            }
-        }
-    }
-
     /// Persist an immediate payload and apply it to the in-memory clones used
     /// by the current scheduler batch.
     async fn apply_immediate_payload(
@@ -1270,9 +1086,8 @@ impl ApplicationProcessor {
         let clock = indexes.clock;
         let _ = indexes.update_state(clock, &payload, "immediate")?;
         container_scheduler.update(&payload)?;
-        // Emit FullSync to affected executors for deletions.
-        self.emit_immediate_events(&payload, container_scheduler)
-            .await;
+        // Wake command generators — they'll diff against the new ArcSwap state.
+        let _ = self.indexify_state.executor_wake_tx.send(());
         Ok(())
     }
 
@@ -1290,14 +1105,6 @@ impl ApplicationProcessor {
 
         if !buffer_update.containers.is_empty() || !buffer_update.updated_executor_states.is_empty()
         {
-            // Determine pre-existing containers for event emission.
-            let pre_existing_containers: HashSet<data_model::ContainerId> = buffer_update
-                .containers
-                .keys()
-                .filter(|id| current.scheduler.function_containers.contains_key(id))
-                .cloned()
-                .collect();
-
             // Write to RocksDB.
             self.indexify_state
                 .write_scheduler_output(StateMachineUpdateRequest {
@@ -1319,9 +1126,8 @@ impl ApplicationProcessor {
                     scheduler: container_scheduler,
                 }));
 
-            // Emit events after ArcSwap publish.
-            self.emit_scheduler_events(&buffer_update, &pre_existing_containers)
-                .await;
+            // Wake command generators.
+            let _ = self.indexify_state.executor_wake_tx.send(());
         }
 
         Ok(())

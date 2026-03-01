@@ -1,8 +1,6 @@
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
 
 use anyhow::Result;
-use arc_swap::ArcSwap;
-use opentelemetry::metrics::ObservableGauge;
 use tracing::info;
 
 use crate::{
@@ -41,29 +39,6 @@ use crate::{
         state_machine::IndexifyObjectsColumns,
     },
 };
-
-/// Gauges for monitoring the container scheduler state.
-/// Must be kept alive for callbacks to fire.
-#[allow(dead_code)]
-pub struct ContainerSchedulerGauges {
-    pub total_executors: ObservableGauge<u64>,
-}
-
-impl ContainerSchedulerGauges {
-    pub fn new(app_state: Arc<ArcSwap<crate::state_store::AppState>>) -> Self {
-        let meter = opentelemetry::global::meter("container_scheduler");
-        let state_clone = app_state.clone();
-        let total_executors = meter
-            .u64_observable_gauge("indexify.total_executors")
-            .with_description("Total number of executors")
-            .with_callback(move |observer| {
-                let state = state_clone.load();
-                observer.observe(state.scheduler.executor_states.len() as u64, &[]);
-            })
-            .build();
-        Self { total_executors }
-    }
-}
 
 #[derive(Debug, Clone)]
 pub enum Error {

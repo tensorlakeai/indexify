@@ -2000,13 +2000,6 @@ impl Container {
         self.state = other.state.clone();
     }
 
-    /// Check if this container belongs to the given pool
-    pub fn belongs_to_pool(&self, pool_key: &ContainerPoolKey) -> bool {
-        self.pool_id
-            .as_ref()
-            .is_some_and(|pid| *pid == pool_key.pool_id && self.namespace == pool_key.namespace)
-    }
-
     /// Get the pool key for this container.
     /// Returns None for standalone sandbox containers that have no pool.
     pub fn pool_key(&self) -> Option<ContainerPoolKey> {
@@ -2945,7 +2938,7 @@ impl From<String> for SnapshotId {
 }
 
 /// Key for snapshot storage: namespace|snapshot_id
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct SnapshotKey(pub String);
 
 impl SnapshotKey {
@@ -3029,6 +3022,11 @@ pub struct Snapshot {
     /// Secret names from the original sandbox
     #[serde(default)]
     pub secret_names: Vec<String>,
+    /// Upload URI for in-progress snapshots (set when snapshot is requested,
+    /// used by diff-based command generation to emit SnapshotContainer
+    /// commands).
+    #[serde(default)]
+    pub upload_uri: Option<String>,
 }
 
 /// Event for creating a container pool

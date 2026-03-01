@@ -14,16 +14,8 @@ use tracing::{debug, info, warn};
 
 use crate::{
     blob_store::registry::BlobStorageRegistry,
-    data_model::{
-        self,
-        ContainerId,
-        ExecutorId,
-        ExecutorMetadataBuilder,
-        FunctionAllowlist,
-        FunctionCallId,
-    },
+    data_model::{self, ExecutorId, ExecutorMetadataBuilder, FunctionAllowlist, FunctionCallId},
     executors::{ExecutorManager, ExecutorStateSnapshot},
-    pb_helpers::blob_store_path_to_url,
     proto_convert::{
         prepare_data_payload,
         proto_container_termination_to_internal,
@@ -32,7 +24,6 @@ use crate::{
         to_internal_compute_op,
     },
     state_store::{
-        ExecutorEvent,
         IndexifyState,
         requests::{RequestPayload, StateMachineUpdateRequest, UpsertExecutorRequest},
     },
@@ -56,6 +47,8 @@ pub struct CommandEmitter {
     pub(crate) known_containers: HashMap<String, executor_api_pb::ContainerDescription>,
     /// Allocation IDs sent via RunAllocation.
     pub(crate) known_allocations: HashSet<String>,
+    /// Snapshot IDs sent via SnapshotContainer.
+    pub(crate) known_snapshot_ids: HashSet<String>,
     /// Whether this emitter has completed at least one full sync
     /// (commit_snapshot). `false` on initial creation or after
     /// re-registration. `true` after the first successful
@@ -71,27 +64,9 @@ impl CommandEmitter {
             next_seq: 1,
             known_containers: HashMap::new(),
             known_allocations: HashSet::new(),
+            known_snapshot_ids: HashSet::new(),
             has_synced: false,
         }
-    }
-
-    /// Track an allocation ID so FullSync won't re-emit it.
-    pub fn track_allocation(&mut self, id: String) {
-        self.known_allocations.insert(id);
-    }
-
-    /// Track a container so FullSync won't re-emit it.
-    pub fn track_container(
-        &mut self,
-        id: String,
-        description: executor_api_pb::ContainerDescription,
-    ) {
-        self.known_containers.insert(id, description);
-    }
-
-    /// Untrack a container ID (removed).
-    pub fn untrack_container(&mut self, id: &str) {
-        self.known_containers.remove(id);
     }
 
     pub(crate) fn next_seq(&mut self) -> u64 {
@@ -103,6 +78,13 @@ impl CommandEmitter {
     /// Diff the current desired state against what was previously seen and
     /// produce a batch of `Command` messages for the delta.
     ///
+    /// **Command ordering** matches what `emit_scheduler_events` guarantees:
+    /// 1. REMOVALS first — free GPU/memory before new containers claim them
+    /// 2. ADDITIONS — new containers
+    /// 3. UPDATES — changed descriptions (sandbox_metadata)
+    /// 4. ALLOCATIONS — must come after AddContainer so container exists
+    /// 5. SNAPSHOTS — new snapshot commands
+    ///
     /// **Important**: this does NOT update the emitter's tracking state.
     /// Call [`commit_snapshot`] after all commands have been successfully
     /// delivered to the client so that the tracking sets stay accurate if
@@ -113,55 +95,13 @@ impl CommandEmitter {
     ) -> Vec<executor_api_pb::Command> {
         let mut commands = Vec::new();
 
-        // --- Containers ---
         let current_containers: HashMap<String, executor_api_pb::ContainerDescription> = snapshot
             .containers
             .iter()
             .filter_map(|fe| fe.id.clone().map(|id| (id, fe.clone())))
             .collect();
 
-        for fe in &snapshot.containers {
-            if let Some(id) = &fe.id {
-                if let Some(known) = self.known_containers.get(id) {
-                    // Known container -- check if description changed
-                    if known != fe {
-                        // Build a targeted update with only changed fields
-                        let mut update = executor_api_pb::UpdateContainerDescription {
-                            container_id: id.clone(),
-                            sandbox_metadata: None,
-                        };
-                        if known.sandbox_metadata != fe.sandbox_metadata {
-                            update.sandbox_metadata = fe.sandbox_metadata.clone();
-                        }
-                        // Only emit if there are actual changes to send
-                        if update.sandbox_metadata.is_some() {
-                            let seq = self.next_seq();
-                            commands.push(executor_api_pb::Command {
-                                seq,
-                                command: Some(
-                                    executor_api_pb::command::Command::UpdateContainerDescription(
-                                        update,
-                                    ),
-                                ),
-                            });
-                        }
-                    }
-                } else {
-                    // New container -> AddContainer
-                    let seq = self.next_seq();
-                    commands.push(executor_api_pb::Command {
-                        seq,
-                        command: Some(executor_api_pb::command::Command::AddContainer(
-                            executor_api_pb::AddContainer {
-                                container: Some(fe.clone()),
-                            },
-                        )),
-                    });
-                }
-            }
-        }
-
-        // Removed containers -> RemoveContainer
+        // 1. REMOVALS first — free GPU/memory before new containers claim them
         let removed_containers: Vec<String> = self
             .known_containers
             .keys()
@@ -175,14 +115,55 @@ impl CommandEmitter {
                 command: Some(executor_api_pb::command::Command::RemoveContainer(
                     executor_api_pb::RemoveContainer {
                         container_id: id,
-                        reason: None, // Reason comes from server state machine, not snapshot diff
+                        reason: None,
                     },
                 )),
             });
         }
 
-        // --- Allocations ---
-        // New allocations -> RunAllocation
+        // 2. ADDITIONS — new containers
+        for fe in &snapshot.containers {
+            if let Some(id) = &fe.id &&
+                !self.known_containers.contains_key(id)
+            {
+                let seq = self.next_seq();
+                commands.push(executor_api_pb::Command {
+                    seq,
+                    command: Some(executor_api_pb::command::Command::AddContainer(
+                        executor_api_pb::AddContainer {
+                            container: Some(fe.clone()),
+                        },
+                    )),
+                });
+            }
+        }
+
+        // 3. UPDATES — changed descriptions (sandbox_metadata)
+        for fe in &snapshot.containers {
+            if let Some(id) = &fe.id &&
+                let Some(known) = self.known_containers.get(id) &&
+                known != fe
+            {
+                let mut update = executor_api_pb::UpdateContainerDescription {
+                    container_id: id.clone(),
+                    sandbox_metadata: None,
+                };
+                if known.sandbox_metadata != fe.sandbox_metadata {
+                    update.sandbox_metadata = fe.sandbox_metadata.clone();
+                }
+                if update.sandbox_metadata.is_some() {
+                    let seq = self.next_seq();
+                    commands.push(executor_api_pb::Command {
+                        seq,
+                        command: Some(
+                            executor_api_pb::command::Command::UpdateContainerDescription(update),
+                        ),
+                    });
+                }
+            }
+        }
+
+        // 4. ALLOCATIONS — must come after AddContainer so container exists
         for allocation in &snapshot.allocations {
             if let Some(id) = &allocation.allocation_id &&
                 !self.known_allocations.contains(id)
@@ -199,8 +180,22 @@ impl CommandEmitter {
             }
         }
 
-        // Function call results are delivered via the AllocationEvent log
-        // (get_allocation_events RPC), not via Commands.
+        // 5. SNAPSHOTS — new snapshot commands
+        for snap in &snapshot.pending_snapshots {
+            if !self.known_snapshot_ids.contains(&snap.snapshot_id) {
+                let seq = self.next_seq();
+                commands.push(executor_api_pb::Command {
+                    seq,
+                    command: Some(executor_api_pb::command::Command::SnapshotContainer(
+                        executor_api_pb::SnapshotContainer {
+                            container_id: snap.container_id.clone(),
+                            snapshot_id: snap.snapshot_id.clone(),
+                            upload_uri: snap.upload_uri.clone(),
+                        },
+                    )),
+                });
+            }
+        }
 
         commands
     }
@@ -224,6 +219,12 @@ impl CommandEmitter {
             .allocations
             .iter()
             .filter_map(|a| a.allocation_id.clone())
+            .collect();
+
+        self.known_snapshot_ids = snapshot
+            .pending_snapshots
+            .iter()
+            .map(|s| s.snapshot_id.clone())
             .collect();
 
         self.has_synced = true;
@@ -861,251 +862,6 @@ impl ExecutorAPIService {
     }
 }
 
-/// Build a RunAllocation command from an internal `Allocation` model.
-fn build_run_allocation_command(
-    emitter: &mut CommandEmitter,
-    allocation: &data_model::Allocation,
-    blob_storage_registry: &BlobStorageRegistry,
-) -> executor_api_pb::Command {
-    let blob_store_url_scheme = blob_storage_registry
-        .get_blob_store(&allocation.namespace)
-        .get_url_scheme();
-    let blob_store_url = blob_storage_registry
-        .get_blob_store(&allocation.namespace)
-        .get_url();
-
-    let mut args = vec![];
-    for input_arg in &allocation.input_args {
-        args.push(executor_api_pb::DataPayload {
-            id: Some(input_arg.data_payload.id.clone()),
-            uri: Some(blob_store_path_to_url(
-                &input_arg.data_payload.path,
-                &blob_store_url_scheme,
-                &blob_store_url,
-            )),
-            size: Some(input_arg.data_payload.size),
-            sha256_hash: Some(input_arg.data_payload.sha256_hash.clone()),
-            encoding: Some(
-                crate::pb_helpers::string_to_data_payload_encoding(
-                    &input_arg.data_payload.encoding,
-                )
-                .into(),
-            ),
-            encoding_version: Some(0),
-            offset: Some(input_arg.data_payload.offset),
-            metadata_size: Some(input_arg.data_payload.metadata_size),
-            source_function_call_id: input_arg.function_call_id.as_ref().map(|id| id.to_string()),
-            content_type: Some(input_arg.data_payload.encoding.clone()),
-        });
-    }
-
-    let request_data_payload_uri_prefix = format!(
-        "{}/{}",
-        blob_store_url,
-        data_model::DataPayload::request_key_prefix(
-            &allocation.namespace,
-            &allocation.application,
-            &allocation.request_id,
-        ),
-    );
-
-    let allocation_pb = executor_api_pb::Allocation {
-        function: Some(executor_api_pb::FunctionRef {
-            namespace: Some(allocation.namespace.clone()),
-            application_name: Some(allocation.application.clone()),
-            function_name: Some(allocation.function.clone()),
-            application_version: None,
-        }),
-        container_id: Some(allocation.target.container_id.get().to_string()),
-        allocation_id: Some(allocation.id.to_string()),
-        function_call_id: Some(allocation.function_call_id.to_string()),
-        request_id: Some(allocation.request_id.to_string()),
-        args,
-        request_data_payload_uri_prefix: Some(request_data_payload_uri_prefix.clone()),
-        request_error_payload_uri_prefix: Some(request_data_payload_uri_prefix),
-        function_call_metadata: Some(allocation.call_metadata.clone().into()),
-        replay_mode: None,
-        last_event_clock: None,
-    };
-
-    let seq = emitter.next_seq();
-    executor_api_pb::Command {
-        seq,
-        command: Some(executor_api_pb::command::Command::RunAllocation(
-            executor_api_pb::RunAllocation {
-                allocation: Some(allocation_pb),
-            },
-        )),
-    }
-}
-
-/// Build an AddContainer command by looking up container data from state.
-async fn build_add_container_command(
-    emitter: &mut CommandEmitter,
-    container_id: &ContainerId,
-    blob_storage_registry: &BlobStorageRegistry,
-    indexify_state: &IndexifyState,
-) -> Option<executor_api_pb::Command> {
-    let state = indexify_state.app_state.load();
-    let fc = state.scheduler.function_containers.get(container_id)?;
-
-    // Skip terminated containers
-    if matches!(
-        fc.desired_state,
-        data_model::ContainerState::Terminated { .. }
-    ) {
-        return None;
-    }
-
-    let fe = &fc.function_container;
-
-    let cg_version = state
-        .indexes
-        .application_versions
-        .get(&data_model::ApplicationVersion::key_from(
-            &fe.namespace,
-            &fe.application_name,
-            &fe.version,
-        ))
-        .cloned();
-
-    let cg_node = cg_version
-        .as_ref()
-        .and_then(|v| v.functions.get(&fe.function_name).cloned());
-
-    let code_payload_pb = cg_version.and_then(|v| v.code).map(|code| {
-        let blob_store_url_scheme = blob_storage_registry
-            .get_blob_store(&fe.namespace)
-            .get_url_scheme();
-        let blob_store_url = blob_storage_registry
-            .get_blob_store(&fe.namespace)
-            .get_url();
-        executor_api_pb::DataPayload {
-            id: Some(code.id.clone()),
-            uri: Some(blob_store_path_to_url(
-                &code.path,
-                &blob_store_url_scheme,
-                &blob_store_url,
-            )),
-            size: Some(code.size),
-            sha256_hash: Some(code.sha256_hash.clone()),
-            encoding: Some(executor_api_pb::DataPayloadEncoding::BinaryZip.into()),
-            encoding_version: Some(0),
-            offset: Some(0),
-            metadata_size: Some(0),
-            source_function_call_id: None,
-            content_type: Some("application/zip".to_string()),
-        }
-    });
-
-    let fe_type_pb = match fe.container_type {
-        data_model::ContainerType::Function => executor_api_pb::ContainerType::Function,
-        data_model::ContainerType::Sandbox => executor_api_pb::ContainerType::Sandbox,
-    };
-
-    let sandbox_metadata = sandbox_metadata_to_pb(fe);
-
-    let resources_pb: Option<executor_api_pb::ContainerResources> =
-        fe.resources.clone().try_into().ok();
-
-    let initialization_timeout_ms = cg_node
-        .as_ref()
-        .map(|n| n.initialization_timeout.0)
-        .unwrap_or_else(|| {
-            fe.timeout_secs
-                .saturating_mul(1000)
-                .try_into()
-                .unwrap_or(u32::MAX)
-        });
-
-    let allocation_timeout_ms = cg_node.map(|n| n.timeout.0).unwrap_or_else(|| {
-        fe.timeout_secs
-            .saturating_mul(1000)
-            .try_into()
-            .unwrap_or(u32::MAX)
-    });
-
-    let fe_description_pb = executor_api_pb::ContainerDescription {
-        id: Some(fe.id.get().to_string()),
-        function: Some(executor_api_pb::FunctionRef {
-            namespace: Some(fe.namespace.clone()),
-            application_name: Some(fe.application_name.clone()),
-            function_name: Some(fe.function_name.clone()),
-            application_version: Some(fe.version.to_string()),
-        }),
-        secret_names: cg_node_secret_names(&state.indexes, fe),
-        initialization_timeout_ms: Some(initialization_timeout_ms),
-        application: code_payload_pb,
-        allocation_timeout_ms: Some(allocation_timeout_ms),
-        resources: resources_pb,
-        max_concurrency: Some(fe.max_concurrency),
-        sandbox_metadata,
-        container_type: Some(fe_type_pb.into()),
-        pool_id: fe.pool_id.as_ref().map(|p| p.get().to_string()),
-    };
-
-    drop(state);
-
-    let seq = emitter.next_seq();
-    Some(executor_api_pb::Command {
-        seq,
-        command: Some(executor_api_pb::command::Command::AddContainer(
-            executor_api_pb::AddContainer {
-                container: Some(fe_description_pb),
-            },
-        )),
-    })
-}
-
-/// Build an UpdateContainerDescription command for a pre-existing container
-/// whose description has changed (e.g. sandbox_id set on warm-pool claim).
-///
-/// Compares the current state with what the CommandEmitter already sent and
-/// emits only the changed fields.  Updates `emitter.known_containers` so
-/// subsequent comparisons stay correct.
-async fn build_update_container_description_command(
-    emitter: &mut CommandEmitter,
-    container_id: &ContainerId,
-    indexify_state: &IndexifyState,
-) -> Option<executor_api_pb::Command> {
-    let state = indexify_state.app_state.load();
-    let fc = state.scheduler.function_containers.get(container_id)?;
-    let fe = &fc.function_container;
-
-    // Skip non-sandbox containers -- only sandbox descriptions change today.
-    if fe.container_type != data_model::ContainerType::Sandbox {
-        return None;
-    }
-
-    let cid = container_id.get().to_string();
-
-    // Build current sandbox_metadata from state.
-    let current_sandbox_metadata = sandbox_metadata_to_pb(fe);
-
-    // Compare with what was previously sent.
-    let known = emitter.known_containers.get(&cid);
-    let known_sandbox_metadata = known.and_then(|k| k.sandbox_metadata.clone());
-    if known_sandbox_metadata == current_sandbox_metadata {
-        return None; // No change
-    }
-
-    let update = executor_api_pb::UpdateContainerDescription {
-        container_id: cid.clone(),
-        sandbox_metadata: current_sandbox_metadata.clone(),
-    };
-
-    // Update the known state so subsequent comparisons are correct.
-    if let Some(known_mut) = emitter.known_containers.get_mut(&cid) {
-        known_mut.sandbox_metadata = current_sandbox_metadata;
-    }
-
-    let seq = emitter.next_seq();
-    Some(executor_api_pb::Command {
-        seq,
-        command: Some(executor_api_pb::command::Command::UpdateContainerDescription(update)),
-    })
-}
-
 /// Convert a `data_model::NetworkPolicy` to the proto `NetworkPolicy`.
 pub(crate) fn network_policy_to_pb(
     np: &data_model::NetworkPolicy,
@@ -1115,44 +871,6 @@ pub(crate) fn network_policy_to_pb(
         allow_out: np.allow_out.clone(),
         deny_out: np.deny_out.clone(),
     }
-}
-
-/// Convert a `data_model::Container` to `Option<SandboxMetadata>` proto.
-///
-/// Returns `None` for non-sandbox containers.
-fn sandbox_metadata_to_pb(fe: &data_model::Container) -> Option<executor_api_pb::SandboxMetadata> {
-    if fe.container_type != data_model::ContainerType::Sandbox {
-        return None;
-    }
-    Some(executor_api_pb::SandboxMetadata {
-        image: fe.image.clone(),
-        timeout_secs: if fe.timeout_secs > 0 {
-            Some(fe.timeout_secs)
-        } else {
-            None
-        },
-        entrypoint: fe.entrypoint.clone(),
-        network_policy: fe.network_policy.as_ref().map(network_policy_to_pb),
-        sandbox_id: fe.sandbox_id.as_ref().map(|s| s.get().to_string()),
-        snapshot_uri: fe.snapshot_uri.clone(),
-    })
-}
-
-/// Helper to get secret_names from in-memory state for a container.
-fn cg_node_secret_names(
-    indexes: &crate::state_store::in_memory_state::InMemoryState,
-    fe: &data_model::Container,
-) -> Vec<String> {
-    indexes
-        .application_versions
-        .get(&data_model::ApplicationVersion::key_from(
-            &fe.namespace,
-            &fe.application_name,
-            &fe.version,
-        ))
-        .and_then(|v| v.functions.get(&fe.function_name))
-        .and_then(|n| n.secret_names.clone())
-        .unwrap_or_default()
 }
 
 /// Perform a full sync: fetch complete executor state, diff via emitter,
@@ -1188,21 +906,20 @@ async fn do_full_sync_buffered(
     emitter.commit_snapshot(&snapshot);
 }
 
-/// Spawn a background task that consumes `ExecutorEvent`s from the
-/// connection's event channel and pushes generated `Command` messages into
-/// the connection's pending_commands buffer for long-poll delivery.
+/// Spawn a background task that diffs ArcSwap state on global wake
+/// notifications and pushes generated `Command` messages into the
+/// connection's pending_commands buffer for long-poll delivery.
 ///
-/// The task runs until the event channel closes (connection deregistered).
-/// It replaces the old `command_stream_loop` which pushed directly to a gRPC
-/// stream.
+/// The task runs until the executor is deregistered (get_executor_state
+/// returns None) or the wake channel closes (server shutting down).
 async fn spawn_command_generator(
     executor_id: ExecutorId,
     executor_manager: Arc<ExecutorManager>,
-    blob_storage_registry: Arc<BlobStorageRegistry>,
+    _blob_storage_registry: Arc<BlobStorageRegistry>,
     indexify_state: Arc<IndexifyState>,
 ) {
-    // Get handles from the connection
-    let (event_rx, emitter) = {
+    // Get emitter handle from the connection
+    let emitter = {
         let connections = indexify_state.executor_connections.read().await;
         let Some(conn) = connections.get(&executor_id) else {
             warn!(
@@ -1211,13 +928,14 @@ async fn spawn_command_generator(
             );
             return;
         };
-        (conn.event_rx.clone(), conn.emitter.clone())
+        conn.emitter.clone()
     };
 
+    let mut wake_rx = indexify_state.subscribe_executor_wake();
     let eid = executor_id.clone();
     let indexify_state_for_handle = indexify_state.clone();
     let handle = tokio::spawn(async move {
-        // Initial full sync if emitter hasn't synced yet
+        // Initial full sync
         {
             let mut emitter_guard = emitter.lock().await;
             if !emitter_guard.has_synced {
@@ -1227,162 +945,45 @@ async fn spawn_command_generator(
         }
 
         loop {
-            let event = {
-                let mut rx_guard = event_rx.lock().await;
-                match rx_guard.recv().await {
-                    Some(e) => e,
-                    None => {
-                        info!(
-                            executor_id = eid.get(),
-                            "command_generator: event channel closed"
-                        );
-                        return;
-                    }
-                }
+            // Wait for global wake notification
+            if wake_rx.changed().await.is_err() {
+                // Channel closed — server shutting down
+                info!(
+                    executor_id = eid.get(),
+                    "command_generator: wake channel closed, exiting"
+                );
+                break;
+            }
+
+            // Diff against current ArcSwap state
+            let Some(snapshot) = executor_manager.get_executor_state(&eid).await else {
+                // Executor deregistered — exit task
+                info!(
+                    executor_id = eid.get(),
+                    "command_generator: executor deregistered, exiting"
+                );
+                break;
             };
 
             let mut emitter_guard = emitter.lock().await;
-            let mut commands = Vec::new();
-
-            match event {
-                ExecutorEvent::AllocationCreated(allocation) => {
-                    let alloc_id = allocation.id.to_string();
-                    if emitter_guard.known_allocations.contains(&alloc_id) {
-                        continue;
-                    }
-                    let cmd = build_run_allocation_command(
-                        &mut emitter_guard,
-                        &allocation,
-                        &blob_storage_registry,
-                    );
-                    emitter_guard.track_allocation(alloc_id);
-                    info!(
-                        executor_id = eid.get(),
-                        allocation_id = %allocation.id,
-                        request_id = %allocation.request_id,
-                        namespace = %allocation.namespace,
-                        app = %allocation.application,
-                        "fn" = %allocation.function,
-                        "command_generator: emitting RunAllocation"
-                    );
-                    commands.push(cmd);
-                }
-                ExecutorEvent::ContainerAdded(container_id) => {
-                    let cid = container_id.get().to_string();
-                    if emitter_guard.known_containers.contains_key(&cid) {
-                        continue;
-                    }
-                    if let Some(cmd) = build_add_container_command(
-                        &mut emitter_guard,
-                        &container_id,
-                        &blob_storage_registry,
-                        &indexify_state,
-                    )
-                    .await
-                    {
-                        let desc = match &cmd.command {
-                            Some(executor_api_pb::command::Command::AddContainer(add)) => {
-                                add.container.clone().unwrap_or_default()
-                            }
-                            _ => Default::default(),
-                        };
-                        emitter_guard.track_container(cid, desc.clone());
-                        info!(
-                            executor_id = eid.get(),
-                            container_id = container_id.get(),
-                            namespace = ?desc.function.as_ref().and_then(|f| f.namespace.as_deref()),
-                            app = ?desc.function.as_ref().and_then(|f| f.application_name.as_deref()),
-                            "fn" = ?desc.function.as_ref().and_then(|f| f.function_name.as_deref()),
-                            sandbox_id = ?desc.sandbox_metadata.as_ref().and_then(|m| m.sandbox_id.as_deref()),
-                            "command_generator: emitting AddContainer"
-                        );
-                        commands.push(cmd);
-                    }
-                }
-                ExecutorEvent::ContainerRemoved(container_id) => {
-                    let cid = container_id.get().to_string();
-                    let tracked_desc = emitter_guard.known_containers.get(&cid).cloned();
-                    emitter_guard.untrack_container(&cid);
-                    let seq = emitter_guard.next_seq();
-                    let cmd = executor_api_pb::Command {
-                        seq,
-                        command: Some(executor_api_pb::command::Command::RemoveContainer(
-                            executor_api_pb::RemoveContainer {
-                                container_id: cid.clone(),
-                                reason: None,
-                            },
-                        )),
-                    };
-                    info!(
-                        executor_id = eid.get(),
-                        container_id = %cid,
-                        namespace = ?tracked_desc.as_ref().and_then(|d| d.function.as_ref()).and_then(|f| f.namespace.as_deref()).unwrap_or_default(),
-                        app = ?tracked_desc.as_ref().and_then(|d| d.function.as_ref()).and_then(|f| f.application_name.as_deref()).unwrap_or_default(),
-                        "fn" = ?tracked_desc.as_ref().and_then(|d| d.function.as_ref()).and_then(|f| f.function_name.as_deref()).unwrap_or_default(),
-                        "command_generator: emitting RemoveContainer"
-                    );
-                    commands.push(cmd);
-                }
-                ExecutorEvent::ContainerDescriptionChanged(container_id) => {
-                    if let Some(cmd) = build_update_container_description_command(
-                        &mut emitter_guard,
-                        &container_id,
-                        &indexify_state,
-                    )
-                    .await
-                    {
-                        let cid = container_id.get().to_string();
-                        let desc = emitter_guard.known_containers.get(&cid);
-                        info!(
-                            executor_id = eid.get(),
-                            container_id = container_id.get(),
-                            namespace = ?desc.and_then(|d| d.function.as_ref()).and_then(|f| f.namespace.as_deref()).unwrap_or_default(),
-                            sandbox_id = ?desc.and_then(|d| d.sandbox_metadata.as_ref()).and_then(|m| m.sandbox_id.as_deref()).unwrap_or_default(),
-                            "command_generator: emitting UpdateContainerDescription"
-                        );
-                        commands.push(cmd);
-                    }
-                }
-                ExecutorEvent::SnapshotContainer {
-                    container_id,
-                    snapshot_id,
-                    upload_uri,
-                } => {
-                    info!(
-                        executor_id = eid.get(),
-                        container_id = container_id.get(),
-                        snapshot_id = %snapshot_id,
-                        "command_generator: emitting SnapshotContainer"
-                    );
-                    let seq = emitter_guard.next_seq();
-                    commands.push(executor_api_pb::Command {
-                        seq,
-                        command: Some(executor_api_pb::command::Command::SnapshotContainer(
-                            executor_api_pb::SnapshotContainer {
-                                container_id: container_id.get().to_string(),
-                                snapshot_id,
-                                upload_uri,
-                            },
-                        )),
-                    });
-                }
-                ExecutorEvent::FullSync => {
-                    do_full_sync_buffered(
-                        &eid,
-                        &executor_manager,
-                        &mut emitter_guard,
-                        &indexify_state,
-                    )
-                    .await;
-                }
-            }
+            let commands = emitter_guard.emit_commands(&snapshot);
 
             if !commands.is_empty() {
+                debug!(
+                    executor_id = eid.get(),
+                    num_commands = commands.len(),
+                    "command_generator: emitting diff commands"
+                );
                 let connections = indexify_state.executor_connections.read().await;
                 if let Some(conn) = connections.get(&eid) {
                     conn.push_commands(commands).await;
                 }
             }
+
+            // Commit tracking state only after commands are buffered.
+            // If push_commands fails (connection removed), skipping this
+            // ensures the next wake re-emits the missing commands.
+            emitter_guard.commit_snapshot(&snapshot);
         }
     });
 
@@ -2204,6 +1805,7 @@ mod tests {
         let desired = ExecutorStateSnapshot {
             containers: vec![make_fe_description("c1")],
             allocations: vec![make_allocation("a1")],
+            pending_snapshots: vec![],
             clock: Some(1),
         };
 
@@ -2240,6 +1842,7 @@ mod tests {
         let desired = ExecutorStateSnapshot {
             containers: vec![make_fe_description("c1")],
             allocations: vec![make_allocation("a1")],
+            pending_snapshots: vec![],
             clock: Some(1),
         };
 
@@ -2261,6 +1864,7 @@ mod tests {
         let desired1 = ExecutorStateSnapshot {
             containers: vec![make_fe_description("c1")],
             allocations: vec![],
+            pending_snapshots: vec![],
             clock: Some(1),
         };
         emitter.emit_commands(&desired1);
@@ -2270,6 +1874,7 @@ mod tests {
         let desired2 = ExecutorStateSnapshot {
             containers: vec![],
             allocations: vec![],
+            pending_snapshots: vec![],
             clock: Some(2),
         };
         let commands = emitter.emit_commands(&desired2);
@@ -2289,6 +1894,7 @@ mod tests {
         let desired1 = ExecutorStateSnapshot {
             containers: vec![make_fe_description("c1")],
             allocations: vec![make_allocation("a1")],
+            pending_snapshots: vec![],
             clock: Some(1),
         };
         emitter.emit_commands(&desired1);
@@ -2298,6 +1904,7 @@ mod tests {
         let desired2 = ExecutorStateSnapshot {
             containers: vec![make_fe_description("c1")],
             allocations: vec![make_allocation("a1"), make_allocation("a2")],
+            pending_snapshots: vec![],
             clock: Some(2),
         };
         let commands = emitter.emit_commands(&desired2);
@@ -2317,6 +1924,7 @@ mod tests {
         let desired1 = ExecutorStateSnapshot {
             containers: vec![make_fe_description("c1")],
             allocations: vec![make_allocation("a1")],
+            pending_snapshots: vec![],
             clock: Some(1),
         };
         emitter.emit_commands(&desired1);
@@ -2326,6 +1934,7 @@ mod tests {
         let desired2 = ExecutorStateSnapshot {
             containers: vec![make_fe_description("c1")],
             allocations: vec![],
+            pending_snapshots: vec![],
             clock: Some(2),
         };
         let commands = emitter.emit_commands(&desired2);
@@ -2341,6 +1950,7 @@ mod tests {
         let desired1 = ExecutorStateSnapshot {
             containers: vec![make_fe_description("c1")],
             allocations: vec![make_allocation("a1")],
+            pending_snapshots: vec![],
             clock: Some(1),
         };
         let cmds1 = emitter.emit_commands(&desired1);
@@ -2351,6 +1961,7 @@ mod tests {
         let desired2 = ExecutorStateSnapshot {
             containers: vec![make_fe_description("c1")],
             allocations: vec![make_allocation("a1"), make_allocation("a2")],
+            pending_snapshots: vec![],
             clock: Some(2),
         };
         let cmds2 = emitter.emit_commands(&desired2);

@@ -19,6 +19,8 @@ pub struct IndexifyAPIError {
     #[serde(skip)]
     status_code: StatusCode,
     message: String,
+    #[serde(skip)]
+    labels: HashMap<String, String>,
 }
 
 impl IndexifyAPIError {
@@ -26,7 +28,13 @@ impl IndexifyAPIError {
         Self {
             status_code,
             message: message.to_string(),
+            labels: HashMap::new(),
         }
+    }
+
+    pub fn with_label(mut self, key: &str, value: impl Into<String>) -> Self {
+        self.labels.insert(key.to_string(), value.into());
+        self
     }
 
     pub fn _bad_request(e: &str) -> Self {
@@ -56,7 +64,12 @@ impl IndexifyAPIError {
 
 impl IntoResponse for IndexifyAPIError {
     fn into_response(self) -> Response {
-        error!("API Error: {} - {}", self.status_code, self.message);
+        error!(
+            status_code = %self.status_code,
+            message = %self.message,
+            labels = ?self.labels,
+            "API Error"
+        );
         (self.status_code, self.message).into_response()
     }
 }

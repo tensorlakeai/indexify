@@ -52,12 +52,21 @@ use crate::{
     utils::{dynamic_sleep::DynamicSleepFuture, get_epoch_time_in_ms},
 };
 
+/// A snapshot that needs to be sent to the executor as a SnapshotContainer
+/// command.
+pub struct PendingSnapshot {
+    pub container_id: String,
+    pub snapshot_id: String,
+    pub upload_uri: String,
+}
+
 /// Snapshot of executor state returned by `get_executor_state`.
 /// Contains the containers, allocations, and clock that describe what the
 /// server wants the dataplane to converge to.
 pub struct ExecutorStateSnapshot {
     pub containers: Vec<ContainerDescription>,
     pub allocations: Vec<Allocation>,
+    pub pending_snapshots: Vec<PendingSnapshot>,
     #[allow(dead_code)]
     pub clock: Option<u64>,
 }
@@ -509,9 +518,37 @@ impl ExecutorManager {
             task_allocations.insert(fe_meta.function_container.id.clone(), allocations);
         }
 
+        // Collect pending snapshots from the same ArcSwap guard so
+        // containers and snapshots are consistent with each other.
+        let mut pending_snapshots = Vec::new();
+        for (_, sandbox) in state.indexes.sandboxes.iter() {
+            if let SandboxStatus::Snapshotting { ref snapshot_id } = sandbox.status {
+                let Some(ref sb_executor_id) = sandbox.executor_id else {
+                    continue;
+                };
+                if sb_executor_id != executor_id {
+                    continue;
+                }
+                let Some(ref container_id) = sandbox.container_id else {
+                    continue;
+                };
+                let snap_key = data_model::SnapshotKey::new(&sandbox.namespace, snapshot_id.get());
+                if let Some(snapshot) = state.indexes.snapshots.get(&snap_key) &&
+                    let Some(ref upload_uri) = snapshot.upload_uri
+                {
+                    pending_snapshots.push(PendingSnapshot {
+                        container_id: container_id.get().to_string(),
+                        snapshot_id: snapshot_id.get().to_string(),
+                        upload_uri: upload_uri.clone(),
+                    });
+                }
+            }
+        }
+
         Some(in_memory_state::DesiredExecutorState {
             containers: function_executors,
             function_run_allocations: task_allocations,
+            pending_snapshots,
             clock: state.indexes.clock,
         })
     }
@@ -692,6 +729,7 @@ impl ExecutorManager {
         Some(ExecutorStateSnapshot {
             containers: containers_pb,
             allocations: allocations_pb,
+            pending_snapshots: desired_executor_state.pending_snapshots,
             clock: Some(desired_executor_state.clock),
         })
     }

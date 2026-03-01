@@ -521,7 +521,11 @@ async fn change_application_state(
         .get_application(&namespace, &application)
         .await
         .map_err(IndexifyAPIError::internal_error)?
-        .ok_or(IndexifyAPIError::not_found("Application not found"))?;
+        .ok_or(
+            IndexifyAPIError::not_found("Application not found")
+                .with_label("namespace", namespace.clone())
+                .with_label("application", application.clone()),
+        )?;
 
     app.state = app_state.into();
 

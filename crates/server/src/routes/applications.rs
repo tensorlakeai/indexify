@@ -197,5 +197,7 @@ pub async fn get_application(
     if let Some(application) = application {
         return Ok(Json(application.into()));
     }
-    Err(IndexifyAPIError::not_found("Application not found"))
+    Err(IndexifyAPIError::not_found("Application not found")
+        .with_label("namespace", namespace)
+        .with_label("application", name))
 }
