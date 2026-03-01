@@ -876,10 +876,14 @@ pub(crate) fn network_policy_to_pb(
 /// Perform a full sync: fetch complete executor state, diff via emitter,
 /// and push all resulting commands into the connection's pending_commands
 /// buffer.
+///
+/// **Lock ordering**: emitter lock is acquired and released BEFORE
+/// `executor_connections.read()` to prevent ABBA deadlock with
+/// `register_executor_connection()` which takes the reverse order.
 async fn do_full_sync_buffered(
     executor_id: &ExecutorId,
     executor_manager: &ExecutorManager,
-    emitter: &mut CommandEmitter,
+    emitter: &Arc<tokio::sync::Mutex<CommandEmitter>>,
     indexify_state: &IndexifyState,
 ) {
     let Some(snapshot) = executor_manager.get_executor_state(executor_id).await else {
@@ -890,7 +894,12 @@ async fn do_full_sync_buffered(
         return;
     };
 
-    let commands = emitter.emit_commands(&snapshot);
+    // Emit under emitter lock, then drop before acquiring connections lock.
+    let commands = {
+        let mut guard = emitter.lock().await;
+        guard.emit_commands(&snapshot)
+    };
+
     if !commands.is_empty() {
         info!(
             executor_id = executor_id.get(),
@@ -902,8 +911,12 @@ async fn do_full_sync_buffered(
             conn.push_commands(commands).await;
         }
     }
-    // All commands buffered -- update tracking state
-    emitter.commit_snapshot(&snapshot);
+
+    // All commands buffered -- update tracking state.
+    {
+        let mut guard = emitter.lock().await;
+        guard.commit_snapshot(&snapshot);
+    }
 }
 
 /// Spawn a background task that diffs ArcSwap state on global wake
@@ -937,9 +950,9 @@ async fn spawn_command_generator(
     let handle = tokio::spawn(async move {
         // Initial full sync
         {
-            let mut emitter_guard = emitter.lock().await;
-            if !emitter_guard.has_synced {
-                do_full_sync_buffered(&eid, &executor_manager, &mut emitter_guard, &indexify_state)
+            let should_sync = !emitter.lock().await.has_synced;
+            if should_sync {
+                do_full_sync_buffered(&eid, &executor_manager, &emitter, &indexify_state)
                     .await;
             }
         }
@@ -965,8 +978,15 @@ async fn spawn_command_generator(
                 break;
             };
 
-            let mut emitter_guard = emitter.lock().await;
-            let commands = emitter_guard.emit_commands(&snapshot);
+            // Emit commands under the emitter lock, then DROP the guard
+            // before acquiring executor_connections.read(). This prevents
+            // an ABBA deadlock with register_executor_connection() which
+            // acquires executor_connections.write() then emitter.lock()
+            // (via reset_emitter).
+            let commands = {
+                let mut emitter_guard = emitter.lock().await;
+                emitter_guard.emit_commands(&snapshot)
+            };
 
             if !commands.is_empty() {
                 debug!(
@@ -983,7 +1003,10 @@ async fn spawn_command_generator(
             // Commit tracking state only after commands are buffered.
             // If push_commands fails (connection removed), skipping this
             // ensures the next wake re-emits the missing commands.
-            emitter_guard.commit_snapshot(&snapshot);
+            {
+                let mut emitter_guard = emitter.lock().await;
+                emitter_guard.commit_snapshot(&snapshot);
+            }
         }
     });
 
