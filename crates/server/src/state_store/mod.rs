@@ -705,8 +705,9 @@ impl IndexifyState {
                     };
                     state_machine::upsert_snapshot(&txn, &snapshot).await?;
 
-                    // Revert sandbox to Running. Try in-memory first, fall back
-                    // to DB since ArcSwap may not have the sandbox yet.
+                    // Mark sandbox as Terminated on snapshot failure.
+                    // Try in-memory first, fall back to DB since ArcSwap may not
+                    // have the sandbox yet.
                     let sb_key = SandboxKey::new(&snapshot.namespace, snapshot.sandbox_id.get());
                     let state = self.app_state.load();
                     let sandbox_opt = state.indexes.sandboxes.get(&sb_key).cloned();
@@ -722,7 +723,7 @@ impl IndexifyState {
                         }
                     };
                     if let Some(mut sandbox) = sandbox_opt {
-                        sandbox.status = SandboxStatus::Running;
+                        sandbox.status = SandboxStatus::Terminated;
                         state_machine::upsert_sandbox(&txn, &sandbox, current_clock).await?;
                     }
                 } else {
@@ -742,7 +743,19 @@ impl IndexifyState {
             RequestPayload::UpdateContainerPool(request) => {
                 state_machine::upsert_container_pool(&txn, &request.pool, current_clock).await?;
             }
-            RequestPayload::TombstoneContainerPool(_) => {}
+            RequestPayload::TombstoneContainerPool(request) => {
+                // Mark pool as tombstoned in RocksDB so user-facing reads
+                // (which query RocksDB) treat it as deleted immediately.
+                // The scheduler later issues the actual RocksDB delete.
+                let reader = scanner::StateReader::new(self.db.clone(), self.metrics.clone());
+                if let Some(mut pool) = reader
+                    .get_sandbox_pool(&request.namespace, request.pool_id.get())
+                    .await?
+                {
+                    pool.tombstoned = true;
+                    state_machine::upsert_container_pool(&txn, &pool, current_clock).await?;
+                }
+            }
             RequestPayload::DeleteContainerPool(request) => {
                 state_machine::delete_container_pool(
                     &txn,

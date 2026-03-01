@@ -5,6 +5,7 @@ use crate::{
     data_model::{
         ContainerPoolKey,
         ContainerState,
+        ExecutorId,
         Sandbox,
         SandboxFailureReason,
         SandboxKey,
@@ -12,6 +13,8 @@ use crate::{
         SandboxPendingReason,
         SandboxStatus,
         SandboxSuccessReason,
+        SnapshotId,
+        SnapshotStatus,
     },
     processor::container_scheduler::{self, ContainerScheduler},
     scheduler::{
@@ -282,6 +285,30 @@ impl SandboxProcessor {
             .remove_sandbox(&sandbox_key);
 
         Ok(update)
+    }
+
+    /// Returns in-progress snapshots whose sandbox was running on the given
+    /// executor. Used when an executor is tombstoned so those snapshots can be
+    /// failed immediately.
+    pub fn in_progress_snapshot_ids_for_executor(
+        &self,
+        in_memory_state: &InMemoryState,
+        executor_id: &ExecutorId,
+    ) -> Vec<SnapshotId> {
+        in_memory_state
+            .snapshots
+            .values()
+            .filter(|snapshot| matches!(snapshot.status, SnapshotStatus::InProgress))
+            .filter_map(|snapshot| {
+                let sandbox_key = SandboxKey::new(&snapshot.namespace, snapshot.sandbox_id.get());
+                let sandbox = in_memory_state.sandboxes.get(&sandbox_key)?;
+                if sandbox.executor_id.as_ref() == Some(executor_id) {
+                    Some(snapshot.id.clone())
+                } else {
+                    None
+                }
+            })
+            .collect()
     }
 
     /// Try to claim a warm container from a sandbox pool

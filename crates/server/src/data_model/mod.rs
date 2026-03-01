@@ -3200,6 +3200,13 @@ pub struct ContainerPool {
     #[builder(default = "self.default_created_at()")]
     pub created_at: u64,
 
+    /// Marked true when the pool is being deleted. User-facing reads
+    /// treat tombstoned pools as non-existent; the scheduler eventually
+    /// issues the actual RocksDB delete.
+    #[builder(default)]
+    #[serde(default)]
+    pub tombstoned: bool,
+
     #[builder(default)]
     #[serde(default)]
     created_at_clock: Option<u64>,

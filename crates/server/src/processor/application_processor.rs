@@ -1,7 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
-    time::Duration,
     vec,
 };
 
@@ -21,7 +20,6 @@ use crate::{
         ChangeType,
         ContainerPoolKey,
         ContainerState,
-        SnapshotStatus,
         StateChange,
     },
     metrics::{Timer, low_latency_boundaries},
@@ -53,7 +51,7 @@ use crate::{
         },
         state_changes,
     },
-    utils::{TimeUnit, get_elapsed_time, get_epoch_time_in_ns},
+    utils::{TimeUnit, get_elapsed_time},
 };
 
 /// Result from processing a single state change. SchedulerUpdate results can
@@ -76,17 +74,10 @@ pub struct ApplicationProcessor {
     pub allocate_function_runs_latency: Histogram<f64>,
     pub state_change_queue_depth: Gauge<u64>,
     pub queue_size: u32,
-    pub cluster_vacuum_interval: Duration,
-    pub snapshot_timeout: Duration,
 }
 
 impl ApplicationProcessor {
-    pub fn new(
-        indexify_state: Arc<IndexifyState>,
-        queue_size: u32,
-        cluster_vacuum_interval: Duration,
-        snapshot_timeout: Duration,
-    ) -> Self {
+    pub fn new(indexify_state: Arc<IndexifyState>, queue_size: u32) -> Self {
         let meter = opentelemetry::global::meter("processor_metrics");
 
         let write_sm_update_latency = meter
@@ -144,8 +135,6 @@ impl ApplicationProcessor {
             allocate_function_runs_latency,
             state_change_queue_depth,
             queue_size,
-            cluster_vacuum_interval,
-            snapshot_timeout,
         }
     }
 
@@ -201,18 +190,6 @@ impl ApplicationProcessor {
         // only when no real state changes are pending (back-of-queue).
         let mut pool_reconciliation_pending = false;
 
-        let vacuum_enabled = !self.cluster_vacuum_interval.is_zero();
-        let mut vacuum_timer = tokio::time::interval(
-            if vacuum_enabled {
-                self.cluster_vacuum_interval
-            } else {
-                // Interval must be > 0; use a large dummy value (guarded by vacuum_enabled)
-                Duration::from_secs(3600)
-            },
-        );
-        // Consume the first immediate tick so vacuum doesn't fire on startup
-        vacuum_timer.tick().await;
-
         loop {
             tokio::select! {
                 _ = change_events_rx.changed() => {
@@ -234,11 +211,6 @@ impl ApplicationProcessor {
                             error!("error processing state change: {:?}", err);
                             continue;
                         }
-                    }
-                },
-                _ = vacuum_timer.tick(), if vacuum_enabled => {
-                    if let Err(err) = self.handle_periodic_vacuum().await {
-                        error!("error during periodic vacuum: {:?}", err);
                     }
                 },
                 _ = shutdown_rx.changed() => {
@@ -478,23 +450,17 @@ impl ApplicationProcessor {
                         // refresh needed since we publish complete clones at the end.
                         let payload = sm_update.payload;
                         if let Err(err) = self
-                            .indexify_state
-                            .write_scheduler_output(StateMachineUpdateRequest {
-                                payload: payload.clone(),
-                            })
+                            .apply_immediate_payload(
+                                payload.clone(),
+                                &mut indexes,
+                                &mut container_scheduler,
+                            )
                             .await
                         {
                             error!(
                                 "error writing immediate state change {}: {:?}",
                                 state_change.change_type, err,
                             );
-                        } else {
-                            let clock = indexes.clock;
-                            let _ = indexes.update_state(clock, &payload, "immediate")?;
-                            container_scheduler.update(&payload)?;
-                            // Emit FullSync to affected executors for deletions.
-                            self.emit_immediate_events(&payload, &container_scheduler)
-                                .await;
                         }
                     }
                     Err(err) => {
@@ -785,6 +751,23 @@ impl ApplicationProcessor {
                     &self.allocate_function_runs_latency,
                     feas_cache,
                 )?);
+                let snapshots_to_fail = sandbox_processor
+                    .in_progress_snapshot_ids_for_executor(indexes_guard, &ev.executor_id);
+                for snapshot_id in snapshots_to_fail {
+                    warn!(
+                        executor_id = ev.executor_id.get(),
+                        snapshot_id = snapshot_id.get(),
+                        "failing snapshot because executor was tombstoned"
+                    );
+                    self.indexify_state
+                        .write(StateMachineUpdateRequest {
+                            payload: RequestPayload::FailSnapshot(FailSnapshotRequest {
+                                snapshot_id,
+                                error: "Executor became unavailable during snapshot".to_string(),
+                            }),
+                        })
+                        .await?;
+                }
                 scheduler_update
             }
             ChangeType::TombstoneApplication(request) => {
@@ -1270,11 +1253,26 @@ impl ApplicationProcessor {
         }
     }
 
-    /// Periodic housekeeping: fail stale snapshots.
-    /// Container reaping is handled eagerly in write_sm_update() step 4b.
-    #[instrument(skip(self))]
-    async fn handle_periodic_vacuum(&self) -> Result<()> {
-        self.handle_snapshot_vacuum().await?;
+    /// Persist an immediate payload and apply it to the in-memory clones used
+    /// by the current scheduler batch.
+    async fn apply_immediate_payload(
+        &self,
+        payload: RequestPayload,
+        indexes: &mut crate::state_store::in_memory_state::InMemoryState,
+        container_scheduler: &mut crate::processor::container_scheduler::ContainerScheduler,
+    ) -> Result<()> {
+        self.indexify_state
+            .write_scheduler_output(StateMachineUpdateRequest {
+                payload: payload.clone(),
+            })
+            .await?;
+
+        let clock = indexes.clock;
+        let _ = indexes.update_state(clock, &payload, "immediate")?;
+        container_scheduler.update(&payload)?;
+        // Emit FullSync to affected executors for deletions.
+        self.emit_immediate_events(&payload, container_scheduler)
+            .await;
         Ok(())
     }
 
@@ -1324,50 +1322,6 @@ impl ApplicationProcessor {
             // Emit events after ArcSwap publish.
             self.emit_scheduler_events(&buffer_update, &pre_existing_containers)
                 .await;
-        }
-
-        Ok(())
-    }
-
-    /// Detect and fail snapshots stuck in `InProgress` beyond the configured
-    /// timeout. This prevents sandboxes from being permanently stuck in the
-    /// `Snapshotting` state if a dataplane crashes mid-snapshot.
-    async fn handle_snapshot_vacuum(&self) -> Result<()> {
-        if self.snapshot_timeout.is_zero() {
-            return Ok(());
-        }
-
-        let now_ns = get_epoch_time_in_ns();
-        let timeout_ns = self.snapshot_timeout.as_nanos();
-
-        let stale_snapshot_ids: Vec<_> = {
-            let state = self.indexify_state.app_state.load();
-            state
-                .indexes
-                .snapshots
-                .values()
-                .filter(|s| {
-                    matches!(s.status, SnapshotStatus::InProgress) &&
-                        now_ns.saturating_sub(s.creation_time_ns) > timeout_ns
-                })
-                .map(|s| s.id.clone())
-                .collect()
-        };
-
-        for snapshot_id in stale_snapshot_ids {
-            warn!(
-                snapshot_id = snapshot_id.get(),
-                timeout_secs = self.snapshot_timeout.as_secs(),
-                "Failing stale snapshot stuck in InProgress"
-            );
-            self.indexify_state
-                .write(StateMachineUpdateRequest {
-                    payload: RequestPayload::FailSnapshot(FailSnapshotRequest {
-                        snapshot_id,
-                        error: "Snapshot timed out".to_string(),
-                    }),
-                })
-                .await?;
         }
 
         Ok(())

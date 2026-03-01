@@ -12,6 +12,7 @@ use crate::{
         AllocationUsageEvent,
         Application,
         ApplicationVersion,
+        ContainerPool,
         ExecutorMetadata,
         FunctionCall,
         FunctionRun,
@@ -613,6 +614,37 @@ impl StateReader {
         Ok(all_snapshots
             .into_iter()
             .find(|s| s.id.get() == snapshot_id))
+    }
+
+    pub async fn get_sandbox_pool(
+        &self,
+        namespace: &str,
+        pool_id: &str,
+    ) -> Result<Option<ContainerPool>> {
+        let kvs = &[KeyValue::new("op", "get_sandbox_pool")];
+        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
+
+        let key = format!("{namespace}|{pool_id}");
+        let pool: Option<ContainerPool> = self
+            .get_from_cf(&IndexifyObjectsColumns::SandboxPools, key.as_bytes())
+            .await?;
+        Ok(pool.filter(|p| !p.tombstoned))
+    }
+
+    pub async fn list_sandbox_pools(&self, namespace: &str) -> Result<Vec<ContainerPool>> {
+        let kvs = &[KeyValue::new("op", "list_sandbox_pools")];
+        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
+
+        let key_prefix = format!("{namespace}|");
+        let (pools, _) = self
+            .get_rows_from_cf_with_limits::<ContainerPool>(
+                key_prefix.as_bytes(),
+                None,
+                IndexifyObjectsColumns::SandboxPools,
+                None,
+            )
+            .await?;
+        Ok(pools.into_iter().filter(|p| !p.tombstoned).collect())
     }
 
     /// Read a single executor by ID from the Executors CF.

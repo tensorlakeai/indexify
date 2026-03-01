@@ -323,11 +323,12 @@ pub async fn invoke_application_with_object_v1(
     );
     let app_version = state
         .indexify_state
-        .app_state
-        .load()
-        .indexes
-        .application_version(&namespace, &application.name, &application.version)
-        .cloned()
+        .reader()
+        .get_application_version(&namespace, &application.name, &application.version)
+        .await
+        .map_err(|e| {
+            IndexifyAPIError::internal_error(anyhow!("failed to get application version: {e}"))
+        })?
         .ok_or(IndexifyAPIError::not_found(
             "compute graph version not found",
         ))?;
