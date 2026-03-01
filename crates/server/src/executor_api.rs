@@ -968,8 +968,24 @@ async fn spawn_command_generator(
             }
 
             // Diff against current ArcSwap state
-            let Some(snapshot) = executor_manager.get_executor_state(&eid).await else {
-                // Executor deregistered — exit task
+            let snapshot = if let Some(snapshot) = executor_manager.get_executor_state(&eid).await {
+                snapshot
+            } else {
+                // `None` can mean either:
+                // 1) executor truly deregistered (connection removed), or
+                // 2) executor registered but not yet reconciled (no desired state yet).
+                //
+                // Exiting on (2) causes a startup race where this task dies
+                // permanently before allocations are emitted.
+                let connections = indexify_state.executor_connections.read().await;
+                if connections.contains_key(&eid) {
+                    debug!(
+                        executor_id = eid.get(),
+                        "command_generator: executor state not yet available, waiting"
+                    );
+                    continue;
+                }
+
                 info!(
                     executor_id = eid.get(),
                     "command_generator: executor deregistered, exiting"
@@ -1618,6 +1634,8 @@ async fn try_route_failure(
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use executor_api_pb::{
         ContainerDescription,
         ContainerResources,
@@ -1633,6 +1651,7 @@ mod tests {
     use crate::{
         data_model::{self, ContainerTerminationReason, ContainerType},
         executors::ExecutorStateSnapshot,
+        testing::TestService,
     };
 
     /// Build a minimal sandbox ContainerState proto with the given
@@ -1988,5 +2007,55 @@ mod tests {
         };
         let cmds2 = emitter.emit_commands(&desired2);
         assert_eq!(cmds2[0].seq, 3, "seq should continue from previous batch");
+    }
+
+    #[tokio::test]
+    async fn test_command_generator_survives_unreconciled_executor_state() {
+        // Reproduces the startup race from CI:
+        // registration spawns command generator before application processor
+        // has created executor server metadata.
+        let test_service = TestService::new().await.unwrap();
+        let api = super::ExecutorAPIService::new(
+            test_service.service.indexify_state.clone(),
+            test_service.service.executor_manager.clone(),
+            test_service.service.blob_storage_registry.clone(),
+        );
+        let executor_id = crate::data_model::ExecutorId::from("executor-startup-race");
+
+        // Register executor (full_state path) without running app processor yet.
+        api.handle_full_state(
+            &executor_id,
+            executor_api_pb::DataplaneStateFullSync::default(),
+        )
+        .await
+        .unwrap();
+
+        // Wake command generators before reconciliation; desired state is still
+        // unavailable at this point.
+        let _ = test_service
+            .service
+            .indexify_state
+            .executor_wake_tx
+            .send(());
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        let connections = test_service
+            .service
+            .indexify_state
+            .executor_connections
+            .read()
+            .await;
+        let conn = connections
+            .get(&executor_id)
+            .expect("executor connection should exist");
+        let handle = conn
+            .command_generator_handle
+            .as_ref()
+            .expect("command generator should be running");
+
+        assert!(
+            !handle.is_finished(),
+            "command generator exited before executor reconciliation completed"
+        );
     }
 }
