@@ -296,7 +296,6 @@ mod tests {
             http_addr: "192.168.30.2:9501".to_string(),
             socket_path: "/tmp/fc-test-vm-1.sock".to_string(),
             labels: HashMap::new(),
-            dm_name: None,
         }
     }
 

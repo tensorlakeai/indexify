@@ -354,9 +354,7 @@ pub fn create_snapshot_from_delta(
     let base_lv_path = format!("{}/{}", lvm_config.volume_group, base.lv_name);
 
     // Get delta file size before opening.
-    let delta_file_bytes = std::fs::metadata(delta_file)
-        .map(|m| m.len())
-        .unwrap_or(0);
+    let delta_file_bytes = std::fs::metadata(delta_file).map(|m| m.len()).unwrap_or(0);
 
     // Open delta file and read header.
     let mut delta = std::io::BufReader::new(
@@ -423,23 +421,70 @@ pub fn create_snapshot_from_delta(
     }
 
     // Apply delta block records to the thin snapshot.
+    //
+    // Open with O_DIRECT to bypass the page cache. Without O_DIRECT, closing
+    // a block device that has dirty pages triggers sync_blockdev() in the
+    // kernel, which flushes ALL dirty pages synchronously. For a 475 MB delta
+    // on EBS-backed thin LVs this takes ~40 seconds. With O_DIRECT, writes go
+    // straight to disk and close() is instant.
     let t_apply = Instant::now();
-    let target = match std::fs::OpenOptions::new().write(true).open(&device_path) {
-        Ok(f) => f,
-        Err(e) => {
-            let lv_path = format!("{}/{}", lvm_config.volume_group, lv_name);
-            let _ = run_cmd("lvremove", &["-f", &lv_path]);
-            return Err(anyhow::Error::from(e).context(format!(
-                "Failed to open target device {}",
-                device_path.display()
-            )));
+    let (target, using_direct_io) = {
+        use std::os::unix::fs::OpenOptionsExt;
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .custom_flags(libc::O_DIRECT)
+            .open(&device_path)
+        {
+            Ok(f) => (f, true),
+            Err(direct_err) => {
+                // Fallback: O_DIRECT may not be supported on all devices/filesystems.
+                // Open without it and log a warning (close will be slow).
+                tracing::warn!(
+                    vm_id = %vm_id,
+                    lv_name = %lv_name,
+                    error = ?direct_err,
+                    "O_DIRECT not supported on target device, falling back to buffered I/O \
+                     (close() may be slow due to sync_blockdev)"
+                );
+                match std::fs::OpenOptions::new().write(true).open(&device_path) {
+                    Ok(f) => (f, false),
+                    Err(e) => {
+                        let lv_path = format!("{}/{}", lvm_config.volume_group, lv_name);
+                        let _ = run_cmd("lvremove", &["-f", &lv_path]);
+                        return Err(anyhow::Error::from(e).context(format!(
+                            "Failed to open target device {}",
+                            device_path.display()
+                        )));
+                    }
+                }
+            }
         }
     };
+
+    // For O_DIRECT, buffers must be aligned to the device's logical block
+    // size (512 bytes minimum, 4096 for most modern devices). We align to
+    // page size (4096) which satisfies all block devices.
+    const IO_ALIGNMENT: usize = 4096;
+    let buf_layout = std::alloc::Layout::from_size_align(BLOCK_SIZE, IO_ALIGNMENT)
+        .expect("valid layout for aligned I/O buffer");
+    let buf_ptr = unsafe { std::alloc::alloc(buf_layout) };
+    if buf_ptr.is_null() {
+        std::alloc::handle_alloc_error(buf_layout);
+    }
+    // SAFETY: buf_ptr is valid for BLOCK_SIZE bytes, aligned to IO_ALIGNMENT.
+    // AlignedBufGuard ensures deallocation on all exit paths.
+    struct AlignedBufGuard(*mut u8, std::alloc::Layout);
+    impl Drop for AlignedBufGuard {
+        fn drop(&mut self) {
+            unsafe { std::alloc::dealloc(self.0, self.1) };
+        }
+    }
+    let _buf_guard = AlignedBufGuard(buf_ptr, buf_layout);
+    let data: &mut [u8] = unsafe { std::slice::from_raw_parts_mut(buf_ptr, BLOCK_SIZE) };
 
     let mut blocks_written: u64 = 0;
     let mut total_bytes_applied: u64 = 0;
     let mut record_header = [0u8; 12]; // offset: u64 + length: u32
-    let mut data = vec![0u8; BLOCK_SIZE]; // reused across iterations
     loop {
         match delta.read_exact(&mut record_header) {
             Ok(()) => {}
@@ -492,8 +537,23 @@ pub fn create_snapshot_from_delta(
         blocks_written,
         total_bytes_applied,
         delta_file_bytes,
+        using_direct_io,
         elapsed_ms = t_apply.elapsed().as_millis() as u64,
         "Delta block records applied (COW preserved for unchanged blocks)"
+    );
+
+    // Explicitly close the target device and measure how long it takes.
+    // With O_DIRECT there are no dirty pages, so close() is instant.
+    // Without O_DIRECT, the kernel calls sync_blockdev() which flushes
+    // all dirty pages and can take tens of seconds on EBS.
+    let t_close = Instant::now();
+    drop(target);
+    tracing::info!(
+        vm_id = %vm_id,
+        lv_name = %lv_name,
+        using_direct_io,
+        close_ms = t_close.elapsed().as_millis() as u64,
+        "Target device closed"
     );
 
     // Delete the delta file now that data is in the LV.
