@@ -1869,18 +1869,6 @@ pub struct FunctionAllowlist {
 }
 
 impl FunctionAllowlist {
-    pub fn matches_function_executor(&self, function_executor: &Container) -> bool {
-        self.namespace
-            .as_ref()
-            .is_none_or(|ns| ns == &function_executor.namespace) &&
-            self.application
-                .as_ref()
-                .is_none_or(|cg_name| cg_name == &function_executor.application_name) &&
-            self.function
-                .as_ref()
-                .is_none_or(|fn_name| fn_name == &function_executor.function_name)
-    }
-
     pub fn matches_function(&self, ns: &str, app: &str, function: &Function) -> bool {
         self.namespace
             .as_ref()

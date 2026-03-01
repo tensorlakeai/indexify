@@ -111,6 +111,7 @@ impl TestService {
         Ok(())
     }
 
+    /// Run the periodic cluster vacuum (reap idle containers, unblock work).
     pub async fn create_executor(&self, executor: ExecutorMetadata) -> Result<TestExecutor<'_>> {
         let mut e = TestExecutor {
             executor_id: executor.id.clone(),

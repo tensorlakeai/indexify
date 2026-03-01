@@ -77,7 +77,6 @@ pub struct ApplicationProcessor {
     pub state_change_queue_depth: Gauge<u64>,
     pub queue_size: u32,
     pub cluster_vacuum_interval: Duration,
-    pub cluster_vacuum_max_idle_age: Duration,
     pub snapshot_timeout: Duration,
 }
 
@@ -86,7 +85,6 @@ impl ApplicationProcessor {
         indexify_state: Arc<IndexifyState>,
         queue_size: u32,
         cluster_vacuum_interval: Duration,
-        cluster_vacuum_max_idle_age: Duration,
         snapshot_timeout: Duration,
     ) -> Self {
         let meter = opentelemetry::global::meter("processor_metrics");
@@ -147,7 +145,6 @@ impl ApplicationProcessor {
             state_change_queue_depth,
             queue_size,
             cluster_vacuum_interval,
-            cluster_vacuum_max_idle_age,
             snapshot_timeout,
         }
     }
@@ -240,8 +237,8 @@ impl ApplicationProcessor {
                     }
                 },
                 _ = vacuum_timer.tick(), if vacuum_enabled => {
-                    if let Err(err) = self.handle_cluster_vacuum().await {
-                        error!("error during cluster vacuum: {:?}", err);
+                    if let Err(err) = self.handle_periodic_vacuum().await {
+                        error!("error during periodic vacuum: {:?}", err);
                     }
                 },
                 _ = shutdown_rx.changed() => {
@@ -1273,126 +1270,11 @@ impl ApplicationProcessor {
         }
     }
 
+    /// Periodic housekeeping: fail stale snapshots.
+    /// Container reaping is handled eagerly in write_sm_update() step 4b.
     #[instrument(skip(self))]
-    async fn handle_cluster_vacuum(&self) -> Result<()> {
-        // Reap idle containers on the timer so quiescent systems (no incoming
-        // state changes) still free resources. The event-loop reaper in
-        // write_sm_update uses min_idle_age=0 for immediate capacity recovery;
-        // here we use the configured age threshold for background cleanup.
-        let current = self.indexify_state.app_state.load_full();
-        let mut container_scheduler = current.scheduler.clone();
-
-        let reap_update =
-            container_scheduler.reap_idle_containers(self.cluster_vacuum_max_idle_age);
-        if !reap_update.containers.is_empty() {
-            let mut indexes = current.indexes.clone();
-            let clock = indexes.clock;
-            indexes.apply_scheduler_update(clock, &reap_update, "vacuum_reap")?;
-
-            // Unblock work that was waiting on freed resources from reaped
-            // containers. Without this, the write() below removes the
-            // containers from function_containers (via update_scheduler_update
-            // → remove_container_from_indices), so subsequent
-            // DataplaneResultsIngested events can't find them to trigger
-            // unblocking — causing blocked function runs to be stuck forever.
-            let mut freed_per_class: HashMap<ExecutorClass, u64> = HashMap::new();
-            for meta in reap_update.containers.values() {
-                if matches!(
-                    meta.desired_state,
-                    data_model::ContainerState::Terminated { .. }
-                ) {
-                    let exec_class = container_scheduler.get_executor_class(&meta.executor_id);
-                    *freed_per_class.entry(exec_class).or_default() +=
-                        meta.function_container.resources.memory_mb;
-                }
-            }
-            let mut unblocked = UnblockedWork::default();
-            for (class, freed_mb) in &freed_per_class {
-                let batch = container_scheduler
-                    .blocked_work
-                    .unblock_for_freed_resources(class, *freed_mb);
-                unblocked.function_run_keys.extend(batch.function_run_keys);
-                unblocked.sandbox_keys.extend(batch.sandbox_keys);
-            }
-
-            // Extend reap_update into merged FIRST so allocations below can
-            // restore reaped containers (last-wins ordering).
-            let mut merged_update = reap_update;
-            let mut feas_cache = FeasibilityCache::new();
-
-            // Allocate unblocked function runs.
-            if !unblocked.function_run_keys.is_empty() {
-                let function_runs =
-                    indexes.resolve_pending_function_runs(&unblocked.function_run_keys);
-                if !function_runs.is_empty() {
-                    info!(
-                        num_unblocked = function_runs.len(),
-                        "cluster_vacuum: scheduling unblocked function runs"
-                    );
-                    let task_allocator = FunctionRunProcessor::new(self.queue_size);
-                    let alloc_result = task_allocator.allocate_function_runs(
-                        &indexes,
-                        &mut container_scheduler,
-                        function_runs,
-                        &self.allocate_function_runs_latency,
-                        &mut feas_cache,
-                    )?;
-                    indexes.apply_scheduler_update(clock, &alloc_result, "vacuum_unblock_alloc")?;
-                    merged_update.extend(alloc_result);
-                }
-            }
-
-            // Allocate unblocked sandboxes (batched apply).
-            if !unblocked.sandbox_keys.is_empty() {
-                let sandbox_processor = SandboxProcessor::new();
-                let mut sb_batch = SchedulerUpdateRequest::default();
-                for sandbox_key in &unblocked.sandbox_keys {
-                    sb_batch.extend(sandbox_processor.allocate_sandbox_by_key(
-                        &indexes,
-                        &mut container_scheduler,
-                        sandbox_key.namespace(),
-                        sandbox_key.sandbox_id(),
-                        &mut feas_cache,
-                    )?);
-                }
-                indexes.apply_scheduler_update(clock, &sb_batch, "vacuum_unblock_sandbox")?;
-                merged_update.extend(sb_batch);
-            }
-
-            // Determine pre-existing containers for event emission.
-            let pre_existing_containers: HashSet<data_model::ContainerId> = merged_update
-                .containers
-                .keys()
-                .filter(|id| current.scheduler.function_containers.contains_key(id))
-                .cloned()
-                .collect();
-
-            // Write scheduler results to RocksDB.
-            self.indexify_state
-                .write_scheduler_output(StateMachineUpdateRequest {
-                    payload: RequestPayload::SchedulerUpdate(SchedulerUpdatePayload {
-                        update: Box::new(merged_update.clone()),
-                    }),
-                })
-                .await?;
-
-            // Publish to ArcSwap (sole writer). The next batch loads from
-            // ArcSwap and gets the updated blocked_work automatically.
-            self.indexify_state
-                .app_state
-                .store(Arc::new(crate::state_store::AppState {
-                    indexes,
-                    scheduler: container_scheduler,
-                }));
-
-            // Emit events after ArcSwap publish.
-            self.emit_scheduler_events(&merged_update, &pre_existing_containers)
-                .await;
-        }
-
-        // Fail snapshots that have been stuck in InProgress for too long
+    async fn handle_periodic_vacuum(&self) -> Result<()> {
         self.handle_snapshot_vacuum().await?;
-
         Ok(())
     }
 
