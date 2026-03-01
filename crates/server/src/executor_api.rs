@@ -952,8 +952,7 @@ async fn spawn_command_generator(
         {
             let should_sync = !emitter.lock().await.has_synced;
             if should_sync {
-                do_full_sync_buffered(&eid, &executor_manager, &emitter, &indexify_state)
-                    .await;
+                do_full_sync_buffered(&eid, &executor_manager, &emitter, &indexify_state).await;
             }
         }
 
