@@ -981,19 +981,9 @@ impl ContainerScheduler {
     }
 
     fn fe_can_be_removed(&self, fe_meta: &ContainerServerMetadata) -> bool {
-        // Check if this container matches the executor's allowlist
-        if let Some(executor) = self.executors.get(&fe_meta.executor_id) &&
-            let Some(allowlist) = &executor.function_allowlist
-        {
-            for allowlist_entry in allowlist {
-                if allowlist_entry.matches_function_executor(&fe_meta.function_container) {
-                    return false;
-                }
-            }
-        }
-
-        // Check if container has active allocations or is a sandbox
-        // Buffer reconciler handles maintaining min/buffer counts
+        // Check if container has active allocations or is a sandbox.
+        // Allowlists are a placement concern — they restrict which functions an
+        // executor can run, not which containers can be vacuumed.
         fe_meta.can_be_removed()
     }
 
@@ -1098,7 +1088,7 @@ impl ContainerScheduler {
                 continue;
             }
 
-            // Can't be removed (sandbox, has allocations, on allowlist)
+            // Can't be removed (sandbox or has active allocations)
             if !self.fe_can_be_removed(fc) {
                 continue;
             }
