@@ -59,6 +59,20 @@ mod tests {
             );
         }
         for col in IndexifyObjectsColumns::iter() {
+            // Skip infrastructure CFs that intentionally retain data:
+            // - Executors: executor metadata persists across deregistration
+            // - PayloadQueue: entries consumed asynchronously by the scheduler
+            // - ExecutorStateChanges / ApplicationStateChanges: legacy CFs that accumulate
+            //   during the transition to payload-queue-based scheduling. The scheduler
+            //   reads from PayloadQueue instead; these CFs will be removed in a follow-up
+            //   cleanup step.
+            if col == IndexifyObjectsColumns::Executors ||
+                col == IndexifyObjectsColumns::PayloadQueue ||
+                col == IndexifyObjectsColumns::ExecutorStateChanges ||
+                col == IndexifyObjectsColumns::ApplicationStateChanges
+            {
+                continue;
+            }
             let count_options = IterOptions::default();
             let count = db.iter(col.as_ref(), count_options).await.count();
 
@@ -89,29 +103,26 @@ mod tests {
         // Invoke a simple graph
         test_state_store::with_simple_application(&indexify_state).await;
 
-        // Should have 1 unprocessed state - one task created event
-        let unprocessed_state_changes = indexify_state
-            .reader()
-            .unprocessed_state_changes(&None, &None)
-            .await?;
+        // Should have 2 pending payloads in the queue:
+        // 1. CreateOrUpdateApplication
+        // 2. InvokeApplication
+        let pending_payloads = indexify_state.reader().read_pending_payloads().await?;
         assert_eq!(
-            1,
-            unprocessed_state_changes.changes.len(),
-            "{unprocessed_state_changes:?}"
+            2,
+            pending_payloads.len(),
+            "expected 2 pending payloads, got {}",
+            pending_payloads.len()
         );
 
         // Do the processing
         test_srv.process_all_state_changes().await?;
 
-        // Should have 0 unprocessed state changes
-        let unprocessed_state_changes = indexify_state
-            .reader()
-            .unprocessed_state_changes(&None, &None)
-            .await?;
+        // Should have 0 pending payloads in the queue
+        let pending_payloads = indexify_state.reader().read_pending_payloads().await?;
         assert_eq!(
-            unprocessed_state_changes.changes.len(),
+            pending_payloads.len(),
             0,
-            "{unprocessed_state_changes:#?}"
+            "expected 0 pending payloads after processing"
         );
 
         // And now, we should have an unallocated task
@@ -317,11 +328,11 @@ mod tests {
 
         // Check for stale data in in-memory state
         {
-            let in_memory_state = indexify_state.in_memory_state.read().await;
+            let app = indexify_state.app_state.load();
 
             // Check allocations_by_executor - should have no allocations for this request
             let executor_id = crate::data_model::ExecutorId::new(TEST_EXECUTOR_ID.to_string());
-            if let Some(allocs_by_fe) = in_memory_state.allocations_by_executor.get(&executor_id) {
+            if let Some(allocs_by_fe) = app.indexes.allocations_by_executor.get(&executor_id) {
                 let total_allocs: usize = allocs_by_fe.values().map(|m| m.len()).sum();
                 tracing::info!(
                     "allocations_by_executor for {}: {} allocations across {} function executors",
@@ -340,28 +351,29 @@ mod tests {
             // Check function_runs count
             tracing::info!(
                 "function_runs count after tombstone: {}",
-                in_memory_state.function_runs.len()
+                app.indexes.function_runs.len()
             );
 
             // Check unallocated_function_runs count
             tracing::info!(
                 "unallocated_function_runs count after tombstone: {}",
-                in_memory_state.unallocated_function_runs.len()
+                app.indexes.unallocated_function_runs.len()
             );
 
             // Check request_ctx count
             tracing::info!(
                 "request_ctx count after tombstone: {}",
-                in_memory_state.request_ctx.len()
+                app.indexes.request_ctx.len()
             );
         }
 
         // Check for stale data in container scheduler
         {
-            let container_scheduler = indexify_state.container_scheduler.read().await;
+            let app = indexify_state.app_state.load();
 
             // Check if containers for this app still exist
-            let app_containers: Vec<_> = container_scheduler
+            let app_containers: Vec<_> = app
+                .scheduler
                 .function_containers
                 .iter()
                 .filter(|(_, fc)| {
@@ -387,12 +399,12 @@ mod tests {
             // Check containers_by_function_uri
             tracing::info!(
                 "containers_by_function_uri count: {}",
-                container_scheduler.containers_by_function_uri.len()
+                app.scheduler.containers_by_function_uri.len()
             );
 
             // Check executor_states
             let executor_id = crate::data_model::ExecutorId::new(TEST_EXECUTOR_ID.to_string());
-            if let Some(executor_state) = container_scheduler.executor_states.get(&executor_id) {
+            if let Some(executor_state) = app.scheduler.executor_states.get(&executor_id) {
                 tracing::info!(
                     "Executor state: function_container_ids={}, free_resources.cpu_ms_per_sec={}",
                     executor_state.function_container_ids.len(),
@@ -468,10 +480,11 @@ mod tests {
 
         // Check for stale data in container scheduler after app deletion
         {
-            let container_scheduler = indexify_state.container_scheduler.read().await;
+            let app = indexify_state.app_state.load();
 
             // Check if containers for this app still exist
-            let app_containers: Vec<_> = container_scheduler
+            let app_containers: Vec<_> = app
+                .scheduler
                 .function_containers
                 .iter()
                 .filter(|(_, fc)| {
@@ -531,9 +544,6 @@ mod tests {
                 };
             }
 
-            // Update state_hash so heartbeat triggers state changes
-            executor_state.state_hash = nanoid::nanoid!();
-
             // Send heartbeat with updated state
             executor.sync_executor_state(executor_state).await?;
             test_srv.process_all_state_changes().await?;
@@ -541,9 +551,10 @@ mod tests {
 
         // Check container scheduler state AFTER heartbeat
         {
-            let container_scheduler = indexify_state.container_scheduler.read().await;
+            let app = indexify_state.app_state.load();
 
-            let app_containers: Vec<_> = container_scheduler
+            let app_containers: Vec<_> = app
+                .scheduler
                 .function_containers
                 .iter()
                 .filter(|(_, fc)| {
@@ -566,7 +577,8 @@ mod tests {
             }
 
             // Check containers_by_function_uri for this app
-            let app_uri_containers: Vec<_> = container_scheduler
+            let app_uri_containers: Vec<_> = app
+                .scheduler
                 .containers_by_function_uri
                 .iter()
                 .filter(|(uri, _)| uri.namespace == TEST_NAMESPACE && uri.application == "graph_A")
@@ -578,7 +590,7 @@ mod tests {
 
             // Check executor_states
             let executor_id = crate::data_model::ExecutorId::new(TEST_EXECUTOR_ID.to_string());
-            if let Some(executor_state) = container_scheduler.executor_states.get(&executor_id) {
+            if let Some(executor_state) = app.scheduler.executor_states.get(&executor_id) {
                 tracing::info!(
                     "Executor state AFTER heartbeat: function_container_ids={}",
                     executor_state.function_container_ids.len()
@@ -1687,13 +1699,12 @@ mod tests {
 
         // SIMULATE SERVER RESTART:
         // Clear executor state but keep allocations (as if loaded from DB)
-        // NOTE: We must write to the original in_memory_state, not a clone!
+        // Fork-mutate-publish via ArcSwap.
         {
-            indexify_state
-                .in_memory_state
-                .write()
-                .await
-                .simulate_server_restart_clear_executor_state();
+            let current = indexify_state.app_state.load_full();
+            let mut next = (*current).clone();
+            next.indexes.simulate_server_restart_clear_executor_state();
+            indexify_state.app_state.store(std::sync::Arc::new(next));
         }
 
         // Now deregister the executor - this will take the FALLBACK path

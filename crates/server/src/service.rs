@@ -118,9 +118,6 @@ impl Service {
         let application_processor = Arc::new(ApplicationProcessor::new(
             indexify_state.clone(),
             config.queue_size,
-            std::time::Duration::from_secs(config.cluster_vacuum_interval_secs),
-            std::time::Duration::from_secs(config.cluster_vacuum_max_idle_age_secs),
-            std::time::Duration::from_secs(config.snapshot_timeout_secs),
         ));
         application_processor.validate_app_constraints().await?;
 

@@ -3,7 +3,7 @@ use std::sync::Arc;
 use anyhow::{Result, anyhow};
 use opentelemetry::KeyValue;
 use serde::de::DeserializeOwned;
-use tracing::{debug, error, trace};
+use tracing::{debug, error};
 
 use super::state_machine::IndexifyObjectsColumns;
 use crate::{
@@ -12,6 +12,8 @@ use crate::{
         AllocationUsageEvent,
         Application,
         ApplicationVersion,
+        ContainerPool,
+        ExecutorMetadata,
         FunctionCall,
         FunctionRun,
         Namespace,
@@ -20,12 +22,12 @@ use crate::{
         Sandbox,
         Snapshot,
         StateChange,
-        UnprocessedStateChanges,
     },
     metrics::{self, Timer},
     state_store::{
         driver::{IterOptions, RangeOptionsBuilder, Reader, rocksdb::RocksDBDriver},
         request_events::PersistedRequestStateChangeEvent,
+        requests::RequestPayload,
         serializer::{StateStoreEncode, StateStoreEncoder},
     },
     utils::get_epoch_time_in_ms,
@@ -173,63 +175,6 @@ impl StateReader {
             state_changes.push(state_change);
         }
         Ok(state_changes)
-    }
-
-    pub async fn unprocessed_state_changes(
-        &self,
-        executor_events_cursor: &Option<Vec<u8>>,
-        application_events_cursor: &Option<Vec<u8>>,
-    ) -> Result<UnprocessedStateChanges> {
-        let kvs = &[KeyValue::new("op", "unprocessed_state_changes")];
-        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
-        let mut state_changes = Vec::new();
-        let (executor_events, executor_events_cursor) = self
-            .get_rows_from_cf_with_limits::<StateChange>(
-                &[],
-                executor_events_cursor.as_deref(),
-                IndexifyObjectsColumns::ExecutorStateChanges,
-                None,
-            )
-            .await?;
-        let num_executor_events = executor_events.len();
-        state_changes.extend(executor_events);
-        if state_changes.len() >= 100 {
-            trace!(
-                total = state_changes.len(),
-                executor_events = num_executor_events,
-                application_events = 0,
-                "Returning unprocessed state changes (no ns messages fetched)",
-            );
-            return Ok(UnprocessedStateChanges {
-                changes: state_changes,
-                executor_state_change_cursor: executor_events_cursor,
-                // returning previous ns cursor as we did not fetch ns messages
-                application_state_change_cursor: application_events_cursor.clone(),
-            });
-        }
-
-        let (application_events, application_events_cursor) = self
-            .get_rows_from_cf_with_limits::<StateChange>(
-                &[],
-                application_events_cursor.as_deref(),
-                IndexifyObjectsColumns::ApplicationStateChanges,
-                Some(100 - state_changes.len()),
-            )
-            .await?;
-        let num_application_events = application_events.len();
-        state_changes.extend(application_events);
-
-        trace!(
-            total = state_changes.len(),
-            executor_events = num_executor_events,
-            application_events = num_application_events,
-            "returning unprocessed state changes",
-        );
-        Ok(UnprocessedStateChanges {
-            changes: state_changes,
-            application_state_change_cursor: application_events_cursor,
-            executor_state_change_cursor: executor_events_cursor,
-        })
     }
 
     /// Fetch allocation usage records with pagination support.
@@ -669,6 +614,73 @@ impl StateReader {
         Ok(all_snapshots
             .into_iter()
             .find(|s| s.id.get() == snapshot_id))
+    }
+
+    pub async fn get_sandbox_pool(
+        &self,
+        namespace: &str,
+        pool_id: &str,
+    ) -> Result<Option<ContainerPool>> {
+        let kvs = &[KeyValue::new("op", "get_sandbox_pool")];
+        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
+
+        let key = format!("{namespace}|{pool_id}");
+        let pool: Option<ContainerPool> = self
+            .get_from_cf(&IndexifyObjectsColumns::SandboxPools, key.as_bytes())
+            .await?;
+        Ok(pool.filter(|p| !p.tombstoned))
+    }
+
+    pub async fn list_sandbox_pools(&self, namespace: &str) -> Result<Vec<ContainerPool>> {
+        let kvs = &[KeyValue::new("op", "list_sandbox_pools")];
+        let _timer = Timer::start_with_labels(&self.metrics.state_read, kvs);
+
+        let key_prefix = format!("{namespace}|");
+        let (pools, _) = self
+            .get_rows_from_cf_with_limits::<ContainerPool>(
+                key_prefix.as_bytes(),
+                None,
+                IndexifyObjectsColumns::SandboxPools,
+                None,
+            )
+            .await?;
+        Ok(pools.into_iter().filter(|p| !p.tombstoned).collect())
+    }
+
+    /// Read a single executor by ID from the Executors CF.
+    /// List all persisted executors from the Executors CF.
+    pub async fn list_executors(&self) -> Result<Vec<ExecutorMetadata>> {
+        let (executors, _) = self
+            .get_rows_from_cf_with_limits::<ExecutorMetadata>(
+                &[],
+                None,
+                IndexifyObjectsColumns::Executors,
+                None,
+            )
+            .await?;
+        Ok(executors)
+    }
+
+    /// Read all pending payloads from the PayloadQueue CF, ordered by sequence.
+    /// Returns (sequence_id, payload) pairs.
+    pub async fn read_pending_payloads(&self) -> Result<Vec<(u64, RequestPayload)>> {
+        let iter = self
+            .db
+            .iter(
+                IndexifyObjectsColumns::PayloadQueue.as_ref(),
+                Default::default(),
+            )
+            .await;
+        let mut payloads = Vec::new();
+        for kv in iter {
+            let (key, value) = kv?;
+            if key.len() == 8 {
+                let seq = u64::from_be_bytes(key[..8].try_into().unwrap());
+                let payload: RequestPayload = StateStoreEncoder::decode(&value)?;
+                payloads.push((seq, payload));
+            }
+        }
+        Ok(payloads)
     }
 }
 #[cfg(test)]

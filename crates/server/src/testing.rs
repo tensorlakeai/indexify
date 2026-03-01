@@ -1,7 +1,6 @@
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 use anyhow::Result;
-use nanoid::nanoid;
 use tracing::subscriber;
 use tracing_subscriber::{Layer, layer::SubscriberExt};
 
@@ -93,38 +92,26 @@ impl TestService {
     }
 
     pub async fn process_all_state_changes(&self) -> Result<()> {
-        while !self
-            .service
-            .indexify_state
-            .reader()
-            .unprocessed_state_changes(&None, &None)
-            .await?
-            .changes
-            .is_empty()
-        {
-            self.process_graph_processor().await?;
-        }
-        Ok(())
-    }
-
-    async fn process_graph_processor(&self) -> Result<()> {
         let notify = Arc::new(tokio::sync::Notify::new());
-        let mut cached_state_changes = self
+        // Process payloads from the queue until it's empty.
+        while self
             .service
-            .indexify_state
-            .reader()
-            .unprocessed_state_changes(&None, &None)
+            .application_processor
+            .write_sm_update(&notify)
             .await?
-            .changes;
-        while !cached_state_changes.is_empty() {
-            self.service
-                .application_processor
-                .write_sm_update(&mut cached_state_changes, &mut None, &mut None, &notify)
-                .await?;
+        {
+            // Loop until write_sm_update returns false (queue empty).
         }
+        // Run deferred pool reconciliation after all payloads are
+        // processed, matching the event loop behavior in start().
+        self.service
+            .application_processor
+            .run_pool_reconciliation()
+            .await?;
         Ok(())
     }
 
+    /// Run the periodic cluster vacuum (reap idle containers, unblock work).
     pub async fn create_executor(&self, executor: ExecutorMetadata) -> Result<TestExecutor<'_>> {
         let mut e = TestExecutor {
             executor_id: executor.id.clone(),
@@ -174,9 +161,9 @@ impl TestService {
         let pending_tasks_memory = self
             .service
             .indexify_state
-            .in_memory_state
-            .read()
-            .await
+            .app_state
+            .load()
+            .indexes
             .function_runs
             .clone();
 
@@ -191,9 +178,9 @@ impl TestService {
             "Pending tasks in mem store",
         );
 
-        let in_memory_state = self.service.indexify_state.in_memory_state.read().await;
+        let in_memory_state = self.service.indexify_state.app_state.load();
 
-        let unallocated_function_runs = in_memory_state.unallocated_function_runs.clone();
+        let unallocated_function_runs = in_memory_state.indexes.unallocated_function_runs.clone();
 
         assert_eq!(
             unallocated_function_runs.len(),
@@ -202,7 +189,7 @@ impl TestService {
         );
 
         // Verify pending_resources histogram count matches
-        let pending_resources = in_memory_state.get_pending_resources();
+        let pending_resources = in_memory_state.indexes.get_pending_resources();
         let histogram_total: u64 = pending_resources.function_runs.profiles.values().sum();
         assert_eq!(
             histogram_total as usize, pending_count,
@@ -418,7 +405,6 @@ impl TestExecutor<'_> {
 
         // State changed — do full state sync (like production executor
         // reporting updated container states via heartbeat with full_state)
-        executor.state_hash = nanoid!();
         self.sync_executor_state(executor.clone()).await?;
 
         Ok(())
@@ -429,8 +415,8 @@ impl TestExecutor<'_> {
             .get_executor_server_state()
             .await?
             .containers
-            .into_values()
-            .map(|mut fe| {
+            .into_iter()
+            .map(|(_, mut fe)| {
                 fe.state = state.clone();
                 fe
             })
@@ -450,23 +436,19 @@ impl TestExecutor<'_> {
 
     pub async fn get_executor_server_state(&self) -> Result<ExecutorMetadata> {
         // Get the in-memory state first to check if executor exists
-        let container_scheduler = self
-            .test_service
-            .service
-            .indexify_state
-            .container_scheduler
-            .read()
-            .await;
+        let app_state = self.test_service.service.indexify_state.app_state.load();
 
         // Get executor from in-memory state - this is the base executor without
         // complete function executors
-        let executor = container_scheduler
+        let executor = app_state
+            .scheduler
             .executors
             .get(&self.executor_id)
             .cloned()
             .ok_or(anyhow::anyhow!("Executor not found in state store"))?;
 
-        let executor_server_metadata = container_scheduler
+        let executor_server_metadata = app_state
+            .scheduler
             .executor_states
             .get(&self.executor_id)
             .cloned()
@@ -475,9 +457,9 @@ impl TestExecutor<'_> {
         // Clone base executor
         let mut executor = *executor.clone();
 
-        let mut function_containers = HashMap::new();
+        let mut function_containers = imbl::HashMap::new();
         for container_id in executor_server_metadata.function_container_ids {
-            let Some(fc) = container_scheduler.function_containers.get(&container_id) else {
+            let Some(fc) = app_state.scheduler.function_containers.get(&container_id) else {
                 continue;
             };
             function_containers.insert(container_id, fc.function_container.clone());

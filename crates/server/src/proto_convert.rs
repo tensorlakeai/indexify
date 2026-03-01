@@ -3,8 +3,6 @@
 //! Pure mapping code extracted from `executor_api.rs` to keep the RPC
 //! handler module focused on protocol logic.
 
-use std::collections::HashMap;
-
 use anyhow::Result;
 use executor_api_pb::{
     AllowedFunction,
@@ -221,8 +219,8 @@ impl TryFrom<ExecutorState> for ExecutorMetadata {
         if let Some(addr) = executor_state.hostname {
             executor_metadata.addr(addr);
         }
-        executor_metadata.labels(executor_state.labels);
-        let mut function_executors = HashMap::new();
+        executor_metadata.labels(executor_state.labels.into());
+        let mut function_executors = imbl::HashMap::new();
         for function_executor_state in executor_state.container_states {
             let function_executor = data_model::Container::try_from(function_executor_state)?;
             function_executors.insert(function_executor.id.clone(), function_executor);

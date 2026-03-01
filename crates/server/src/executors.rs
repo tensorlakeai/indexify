@@ -92,27 +92,22 @@ fn far_future() -> Instant {
 }
 
 /// ExecutorRuntimeData stores runtime state for an executor that is not
-/// persisted in the state machine but is needed for efficient operation
+/// persisted in the state machine but is needed for efficient operation.
+/// Acts as a presence marker (checked via `runtime_data.contains_key()`)
+/// and tracks the executor's clock for delta processing.
 #[derive(Debug, Clone)]
 pub(crate) struct ExecutorRuntimeData {
-    /// Hash of the executor's overall state (used for heartbeat optimization)
-    pub last_state_hash: String,
-    /// Clock value when the state was last updated
     pub last_executor_clock: u64,
 }
 
 impl ExecutorRuntimeData {
-    /// Create a new ExecutorRuntimeData
-    pub fn new(state_hash: String, clock: u64) -> Self {
+    pub fn new(clock: u64) -> Self {
         Self {
-            last_state_hash: state_hash,
             last_executor_clock: clock,
         }
     }
 
-    /// Update the overall state hash and clock
-    pub fn update_state(&mut self, hash: String, clock: u64) {
-        self.last_state_hash = hash;
+    pub fn update_clock(&mut self, clock: u64) {
         self.last_executor_clock = clock;
     }
 }
@@ -167,19 +162,20 @@ impl ExecutorManager {
             // single set and call deregister_lapsed_executor on each, which will
             // handle sandbox termination through the DeregisterExecutor event.
             let missing_executor_ids: HashSet<ExecutorId> = {
-                let container_scheduler = indexify_state.container_scheduler.read().await;
-                let indexes = indexify_state.in_memory_state.read().await;
+                let state = indexify_state.app_state.load();
 
                 // Find executors with allocations that haven't registered
-                let executors_with_allocations: HashSet<_> = indexes
+                let executors_with_allocations: HashSet<_> = state
+                    .indexes
                     .allocations_by_executor
                     .keys()
-                    .filter(|id| !container_scheduler.executors.contains_key(&**id))
+                    .filter(|id| !state.scheduler.executors.contains_key(&**id))
                     .cloned()
                     .collect();
 
                 // Find executors with running sandboxes that haven't registered
-                let executors_with_sandboxes: HashSet<_> = indexes
+                let executors_with_sandboxes: HashSet<_> = state
+                    .indexes
                     .sandboxes
                     .iter()
                     .filter_map(|(_, sandbox)| {
@@ -187,7 +183,7 @@ impl ExecutorManager {
                             return None;
                         }
                         let executor_id = sandbox.executor_id.as_ref()?;
-                        if container_scheduler.executors.contains_key(executor_id) {
+                        if state.scheduler.executors.contains_key(executor_id) {
                             return None;
                         }
                         Some(executor_id.clone())
@@ -250,11 +246,10 @@ impl ExecutorManager {
     pub async fn register_executor(&self, metadata: ExecutorMetadata) -> Result<()> {
         let mut runtime_data_write = self.runtime_data.write().await;
         let is_new = !runtime_data_write.contains_key(&metadata.id);
-        let state_hash = metadata.state_hash.clone();
         runtime_data_write
             .entry(metadata.id.clone())
-            .and_modify(|data| data.update_state(state_hash.clone(), metadata.clock))
-            .or_insert_with(|| ExecutorRuntimeData::new(state_hash, metadata.clock));
+            .and_modify(|data| data.update_clock(metadata.clock))
+            .or_insert_with(|| ExecutorRuntimeData::new(metadata.clock));
         if is_new {
             info!(executor_id = metadata.id.get(), "Executor registered");
         } else {
@@ -382,9 +377,8 @@ impl ExecutorManager {
         &self,
         executor_id: &ExecutorId,
     ) -> Option<in_memory_state::DesiredExecutorState> {
-        let indexes = self.indexify_state.in_memory_state.read().await;
-        let container_scheduler = self.indexify_state.container_scheduler.read().await;
-        if let Some(executor) = container_scheduler.executors.get(executor_id) {
+        let state = self.indexify_state.app_state.load();
+        if let Some(executor) = state.scheduler.executors.get(executor_id) {
             if executor.tombstoned {
                 return None;
             }
@@ -392,7 +386,7 @@ impl ExecutorManager {
             return None;
         }
 
-        let Some(executor_server_metadata) = container_scheduler.executor_states.get(executor_id)
+        let Some(executor_server_metadata) = state.scheduler.executor_states.get(executor_id)
         else {
             info!(
                 executor_id = executor_id.get(),
@@ -412,7 +406,7 @@ impl ExecutorManager {
 
         let mut active_function_containers = Vec::new();
         for container_id in fc_ids {
-            let Some(fc) = container_scheduler.function_containers.get(&container_id) else {
+            let Some(fc) = state.scheduler.function_containers.get(&container_id) else {
                 error!(
                     executor_id = executor_id.get(),
                     container_id = container_id.get(),
@@ -444,7 +438,8 @@ impl ExecutorManager {
         for fe_meta in active_function_containers {
             let fe = &fe_meta.function_container;
 
-            let cg_version = indexes
+            let cg_version = state
+                .indexes
                 .application_versions
                 .get(&ApplicationVersion::key_from(
                     &fe.namespace,
@@ -499,7 +494,8 @@ impl ExecutorManager {
 
             function_executors.push(Box::new(desired_fc));
 
-            let allocations = indexes
+            let allocations = state
+                .indexes
                 .allocations_by_executor
                 .get(executor_id)
                 .and_then(|allocations| allocations.get(&fe_meta.function_container.id.clone()))
@@ -516,7 +512,7 @@ impl ExecutorManager {
         Some(in_memory_state::DesiredExecutorState {
             containers: function_executors,
             function_run_allocations: task_allocations,
-            clock: indexes.clock,
+            clock: state.indexes.clock,
         })
     }
 
@@ -704,9 +700,9 @@ impl ExecutorManager {
         let mut executors = vec![];
         for executor in self
             .indexify_state
-            .container_scheduler
-            .read()
-            .await
+            .app_state
+            .load()
+            .scheduler
             .executors
             .values()
         {
@@ -716,10 +712,9 @@ impl ExecutorManager {
     }
 
     pub async fn api_list_allocations(&self) -> ExecutorsAllocationsResponse {
-        let state = self.indexify_state.in_memory_state.read().await;
-        let container_sched = self.indexify_state.container_scheduler.read().await;
-        let allocations_by_executor = &state.allocations_by_executor;
-        let function_executors_by_executor = &container_sched.executor_states;
+        let app = self.indexify_state.app_state.load();
+        let allocations_by_executor = &app.indexes.allocations_by_executor;
+        let function_executors_by_executor = &app.scheduler.executor_states;
 
         let executors = function_executors_by_executor
             .iter()
@@ -745,7 +740,7 @@ impl ExecutorManager {
                         .unwrap_or_default();
 
                     let Some(function_container_server_meta) =
-                        container_sched.function_containers.get(container_id)
+                        app.scheduler.function_containers.get(container_id)
                     else {
                         continue;
                     };
@@ -918,12 +913,7 @@ mod tests {
             test_srv.process_all_state_changes().await?;
 
             // Ensure that no executor has been removed
-            let executors = indexify_state
-                .container_scheduler
-                .read()
-                .await
-                .executors
-                .clone();
+            let executors = indexify_state.app_state.load().scheduler.executors.clone();
             assert_eq!(
                 3,
                 executors.len(),
@@ -943,12 +933,7 @@ mod tests {
             test_srv.process_all_state_changes().await?;
 
             // Ensure that no executor has been removed
-            let executors = indexify_state
-                .container_scheduler
-                .read()
-                .await
-                .executors
-                .clone();
+            let executors = indexify_state.app_state.load().scheduler.executors.clone();
             assert_eq!(
                 3,
                 executors.len(),
@@ -965,17 +950,18 @@ mod tests {
             executor_manager.process_lapsed_executors().await?;
             test_srv.process_all_state_changes().await?;
 
-            let cs = indexify_state.container_scheduler.read().await;
+            let cs = indexify_state.app_state.load();
             // Executor metadata is preserved (tombstoned) so resources remain
             // visible for adoption when the executor reconnects.
             assert_eq!(
                 3,
-                cs.executors.len(),
+                cs.scheduler.executors.len(),
                 "Expected 3 executors (1 tombstoned), but found: {:?}",
-                cs.executors
+                cs.scheduler.executors
             );
             assert!(
-                cs.executors
+                cs.scheduler
+                    .executors
                     .get(&ExecutorId::new("test-executor-3".to_string()))
                     .unwrap()
                     .tombstoned,
@@ -984,7 +970,8 @@ mod tests {
             // Server metadata should be removed — scheduler has no
             // containers or resource claims for this executor.
             assert!(
-                !cs.executor_states
+                !cs.scheduler
+                    .executor_states
                     .contains_key(&ExecutorId::new("test-executor-3".to_string())),
                 "executor-3 server metadata should be removed"
             );
@@ -1005,19 +992,19 @@ mod tests {
 
         // All executors tombstoned, server metadata removed
         {
-            let cs = indexify_state.container_scheduler.read().await;
+            let cs = indexify_state.app_state.load();
             assert_eq!(
                 3,
-                cs.executors.len(),
+                cs.scheduler.executors.len(),
                 "Expected 3 tombstoned executors, but found: {:?}",
-                cs.executors
+                cs.scheduler.executors
             );
             assert!(
-                cs.executors.values().all(|e| e.tombstoned),
+                cs.scheduler.executors.values().all(|e| e.tombstoned),
                 "All executors should be tombstoned"
             );
             assert!(
-                cs.executor_states.is_empty(),
+                cs.scheduler.executor_states.is_empty(),
                 "All executor server metadata should be removed"
             );
         }

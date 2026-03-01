@@ -234,9 +234,10 @@ impl CommandEmitter {
 /// both the v2 heartbeat RPC (with `full_state`) and the test
 /// infrastructure.
 ///
-/// 1. Updates runtime data via `executor_manager.register_executor()`
-/// 2. Writes `UpsertExecutor` to the state machine with the provided executor
-///    metadata and watches.
+/// Always writes an `UpsertExecutor` to the state machine. In the delta
+/// model (v2), full state only arrives on first registration or after a
+/// FullSync (e.g. post-deletion), so there is no benefit to hashing and
+/// skipping writes.
 ///
 /// Callers are responsible for calling `heartbeat_v2()` for liveness
 /// before or after this function.
@@ -245,16 +246,11 @@ pub async fn sync_executor_full_state(
     indexify_state: Arc<IndexifyState>,
     executor: data_model::ExecutorMetadata,
 ) -> Result<()> {
-    // Register runtime data (state hash + clock)
+    // Register runtime data (marks executor as "known" for delta processing)
     executor_manager.register_executor(executor.clone()).await?;
 
-    // Build and write UpsertExecutor to the state machine
-    let upsert_request = UpsertExecutorRequest::build(
-        executor,
-        vec![], // allocation_outputs come through a separate path
-        true,   // v2 full state sync always updates executor state
-        indexify_state.clone(),
-    )?;
+    let upsert_request =
+        UpsertExecutorRequest::build(executor, vec![], true, indexify_state.clone())?;
 
     let sm_req = StateMachineUpdateRequest {
         payload: RequestPayload::UpsertExecutor(upsert_request),
@@ -723,6 +719,33 @@ impl FunctionCallResultRouter {
         );
     }
 
+    /// Register only if no entry exists for this function_call_id.
+    ///
+    /// Returns `true` if inserted, `false` if an entry already exists.
+    /// This prevents `handle_log_entry` from overwriting a re-registration
+    /// made by `try_route_result` for tail-call chains.
+    pub async fn register_if_absent(
+        &self,
+        function_call_id: String,
+        parent_allocation_id: String,
+        original_function_call_id: String,
+        executor_id: ExecutorId,
+    ) -> bool {
+        use std::collections::hash_map::Entry;
+        let mut pending = self.pending.write().await;
+        match pending.entry(function_call_id) {
+            Entry::Occupied(_) => false,
+            Entry::Vacant(v) => {
+                v.insert(PendingFunctionCall {
+                    parent_allocation_id,
+                    original_function_call_id,
+                    executor_id,
+                });
+                true
+            }
+        }
+    }
+
     async fn take(&self, function_call_id: &str) -> Option<PendingFunctionCall> {
         self.pending.write().await.remove(function_call_id)
     }
@@ -785,11 +808,11 @@ impl ExecutorAPIService {
         } else {
             executor_metadata.function_allowlist(Some(allowed_functions));
         }
-        executor_metadata.labels(full_state.labels);
+        executor_metadata.labels(full_state.labels.into());
         executor_metadata.state(data_model::ExecutorState::Running);
         executor_metadata.state_hash(String::new());
 
-        let mut containers = HashMap::new();
+        let mut containers = imbl::HashMap::new();
         for fe_state in full_state.container_states {
             match data_model::Container::try_from(fe_state) {
                 Ok(container) => {
@@ -923,8 +946,8 @@ async fn build_add_container_command(
     blob_storage_registry: &BlobStorageRegistry,
     indexify_state: &IndexifyState,
 ) -> Option<executor_api_pb::Command> {
-    let container_scheduler = indexify_state.container_scheduler.read().await;
-    let fc = container_scheduler.function_containers.get(container_id)?;
+    let state = indexify_state.app_state.load();
+    let fc = state.scheduler.function_containers.get(container_id)?;
 
     // Skip terminated containers
     if matches!(
@@ -935,9 +958,9 @@ async fn build_add_container_command(
     }
 
     let fe = &fc.function_container;
-    let indexes = indexify_state.in_memory_state.read().await;
 
-    let cg_version = indexes
+    let cg_version = state
+        .indexes
         .application_versions
         .get(&data_model::ApplicationVersion::key_from(
             &fe.namespace,
@@ -1010,7 +1033,7 @@ async fn build_add_container_command(
             function_name: Some(fe.function_name.clone()),
             application_version: Some(fe.version.to_string()),
         }),
-        secret_names: cg_node_secret_names(&indexes, fe),
+        secret_names: cg_node_secret_names(&state.indexes, fe),
         initialization_timeout_ms: Some(initialization_timeout_ms),
         application: code_payload_pb,
         allocation_timeout_ms: Some(allocation_timeout_ms),
@@ -1021,8 +1044,7 @@ async fn build_add_container_command(
         pool_id: fe.pool_id.as_ref().map(|p| p.get().to_string()),
     };
 
-    drop(indexes);
-    drop(container_scheduler);
+    drop(state);
 
     let seq = emitter.next_seq();
     Some(executor_api_pb::Command {
@@ -1046,8 +1068,8 @@ async fn build_update_container_description_command(
     container_id: &ContainerId,
     indexify_state: &IndexifyState,
 ) -> Option<executor_api_pb::Command> {
-    let container_scheduler = indexify_state.container_scheduler.read().await;
-    let fc = container_scheduler.function_containers.get(container_id)?;
+    let state = indexify_state.app_state.load();
+    let fc = state.scheduler.function_containers.get(container_id)?;
     let fe = &fc.function_container;
 
     // Skip non-sandbox containers -- only sandbox descriptions change today.
@@ -1676,8 +1698,8 @@ async fn handle_log_entry(
                         let executor_api_pb::execution_plan_update::Op::FunctionCall(fc) = op &&
                         let Some(ref individual_fc_id) = fc.id
                     {
-                        router
-                            .register(
+                        let inserted = router
+                            .register_if_absent(
                                 individual_fc_id.clone(),
                                 allocation_id.clone(),
                                 individual_fc_id.clone(),
@@ -1685,12 +1707,22 @@ async fn handle_log_entry(
                             )
                             .await;
 
-                        debug!(
-                            executor_id = executor_id.get(),
-                            allocation_id = %allocation_id,
-                            function_call_id = %individual_fc_id,
-                            "heartbeat: registered individual function call in router"
-                        );
+                        if inserted {
+                            debug!(
+                                executor_id = executor_id.get(),
+                                allocation_id = %allocation_id,
+                                function_call_id = %individual_fc_id,
+                                "heartbeat: registered individual function call in router"
+                            );
+                        } else {
+                            debug!(
+                                executor_id = executor_id.get(),
+                                allocation_id = %allocation_id,
+                                function_call_id = %individual_fc_id,
+                                "heartbeat: function call already in router (tail-call \
+                                 re-registration), skipping overwrite"
+                            );
+                        }
                     }
                 }
             }

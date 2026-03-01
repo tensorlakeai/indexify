@@ -6,6 +6,7 @@ use tracing::{debug, info, warn};
 use crate::{
     data_model::{ApplicationState, ContainerPool, ContainerPoolKey, ContainerState},
     processor::container_scheduler::ContainerScheduler,
+    scheduler::placement::FeasibilityCache,
     state_store::{
         in_memory_state::{InMemoryState, ResourceProfile, ResourceProfileHistogram},
         requests::SchedulerUpdateRequest,
@@ -46,6 +47,7 @@ impl BufferReconciler {
         &self,
         in_memory_state: &InMemoryState,
         container_scheduler: &mut ContainerScheduler,
+        feas_cache: &mut FeasibilityCache,
     ) -> Result<SchedulerUpdateRequest> {
         let mut update = SchedulerUpdateRequest::default();
 
@@ -66,11 +68,17 @@ impl BufferReconciler {
             .collect();
 
         // Track pools that can't be satisfied within this reconciliation cycle
-        let mut newly_blocked: HashSet<ContainerPoolKey> = HashSet::new();
+        let mut newly_blocked: imbl::HashSet<ContainerPoolKey> = imbl::HashSet::new();
 
         // Phase 1: Ensure minimums are met (highest priority)
         for pool in &pools {
-            if !self.ensure_pool_min(pool, in_memory_state, container_scheduler, &mut update)? {
+            if !self.ensure_pool_min(
+                pool,
+                in_memory_state,
+                container_scheduler,
+                &mut update,
+                feas_cache,
+            )? {
                 warn!(pool_id = %pool.id.get(), "Cannot meet min containers, marking pool as blocked");
                 newly_blocked.insert(ContainerPoolKey::from(pool));
             }
@@ -109,8 +117,8 @@ impl BufferReconciler {
                     pool,
                     in_memory_state,
                     container_scheduler,
-                    false,
                     &mut update,
+                    feas_cache,
                 ) {
                     Ok(true) => {
                         any_created = true;
@@ -170,8 +178,8 @@ impl BufferReconciler {
                         &pool,
                         in_memory_state,
                         container_scheduler,
-                        true,
                         &mut update,
+                        feas_cache,
                     )
                     .unwrap_or(false)
                 {
@@ -182,7 +190,13 @@ impl BufferReconciler {
                 container_scheduler.blocked_pools.remove(pool_key);
 
                 // Reuse ensure_pool_min (probe already placed 1, so it creates fewer)
-                self.ensure_pool_min(&pool, in_memory_state, container_scheduler, &mut update)?;
+                self.ensure_pool_min(
+                    &pool,
+                    in_memory_state,
+                    container_scheduler,
+                    &mut update,
+                    feas_cache,
+                )?;
 
                 // Fill buffer
                 while self.pool_needs_buffer(&pool, container_scheduler) {
@@ -191,8 +205,8 @@ impl BufferReconciler {
                             &pool,
                             in_memory_state,
                             container_scheduler,
-                            false,
                             &mut update,
+                            feas_cache,
                         )
                         .unwrap_or(false)
                     {
@@ -245,6 +259,7 @@ impl BufferReconciler {
         in_memory_state: &InMemoryState,
         container_scheduler: &mut ContainerScheduler,
         update: &mut SchedulerUpdateRequest,
+        feas_cache: &mut FeasibilityCache,
     ) -> Result<bool> {
         let min = pool.min_containers.unwrap_or(0);
         let max = pool.max_containers.unwrap_or(u32::MAX);
@@ -270,8 +285,13 @@ impl BufferReconciler {
             "Creating containers to meet minimum"
         );
         for _ in 0..needed {
-            match self.try_place_container(pool, in_memory_state, container_scheduler, true, update)
-            {
+            match self.try_place_container(
+                pool,
+                in_memory_state,
+                container_scheduler,
+                update,
+                feas_cache,
+            ) {
                 Ok(true) => {}
                 Ok(false) => {
                     return Ok(false);
@@ -341,22 +361,18 @@ impl BufferReconciler {
 
     /// Try to place one container for a pool. Returns:
     /// - `Ok(true)`  — container placed on an executor
-    /// - `Ok(false)` — no resources available or only a vacuum update
+    /// - `Ok(false)` — no resources available
     /// - `Err(e)`    — unexpected error
     fn try_place_container(
         &self,
         pool: &ContainerPool,
         in_memory_state: &InMemoryState,
         container_scheduler: &mut ContainerScheduler,
-        is_critical: bool,
         update: &mut SchedulerUpdateRequest,
+        feas_cache: &mut FeasibilityCache,
     ) -> Result<bool> {
-        match self.create_container_for_pool(
-            pool,
-            in_memory_state,
-            container_scheduler,
-            is_critical,
-        ) {
+        match self.create_container_for_pool(pool, in_memory_state, container_scheduler, feas_cache)
+        {
             Ok(Some(u)) => {
                 let placed = u
                     .containers
@@ -425,7 +441,7 @@ impl BufferReconciler {
         pool: &ContainerPool,
         in_memory_state: &InMemoryState,
         container_scheduler: &mut ContainerScheduler,
-        is_critical: bool,
+        feas_cache: &mut FeasibilityCache,
     ) -> Result<Option<SchedulerUpdateRequest>> {
         if pool.is_function_pool() {
             // For function pools, look up the function and create a function container
@@ -453,11 +469,11 @@ impl BufferReconciler {
                 &fn_uri.version,
                 function,
                 &app.state,
-                is_critical,
+                feas_cache,
             )
         } else {
             // For sandbox pools, create a pool container
-            container_scheduler.create_container_for_pool(pool, is_critical)
+            container_scheduler.create_container_for_pool(pool, feas_cache)
         }
     }
 

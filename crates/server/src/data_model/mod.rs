@@ -663,7 +663,10 @@ impl Application {
                 return Ok(());
             }
             for entry in executor_catalog.entries.iter() {
-                if node.placement_constraints.matches(&entry.labels) {
+                if node
+                    .placement_constraints
+                    .matches(&entry.labels.clone().into())
+                {
                     met_placement_constraints = true;
                 }
 
@@ -1858,7 +1861,7 @@ impl From<&ContainerTerminationReason> for FunctionRunFailureReason {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct FunctionAllowlist {
     pub namespace: Option<String>,
     pub application: Option<String>,
@@ -1866,18 +1869,6 @@ pub struct FunctionAllowlist {
 }
 
 impl FunctionAllowlist {
-    pub fn matches_function_executor(&self, function_executor: &Container) -> bool {
-        self.namespace
-            .as_ref()
-            .is_none_or(|ns| ns == &function_executor.namespace) &&
-            self.application
-                .as_ref()
-                .is_none_or(|cg_name| cg_name == &function_executor.application_name) &&
-            self.function
-                .as_ref()
-                .is_none_or(|fn_name| fn_name == &function_executor.function_name)
-    }
-
     pub fn matches_function(&self, ns: &str, app: &str, function: &Function) -> bool {
         self.namespace
             .as_ref()
@@ -2030,12 +2021,12 @@ impl Container {
     }
 }
 
-#[derive(Debug, Clone, Builder)]
+#[derive(Debug, Clone, Builder, Serialize, Deserialize)]
 pub struct ExecutorServerMetadata {
     pub executor_id: ExecutorId,
-    pub function_container_ids: HashSet<ContainerId>,
+    pub function_container_ids: imbl::HashSet<ContainerId>,
     pub free_resources: HostResources,
-    pub resource_claims: HashMap<ContainerId, ContainerResources>,
+    pub resource_claims: imbl::HashMap<ContainerId, ContainerResources>,
 }
 
 impl ExecutorServerMetadata {
@@ -2105,7 +2096,7 @@ pub struct ContainerServerMetadata {
     pub container_type: ContainerType,
     #[builder(default)]
     #[serde(default)]
-    pub allocations: HashSet<AllocationId>,
+    pub allocations: imbl::HashSet<AllocationId>,
     /// When the container last became idle (no allocations).
     /// - `Some(instant)` = container is idle since this time
     /// - `None` = container is currently busy (has allocations)
@@ -2142,7 +2133,7 @@ impl ContainerServerMetadata {
             function_container: function_executor,
             desired_state,
             container_type,
-            allocations: HashSet::new(),
+            allocations: imbl::HashSet::new(),
             idle_since: Some(tokio::time::Instant::now()),
         }
     }
@@ -2164,8 +2155,8 @@ pub struct ExecutorMetadata {
     pub executor_version: String,
     pub function_allowlist: Option<Vec<FunctionAllowlist>>,
     pub addr: String,
-    pub labels: HashMap<String, String>,
-    pub containers: HashMap<ContainerId, Container>,
+    pub labels: imbl::HashMap<String, String>,
+    pub containers: imbl::HashMap<ContainerId, Container>,
     pub host_resources: HostResources,
     pub state: ExecutorState,
     #[builder(default)]
@@ -2435,13 +2426,6 @@ impl AsRef<u64> for StateChangeId {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct UnprocessedStateChanges {
-    pub changes: Vec<StateChange>,
-    pub application_state_change_cursor: Option<Vec<u8>>,
-    pub executor_state_change_cursor: Option<Vec<u8>>,
-}
-
 #[derive(Clone, Serialize, Deserialize, Debug, Builder)]
 pub struct StateChange {
     pub id: StateChangeId,
@@ -2451,26 +2435,6 @@ pub struct StateChange {
     pub processed_at: Option<u64>,
     pub namespace: Option<String>,
     pub application: Option<String>,
-    #[builder(default)]
-    #[serde(default)]
-    created_at_clock: Option<u64>,
-    #[builder(default)]
-    #[serde(default)]
-    updated_at_clock: Option<u64>,
-}
-
-impl StateChange {
-    pub fn key(&self) -> [u8; 8] {
-        self.id.0.to_be_bytes()
-    }
-
-    /// Prepares for persistence by setting the server clock.
-    pub fn prepare_for_persistence(&mut self, clock: u64) {
-        if self.created_at_clock.is_none() {
-            self.created_at_clock = Some(clock);
-        }
-        self.updated_at_clock = Some(clock);
-    }
 }
 
 impl Display for StateChange {
@@ -2770,7 +2734,7 @@ impl Display for SandboxFailureReason {
 }
 
 /// Key for sandbox storage: namespace|sandbox_id
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct SandboxKey(pub String);
 
 impl SandboxKey {
@@ -2780,6 +2744,16 @@ impl SandboxKey {
 
     pub fn from_sandbox(sandbox: &Sandbox) -> Self {
         Self::new(&sandbox.namespace, sandbox.id.get())
+    }
+
+    /// Extract the namespace portion of the key (before the `|` separator).
+    pub fn namespace(&self) -> &str {
+        self.0.split('|').next().unwrap_or("")
+    }
+
+    /// Extract the sandbox_id portion of the key (after the `|` separator).
+    pub fn sandbox_id(&self) -> &str {
+        self.0.split('|').nth(1).unwrap_or("")
     }
 }
 
@@ -2924,6 +2898,7 @@ pub struct SnapshotSandboxEvent {
     pub namespace: String,
     pub sandbox_id: SandboxId,
     pub snapshot_id: SnapshotId,
+    pub upload_uri: String,
 }
 
 // ================================
@@ -3224,6 +3199,13 @@ pub struct ContainerPool {
     /// Timestamp of creation
     #[builder(default = "self.default_created_at()")]
     pub created_at: u64,
+
+    /// Marked true when the pool is being deleted. User-facing reads
+    /// treat tombstoned pools as non-existent; the scheduler eventually
+    /// issues the actual RocksDB delete.
+    #[builder(default)]
+    #[serde(default)]
+    pub tombstoned: bool,
 
     #[builder(default)]
     #[serde(default)]
@@ -3870,9 +3852,10 @@ mod tests {
             function: Some("fn".to_string()),
         }]);
         let addr = "127.0.0.1:8080".to_string();
-        let labels = HashMap::from([("role".to_string(), "worker".to_string())]);
+        let labels =
+            imbl::HashMap::from(HashMap::from([("role".to_string(), "worker".to_string())]));
         let fe_id = ContainerId::from("fe-1");
-        let function_executors = HashMap::from([(
+        let function_executors = imbl::HashMap::from(HashMap::from([(
             fe_id.clone(),
             ContainerBuilder::default()
                 .id(fe_id.clone())
@@ -3891,7 +3874,7 @@ mod tests {
                 .pool_id(Some(ContainerPoolId::for_function("graph", "fn", "1")))
                 .build()
                 .expect("Should build FunctionExecutor"),
-        )]);
+        )]));
         let host_resources = HostResources {
             cpu_ms_per_sec: 4000,
             memory_bytes: 8 * 1024 * 1024 * 1024,

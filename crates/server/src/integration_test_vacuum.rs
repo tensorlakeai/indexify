@@ -280,8 +280,8 @@ mod tests {
 
         // Check container scheduler state - should have a container for app_a
         let container_count_before = {
-            let container_scheduler = indexify_state.container_scheduler.read().await;
-            container_scheduler.function_containers.len()
+            let app = indexify_state.app_state.load();
+            app.scheduler.function_containers.len()
         };
         assert!(
             container_count_before >= 1,
@@ -293,14 +293,15 @@ mod tests {
         let app_b = create_single_function_app("app_b", "1", fn_b);
         register_application(&test_srv, &app_b).await?;
 
-        // Invoke app_b - this should trigger vacuum
+        // Invoke app_b - eager reap frees idle containers before allocation
         let _request_id_b = invoke_application(&test_srv, &app_b).await?;
         test_srv.process_all_state_changes().await?;
 
         // Check that app_a's container is marked for termination
         {
-            let container_scheduler = indexify_state.container_scheduler.read().await;
-            let app_a_containers: Vec<_> = container_scheduler
+            let app = indexify_state.app_state.load();
+            let app_a_containers: Vec<_> = app
+                .scheduler
                 .function_containers
                 .iter()
                 .filter(|(_, fc)| fc.function_container.application_name == "app_a")
@@ -415,8 +416,8 @@ mod tests {
 
         // Check current container count for app_a
         let container_count = {
-            let container_scheduler = indexify_state.container_scheduler.read().await;
-            container_scheduler
+            let app = indexify_state.app_state.load();
+            app.scheduler
                 .function_containers
                 .iter()
                 .filter(|(_, fc)| fc.function_container.application_name == "app_a")
@@ -445,8 +446,9 @@ mod tests {
 
         // Verify app_a still has its containers (not marked for termination)
         {
-            let container_scheduler = indexify_state.container_scheduler.read().await;
-            let active_app_a_containers: Vec<_> = container_scheduler
+            let app = indexify_state.app_state.load();
+            let active_app_a_containers: Vec<_> = app
+                .scheduler
                 .function_containers
                 .iter()
                 .filter(|(_, fc)| fc.function_container.application_name == "app_a")
@@ -475,16 +477,16 @@ mod tests {
     // =========================================================================
     // Test Case 3: Vacuum Skips Allowlisted Containers
     // =========================================================================
-    /// Test that vacuum does NOT remove containers matching executor's
-    /// allowlist.
+    /// Test that vacuum reaps idle containers regardless of allowlists.
+    /// Allowlists are a placement concern (which functions run on which
+    /// executors), not a vacuum concern.
     ///
     /// Scenario:
     /// 1. Create executor with allowlist for app_a
-    /// 2. Create container for app_a (matches allowlist)
-    /// 3. Try to schedule container for app_b requiring vacuum
-    /// 4. app_a's container should NOT be vacuumed
+    /// 2. Create container for app_a (matches allowlist), complete it (idle)
+    /// 3. Eager reap terminates idle container even though it matches allowlist
     #[tokio::test]
-    async fn test_vacuum_skips_allowlisted_containers() -> Result<()> {
+    async fn test_vacuum_reaps_allowlisted_containers() -> Result<()> {
         let test_srv = testing::TestService::new().await?;
         let indexify_state = test_srv.service.indexify_state.clone();
 
@@ -514,7 +516,7 @@ mod tests {
         let _request_id_a = invoke_application(&test_srv, &app_a).await?;
         test_srv.process_all_state_changes().await?;
 
-        // Complete app_a's allocation
+        // Complete app_a's allocation (container becomes idle)
         {
             let commands = executor.recv_commands().await;
             if !commands.run_allocations.is_empty() {
@@ -531,10 +533,11 @@ mod tests {
             }
         }
 
-        // Verify app_a has a container
+        // Verify app_a has an idle container
         {
-            let container_scheduler = indexify_state.container_scheduler.read().await;
-            let app_a_containers: Vec<_> = container_scheduler
+            let app = indexify_state.app_state.load();
+            let app_a_containers: Vec<_> = app
+                .scheduler
                 .function_containers
                 .iter()
                 .filter(|(_, fc)| fc.function_container.application_name == "app_a")
@@ -545,24 +548,29 @@ mod tests {
             );
         }
 
-        // Create app_b (not in allowlist) requiring 2 cores
+        // Create app_b (not in allowlist) requiring 2 cores — triggers eager reap
         let fn_b = create_function_with_resources("fn_b", 2000, 1024, None, None);
         let app_b = create_single_function_app("app_b", "1", fn_b);
         register_application(&test_srv, &app_b).await?;
 
-        // Invoke app_b - vacuum should NOT remove app_a's container (allowlisted)
         let _request_id_b = invoke_application(&test_srv, &app_b).await?;
         test_srv.process_all_state_changes().await?;
 
-        // Verify app_a's container is NOT marked for termination
+        // Verify app_a's container IS terminated — allowlists don't protect
+        // from vacuum
         {
-            let container_scheduler = indexify_state.container_scheduler.read().await;
-            let app_a_containers: Vec<_> = container_scheduler
+            let app = indexify_state.app_state.load();
+            let app_a_containers: Vec<_> = app
+                .scheduler
                 .function_containers
                 .iter()
                 .filter(|(_, fc)| fc.function_container.application_name == "app_a")
                 .collect();
 
+            assert!(
+                !app_a_containers.is_empty(),
+                "app_a container should still exist"
+            );
             for (id, fc) in &app_a_containers {
                 tracing::info!(
                     "app_a container {}: desired_state={:?}",
@@ -570,11 +578,11 @@ mod tests {
                     fc.desired_state
                 );
                 assert!(
-                    !matches!(
+                    matches!(
                         fc.desired_state,
                         crate::data_model::ContainerState::Terminated { .. }
                     ),
-                    "Allowlisted container should NOT be marked for termination"
+                    "Idle allowlisted container should be terminated by vacuum"
                 );
             }
         }
@@ -643,9 +651,9 @@ mod tests {
 
         // Verify executor1 is tombstoned
         {
-            let container_scheduler = indexify_state.container_scheduler.read().await;
+            let app = indexify_state.app_state.load();
             let executor1_id = crate::data_model::ExecutorId::new("executor_1".to_string());
-            if let Some(executor) = container_scheduler.executors.get(&executor1_id) {
+            if let Some(executor) = app.scheduler.executors.get(&executor1_id) {
                 assert!(executor.tombstoned, "executor_1 should be tombstoned");
             }
         }
@@ -722,8 +730,8 @@ mod tests {
 
         // Verify we have 3 containers
         let container_count = {
-            let container_scheduler = indexify_state.container_scheduler.read().await;
-            container_scheduler
+            let app = indexify_state.app_state.load();
+            app.scheduler
                 .function_containers
                 .iter()
                 .filter(|(_, fc)| {
@@ -747,8 +755,9 @@ mod tests {
 
         // Check how many containers are now marked for termination
         {
-            let container_scheduler = indexify_state.container_scheduler.read().await;
-            let terminated_count = container_scheduler
+            let app = indexify_state.app_state.load();
+            let terminated_count = app
+                .scheduler
                 .function_containers
                 .iter()
                 .filter(|(_, fc)| {
@@ -919,8 +928,8 @@ mod tests {
 
         // Check that containers are marked for termination
         let terminated_containers: Vec<_> = {
-            let container_scheduler = indexify_state.container_scheduler.read().await;
-            container_scheduler
+            let app = indexify_state.app_state.load();
+            app.scheduler
                 .function_containers
                 .iter()
                 .filter(|(_, fc)| {
@@ -949,7 +958,6 @@ mod tests {
                     reason: crate::data_model::ContainerTerminationReason::DesiredStateRemoved,
                 };
             }
-            executor_state.state_hash = nanoid::nanoid!();
             executor.sync_executor_state(executor_state).await?;
             test_srv.process_all_state_changes().await?;
         }
@@ -1036,8 +1044,9 @@ mod tests {
 
         // Verify app_1's container is terminated
         {
-            let container_scheduler = indexify_state.container_scheduler.read().await;
-            let app_1_containers: Vec<_> = container_scheduler
+            let app = indexify_state.app_state.load();
+            let app_1_containers: Vec<_> = app
+                .scheduler
                 .function_containers
                 .iter()
                 .filter(|(_, fc)| fc.function_container.application_name == "app_1")
@@ -1072,8 +1081,9 @@ mod tests {
         // Verify that app_2's container is now marked for termination (if needed for
         // resources)
         {
-            let container_scheduler = indexify_state.container_scheduler.read().await;
-            let app_2_containers: Vec<_> = container_scheduler
+            let app = indexify_state.app_state.load();
+            let app_2_containers: Vec<_> = app
+                .scheduler
                 .function_containers
                 .iter()
                 .filter(|(_, fc)| fc.function_container.application_name == "app_2")
@@ -1135,8 +1145,9 @@ mod tests {
 
         // Verify container has num_allocations = 1
         {
-            let container_scheduler = indexify_state.container_scheduler.read().await;
-            let app_a_containers: Vec<_> = container_scheduler
+            let app = indexify_state.app_state.load();
+            let app_a_containers: Vec<_> = app
+                .scheduler
                 .function_containers
                 .iter()
                 .filter(|(_, fc)| fc.function_container.application_name == "app_a")
@@ -1171,8 +1182,9 @@ mod tests {
 
         // Verify app_a's container is NOT marked for termination
         {
-            let container_scheduler = indexify_state.container_scheduler.read().await;
-            let app_a_containers: Vec<_> = container_scheduler
+            let app = indexify_state.app_state.load();
+            let app_a_containers: Vec<_> = app
+                .scheduler
                 .function_containers
                 .iter()
                 .filter(|(_, fc)| fc.function_container.application_name == "app_a")
@@ -1227,7 +1239,7 @@ mod tests {
         let test_srv = testing::TestService::new().await?;
         let indexify_state = test_srv.service.indexify_state.clone();
 
-        // Create executor_1 with allowlist (containers won't be vacuumed)
+        // Create executor_1 with allowlist (restricts which functions can be placed)
         let allowlist = vec![FunctionAllowlist {
             namespace: Some(TEST_NAMESPACE.to_string()),
             application: Some("app_protected".to_string()),
@@ -1243,7 +1255,7 @@ mod tests {
             ))
             .await?;
 
-        // Create executor_2 without allowlist (containers can be vacuumed)
+        // Create executor_2 without allowlist (can run any function)
         let mut executor2 = test_srv
             .create_executor(create_executor_with_resources(
                 "executor_2",
@@ -1305,7 +1317,7 @@ mod tests {
             }
         }
 
-        // Create app requiring 2 cores - should vacuum from executor_2 (not executor_1)
+        // Create app requiring 2 cores — placement fails (no free resources)
         let fn_big = create_function_with_resources("fn_big", 2000, 1024, None, None);
         let app_big = create_single_function_app("app_big", "1", fn_big);
         register_application(&test_srv, &app_big).await?;
@@ -1313,30 +1325,26 @@ mod tests {
         let _request_id_big = invoke_application(&test_srv, &app_big).await?;
         test_srv.process_all_state_changes().await?;
 
-        // Verify protected app's container is NOT terminated
+        // Verify eager reap terminated idle containers.
+        // Allowlists are a placement concern, not a vacuum concern.
         {
-            let container_scheduler = indexify_state.container_scheduler.read().await;
-            let protected_containers: Vec<_> = container_scheduler
+            let app = indexify_state.app_state.load();
+            let terminated: Vec<_> = app
+                .scheduler
                 .function_containers
                 .iter()
-                .filter(|(_, fc)| fc.function_container.application_name == "app_protected")
-                .collect();
-
-            for (id, fc) in &protected_containers {
-                tracing::info!(
-                    "Protected container {} desired_state: {:?}",
-                    id.get(),
-                    fc.desired_state
-                );
-                // Protected containers should NOT be terminated
-                assert!(
-                    !matches!(
+                .filter(|(_, fc)| {
+                    matches!(
                         fc.desired_state,
                         crate::data_model::ContainerState::Terminated { .. }
-                    ),
-                    "Protected container should NOT be marked for termination"
-                );
-            }
+                    )
+                })
+                .collect();
+
+            assert!(
+                !terminated.is_empty(),
+                "Vacuum should have terminated at least one idle container"
+            );
         }
 
         Ok(())
@@ -1387,8 +1395,9 @@ mod tests {
 
         // Get the container ID for app_a
         let container_id_before = {
-            let container_scheduler = indexify_state.container_scheduler.read().await;
-            let app_a_containers: Vec<_> = container_scheduler
+            let app = indexify_state.app_state.load();
+            let app_a_containers: Vec<_> = app
+                .scheduler
                 .function_containers
                 .iter()
                 .filter(|(_, fc)| fc.function_container.application_name == "app_a")
@@ -1423,8 +1432,9 @@ mod tests {
 
         // Verify container is now idle (num_allocations = 0)
         {
-            let container_scheduler = indexify_state.container_scheduler.read().await;
-            let fc = container_scheduler
+            let app = indexify_state.app_state.load();
+            let fc = app
+                .scheduler
                 .function_containers
                 .get(&container_id_before)
                 .expect("Container should exist");
@@ -1444,17 +1454,14 @@ mod tests {
         let app_b = create_single_function_app("app_b", "1", fn_b);
         register_application(&test_srv, &app_b).await?;
 
-        // Invoke app_b - this triggers vacuum
+        // Invoke app_b - eager reap frees idle containers before allocation
         let _request_id_b = invoke_application(&test_srv, &app_b).await?;
         test_srv.process_all_state_changes().await?;
 
         // Now app_a's container should be terminated
         {
-            let container_scheduler = indexify_state.container_scheduler.read().await;
-            if let Some(fc) = container_scheduler
-                .function_containers
-                .get(&container_id_before)
-            {
+            let app = indexify_state.app_state.load();
+            if let Some(fc) = app.scheduler.function_containers.get(&container_id_before) {
                 tracing::info!(
                     "After vacuum: app_a container {} desired_state: {:?}",
                     container_id_before.get(),
