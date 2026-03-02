@@ -52,9 +52,9 @@ impl ExecutorAPIService {
         }
 
         self.process_allocation_outcomes(executor_id, allocation_outcomes)
-            .await;
+            .await?;
         self.process_allocation_log_entries(executor_id, allocation_log_entries)
-            .await;
+            .await?;
 
         Ok(())
     }
@@ -63,56 +63,70 @@ impl ExecutorAPIService {
         &self,
         executor_id: &ExecutorId,
         allocation_outcomes: Vec<executor_api_pb::AllocationOutcome>,
-    ) {
+    ) -> Result<(), Status> {
         for item in allocation_outcomes {
             match item.outcome {
                 Some(executor_api_pb::allocation_outcome::Outcome::Completed(completed)) => {
-                    let fc_id = completed.function_call_id.clone();
-                    if let Err(e) = process_allocation_completed(
+                    // Ingest first, then route. If ingestion fails, return an
+                    // RPC error so dataplane retains the outcome for retry.
+                    let completed_for_routing = completed
+                        .function_call_id
+                        .as_ref()
+                        .map(|_| completed.clone());
+                    process_allocation_completed(
                         &self.indexify_state,
                         &self.blob_storage_registry,
                         executor_id,
-                        completed.clone(),
+                        completed,
                     )
                     .await
-                    {
+                    .map_err(|e| {
                         warn!(
                             executor_id = executor_id.get(),
                             error = %e,
                             "heartbeat: process_allocation_completed failed"
                         );
-                    }
-                    if let Some(fc_id) = &fc_id {
+                        Status::internal(e.to_string())
+                    })?;
+                    if let Some(completed) = &completed_for_routing &&
+                        let Some(fc_id) = completed.function_call_id.as_deref()
+                    {
                         try_route_result(
                             &self.function_call_result_router,
                             fc_id,
-                            &completed,
+                            completed,
                             &self.indexify_state,
                         )
                         .await;
                     }
                 }
                 Some(executor_api_pb::allocation_outcome::Outcome::Failed(failed)) => {
-                    let fc_id = failed.function_call_id.clone();
-                    if let Err(e) = process_allocation_failed(
+                    // Ingest first, then route. If ingestion fails, return an
+                    // RPC error so dataplane retains the outcome for retry.
+                    let failed_for_routing =
+                        failed.function_call_id.as_ref().map(|_| failed.clone());
+                    process_allocation_failed(
                         &self.indexify_state,
                         &self.blob_storage_registry,
                         executor_id,
-                        failed.clone(),
+                        failed,
                     )
                     .await
-                    {
+                    .map_err(|e| {
                         warn!(
                             executor_id = executor_id.get(),
                             error = %e,
                             "heartbeat: process_allocation_failed failed"
                         );
-                    }
-                    if let Some(fc_id) = &fc_id {
+                        Status::internal(e.to_string())
+                    })?;
+                    if let Some(failed) = &failed_for_routing &&
+                        let Some(fc_id) = failed.function_call_id.as_deref()
+                    {
                         try_route_failure(
                             &self.function_call_result_router,
                             fc_id,
-                            &failed,
+                            failed,
                             &self.indexify_state,
                         )
                         .await;
@@ -121,15 +135,17 @@ impl ExecutorAPIService {
                 None => {}
             }
         }
+
+        Ok(())
     }
 
     async fn process_allocation_log_entries(
         &self,
         executor_id: &ExecutorId,
         allocation_log_entries: Vec<executor_api_pb::AllocationLogEntry>,
-    ) {
+    ) -> Result<(), Status> {
         for log_entry in allocation_log_entries {
-            if let Err(e) = handle_log_entry(
+            handle_log_entry(
                 &log_entry,
                 executor_id,
                 &self.function_call_result_router,
@@ -137,14 +153,17 @@ impl ExecutorAPIService {
                 &self.blob_storage_registry,
             )
             .await
-            {
+            .map_err(|e| {
                 warn!(
                     executor_id = executor_id.get(),
                     error = %e,
                     "heartbeat: handle_log_entry_v2 failed"
                 );
-            }
+                Status::internal(e.to_string())
+            })?;
         }
+
+        Ok(())
     }
 
     pub(super) async fn maybe_deregister_stopped_executor(

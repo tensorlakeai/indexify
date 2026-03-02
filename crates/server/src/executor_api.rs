@@ -993,11 +993,14 @@ mod tests {
         }
     }
 
-    fn make_completed_outcome(child_function_call_id: &str) -> executor_api_pb::AllocationOutcome {
+    fn make_completed_outcome(
+        child_function_call_id: &str,
+        allocation_id: &str,
+    ) -> executor_api_pb::AllocationOutcome {
         executor_api_pb::AllocationOutcome {
             outcome: Some(executor_api_pb::allocation_outcome::Outcome::Completed(
                 executor_api_pb::AllocationCompleted {
-                    allocation_id: "child-allocation".to_string(),
+                    allocation_id: allocation_id.to_string(),
                     function: Some(FunctionRef {
                         namespace: Some("ns".to_string()),
                         application_name: Some("app".to_string()),
@@ -1368,6 +1371,37 @@ mod tests {
         .await
         .unwrap();
 
+        // Seed the child allocation so outcome ingestion succeeds.
+        let child_allocation = data_model::AllocationBuilder::default()
+            .target(data_model::AllocationTarget::new(
+                executor_b.clone(),
+                data_model::ContainerId::new("child-container".to_string()),
+            ))
+            .function_call_id(data_model::FunctionCallId::from(child_fc_id))
+            .namespace("ns".to_string())
+            .application("app".to_string())
+            .application_version("v1".to_string())
+            .function("child-fn".to_string())
+            .request_id("req-1".to_string())
+            .outcome(data_model::FunctionRunOutcome::Unknown)
+            .input_args(vec![])
+            .call_metadata(bytes::Bytes::new())
+            .build()
+            .expect("child allocation should build");
+        let child_allocation_id = child_allocation.id.to_string();
+        let mut update = crate::state_store::requests::SchedulerUpdateRequest::default();
+        update.new_allocations.push(child_allocation);
+        test_service
+            .service
+            .indexify_state
+            .write(crate::state_store::requests::StateMachineUpdateRequest {
+                payload: crate::state_store::requests::RequestPayload::SchedulerUpdate(
+                    crate::state_store::requests::SchedulerUpdatePayload::new(update),
+                ),
+            })
+            .await
+            .unwrap();
+
         // Child completion arrives; result must route to the latest parent
         // (executor B / parent-alloc-b), not stale attempt A.
         ExecutorApi::heartbeat(
@@ -1377,7 +1411,10 @@ mod tests {
                 status: Some(executor_api_pb::ExecutorStatus::Running.into()),
                 full_state: None,
                 command_responses: vec![],
-                allocation_outcomes: vec![make_completed_outcome(child_fc_id)],
+                allocation_outcomes: vec![make_completed_outcome(
+                    child_fc_id,
+                    &child_allocation_id,
+                )],
                 allocation_log_entries: vec![],
             }),
         )
@@ -1493,6 +1530,76 @@ mod tests {
             api.function_call_result_router.pending_len().await,
             0,
             "lapsed deregistration should purge router entries"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_outcome_ingest_failure_keeps_router_entry_for_retry() {
+        let test_service = TestService::new().await.unwrap();
+        let api = super::ExecutorAPIService::new(
+            test_service.service.indexify_state.clone(),
+            test_service.service.executor_manager.clone(),
+            test_service.service.blob_storage_registry.clone(),
+        );
+
+        let executor_id = crate::data_model::ExecutorId::from("executor-route-retry-on-error");
+        let child_fc_id = "child-fc-retry-on-error";
+
+        api.handle_full_state(
+            &executor_id,
+            executor_api_pb::DataplaneStateFullSync::default(),
+        )
+        .await
+        .unwrap();
+
+        // Register route entry first.
+        ExecutorApi::heartbeat(
+            &api,
+            Request::new(executor_api_pb::HeartbeatRequest {
+                executor_id: Some(executor_id.get().to_string()),
+                status: Some(executor_api_pb::ExecutorStatus::Running.into()),
+                full_state: None,
+                command_responses: vec![],
+                allocation_outcomes: vec![],
+                allocation_log_entries: vec![make_call_function_log_entry(
+                    "parent-retry-alloc",
+                    child_fc_id,
+                )],
+            }),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            api.function_call_result_router.pending_len().await,
+            1,
+            "expected one pending route before ingest failure"
+        );
+
+        // Send a completion that references a missing allocation. Heartbeat
+        // must fail so dataplane retries, and router entry must be retained.
+        let err = ExecutorApi::heartbeat(
+            &api,
+            Request::new(executor_api_pb::HeartbeatRequest {
+                executor_id: Some(executor_id.get().to_string()),
+                status: Some(executor_api_pb::ExecutorStatus::Running.into()),
+                full_state: None,
+                command_responses: vec![],
+                allocation_outcomes: vec![make_completed_outcome(
+                    child_fc_id,
+                    "missing-allocation",
+                )],
+                allocation_log_entries: vec![],
+            }),
+        )
+        .await
+        .expect_err("heartbeat must fail when outcome ingestion fails");
+        assert_eq!(err.code(), tonic::Code::Internal);
+
+        assert_eq!(
+            api.function_call_result_router.pending_len().await,
+            1,
+            "router entry should remain so retried outcome can still route"
         );
     }
 }
