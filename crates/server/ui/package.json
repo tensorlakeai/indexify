@@ -55,6 +55,9 @@
     "path-to-regexp": "0.1.12",
     "postcss": "^8.4.31",
     "rollup": "^2.80.0",
+    "serialize-javascript": "^7.0.3",
+    "workbox-build": "^7.4.0",
+    "workbox-webpack-plugin": "^7.4.0",
     "sucrase": {
       "minimatch": "^9.0.9"
     },
