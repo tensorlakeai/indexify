@@ -815,6 +815,194 @@ impl ExecutorManager {
         })
     }
 
+    fn build_container_description_from_meta(
+        &self,
+        app_state: &crate::state_store::AppState,
+        meta: &data_model::ContainerServerMetadata,
+    ) -> Option<ContainerDescription> {
+        let fe = &meta.function_container;
+        let cg_version = app_state
+            .indexes
+            .application_versions
+            .get(&ApplicationVersion::key_from(
+                &fe.namespace,
+                &fe.application_name,
+                &fe.version,
+            ))
+            .cloned();
+        let cg_node = cg_version
+            .as_ref()
+            .and_then(|version| version.functions.get(&fe.function_name).cloned());
+
+        let code_payload_pb = cg_version.and_then(|cg_version| {
+            cg_version.code.map(|code| {
+                let blob_store_url_schema = self
+                    .blob_store_registry
+                    .get_blob_store(&fe.namespace)
+                    .get_url_scheme();
+                let blob_store_url = self
+                    .blob_store_registry
+                    .get_blob_store(&fe.namespace)
+                    .get_url();
+                executor_api_pb::DataPayload {
+                    id: Some(code.id.clone()),
+                    uri: Some(blob_store_path_to_url(
+                        &code.path,
+                        &blob_store_url_schema,
+                        &blob_store_url,
+                    )),
+                    size: Some(code.size),
+                    sha256_hash: Some(code.sha256_hash.clone()),
+                    encoding: Some(DataPayloadEncoding::BinaryZip.into()),
+                    encoding_version: Some(0),
+                    offset: Some(0),
+                    metadata_size: Some(0),
+                    source_function_call_id: None,
+                    content_type: Some("application/zip".to_string()),
+                }
+            })
+        });
+
+        let fe_type_pb = match fe.container_type {
+            data_model::ContainerType::Function => ContainerTypePb::Function,
+            data_model::ContainerType::Sandbox => ContainerTypePb::Sandbox,
+        };
+
+        let network_policy_pb = fe
+            .network_policy
+            .as_ref()
+            .map(crate::executor_api::network_policy_to_pb);
+        let sandbox_metadata = if fe.container_type == data_model::ContainerType::Sandbox {
+            Some(SandboxMetadata {
+                image: fe.image.clone(),
+                timeout_secs: if fe.timeout_secs > 0 {
+                    Some(fe.timeout_secs)
+                } else {
+                    None
+                },
+                entrypoint: fe.entrypoint.clone(),
+                network_policy: network_policy_pb,
+                sandbox_id: fe.sandbox_id.as_ref().map(|s| s.get().to_string()),
+                snapshot_uri: fe.snapshot_uri.clone(),
+            })
+        } else {
+            None
+        };
+
+        let resources_pb = match fe.resources.clone().try_into() {
+            Ok(resources) => Some(resources),
+            Err(err) => {
+                error!(
+                    executor_id = meta.executor_id.get(),
+                    container_id = fe.id.get(),
+                    error = %err,
+                    "failed to convert container resources"
+                );
+                return None;
+            }
+        };
+
+        Some(ContainerDescription {
+            id: Some(fe.id.get().to_string()),
+            function: Some(FunctionRef {
+                namespace: Some(fe.namespace.clone()),
+                application_name: Some(fe.application_name.clone()),
+                function_name: Some(fe.function_name.clone()),
+                application_version: Some(fe.version.to_string()),
+            }),
+            secret_names: cg_node
+                .as_ref()
+                .and_then(|node| node.secret_names.clone())
+                .unwrap_or_default(),
+            initialization_timeout_ms: Some(
+                cg_node
+                    .as_ref()
+                    .map(|node| node.initialization_timeout.0)
+                    .unwrap_or_else(|| {
+                        fe.timeout_secs
+                            .saturating_mul(1000)
+                            .try_into()
+                            .unwrap_or(u32::MAX)
+                    }),
+            ),
+            application: code_payload_pb,
+            allocation_timeout_ms: Some(cg_node.map(|node| node.timeout.0).unwrap_or_else(|| {
+                fe.timeout_secs
+                    .saturating_mul(1000)
+                    .try_into()
+                    .unwrap_or(u32::MAX)
+            })),
+            resources: resources_pb,
+            max_concurrency: Some(fe.max_concurrency),
+            sandbox_metadata,
+            container_type: Some(fe_type_pb.into()),
+            pool_id: fe.pool_id.as_ref().map(|p| p.get().to_string()),
+        })
+    }
+
+    fn allocation_to_proto(&self, allocation: &data_model::Allocation) -> Allocation {
+        let mut args = Vec::new();
+        let blob_store_url_schema = self
+            .blob_store_registry
+            .get_blob_store(&allocation.namespace)
+            .get_url_scheme();
+        let blob_store_url = self
+            .blob_store_registry
+            .get_blob_store(&allocation.namespace)
+            .get_url();
+        for input_arg in &allocation.input_args {
+            args.push(executor_api_pb::DataPayload {
+                id: Some(input_arg.data_payload.id.clone()),
+                uri: Some(blob_store_path_to_url(
+                    &input_arg.data_payload.path,
+                    &blob_store_url_schema,
+                    &blob_store_url,
+                )),
+                size: Some(input_arg.data_payload.size),
+                sha256_hash: Some(input_arg.data_payload.sha256_hash.clone()),
+                encoding: Some(
+                    string_to_data_payload_encoding(&input_arg.data_payload.encoding).into(),
+                ),
+                encoding_version: Some(0),
+                offset: Some(input_arg.data_payload.offset),
+                metadata_size: Some(input_arg.data_payload.metadata_size),
+                source_function_call_id: input_arg
+                    .function_call_id
+                    .as_ref()
+                    .map(|id| id.to_string()),
+                content_type: Some(input_arg.data_payload.encoding.clone()),
+            });
+        }
+        let request_data_payload_uri_prefix = format!(
+            "{}/{}",
+            blob_store_url,
+            data_model::DataPayload::request_key_prefix(
+                &allocation.namespace,
+                &allocation.application,
+                &allocation.request_id,
+            ),
+        );
+
+        Allocation {
+            function: Some(FunctionRef {
+                namespace: Some(allocation.namespace.clone()),
+                application_name: Some(allocation.application.clone()),
+                function_name: Some(allocation.function.clone()),
+                application_version: None,
+            }),
+            container_id: Some(allocation.target.container_id.get().to_string()),
+            allocation_id: Some(allocation.id.to_string()),
+            function_call_id: Some(allocation.function_call_id.to_string()),
+            request_id: Some(allocation.request_id.to_string()),
+            args,
+            request_data_payload_uri_prefix: Some(request_data_payload_uri_prefix.clone()),
+            request_error_payload_uri_prefix: Some(request_data_payload_uri_prefix),
+            function_call_metadata: Some(allocation.call_metadata.clone().into()),
+            replay_mode: None,
+            last_event_clock: None,
+        }
+    }
+
     /// Emit commands for one executor by diffing current desired state
     /// against the executor connection's emitter snapshot.
     ///
@@ -825,16 +1013,29 @@ impl ExecutorManager {
         executor_id: &ExecutorId,
         force_full_sync: bool,
     ) {
-        let emitter = {
+        let conn = {
             let connections = self.indexify_state.executor_connections.read().await;
-            let Some(conn) = connections.get(executor_id) else {
+            let Some(conn) = connections.get(executor_id).cloned() else {
                 return;
             };
-            if force_full_sync {
-                conn.reset_for_full_sync().await;
-            }
-            conn.emitter.clone()
+            conn
         };
+        let _emit_guard = conn.command_emit_lock.lock().await;
+
+        if force_full_sync {
+            if let Err(err) = self
+                .indexify_state
+                .reset_executor_command_outbox(executor_id)
+                .await
+            {
+                error!(
+                    executor_id = executor_id.get(),
+                    error = ?err,
+                    "failed to reset persistent command outbox for full sync"
+                );
+            }
+            conn.reset_for_full_sync().await;
+        }
 
         let Some(snapshot) = self.get_executor_state(executor_id).await else {
             trace!(
@@ -844,18 +1045,24 @@ impl ExecutorManager {
             return;
         };
 
+        let emitter = conn.emitter.clone();
         let commands = {
             let mut emitter_guard = emitter.lock().await;
             emitter_guard.emit_commands(&snapshot)
         };
 
-        if !commands.is_empty() {
-            let connections = self.indexify_state.executor_connections.read().await;
-            if let Some(conn) = connections.get(executor_id) {
-                conn.push_commands(commands).await;
-            } else {
-                return;
-            }
+        if !commands.is_empty() &&
+            let Err(err) = self
+                .indexify_state
+                .enqueue_executor_commands(executor_id, commands)
+                .await
+        {
+            error!(
+                executor_id = executor_id.get(),
+                error = ?err,
+                "failed to enqueue commands into persistent outbox"
+            );
+            return;
         }
 
         let mut emitter_guard = emitter.lock().await;
@@ -877,8 +1084,150 @@ impl ExecutorManager {
             .indexify_state
             .affected_executors_from_update(update)
             .await;
+        let app_state = self.indexify_state.app_state.load();
+        let has_snapshot_updates = !update.updated_snapshots.is_empty();
         for executor_id in affected {
-            self.emit_commands_for_executor(&executor_id, false).await;
+            if has_snapshot_updates {
+                self.emit_commands_for_executor(&executor_id, false).await;
+                continue;
+            }
+
+            let conn = {
+                let connections = self.indexify_state.executor_connections.read().await;
+                let Some(conn) = connections.get(&executor_id).cloned() else {
+                    continue;
+                };
+                conn
+            };
+            let _emit_guard = conn.command_emit_lock.lock().await;
+            let emitter = conn.emitter.clone();
+
+            let (commands, staged_emitter) = {
+                let emitter_guard = emitter.lock().await;
+                let mut staged = emitter_guard.clone();
+                drop(emitter_guard);
+
+                let mut commands = Vec::new();
+
+                for (container_id, container_meta) in &update.containers {
+                    if container_meta.executor_id != executor_id {
+                        continue;
+                    }
+
+                    if matches!(
+                        container_meta.desired_state,
+                        data_model::ContainerState::Terminated { .. }
+                    ) {
+                        if staged.known_containers.contains_key(container_id.get()) {
+                            let seq = staged.next_seq();
+                            commands.push(executor_api_pb::Command {
+                                seq,
+                                command: Some(executor_api_pb::command::Command::RemoveContainer(
+                                    executor_api_pb::RemoveContainer {
+                                        container_id: container_id.get().to_string(),
+                                        reason: None,
+                                    },
+                                )),
+                            });
+                            staged.known_containers.remove(container_id.get());
+                        }
+                        continue;
+                    }
+
+                    let Some(container_pb) =
+                        self.build_container_description_from_meta(&app_state, container_meta)
+                    else {
+                        continue;
+                    };
+
+                    if !staged.known_containers.contains_key(container_id.get()) {
+                        let seq = staged.next_seq();
+                        commands.push(executor_api_pb::Command {
+                            seq,
+                            command: Some(executor_api_pb::command::Command::AddContainer(
+                                executor_api_pb::AddContainer {
+                                    container: Some(container_pb.clone()),
+                                },
+                            )),
+                        });
+                        staged
+                            .known_containers
+                            .insert(container_id.get().to_string(), container_pb);
+                        continue;
+                    }
+
+                    if let Some(known) = staged.known_containers.get(container_id.get()) &&
+                        known != &container_pb &&
+                        known.sandbox_metadata != container_pb.sandbox_metadata
+                    {
+                        let seq = staged.next_seq();
+                        commands.push(executor_api_pb::Command {
+                            seq,
+                            command: Some(
+                                executor_api_pb::command::Command::UpdateContainerDescription(
+                                    executor_api_pb::UpdateContainerDescription {
+                                        container_id: container_id.get().to_string(),
+                                        sandbox_metadata: container_pb.sandbox_metadata.clone(),
+                                    },
+                                ),
+                            ),
+                        });
+                    }
+                    staged
+                        .known_containers
+                        .insert(container_id.get().to_string(), container_pb);
+                }
+
+                for allocation in &update.new_allocations {
+                    if allocation.target.executor_id != executor_id {
+                        continue;
+                    }
+                    let allocation_id = allocation.id.to_string();
+                    if staged.known_allocations.contains(&allocation_id) {
+                        continue;
+                    }
+                    let seq = staged.next_seq();
+                    commands.push(executor_api_pb::Command {
+                        seq,
+                        command: Some(executor_api_pb::command::Command::RunAllocation(
+                            executor_api_pb::RunAllocation {
+                                allocation: Some(self.allocation_to_proto(allocation)),
+                            },
+                        )),
+                    });
+                    staged.known_allocations.insert(allocation_id);
+                }
+
+                // Stop tracking terminal allocations so known_allocations
+                // reflects live work and doesn't grow unbounded.
+                for allocation in &update.updated_allocations {
+                    if allocation.target.executor_id != executor_id {
+                        continue;
+                    }
+                    if allocation.is_terminal() {
+                        staged.known_allocations.remove(&allocation.id.to_string());
+                    }
+                }
+
+                (commands, staged)
+            };
+
+            if !commands.is_empty() &&
+                let Err(err) = self
+                    .indexify_state
+                    .enqueue_executor_commands(&executor_id, commands)
+                    .await
+            {
+                error!(
+                    executor_id = executor_id.get(),
+                    error = ?err,
+                    "failed to enqueue scheduler-derived command batch"
+                );
+                continue;
+            }
+
+            let mut emitter_guard = emitter.lock().await;
+            *emitter_guard = staged_emitter;
         }
     }
 

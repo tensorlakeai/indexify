@@ -12,6 +12,7 @@ use anyhow::{Result, anyhow};
 use arc_swap::ArcSwap;
 use in_memory_state::InMemoryState;
 use opentelemetry::KeyValue;
+use prost::Message;
 use request_events::{PersistedRequestStateChangeEvent, RequestStateChangeEvent};
 use requests::{RequestPayload, StateMachineUpdateRequest};
 use rocksdb::{ColumnFamilyDescriptor, Options};
@@ -28,6 +29,7 @@ use crate::{
     processor::container_scheduler::ContainerScheduler,
     state_store::{
         driver::{
+            Reader,
             Transaction,
             Writer,
             rocksdb::{RocksDBConfig, RocksDBDriver},
@@ -58,10 +60,14 @@ impl ExecutorCatalog {
 /// Holds the command emitter and buffered commands/results for long-poll
 /// delivery. Command emission is update-driven by scheduler batches and
 /// full-sync reconnects.
+#[derive(Clone)]
 pub struct ExecutorConnection {
     /// Command emitter — persists across reconnections.
     /// Fresh emitter (has_synced=false) on first registration.
     pub emitter: Arc<tokio::sync::Mutex<CommandEmitter>>,
+    /// Serializes command emission + outbox enqueue per executor.
+    /// Prevents concurrent emitters from interleaving sequence/state updates.
+    pub command_emit_lock: Arc<tokio::sync::Mutex<()>>,
 
     /// Buffered commands for poll_commands delivery.
     pending_commands: Arc<tokio::sync::Mutex<Vec<executor_api_pb::Command>>>,
@@ -86,6 +92,7 @@ impl ExecutorConnection {
     pub fn new() -> Self {
         Self {
             emitter: Arc::new(tokio::sync::Mutex::new(CommandEmitter::new())),
+            command_emit_lock: Arc::new(tokio::sync::Mutex::new(())),
             pending_commands: Arc::new(tokio::sync::Mutex::new(Vec::new())),
             commands_notify: Arc::new(Notify::new()),
             pending_results: Arc::new(tokio::sync::Mutex::new(Vec::new())),
@@ -109,6 +116,15 @@ impl ExecutorConnection {
     /// Clone all pending commands (does NOT remove them).
     pub async fn clone_commands(&self) -> Vec<executor_api_pb::Command> {
         self.pending_commands.lock().await.clone()
+    }
+
+    /// Replace buffered commands (used on reconnect/restart hydration).
+    pub async fn replace_commands(&self, cmds: Vec<executor_api_pb::Command>) {
+        let mut buf = self.pending_commands.lock().await;
+        *buf = cmds;
+        if !buf.is_empty() {
+            self.commands_notify.notify_one();
+        }
     }
 
     /// Remove commands with seq <= `acked_seq`.
@@ -142,6 +158,12 @@ impl ExecutorConnection {
     pub fn take_full_state_request(&self) -> bool {
         self.request_full_state
             .swap(false, atomic::Ordering::SeqCst)
+    }
+
+    /// Restore ack cursor from persistent storage.
+    pub fn restore_acked_command_seq(&self, seq: u64) {
+        self.last_acked_command_seq
+            .store(seq, atomic::Ordering::Relaxed);
     }
 
     /// Buffer a new allocation log entry as a sequenced result and wake any
@@ -284,6 +306,10 @@ struct PersistentWriteResult {
 }
 
 impl IndexifyState {
+    const EXECUTOR_CMD_ACK_PREFIX: &'static str = "ack|";
+    const EXECUTOR_CMD_NEXT_PREFIX: &'static str = "next|";
+    const EXECUTOR_CMD_PREFIX: &'static str = "cmd|";
+
     pub async fn new(
         path: PathBuf,
         config: RocksDBConfig,
@@ -794,14 +820,255 @@ impl IndexifyState {
             .await
     }
 
+    fn executor_cmd_prefix_key(executor_id: &ExecutorId) -> Vec<u8> {
+        format!("{}{}|", Self::EXECUTOR_CMD_PREFIX, executor_id.get()).into_bytes()
+    }
+
+    fn executor_cmd_key(executor_id: &ExecutorId, seq: u64) -> Vec<u8> {
+        format!(
+            "{}{}|{:020}",
+            Self::EXECUTOR_CMD_PREFIX,
+            executor_id.get(),
+            seq
+        )
+        .into_bytes()
+    }
+
+    fn executor_cmd_ack_key(executor_id: &ExecutorId) -> Vec<u8> {
+        format!("{}{}", Self::EXECUTOR_CMD_ACK_PREFIX, executor_id.get()).into_bytes()
+    }
+
+    fn executor_cmd_next_key(executor_id: &ExecutorId) -> Vec<u8> {
+        format!("{}{}", Self::EXECUTOR_CMD_NEXT_PREFIX, executor_id.get()).into_bytes()
+    }
+
+    fn parse_executor_cmd_seq(key: &[u8]) -> Option<u64> {
+        let key = std::str::from_utf8(key).ok()?;
+        let (_, seq) = key.rsplit_once('|')?;
+        seq.parse::<u64>().ok()
+    }
+
+    async fn read_executor_cmd_ack(&self, executor_id: &ExecutorId) -> Result<u64> {
+        let key = Self::executor_cmd_ack_key(executor_id);
+        let Some(bytes) = self
+            .db
+            .get(
+                IndexifyObjectsColumns::ExecutorCommandOutbox.as_ref(),
+                key.as_slice(),
+            )
+            .await?
+        else {
+            return Ok(0);
+        };
+        StateStoreEncoder::decode::<u64>(&bytes)
+    }
+
+    async fn read_executor_cmd_next_seq(&self, executor_id: &ExecutorId) -> Result<u64> {
+        let key = Self::executor_cmd_next_key(executor_id);
+        let Some(bytes) = self
+            .db
+            .get(
+                IndexifyObjectsColumns::ExecutorCommandOutbox.as_ref(),
+                key.as_slice(),
+            )
+            .await?
+        else {
+            return Ok(1);
+        };
+        StateStoreEncoder::decode::<u64>(&bytes)
+    }
+
+    async fn load_executor_pending_commands(
+        &self,
+        executor_id: &ExecutorId,
+    ) -> Result<(u64, Vec<executor_api_pb::Command>)> {
+        let acked = self.read_executor_cmd_ack(executor_id).await?;
+        let prefix = Self::executor_cmd_prefix_key(executor_id);
+        let mut commands = Vec::new();
+
+        let iter = self
+            .db
+            .iter(
+                IndexifyObjectsColumns::ExecutorCommandOutbox.as_ref(),
+                driver::IterOptions::default().starting_at(prefix.clone()),
+            )
+            .await;
+        for item in iter {
+            let (key, value) = item?;
+            if !key.starts_with(prefix.as_slice()) {
+                break;
+            }
+            let Some(seq) = Self::parse_executor_cmd_seq(&key) else {
+                continue;
+            };
+            if seq <= acked {
+                continue;
+            }
+            let cmd = executor_api_pb::Command::decode(value.as_ref())
+                .map_err(|e| anyhow!("failed to decode persisted command: {e}"))?;
+            commands.push(cmd);
+        }
+
+        Ok((acked, commands))
+    }
+
+    /// Persist commands in the executor outbox, assign durable sequence
+    /// numbers, and append to the in-memory long-poll buffer.
+    pub async fn enqueue_executor_commands(
+        &self,
+        executor_id: &ExecutorId,
+        mut commands: Vec<executor_api_pb::Command>,
+    ) -> Result<()> {
+        if commands.is_empty() {
+            return Ok(());
+        }
+
+        let txn = self.db.transaction();
+        let mut next_seq = self.read_executor_cmd_next_seq(executor_id).await?;
+        for cmd in &mut commands {
+            cmd.seq = next_seq;
+            let key = Self::executor_cmd_key(executor_id, next_seq);
+            txn.put(
+                IndexifyObjectsColumns::ExecutorCommandOutbox.as_ref(),
+                key.as_slice(),
+                &cmd.encode_to_vec(),
+            )
+            .await?;
+            next_seq = next_seq.saturating_add(1);
+        }
+
+        let next_key = Self::executor_cmd_next_key(executor_id);
+        let next_bytes = StateStoreEncoder::encode(&next_seq)?;
+        txn.put(
+            IndexifyObjectsColumns::ExecutorCommandOutbox.as_ref(),
+            next_key.as_slice(),
+            next_bytes.as_slice(),
+        )
+        .await?;
+        txn.commit().await?;
+
+        let connections = self.executor_connections.read().await;
+        if let Some(conn) = connections.get(executor_id) {
+            conn.push_commands(commands).await;
+        }
+        Ok(())
+    }
+
+    /// Persist command ack progression and prune acked outbox entries.
+    pub async fn ack_executor_commands(
+        &self,
+        executor_id: &ExecutorId,
+        acked_seq: u64,
+    ) -> Result<()> {
+        let prev_acked = self.read_executor_cmd_ack(executor_id).await?;
+        let effective_acked = acked_seq.max(prev_acked);
+
+        let txn = self.db.transaction();
+        let ack_key = Self::executor_cmd_ack_key(executor_id);
+        let ack_bytes = StateStoreEncoder::encode(&effective_acked)?;
+        txn.put(
+            IndexifyObjectsColumns::ExecutorCommandOutbox.as_ref(),
+            ack_key.as_slice(),
+            ack_bytes.as_slice(),
+        )
+        .await?;
+
+        let prefix = Self::executor_cmd_prefix_key(executor_id);
+        let iter = txn
+            .iter(
+                IndexifyObjectsColumns::ExecutorCommandOutbox.as_ref(),
+                prefix.clone(),
+            )
+            .await;
+        for kv in iter {
+            let (key, _) = kv?;
+            if !key.starts_with(prefix.as_slice()) {
+                break;
+            }
+            if let Some(seq) = Self::parse_executor_cmd_seq(&key) &&
+                seq <= effective_acked
+            {
+                txn.delete(
+                    IndexifyObjectsColumns::ExecutorCommandOutbox.as_ref(),
+                    key.as_ref(),
+                )
+                .await?;
+            }
+        }
+
+        txn.commit().await?;
+        Ok(())
+    }
+
+    /// Drop all persisted command outbox state for this executor and reset
+    /// cursor records.
+    pub async fn reset_executor_command_outbox(&self, executor_id: &ExecutorId) -> Result<()> {
+        let txn = self.db.transaction();
+        let prefix = Self::executor_cmd_prefix_key(executor_id);
+        let iter = txn
+            .iter(
+                IndexifyObjectsColumns::ExecutorCommandOutbox.as_ref(),
+                prefix.clone(),
+            )
+            .await;
+        for kv in iter {
+            let (key, _) = kv?;
+            if !key.starts_with(prefix.as_slice()) {
+                break;
+            }
+            txn.delete(
+                IndexifyObjectsColumns::ExecutorCommandOutbox.as_ref(),
+                key.as_ref(),
+            )
+            .await?;
+        }
+
+        let ack_key = Self::executor_cmd_ack_key(executor_id);
+        let next_key = Self::executor_cmd_next_key(executor_id);
+        let ack_bytes = StateStoreEncoder::encode(&0u64)?;
+        let next_bytes = StateStoreEncoder::encode(&1u64)?;
+        txn.put(
+            IndexifyObjectsColumns::ExecutorCommandOutbox.as_ref(),
+            ack_key.as_slice(),
+            ack_bytes.as_slice(),
+        )
+        .await?;
+        txn.put(
+            IndexifyObjectsColumns::ExecutorCommandOutbox.as_ref(),
+            next_key.as_slice(),
+            next_bytes.as_slice(),
+        )
+        .await?;
+        txn.commit().await?;
+        Ok(())
+    }
+
     /// Ensure an executor connection exists with a fresh emitter. Called
     /// during registration (handle_v2_full_state) so commands/results can be
     /// buffered for long-poll delivery.
     ///
     /// If a connection already exists (re-registration without prior
-    /// deregister), command emission state is reset so the executor gets
-    /// a clean full-sync command stream.
+    /// deregister), command emission state and persisted outbox are reset so
+    /// the executor gets a clean full-sync command stream.
     pub async fn register_executor_connection(&self, executor_id: &ExecutorId) {
+        let (acked, pending_commands) = match self.load_executor_pending_commands(executor_id).await
+        {
+            Ok(v) => v,
+            Err(err) => {
+                error!(
+                    executor_id = executor_id.get(),
+                    error = ?err,
+                    "failed loading persisted command outbox; continuing with empty buffer"
+                );
+                (0, Vec::new())
+            }
+        };
+
+        let conn = ExecutorConnection::new();
+        conn.restore_acked_command_seq(acked);
+        conn.replace_commands(pending_commands).await;
+
+        let mut existing_conn: Option<ExecutorConnection> = None;
         let mut connections = self.executor_connections.write().await;
         match connections.entry(executor_id.clone()) {
             std::collections::hash_map::Entry::Vacant(entry) => {
@@ -809,15 +1076,27 @@ impl IndexifyState {
                     executor_id = executor_id.get(),
                     "created executor connection"
                 );
-                entry.insert(ExecutorConnection::new());
+                entry.insert(conn);
             }
             std::collections::hash_map::Entry::Occupied(entry) => {
                 info!(
                     executor_id = executor_id.get(),
                     "re-registration: resetting command outbox and emitter"
                 );
-                entry.get().reset_for_full_sync().await;
+                existing_conn = Some(entry.get().clone());
             }
+        }
+        drop(connections);
+
+        if let Some(existing_conn) = existing_conn {
+            if let Err(err) = self.reset_executor_command_outbox(executor_id).await {
+                error!(
+                    executor_id = executor_id.get(),
+                    error = ?err,
+                    "failed to reset persisted command outbox during re-registration"
+                );
+            }
+            existing_conn.reset_for_full_sync().await;
         }
     }
 
@@ -826,6 +1105,13 @@ impl IndexifyState {
     pub async fn deregister_executor_connection(&self, executor_id: &ExecutorId) {
         let removed = self.executor_connections.write().await.remove(executor_id);
         if let Some(conn) = removed {
+            if let Err(err) = self.reset_executor_command_outbox(executor_id).await {
+                error!(
+                    executor_id = executor_id.get(),
+                    error = ?err,
+                    "failed to reset persisted command outbox during deregistration"
+                );
+            }
             // Wake any held long-poll requests so they return immediately
             // instead of blocking until the 5-minute timeout.
             conn.commands_notify.notify_one();
@@ -1114,6 +1400,7 @@ mod tests {
             "Snapshots",
             "Executors",
             "PayloadQueue",
+            "ExecutorCommandOutbox",
         ];
 
         let columns_iter = columns
@@ -1310,6 +1597,65 @@ mod tests {
                 conn.clone_commands().await.is_empty(),
                 "pending commands should be cleared after re-registration"
             );
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_executor_command_outbox_persists_across_restart() -> Result<()> {
+        let temp_dir = tempfile::tempdir()?;
+        let db_path = temp_dir.path().join("state");
+        let executor_id = ExecutorId::new(TEST_EXECUTOR_ID.to_string());
+
+        {
+            let state = IndexifyState::new(
+                db_path.clone(),
+                RocksDBConfig::default(),
+                ExecutorCatalog::default(),
+                RequestEventBuffers::default(),
+            )
+            .await?;
+
+            state.register_executor_connection(&executor_id).await;
+            state
+                .enqueue_executor_commands(
+                    &executor_id,
+                    vec![
+                        executor_api_pb::Command {
+                            seq: 0,
+                            command: None,
+                        },
+                        executor_api_pb::Command {
+                            seq: 0,
+                            command: None,
+                        },
+                        executor_api_pb::Command {
+                            seq: 0,
+                            command: None,
+                        },
+                    ],
+                )
+                .await?;
+            state.ack_executor_commands(&executor_id, 2).await?;
+        }
+
+        {
+            let state = IndexifyState::new(
+                db_path,
+                RocksDBConfig::default(),
+                ExecutorCatalog::default(),
+                RequestEventBuffers::default(),
+            )
+            .await?;
+            state.register_executor_connection(&executor_id).await;
+            let connections = state.executor_connections.read().await;
+            let conn = connections
+                .get(&executor_id)
+                .expect("executor connection should exist");
+            let commands = conn.clone_commands().await;
+            assert_eq!(commands.len(), 1, "only unacked commands should restore");
+            assert_eq!(commands[0].seq, 3, "restored command seq should be stable");
         }
 
         Ok(())

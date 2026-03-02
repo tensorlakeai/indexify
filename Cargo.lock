@@ -2716,6 +2716,7 @@ dependencies = [
  "pin-project",
  "postcard",
  "priority-queue",
+ "prost",
  "prost-types",
  "proto-api",
  "rand 0.10.0",

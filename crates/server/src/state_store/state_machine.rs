@@ -106,6 +106,12 @@ pub enum IndexifyObjectsColumns {
 
     // PayloadQueue - SequenceId (u64 big-endian) -> RequestPayload
     PayloadQueue,
+
+    // Executor command outbox + cursor records.
+    // cmd|<executor_id>|<seq:020> -> encoded proto Command
+    // ack|<executor_id> -> encoded u64 highest acked command seq
+    // next|<executor_id> -> encoded u64 next sequence to allocate
+    ExecutorCommandOutbox,
 }
 
 pub(crate) async fn upsert_namespace(

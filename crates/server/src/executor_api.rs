@@ -43,6 +43,7 @@ use crate::{
 /// initial sync).
 ///
 /// `command_seq = 0` means the command is informational / unsolicited.
+#[derive(Clone)]
 pub struct CommandEmitter {
     next_seq: u64,
     /// Container descriptions sent via AddContainer, keyed by container ID.
@@ -415,6 +416,14 @@ async fn long_poll_commands(
     }
 
     if let Some(seq) = acked_seq {
+        if let Err(err) = indexify_state.ack_executor_commands(executor_id, seq).await {
+            warn!(
+                executor_id = executor_id.get(),
+                acked_seq = seq,
+                error = ?err,
+                "failed to persist command ack"
+            );
+        }
         conn.drain_commands_up_to(seq).await;
     }
 
@@ -602,7 +611,7 @@ impl ExecutorApi for ExecutorAPIService {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+    use std::{sync::Arc, time::Duration};
 
     use executor_api_pb::{
         ContainerDescription,
@@ -1110,6 +1119,66 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_long_poll_survives_reconnect_and_receives_new_commands() {
+        let test_service = TestService::new().await.unwrap();
+        let api = Arc::new(super::ExecutorAPIService::new(
+            test_service.service.indexify_state.clone(),
+            test_service.service.executor_manager.clone(),
+            test_service.service.blob_storage_registry.clone(),
+        ));
+        let executor_id = crate::data_model::ExecutorId::from("executor-reconnect-long-poll");
+
+        api.handle_full_state(
+            &executor_id,
+            executor_api_pb::DataplaneStateFullSync::default(),
+        )
+        .await
+        .unwrap();
+
+        let poll_executor_id = executor_id.get().to_string();
+        let poll_api = api.clone();
+        let poll_task = tokio::spawn(async move {
+            ExecutorApi::poll_commands(
+                poll_api.as_ref(),
+                Request::new(executor_api_pb::PollCommandsRequest {
+                    executor_id: poll_executor_id,
+                    acked_command_seq: None,
+                }),
+            )
+            .await
+            .unwrap()
+            .into_inner()
+        });
+
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        // Reconnect with the same executor ID (full-state sync path).
+        api.handle_full_state(
+            &executor_id,
+            executor_api_pb::DataplaneStateFullSync::default(),
+        )
+        .await
+        .unwrap();
+
+        test_service
+            .service
+            .indexify_state
+            .enqueue_executor_commands(&executor_id, vec![make_command(0)])
+            .await
+            .unwrap();
+
+        let response = tokio::time::timeout(Duration::from_secs(2), poll_task)
+            .await
+            .expect("long poll should be released by new command")
+            .unwrap();
+        assert_eq!(
+            response.commands.len(),
+            1,
+            "long poll should receive command after reconnect"
+        );
+    }
+
+    #[tokio::test]
     async fn test_stopped_heartbeat_deregisters_executor_immediately() {
         let test_service = TestService::new().await.unwrap();
         let api = super::ExecutorAPIService::new(
@@ -1511,6 +1580,66 @@ mod tests {
             api.function_call_result_router.pending_len().await,
             0,
             "lapsed deregistration should purge router entries"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_lapsed_deregistration_purges_router_entries_under_load() {
+        let test_service = TestService::new().await.unwrap();
+        let api = super::ExecutorAPIService::new(
+            test_service.service.indexify_state.clone(),
+            test_service.service.executor_manager.clone(),
+            test_service.service.blob_storage_registry.clone(),
+        );
+
+        let executor_id = crate::data_model::ExecutorId::from("executor-lapsed-router-purge-load");
+        tokio::time::pause();
+
+        api.handle_full_state(
+            &executor_id,
+            executor_api_pb::DataplaneStateFullSync::default(),
+        )
+        .await
+        .unwrap();
+
+        let mut entries = Vec::new();
+        for idx in 0..64 {
+            entries.push(make_call_function_log_entry(
+                &format!("parent-timeout-alloc-{idx}"),
+                &format!("child-fc-timeout-purge-{idx}"),
+            ));
+        }
+
+        ExecutorApi::heartbeat(
+            &api,
+            Request::new(executor_api_pb::HeartbeatRequest {
+                executor_id: Some(executor_id.get().to_string()),
+                status: Some(executor_api_pb::ExecutorStatus::Running.into()),
+                full_state: None,
+                command_responses: vec![],
+                allocation_outcomes: vec![],
+                allocation_log_entries: entries,
+            }),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            api.function_call_result_router.pending_len().await,
+            64,
+            "expected all router entries to be registered before timeout"
+        );
+
+        tokio::time::advance(EXECUTOR_TIMEOUT + Duration::from_secs(1)).await;
+        api.executor_manager
+            .process_lapsed_executors()
+            .await
+            .unwrap();
+
+        assert_eq!(
+            api.function_call_result_router.pending_len().await,
+            0,
+            "lapsed deregistration should purge all stale router entries"
         );
     }
 

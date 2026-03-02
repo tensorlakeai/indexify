@@ -34,6 +34,7 @@ tonic.workspace = true
 tonic-reflection.workspace = true
 tonic-types.workspace = true
 prost-types.workspace = true
+prost.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 tracing-opentelemetry.workspace = true
