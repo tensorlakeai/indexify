@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use tracing::{error, trace};
 
 use super::ExecutorManager;
@@ -5,7 +7,11 @@ use crate::{
     data_model::{self, ExecutorId, SandboxKey},
     executor_api::executor_api_pb::{self, Allocation, FunctionRef},
     pb_helpers::{blob_store_path_to_url, string_to_data_payload_encoding},
-    state_store::requests::SchedulerUpdateRequest,
+    state_store::{
+        SchedulerCommandIntent,
+        in_memory_state::InMemoryState,
+        requests::SchedulerUpdateRequest,
+    },
 };
 
 impl ExecutorManager {
@@ -173,96 +179,82 @@ impl ExecutorManager {
         }
     }
 
-    /// Emit commands only for executors affected by the scheduler update.
-    pub async fn emit_commands_from_scheduler_update(&self, update: &SchedulerUpdateRequest) {
-        let affected = self
-            .indexify_state
-            .affected_executors_from_update(update)
-            .await;
-        let app_state = self.indexify_state.app_state.load();
-        for executor_id in affected {
-            let conn = {
-                let connections = self.indexify_state.executor_connections.read().await;
-                let Some(conn) = connections.get(&executor_id).cloned() else {
-                    continue;
-                };
-                conn
-            };
-            let _emit_guard = conn.command_emit_lock.lock().await;
-            let mut commands = Vec::new();
+    pub fn build_scheduler_command_intents(
+        &self,
+        update: &SchedulerUpdateRequest,
+        indexes: &InMemoryState,
+    ) -> Vec<SchedulerCommandIntent> {
+        let mut intents = Vec::new();
 
-            for (container_id, container_meta) in &update.containers {
-                if container_meta.executor_id != executor_id {
-                    continue;
+        for (container_id, container_meta) in &update.containers {
+            let command = if matches!(
+                container_meta.desired_state,
+                data_model::ContainerState::Terminated { .. }
+            ) {
+                executor_api_pb::Command {
+                    seq: 0,
+                    command: Some(executor_api_pb::command::Command::RemoveContainer(
+                        executor_api_pb::RemoveContainer {
+                            container_id: container_id.get().to_string(),
+                            reason: None,
+                        },
+                    )),
                 }
-
-                if matches!(
-                    container_meta.desired_state,
-                    data_model::ContainerState::Terminated { .. }
-                ) {
-                    commands.push(executor_api_pb::Command {
-                        seq: 0,
-                        command: Some(executor_api_pb::command::Command::RemoveContainer(
-                            executor_api_pb::RemoveContainer {
-                                container_id: container_id.get().to_string(),
-                                reason: None,
-                            },
-                        )),
-                    });
-                    continue;
-                }
-
+            } else {
                 let Some(container_pb) =
-                    self.build_container_description_from_meta(&app_state, container_meta)
+                    self.build_container_description_from_meta(indexes, container_meta)
                 else {
                     continue;
                 };
-                commands.push(executor_api_pb::Command {
+                executor_api_pb::Command {
                     seq: 0,
                     command: Some(executor_api_pb::command::Command::AddContainer(
                         executor_api_pb::AddContainer {
                             container: Some(container_pb),
                         },
                     )),
-                });
-            }
-
-            for allocation in &update.new_allocations {
-                if allocation.target.executor_id != executor_id {
-                    continue;
                 }
-                commands.push(executor_api_pb::Command {
+            };
+            intents.push(SchedulerCommandIntent {
+                executor_id: container_meta.executor_id.clone(),
+                command,
+            });
+        }
+
+        for allocation in &update.new_allocations {
+            intents.push(SchedulerCommandIntent {
+                executor_id: allocation.target.executor_id.clone(),
+                command: executor_api_pb::Command {
                     seq: 0,
                     command: Some(executor_api_pb::command::Command::RunAllocation(
                         executor_api_pb::RunAllocation {
                             allocation: Some(self.allocation_to_proto(allocation)),
                         },
                     )),
-                });
+                },
+            });
+        }
+
+        for snapshot in update.updated_snapshots.values() {
+            let sandbox_key = SandboxKey::new(&snapshot.namespace, snapshot.sandbox_id.get());
+            let Some(sandbox) = indexes.sandboxes.get(&sandbox_key) else {
+                continue;
+            };
+            let Some(snapshot_executor_id) = &sandbox.executor_id else {
+                continue;
+            };
+            if snapshot.status != data_model::SnapshotStatus::InProgress {
+                continue;
             }
-
-            for snapshot in update.updated_snapshots.values() {
-                let sandbox_key = SandboxKey::new(&snapshot.namespace, snapshot.sandbox_id.get());
-                let Some(sandbox) = app_state.indexes.sandboxes.get(&sandbox_key) else {
-                    continue;
-                };
-                let Some(snapshot_executor_id) = &sandbox.executor_id else {
-                    continue;
-                };
-                if *snapshot_executor_id != executor_id {
-                    continue;
-                }
-
-                if snapshot.status != data_model::SnapshotStatus::InProgress {
-                    continue;
-                }
-                let Some(upload_uri) = snapshot.upload_uri.clone() else {
-                    continue;
-                };
-                let Some(container_id) = sandbox.container_id.as_ref() else {
-                    continue;
-                };
-                commands.push(executor_api_pb::Command {
+            let Some(upload_uri) = snapshot.upload_uri.clone() else {
+                continue;
+            };
+            let Some(container_id) = sandbox.container_id.as_ref() else {
+                continue;
+            };
+            intents.push(SchedulerCommandIntent {
+                executor_id: snapshot_executor_id.clone(),
+                command: executor_api_pb::Command {
                     seq: 0,
                     command: Some(executor_api_pb::command::Command::SnapshotContainer(
                         executor_api_pb::SnapshotContainer {
@@ -271,22 +263,91 @@ impl ExecutorManager {
                             upload_uri,
                         },
                     )),
-                });
-            }
+                },
+            });
+        }
 
-            if !commands.is_empty() &&
-                let Err(err) = self
+        intents
+    }
+
+    pub async fn emit_scheduler_command_intents(&self, intents: Vec<SchedulerCommandIntent>) {
+        if intents.is_empty() {
+            return;
+        }
+
+        let mut by_executor: HashMap<ExecutorId, Vec<executor_api_pb::Command>> = HashMap::new();
+        for intent in intents {
+            by_executor
+                .entry(intent.executor_id)
+                .or_default()
+                .push(intent.command);
+        }
+
+        for (executor_id, commands) in by_executor {
+            let conn = {
+                let connections = self.indexify_state.executor_connections.read().await;
+                connections.get(&executor_id).cloned()
+            };
+            if let Some(conn) = conn {
+                let _emit_guard = conn.command_emit_lock.lock().await;
+                if let Err(err) = self
                     .indexify_state
                     .enqueue_executor_commands(&executor_id, commands)
                     .await
+                {
+                    error!(
+                        executor_id = executor_id.get(),
+                        error = ?err,
+                        "failed to enqueue scheduler command intent batch"
+                    );
+                }
+                continue;
+            }
+
+            if let Err(err) = self
+                .indexify_state
+                .enqueue_executor_commands(&executor_id, commands)
+                .await
             {
                 error!(
                     executor_id = executor_id.get(),
                     error = ?err,
-                    "failed to enqueue scheduler-derived command batch"
+                    "failed to enqueue scheduler command intent batch (no connection)"
                 );
-                continue;
             }
         }
+    }
+
+    pub async fn drain_and_emit_scheduler_command_intents(&self) {
+        const PAGE_SIZE: usize = 256;
+        loop {
+            let intents = match self
+                .indexify_state
+                .take_scheduler_command_intents(PAGE_SIZE)
+                .await
+            {
+                Ok(intents) => intents,
+                Err(err) => {
+                    error!(
+                        error = ?err,
+                        "failed to drain persisted scheduler command intents"
+                    );
+                    break;
+                }
+            };
+            if intents.is_empty() {
+                break;
+            }
+            self.emit_scheduler_command_intents(intents).await;
+        }
+    }
+
+    /// Compatibility wrapper for tests and direct call-sites.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub async fn emit_commands_from_scheduler_update(&self, update: &SchedulerUpdateRequest) {
+        let app_state = self.indexify_state.app_state.load();
+        let intents = self.build_scheduler_command_intents(update, &app_state.indexes);
+        drop(app_state);
+        self.emit_scheduler_command_intents(intents).await;
     }
 }

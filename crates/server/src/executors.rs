@@ -823,12 +823,11 @@ impl ExecutorManager {
 
     fn build_container_description_from_meta(
         &self,
-        app_state: &crate::state_store::AppState,
+        indexes: &crate::state_store::in_memory_state::InMemoryState,
         meta: &data_model::ContainerServerMetadata,
     ) -> Option<ContainerDescription> {
         let fe = &meta.function_container;
-        let cg_version = app_state
-            .indexes
+        let cg_version = indexes
             .application_versions
             .get(&ApplicationVersion::key_from(
                 &fe.namespace,

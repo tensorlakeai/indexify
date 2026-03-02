@@ -62,8 +62,10 @@ mod tests {
             // Skip infrastructure CFs that intentionally retain data:
             // - Executors: executor metadata persists across deregistration
             // - PayloadQueue: entries consumed asynchronously by the scheduler
-            // - ExecutorCommandOutbox: pending commands are retained until
-            //   the executor acknowledges them
+            // - ExecutorCommandOutbox: pending commands are retained until the executor
+            //   acknowledges them
+            // - SchedulerCommandIntents: scheduler-produced intents may be queued for
+            //   replay before command outbox enqueue
             // - ExecutorStateChanges / ApplicationStateChanges: legacy CFs that accumulate
             //   during the transition to payload-queue-based scheduling. The scheduler
             //   reads from PayloadQueue instead; these CFs will be removed in a follow-up
@@ -71,6 +73,7 @@ mod tests {
             if col == IndexifyObjectsColumns::Executors ||
                 col == IndexifyObjectsColumns::PayloadQueue ||
                 col == IndexifyObjectsColumns::ExecutorCommandOutbox ||
+                col == IndexifyObjectsColumns::SchedulerCommandIntents ||
                 col == IndexifyObjectsColumns::ExecutorStateChanges ||
                 col == IndexifyObjectsColumns::ApplicationStateChanges
             {

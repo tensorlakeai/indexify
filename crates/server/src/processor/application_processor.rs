@@ -187,6 +187,13 @@ impl ApplicationProcessor {
         // only when no real state changes are pending (back-of-queue).
         let mut pool_reconciliation_pending = false;
 
+        // Run one pass at startup for crash-recovery:
+        // - process any pending payloads left in the queue
+        // - replay persisted scheduler command intents
+        if let Err(err) = self.write_sm_update(&notify).await {
+            error!("error processing startup state changes: {:?}", err);
+        }
+
         loop {
             tokio::select! {
                 _ = change_events_rx.changed() => {
@@ -275,6 +282,13 @@ impl ApplicationProcessor {
         let metrics_kvs = &[KeyValue::new("op", "get")];
         let _timer_guard = Timer::start_with_labels(&self.write_sm_update_latency, metrics_kvs);
 
+        // Replay any persisted scheduler command intents first. This covers
+        // crash windows where scheduler output committed but command enqueue
+        // did not run yet.
+        self.executor_manager
+            .drain_and_emit_scheduler_command_intents()
+            .await;
+
         // 1. Atomically read pending payloads and snapshot under write_mutex to prevent
         //    the race where a payload is committed to RocksDB but its ArcSwap publish
         //    hasn't happened yet.
@@ -306,7 +320,6 @@ impl ApplicationProcessor {
         let mut container_scheduler = current.scheduler.clone();
 
         let mut merged_update = SchedulerUpdateRequest::default();
-        let mut immediate_command_updates = Vec::new();
         let mut feas_cache = FeasibilityCache::new();
 
         // 4b. Reap idle containers — frees resources so subsequent
@@ -447,7 +460,7 @@ impl ApplicationProcessor {
                         // to RocksDB and apply to local clones directly. No ArcSwap
                         // refresh needed since we publish complete clones at the end.
                         let payload = sm_update.payload;
-                        match self
+                        if let Err(err) = self
                             .apply_immediate_payload(
                                 payload,
                                 &mut indexes,
@@ -455,20 +468,10 @@ impl ApplicationProcessor {
                             )
                             .await
                         {
-                            Ok(command_update) => {
-                                if !command_update.containers.is_empty() ||
-                                    !command_update.new_allocations.is_empty() ||
-                                    !command_update.updated_snapshots.is_empty()
-                                {
-                                    immediate_command_updates.push(command_update);
-                                }
-                            }
-                            Err(err) => {
-                                error!(
-                                    "error writing immediate state change {}: {:?}",
-                                    state_change.change_type, err,
-                                );
-                            }
+                            error!(
+                                "error writing immediate state change {}: {:?}",
+                                state_change.change_type, err,
+                            );
                         }
                     }
                     Err(err) => {
@@ -488,15 +491,19 @@ impl ApplicationProcessor {
 
         // 6a. Write scheduler results + dequeue processed payloads in one
         //     RocksDB transaction — atomic commit-and-dequeue.
+        let scheduler_command_intents = self
+            .executor_manager
+            .build_scheduler_command_intents(&merged_update, &indexes);
         if let Err(err) = self
             .indexify_state
-            .write_scheduler_output_and_dequeue(
+            .write_scheduler_output_and_dequeue_with_intents(
                 StateMachineUpdateRequest {
                     payload: RequestPayload::SchedulerUpdate(SchedulerUpdatePayload {
                         update: Box::new(merged_update.clone()),
                     }),
                 },
                 max_seq,
+                &scheduler_command_intents,
             )
             .await
         {
@@ -512,13 +519,8 @@ impl ApplicationProcessor {
             }));
 
         self.executor_manager
-            .emit_commands_from_scheduler_update(&merged_update)
+            .drain_and_emit_scheduler_command_intents()
             .await;
-        for command_update in &immediate_command_updates {
-            self.executor_manager
-                .emit_commands_from_scheduler_update(command_update)
-                .await;
-        }
 
         Ok(true)
     }
@@ -1119,17 +1121,26 @@ impl ApplicationProcessor {
         payload: RequestPayload,
         indexes: &mut crate::state_store::in_memory_state::InMemoryState,
         container_scheduler: &mut crate::processor::container_scheduler::ContainerScheduler,
-    ) -> Result<SchedulerUpdateRequest> {
+    ) -> Result<()> {
+        let mut scheduler_probe = container_scheduler.clone();
+        let command_update = scheduler_probe.update_with_intents(&payload)?;
+        let scheduler_command_intents = self
+            .executor_manager
+            .build_scheduler_command_intents(&command_update, indexes);
+
         self.indexify_state
-            .write_scheduler_output(StateMachineUpdateRequest {
-                payload: payload.clone(),
-            })
+            .write_scheduler_output_with_intents(
+                StateMachineUpdateRequest {
+                    payload: payload.clone(),
+                },
+                &scheduler_command_intents,
+            )
             .await?;
 
         let clock = indexes.clock;
         let _ = indexes.update_state(clock, &payload, "immediate")?;
-        let command_update = container_scheduler.update_with_intents(&payload)?;
-        Ok(command_update)
+        let _ = container_scheduler.update_with_intents(&payload)?;
+        Ok(())
     }
 
     /// Run buffer reconciliation for warm pool containers.
@@ -1146,13 +1157,19 @@ impl ApplicationProcessor {
 
         if !buffer_update.containers.is_empty() || !buffer_update.updated_executor_states.is_empty()
         {
+            let scheduler_command_intents = self
+                .executor_manager
+                .build_scheduler_command_intents(&buffer_update, &indexes);
             // Write to RocksDB.
             self.indexify_state
-                .write_scheduler_output(StateMachineUpdateRequest {
-                    payload: RequestPayload::SchedulerUpdate(SchedulerUpdatePayload {
-                        update: Box::new(buffer_update.clone()),
-                    }),
-                })
+                .write_scheduler_output_with_intents(
+                    StateMachineUpdateRequest {
+                        payload: RequestPayload::SchedulerUpdate(SchedulerUpdatePayload {
+                            update: Box::new(buffer_update.clone()),
+                        }),
+                    },
+                    &scheduler_command_intents,
+                )
                 .await?;
 
             // Publish to ArcSwap (sole writer).
@@ -1168,7 +1185,7 @@ impl ApplicationProcessor {
                 }));
 
             self.executor_manager
-                .emit_commands_from_scheduler_update(&buffer_update)
+                .drain_and_emit_scheduler_command_intents()
                 .await;
         }
 

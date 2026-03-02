@@ -116,6 +116,10 @@ pub enum IndexifyObjectsColumns {
     // Function call result router persistence.
     // route|<function_call_id> -> PersistedFunctionCallRoute
     FunctionCallResultRoutes,
+
+    // Scheduler command intents staging (pre-outbox).
+    // intent|<seq:020> -> PersistedSchedulerCommandIntent
+    SchedulerCommandIntents,
 }
 
 pub(crate) async fn upsert_namespace(

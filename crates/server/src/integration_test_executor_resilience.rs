@@ -449,3 +449,126 @@ async fn test_service_restart_still_routes_results_from_persisted_routes() -> Re
 
     Ok(())
 }
+
+#[tokio::test]
+async fn test_service_restart_replays_persisted_scheduler_command_intents() -> Result<()> {
+    tokio::time::pause();
+    let temp_dir = tempfile::tempdir()?;
+    let state_store_path = temp_dir
+        .path()
+        .join("state_store")
+        .to_str()
+        .unwrap()
+        .to_string();
+    let blob_store_path = format!(
+        "file://{}",
+        temp_dir.path().join("blob_store").to_str().unwrap()
+    );
+    let executor_id = data_model::ExecutorId::new("executor-intent-replay".to_string());
+
+    let service1 = Service::new(ServerConfig {
+        state_store_path: state_store_path.clone(),
+        rocksdb_config: RocksDBConfig::default(),
+        blob_storage: BlobStorageConfig {
+            path: blob_store_path.clone(),
+            region: None,
+        },
+        ..Default::default()
+    })
+    .await?;
+    // Let startup cleanup install its timer before advancing virtual time.
+    tokio::task::yield_now().await;
+
+    // Build a scheduler update that creates one allocation targeting this
+    // executor and persist matching command intents in the same transaction.
+    let allocation = data_model::AllocationBuilder::default()
+        .target(data_model::AllocationTarget::new(
+            executor_id.clone(),
+            data_model::ContainerId::new("intent-replay-container".to_string()),
+        ))
+        .function_call_id(data_model::FunctionCallId::from(
+            "intent-replay-fc".to_string(),
+        ))
+        .namespace("ns".to_string())
+        .application("app".to_string())
+        .application_version("v1".to_string())
+        .function("fn".to_string())
+        .request_id("intent-replay-req".to_string())
+        .outcome(data_model::FunctionRunOutcome::Unknown)
+        .input_args(vec![])
+        .call_metadata(bytes::Bytes::new())
+        .build()?;
+    let mut update = SchedulerUpdateRequest::default();
+    update.new_allocations.push(allocation.clone());
+
+    let indexes_guard = service1.indexify_state.app_state.load();
+    let intents = service1
+        .executor_manager
+        .build_scheduler_command_intents(&update, &indexes_guard.indexes);
+    drop(indexes_guard);
+    assert!(
+        !intents.is_empty(),
+        "expected scheduler command intents for new allocation"
+    );
+
+    service1
+        .indexify_state
+        .write_scheduler_output_with_intents(
+            StateMachineUpdateRequest {
+                payload: RequestPayload::SchedulerUpdate(SchedulerUpdatePayload::new(update)),
+            },
+            &intents,
+        )
+        .await?;
+
+    // Simulate crash right after persistence and before intent drain.
+    drop(service1);
+    tokio::time::advance(STARTUP_EXECUTOR_TIMEOUT + Duration::from_secs(1)).await;
+    tokio::task::yield_now().await;
+
+    let service2 = Service::new(ServerConfig {
+        state_store_path,
+        rocksdb_config: RocksDBConfig::default(),
+        blob_storage: BlobStorageConfig {
+            path: blob_store_path,
+            region: None,
+        },
+        ..Default::default()
+    })
+    .await?;
+
+    service2
+        .indexify_state
+        .register_executor_connection(&executor_id)
+        .await;
+    service2
+        .executor_manager
+        .drain_and_emit_scheduler_command_intents()
+        .await;
+
+    let commands = {
+        let connections = service2.indexify_state.executor_connections.read().await;
+        let conn = connections
+            .get(&executor_id)
+            .expect("executor connection should exist");
+        conn.clone_commands().await
+    };
+    assert!(
+        commands.iter().any(|command| matches!(
+            command.command,
+            Some(executor_api_pb::command::Command::RunAllocation(_))
+        )),
+        "expected replayed RunAllocation command after restart"
+    );
+
+    let none_left = service2
+        .indexify_state
+        .take_scheduler_command_intents(1)
+        .await?;
+    assert!(
+        none_left.is_empty(),
+        "all persisted scheduler intents should be drained"
+    );
+
+    Ok(())
+}
