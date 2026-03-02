@@ -1294,18 +1294,15 @@ mod tests {
         test_service
             .service
             .executor_manager
-            .append_scheduler_command_intents(&mut update, &indexes);
+            .rebuild_scheduler_command_intents(&mut update, &indexes);
         test_service
             .service
             .indexify_state
-            .write_scheduler_output_with_intents(
-                crate::state_store::requests::StateMachineUpdateRequest {
-                    payload: crate::state_store::requests::RequestPayload::SchedulerUpdate(
-                        crate::state_store::requests::SchedulerUpdatePayload::new(update.clone()),
-                    ),
-                },
-                &update.scheduler_command_intents,
-            )
+            .write_scheduler_output(crate::state_store::requests::StateMachineUpdateRequest {
+                payload: crate::state_store::requests::RequestPayload::SchedulerUpdate(
+                    crate::state_store::requests::SchedulerUpdatePayload::new(update.clone()),
+                ),
+            })
             .await
             .unwrap();
         test_service

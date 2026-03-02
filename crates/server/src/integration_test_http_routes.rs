@@ -510,16 +510,13 @@ mod tests {
         );
 
         // Persist the vacuum update (mirrors handle_cluster_vacuum):
-        // write_scheduler_output_with_intents() for RocksDB, then publish to ArcSwap.
+        // write_scheduler_output() for RocksDB, then publish to ArcSwap.
         indexify_state
-            .write_scheduler_output_with_intents(
-                StateMachineUpdateRequest {
-                    payload: RequestPayload::SchedulerUpdate(SchedulerUpdatePayload {
-                        update: Box::new(scheduler_update.clone()),
-                    }),
-                },
-                &[],
-            )
+            .write_scheduler_output(StateMachineUpdateRequest {
+                payload: RequestPayload::SchedulerUpdate(SchedulerUpdatePayload {
+                    update: Box::new(scheduler_update.clone()),
+                }),
+            })
             .await
             .unwrap();
 

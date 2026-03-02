@@ -177,11 +177,12 @@ impl ExecutorManager {
         }
     }
 
-    pub fn append_scheduler_command_intents(
+    pub fn rebuild_scheduler_command_intents(
         &self,
         update: &mut SchedulerUpdateRequest,
         indexes: &InMemoryState,
     ) {
+        update.scheduler_command_intents.clear();
         let mut intents = Vec::new();
 
         for (container_id, container_meta) in &update.containers {
@@ -245,7 +246,11 @@ impl ExecutorManager {
 
         for snapshot in update.updated_snapshots.values() {
             let sandbox_key = SandboxKey::new(&snapshot.namespace, snapshot.sandbox_id.get());
-            let Some(sandbox) = indexes.sandboxes.get(&sandbox_key) else {
+            let sandbox = update
+                .updated_sandboxes
+                .get(&sandbox_key)
+                .or_else(|| indexes.sandboxes.get(&sandbox_key).map(Box::as_ref));
+            let Some(sandbox) = sandbox else {
                 continue;
             };
             let Some(snapshot_executor_id) = &sandbox.executor_id else {
@@ -282,19 +287,10 @@ impl ExecutorManager {
         const PAGE_SIZE: usize = 256;
         let started_at = std::time::Instant::now();
         let mut total_drained = 0u64;
-        match self
-            .indexify_state
-            .pending_scheduler_command_intents_count()
-            .await
-        {
-            Ok(backlog) => self
-                .scheduler_command_intent_backlog
-                .record(backlog as u64, &[]),
-            Err(err) => error!(
-                error = ?err,
-                "failed to read scheduler command intent backlog for metrics"
-            ),
-        }
+        self.scheduler_command_intent_backlog.record(
+            self.indexify_state.scheduler_command_intent_backlog_len(),
+            &[],
+        );
 
         loop {
             let enqueued = match self
@@ -334,18 +330,9 @@ impl ExecutorManager {
         }
         self.scheduler_command_intent_drain_latency
             .record(started_at.elapsed().as_secs_f64(), &[]);
-        match self
-            .indexify_state
-            .pending_scheduler_command_intents_count()
-            .await
-        {
-            Ok(backlog) => self
-                .scheduler_command_intent_backlog
-                .record(backlog as u64, &[]),
-            Err(err) => error!(
-                error = ?err,
-                "failed to read scheduler command intent backlog for metrics"
-            ),
-        }
+        self.scheduler_command_intent_backlog.record(
+            self.indexify_state.scheduler_command_intent_backlog_len(),
+            &[],
+        );
     }
 }

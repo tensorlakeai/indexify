@@ -128,6 +128,8 @@ pub struct IndexifyState {
     pub executor_connections: RwLock<HashMap<ExecutorId, ExecutorConnection>>,
     /// Monotonic sequence for scheduler command intent records.
     pub scheduler_command_intent_seq: AtomicU64,
+    /// In-memory backlog count for persisted scheduler command intents.
+    pub scheduler_command_intent_backlog_count: AtomicU64,
     pub request_event_buffers: RequestEventBuffers,
     // Observable gauges - must be kept alive for callbacks to fire
     _in_memory_store_gauges: InMemoryStoreGauges,
@@ -262,6 +264,9 @@ impl IndexifyState {
             request_event_id_seq: Arc::new(AtomicU64::new(sm_meta.last_request_event_idx)),
             payload_seq: AtomicU64::new(initial_payload_seq),
             scheduler_command_intent_seq: AtomicU64::new(initial_scheduler_command_intent_seq),
+            scheduler_command_intent_backlog_count: AtomicU64::new(
+                pending_scheduler_command_intents as u64,
+            ),
             metrics: state_store_metrics,
             change_events_tx,
             change_events_rx,
@@ -309,7 +314,7 @@ impl IndexifyState {
         let _write_guard = self.write_mutex.lock().await;
 
         let write_result = self
-            .write_in_persistent_store(&mut request, timer_kv, &[])
+            .write_in_persistent_store(&mut request, timer_kv)
             .await?;
 
         {
@@ -336,6 +341,15 @@ impl IndexifyState {
     }
 
     async fn write_in_persistent_store(
+        &self,
+        request: &mut StateMachineUpdateRequest,
+        timer_kv: &[KeyValue],
+    ) -> Result<PersistentWriteResult> {
+        self.write_in_persistent_store_inner(request, timer_kv, None, &[])
+            .await
+    }
+
+    async fn write_in_persistent_store_with_extra_intents(
         &self,
         request: &mut StateMachineUpdateRequest,
         timer_kv: &[KeyValue],
@@ -626,7 +640,7 @@ impl IndexifyState {
 
         // Enqueue the payload into the PayloadQueue so the scheduler can
         // process it. Everything is enqueued EXCEPT scheduler-output payloads
-        // (which the scheduler writes via write_scheduler_output_with_intents()).
+        // (which the scheduler writes via write_scheduler_output()).
         let should_enqueue = !matches!(
             &request.payload,
             RequestPayload::SchedulerUpdate(_) |
@@ -639,10 +653,20 @@ impl IndexifyState {
             state_machine::enqueue_payload(&txn, payload_seq, &request.payload).await?;
         }
 
-        if !scheduler_command_intents.is_empty() {
+        let mut persisted_scheduler_command_intents = match &request.payload {
+            RequestPayload::SchedulerUpdate(payload) => {
+                self.persist_scheduler_command_intents(
+                    &txn,
+                    &payload.update.scheduler_command_intents,
+                )
+                .await?
+            }
+            _ => 0,
+        };
+        persisted_scheduler_command_intents = persisted_scheduler_command_intents.saturating_add(
             self.persist_scheduler_command_intents(&txn, scheduler_command_intents)
-                .await?;
-        }
+                .await?,
+        );
 
         let current_state_id = self.state_change_id_seq.load(atomic::Ordering::Relaxed);
         let current_usage_sequence_id = self.usage_event_id_seq.load(atomic::Ordering::Relaxed);
@@ -665,6 +689,7 @@ impl IndexifyState {
         }
 
         txn.commit().await?;
+        self.increment_scheduler_command_intent_backlog(persisted_scheduler_command_intents);
 
         Ok(PersistentWriteResult {
             payload_enqueued: should_enqueue,
@@ -781,7 +806,10 @@ impl IndexifyState {
         &self,
         txn: &Transaction,
         intents: &[SchedulerCommandIntent],
-    ) -> Result<()> {
+    ) -> Result<usize> {
+        if intents.is_empty() {
+            return Ok(0);
+        }
         for intent in intents {
             let seq = self
                 .scheduler_command_intent_seq
@@ -799,27 +827,49 @@ impl IndexifyState {
             )
             .await?;
         }
-        Ok(())
+        Ok(intents.len())
     }
 
-    pub async fn pending_scheduler_command_intents_count(&self) -> Result<usize> {
-        let prefix = Self::scheduler_command_intent_prefix_key();
-        let iter = self
-            .db
-            .iter(
-                IndexifyObjectsColumns::SchedulerCommandIntents.as_ref(),
-                driver::IterOptions::default().starting_at(prefix.clone()),
-            )
-            .await;
-        let mut count = 0usize;
-        for item in iter {
-            let (key, _) = item?;
-            if !key.starts_with(prefix.as_slice()) {
-                break;
-            }
-            count = count.saturating_add(1);
+    fn increment_scheduler_command_intent_backlog(&self, delta: usize) {
+        if delta == 0 {
+            return;
         }
-        Ok(count)
+        self.scheduler_command_intent_backlog_count
+            .fetch_add(delta as u64, atomic::Ordering::Relaxed);
+    }
+
+    fn decrement_scheduler_command_intent_backlog(&self, delta: usize) {
+        if delta == 0 {
+            return;
+        }
+        let delta = delta as u64;
+        let mut current = self
+            .scheduler_command_intent_backlog_count
+            .load(atomic::Ordering::Relaxed);
+        loop {
+            let next = current.saturating_sub(delta);
+            match self
+                .scheduler_command_intent_backlog_count
+                .compare_exchange_weak(
+                    current,
+                    next,
+                    atomic::Ordering::Relaxed,
+                    atomic::Ordering::Relaxed,
+                ) {
+                Ok(_) => break,
+                Err(observed) => current = observed,
+            }
+        }
+    }
+
+    pub fn scheduler_command_intent_backlog_len(&self) -> u64 {
+        self.scheduler_command_intent_backlog_count
+            .load(atomic::Ordering::Relaxed)
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub async fn pending_scheduler_command_intents_count(&self) -> Result<usize> {
+        Ok(self.scheduler_command_intent_backlog_len() as usize)
     }
 
     /// Atomically move scheduler command intents into per-executor command
@@ -909,6 +959,7 @@ impl IndexifyState {
         }
 
         txn.commit().await?;
+        self.decrement_scheduler_command_intent_backlog(moved);
         Ok(enqueued)
     }
 
@@ -923,22 +974,6 @@ impl IndexifyState {
             .await?
         else {
             return Ok(0);
-        };
-        StateStoreEncoder::decode::<u64>(&bytes)
-    }
-
-    #[cfg_attr(not(test), allow(dead_code))]
-    async fn read_executor_cmd_next_seq(&self, executor_id: &ExecutorId) -> Result<u64> {
-        let key = Self::executor_cmd_next_key(executor_id);
-        let Some(bytes) = self
-            .db
-            .get(
-                IndexifyObjectsColumns::ExecutorCommandOutbox.as_ref(),
-                key.as_slice(),
-            )
-            .await?
-        else {
-            return Ok(1);
         };
         StateStoreEncoder::decode::<u64>(&bytes)
     }
@@ -1311,19 +1346,18 @@ impl IndexifyState {
     }
 
     /// Persist a scheduler-generated write (allocations, updated requests,
-    /// etc.) together with scheduler command intents, without enqueuing a
-    /// payload or updating the ArcSwap. The scheduler handles ArcSwap
-    /// publishing itself after processing.
-    pub async fn write_scheduler_output_with_intents(
+    /// etc.), without enqueuing a payload or updating the ArcSwap. Any
+    /// command intents already attached to the SchedulerUpdate payload are
+    /// persisted in the same RocksDB transaction.
+    pub async fn write_scheduler_output(
         &self,
         mut request: StateMachineUpdateRequest,
-        scheduler_command_intents: &[SchedulerCommandIntent],
     ) -> Result<()> {
         let timer_kv = &[KeyValue::new("request", request.payload.to_string())];
         let _write_guard = self.write_mutex.lock().await;
 
         let write_result = self
-            .write_in_persistent_store(&mut request, timer_kv, scheduler_command_intents)
+            .write_in_persistent_store(&mut request, timer_kv)
             .await?;
 
         if write_result.should_notify_usage_reporter {
@@ -1335,26 +1369,48 @@ impl IndexifyState {
         Ok(())
     }
 
-    /// Persist scheduler output + scheduler command intents AND dequeue
-    /// processed payloads in a single RocksDB transaction. This makes the
-    /// operations atomic — on crash recovery either all are committed or
-    /// none are, avoiding redundant payload replay and lost command batches.
-    pub async fn write_scheduler_output_and_dequeue_with_intents(
+    /// Persist a non-scheduler payload together with scheduler command
+    /// intents emitted as a side effect (for example, delete paths that
+    /// produce RemoveContainer commands).
+    pub async fn write_with_scheduler_command_intents(
         &self,
         mut request: StateMachineUpdateRequest,
-        dequeue_through_seq: u64,
         scheduler_command_intents: &[SchedulerCommandIntent],
     ) -> Result<()> {
         let timer_kv = &[KeyValue::new("request", request.payload.to_string())];
         let _write_guard = self.write_mutex.lock().await;
 
         let write_result = self
-            .write_in_persistent_store_inner(
+            .write_in_persistent_store_with_extra_intents(
                 &mut request,
                 timer_kv,
-                Some(dequeue_through_seq),
                 scheduler_command_intents,
             )
+            .await?;
+
+        if write_result.should_notify_usage_reporter {
+            let _ = self.usage_events_tx.send(());
+        }
+        self.request_event_buffers
+            .push_events(write_result.request_state_changes)
+            .await;
+        Ok(())
+    }
+
+    /// Persist scheduler output and dequeue processed payloads in a single
+    /// RocksDB transaction. Any intents attached to the SchedulerUpdate are
+    /// persisted in the same commit. This keeps scheduler output, intent-log
+    /// appends, and dequeue atomic.
+    pub async fn write_scheduler_output_and_dequeue(
+        &self,
+        mut request: StateMachineUpdateRequest,
+        dequeue_through_seq: u64,
+    ) -> Result<()> {
+        let timer_kv = &[KeyValue::new("request", request.payload.to_string())];
+        let _write_guard = self.write_mutex.lock().await;
+
+        let write_result = self
+            .write_in_persistent_store_inner(&mut request, timer_kv, Some(dequeue_through_seq), &[])
             .await?;
 
         if write_result.should_notify_usage_reporter {
@@ -1706,16 +1762,29 @@ mod tests {
             0,
             "acked command cursor should reset on re-registration"
         );
-        assert_eq!(
-            state.read_executor_cmd_next_seq(&executor_id).await?,
-            1,
-            "next command sequence should reset on re-registration"
-        );
         let (acked, pending) = state.load_executor_pending_commands(&executor_id).await?;
         assert_eq!(acked, 0, "restored ack cursor should be reset");
         assert!(
             pending.is_empty(),
             "no persisted pending commands should remain after reset"
+        );
+        state
+            .enqueue_executor_commands(
+                &executor_id,
+                vec![executor_api_pb::Command {
+                    seq: 0,
+                    command: None,
+                }],
+            )
+            .await?;
+        let (_, pending_after_enqueue) = state.load_executor_pending_commands(&executor_id).await?;
+        assert_eq!(
+            pending_after_enqueue
+                .first()
+                .map(|command| command.seq)
+                .unwrap_or_default(),
+            1,
+            "next command sequence should reset on re-registration"
         );
 
         Ok(())
@@ -1796,15 +1865,14 @@ mod tests {
                 },
             })
             .collect();
+        let mut update = SchedulerUpdateRequest::default();
+        update
+            .scheduler_command_intents
+            .extend(scheduler_intents.clone());
         state
-            .write_scheduler_output_with_intents(
-                StateMachineUpdateRequest {
-                    payload: RequestPayload::SchedulerUpdate(SchedulerUpdatePayload::new(
-                        SchedulerUpdateRequest::default(),
-                    )),
-                },
-                &scheduler_intents,
-            )
+            .write_scheduler_output(StateMachineUpdateRequest {
+                payload: RequestPayload::SchedulerUpdate(SchedulerUpdatePayload::new(update)),
+            })
             .await?;
 
         let state_for_move = state.clone();

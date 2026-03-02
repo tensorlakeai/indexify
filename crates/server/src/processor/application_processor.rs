@@ -492,17 +492,16 @@ impl ApplicationProcessor {
         // 6a. Write scheduler results + dequeue processed payloads in one
         //     RocksDB transaction — atomic commit-and-dequeue.
         self.executor_manager
-            .append_scheduler_command_intents(&mut merged_update, &indexes);
+            .rebuild_scheduler_command_intents(&mut merged_update, &indexes);
         if let Err(err) = self
             .indexify_state
-            .write_scheduler_output_and_dequeue_with_intents(
+            .write_scheduler_output_and_dequeue(
                 StateMachineUpdateRequest {
                     payload: RequestPayload::SchedulerUpdate(SchedulerUpdatePayload {
                         update: Box::new(merged_update.clone()),
                     }),
                 },
                 max_seq,
-                &merged_update.scheduler_command_intents,
             )
             .await
         {
@@ -1124,10 +1123,10 @@ impl ApplicationProcessor {
         let mut scheduler_probe = container_scheduler.clone();
         let mut command_update = scheduler_probe.update_with_intents(&payload)?;
         self.executor_manager
-            .append_scheduler_command_intents(&mut command_update, indexes);
+            .rebuild_scheduler_command_intents(&mut command_update, indexes);
 
         self.indexify_state
-            .write_scheduler_output_with_intents(
+            .write_with_scheduler_command_intents(
                 StateMachineUpdateRequest {
                     payload: payload.clone(),
                 },
@@ -1156,17 +1155,14 @@ impl ApplicationProcessor {
         if !buffer_update.containers.is_empty() || !buffer_update.updated_executor_states.is_empty()
         {
             self.executor_manager
-                .append_scheduler_command_intents(&mut buffer_update, &indexes);
+                .rebuild_scheduler_command_intents(&mut buffer_update, &indexes);
             // Write to RocksDB.
             self.indexify_state
-                .write_scheduler_output_with_intents(
-                    StateMachineUpdateRequest {
-                        payload: RequestPayload::SchedulerUpdate(SchedulerUpdatePayload {
-                            update: Box::new(buffer_update.clone()),
-                        }),
-                    },
-                    &buffer_update.scheduler_command_intents,
-                )
+                .write_scheduler_output(StateMachineUpdateRequest {
+                    payload: RequestPayload::SchedulerUpdate(SchedulerUpdatePayload {
+                        update: Box::new(buffer_update.clone()),
+                    }),
+                })
                 .await?;
 
             // Publish to ArcSwap (sole writer).

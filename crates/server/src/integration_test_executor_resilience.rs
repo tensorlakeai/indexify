@@ -504,22 +504,17 @@ async fn test_service_restart_replays_persisted_scheduler_command_intents() -> R
     let indexes_guard = service1.indexify_state.app_state.load();
     service1
         .executor_manager
-        .append_scheduler_command_intents(&mut update, &indexes_guard.indexes);
+        .rebuild_scheduler_command_intents(&mut update, &indexes_guard.indexes);
     drop(indexes_guard);
     assert!(
         !update.scheduler_command_intents.is_empty(),
         "expected scheduler command intents for new allocation"
     );
-    let scheduler_command_intents = update.scheduler_command_intents.clone();
-
     service1
         .indexify_state
-        .write_scheduler_output_with_intents(
-            StateMachineUpdateRequest {
-                payload: RequestPayload::SchedulerUpdate(SchedulerUpdatePayload::new(update)),
-            },
-            &scheduler_command_intents,
-        )
+        .write_scheduler_output(StateMachineUpdateRequest {
+            payload: RequestPayload::SchedulerUpdate(SchedulerUpdatePayload::new(update)),
+        })
         .await?;
 
     // Simulate crash right after persistence and before intent drain.
