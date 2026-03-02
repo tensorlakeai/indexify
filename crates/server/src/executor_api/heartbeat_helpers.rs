@@ -329,12 +329,12 @@ impl ExecutorAPIService {
         &self,
         executor_id: &ExecutorId,
         reported_status: Option<executor_api_pb::ExecutorStatus>,
-    ) -> bool {
+    ) -> Result<bool, Status> {
         if !matches!(
             reported_status,
             Some(executor_api_pb::ExecutorStatus::Stopped)
         ) {
-            return false;
+            return Ok(false);
         }
 
         info!(
@@ -351,7 +351,10 @@ impl ExecutorAPIService {
                 error = %e,
                 "failed to deregister stopped executor"
             );
+            return Err(Status::internal(format!(
+                "failed to deregister stopped executor: {e}"
+            )));
         }
-        true
+        Ok(true)
     }
 }

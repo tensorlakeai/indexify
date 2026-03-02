@@ -225,7 +225,7 @@ impl ExecutorApi for ExecutorAPIService {
 
         if self
             .maybe_deregister_stopped_executor(&executor_id, reported_status)
-            .await
+            .await?
         {
             // Executor is intentionally shutting down; do not request full
             // state re-registration.
