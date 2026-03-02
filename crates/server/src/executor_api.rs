@@ -9,7 +9,7 @@ use anyhow::Result;
 use executor_api_pb::executor_api_server::ExecutorApi;
 pub use proto_api::executor_api_pb;
 use tonic::{Request, Response, Status};
-use tracing::{debug, info, warn};
+use tracing::{debug, info, trace, warn};
 
 mod heartbeat_helpers;
 mod report_processing;
@@ -464,6 +464,7 @@ async fn spawn_command_generator(
     let eid = executor_id.clone();
     let indexify_state_for_handle = indexify_state.clone();
     let handle = tokio::spawn(async move {
+        let mut last_processed_dirty_seq: u64 = 0;
         // Initial full sync
         {
             let should_sync = !emitter.lock().await.has_synced;
@@ -481,6 +482,17 @@ async fn spawn_command_generator(
                     "command_generator: wake channel closed, exiting"
                 );
                 break;
+            }
+
+            let dirty_seq = indexify_state.executor_dirty_seq_for(&eid).await;
+            if dirty_seq <= last_processed_dirty_seq {
+                trace!(
+                    executor_id = eid.get(),
+                    dirty_seq,
+                    last_processed_dirty_seq,
+                    "command_generator: skip diff, executor not marked dirty"
+                );
+                continue;
             }
 
             // Diff against current ArcSwap state
@@ -538,6 +550,7 @@ async fn spawn_command_generator(
                 let mut emitter_guard = emitter.lock().await;
                 emitter_guard.commit_snapshot(&snapshot);
             }
+            last_processed_dirty_seq = dirty_seq;
         }
     });
 

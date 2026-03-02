@@ -493,6 +493,11 @@ impl ApplicationProcessor {
                 scheduler: container_scheduler,
             }));
 
+        // Mark affected executors so command generators only diff when needed.
+        self.indexify_state
+            .mark_executors_dirty_from_update(&merged_update)
+            .await;
+
         // 6c. Wake command generators — they'll diff against the new ArcSwap state.
         let _ = self.indexify_state.executor_wake_tx.send(());
 
@@ -1096,6 +1101,20 @@ impl ApplicationProcessor {
         let clock = indexes.clock;
         let _ = indexes.update_state(clock, &payload, "immediate")?;
         container_scheduler.update(&payload)?;
+        match &payload {
+            RequestPayload::SchedulerUpdate(scheduler_update) => {
+                self.indexify_state
+                    .mark_executors_dirty_from_update(&scheduler_update.update)
+                    .await;
+            }
+            _ => {
+                // Immediate payloads are infrequent and may impact executor
+                // desired state indirectly; conservatively mark all.
+                self.indexify_state
+                    .mark_all_connected_executors_dirty()
+                    .await;
+            }
+        }
         // Wake command generators — they'll diff against the new ArcSwap state.
         let _ = self.indexify_state.executor_wake_tx.send(());
         Ok(())
@@ -1135,6 +1154,10 @@ impl ApplicationProcessor {
                     indexes,
                     scheduler: container_scheduler,
                 }));
+
+            self.indexify_state
+                .mark_executors_dirty_from_update(&buffer_update)
+                .await;
 
             // Wake command generators.
             let _ = self.indexify_state.executor_wake_tx.send(());

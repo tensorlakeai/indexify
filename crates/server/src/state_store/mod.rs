@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fs,
     path::PathBuf,
     sync::{
@@ -258,6 +258,11 @@ pub struct IndexifyState {
     /// A background task diffs against ArcSwap on wake and buffers
     /// commands/results for long-poll delivery.
     pub executor_connections: RwLock<HashMap<ExecutorId, ExecutorConnection>>,
+    /// Per-executor dirty sequence used by command generators to skip
+    /// unnecessary diffs when a scheduler batch did not affect that executor.
+    executor_dirty: RwLock<HashMap<ExecutorId, u64>>,
+    /// Monotonic sequence for executor_dirty entries.
+    executor_dirty_seq: AtomicU64,
     pub request_event_buffers: RequestEventBuffers,
     // Observable gauges - must be kept alive for callbacks to fire
     _in_memory_store_gauges: InMemoryStoreGauges,
@@ -386,6 +391,8 @@ impl IndexifyState {
             usage_events_rx,
             executor_wake_tx,
             executor_connections: RwLock::new(HashMap::new()),
+            executor_dirty: RwLock::new(HashMap::new()),
+            executor_dirty_seq: AtomicU64::new(0),
             request_event_buffers,
             write_mutex: tokio::sync::Mutex::new(()),
             _in_memory_store_gauges: in_memory_store_gauges,
@@ -850,6 +857,7 @@ impl IndexifyState {
     /// long-poll requests.
     pub async fn deregister_executor_connection(&self, executor_id: &ExecutorId) {
         let removed = self.executor_connections.write().await.remove(executor_id);
+        self.executor_dirty.write().await.remove(executor_id);
         if let Some(conn) = removed {
             // Abort the background command generator task so it doesn't
             // linger if it's blocked on emitter lock or I/O.
@@ -865,6 +873,81 @@ impl IndexifyState {
                 "deregistered executor connection"
             );
         }
+    }
+
+    fn next_executor_dirty_seq(&self) -> u64 {
+        self.executor_dirty_seq
+            .fetch_add(1, atomic::Ordering::Relaxed)
+            .saturating_add(1)
+    }
+
+    async fn mark_executors_dirty<I>(&self, executors: I)
+    where
+        I: IntoIterator<Item = ExecutorId>,
+    {
+        let affected: HashSet<ExecutorId> = executors.into_iter().collect();
+        if affected.is_empty() {
+            return;
+        }
+        let seq = self.next_executor_dirty_seq();
+        let mut dirty = self.executor_dirty.write().await;
+        for executor_id in affected {
+            dirty.insert(executor_id, seq);
+        }
+    }
+
+    /// Conservatively mark all currently connected executors dirty.
+    pub async fn mark_all_connected_executors_dirty(&self) {
+        let connections = self.executor_connections.read().await;
+        if connections.is_empty() {
+            return;
+        }
+        let ids: Vec<ExecutorId> = connections.keys().cloned().collect();
+        drop(connections);
+        self.mark_executors_dirty(ids).await;
+    }
+
+    /// Mark executors affected by this scheduler batch as dirty.
+    pub async fn mark_executors_dirty_from_update(
+        &self,
+        update: &crate::state_store::requests::SchedulerUpdateRequest,
+    ) {
+        let mut affected: HashSet<ExecutorId> = HashSet::new();
+        affected.extend(update.updated_executor_states.keys().cloned());
+        affected.extend(update.remove_executors.iter().cloned());
+        for allocation in &update.new_allocations {
+            affected.insert(allocation.target.executor_id.clone());
+        }
+        for allocation in &update.updated_allocations {
+            affected.insert(allocation.target.executor_id.clone());
+        }
+        for container in update.containers.values() {
+            affected.insert(container.executor_id.clone());
+        }
+        for sandbox in update.updated_sandboxes.values() {
+            if let Some(executor_id) = &sandbox.executor_id {
+                affected.insert(executor_id.clone());
+            }
+        }
+
+        // Snapshot updates don't carry executor_id directly; conservatively
+        // mark all connected executors when snapshots change.
+        if !update.updated_snapshots.is_empty() {
+            let connections = self.executor_connections.read().await;
+            affected.extend(connections.keys().cloned());
+        }
+
+        self.mark_executors_dirty(affected).await;
+    }
+
+    /// Latest dirty sequence for this executor.
+    pub async fn executor_dirty_seq_for(&self, executor_id: &ExecutorId) -> u64 {
+        self.executor_dirty
+            .read()
+            .await
+            .get(executor_id)
+            .copied()
+            .unwrap_or(0)
     }
 
     /// Persist a scheduler-generated write (allocations, updated requests,
