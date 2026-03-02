@@ -1,5 +1,60 @@
 use super::*;
 
+fn function_ref_labels(
+    function: Option<&executor_api_pb::FunctionRef>,
+) -> (&str, &str, &str, &str) {
+    let Some(function) = function else {
+        return ("", "", "", "");
+    };
+    (
+        function.namespace.as_deref().unwrap_or(""),
+        function.application_name.as_deref().unwrap_or(""),
+        function.function_name.as_deref().unwrap_or(""),
+        function.application_version.as_deref().unwrap_or(""),
+    )
+}
+
+fn call_function_target_labels(call: &executor_api_pb::FunctionCallRequest) -> (&str, &str) {
+    if let Some(updates) = call.updates.as_ref() {
+        for update in &updates.updates {
+            if let Some(executor_api_pb::execution_plan_update::Op::FunctionCall(fc)) =
+                update.op.as_ref() &&
+                let Some(target) = fc.target.as_ref()
+            {
+                return (
+                    target.function_name.as_deref().unwrap_or(""),
+                    target.application_version.as_deref().unwrap_or(""),
+                );
+            }
+        }
+    }
+    ("", "")
+}
+
+fn allocation_log_labels(
+    log_entry: &executor_api_pb::AllocationLogEntry,
+) -> (&str, &str, &str, &str, &str, &str) {
+    let allocation_id = log_entry.allocation_id.as_str();
+    if let Some(executor_api_pb::allocation_log_entry::Entry::CallFunction(call)) =
+        log_entry.entry.as_ref()
+    {
+        let namespace = call.namespace.as_deref().unwrap_or("");
+        let app = call.application.as_deref().unwrap_or("");
+        let request_id = call.request_id.as_deref().unwrap_or("");
+        let (fn_name, version) = call_function_target_labels(call);
+        return (request_id, fn_name, namespace, app, version, allocation_id);
+    }
+    ("", "", "", "", "", allocation_id)
+}
+
+fn is_malformed_report_error(error: &anyhow::Error) -> bool {
+    let message = error.to_string().to_ascii_lowercase();
+    message.contains("missing ") ||
+        message.contains(" is empty") ||
+        message.contains("invalid") ||
+        message.contains("malformed")
+}
+
 impl ExecutorAPIService {
     /// Process full-state sync if present and return whether the executor is
     /// known to the server after processing.
@@ -95,10 +150,11 @@ impl ExecutorAPIService {
                     // Ingest first, then route. Continue processing the batch
                     // and report failures at the end so good items still get
                     // applied in this pass.
-                    let completed_for_routing = completed
+                    let completed_for_logging = completed.clone();
+                    let completed_for_routing = completed_for_logging
                         .function_call_id
                         .as_ref()
-                        .map(|_| completed.clone());
+                        .map(|_| completed_for_logging.clone());
                     match process_allocation_completed(
                         &self.indexify_state,
                         &self.blob_storage_registry,
@@ -122,6 +178,25 @@ impl ExecutorAPIService {
                         }
                         Ok(AllocationIngestDisposition::SkippedNoop) => {}
                         Err(e) => {
+                            let (namespace, app, fn_name, version) =
+                                function_ref_labels(completed_for_logging.function.as_ref());
+                            let request_id =
+                                completed_for_logging.request_id.as_deref().unwrap_or("");
+                            let allocation_id = completed_for_logging.allocation_id.as_str();
+                            if is_malformed_report_error(&e) {
+                                warn!(
+                                    executor_id = executor_id.get(),
+                                    request_id = %request_id,
+                                    "fn" = %fn_name,
+                                    namespace = %namespace,
+                                    app = %app,
+                                    version = %version,
+                                    allocation_id = %allocation_id,
+                                    error = %e,
+                                    "heartbeat: malformed allocation_completed; skipping"
+                                );
+                                continue;
+                            }
                             warn!(
                                 executor_id = executor_id.get(),
                                 error = %e,
@@ -136,8 +211,11 @@ impl ExecutorAPIService {
                     // Ingest first, then route. Continue processing the batch
                     // and report failures at the end so good items still get
                     // applied in this pass.
-                    let failed_for_routing =
-                        failed.function_call_id.as_ref().map(|_| failed.clone());
+                    let failed_for_logging = failed.clone();
+                    let failed_for_routing = failed_for_logging
+                        .function_call_id
+                        .as_ref()
+                        .map(|_| failed_for_logging.clone());
                     match process_allocation_failed(
                         &self.indexify_state,
                         &self.blob_storage_registry,
@@ -161,6 +239,24 @@ impl ExecutorAPIService {
                         }
                         Ok(AllocationIngestDisposition::SkippedNoop) => {}
                         Err(e) => {
+                            let (namespace, app, fn_name, version) =
+                                function_ref_labels(failed_for_logging.function.as_ref());
+                            let request_id = failed_for_logging.request_id.as_deref().unwrap_or("");
+                            let allocation_id = failed_for_logging.allocation_id.as_str();
+                            if is_malformed_report_error(&e) {
+                                warn!(
+                                    executor_id = executor_id.get(),
+                                    request_id = %request_id,
+                                    "fn" = %fn_name,
+                                    namespace = %namespace,
+                                    app = %app,
+                                    version = %version,
+                                    allocation_id = %allocation_id,
+                                    error = %e,
+                                    "heartbeat: malformed allocation_failed; skipping"
+                                );
+                                continue;
+                            }
                             warn!(
                                 executor_id = executor_id.get(),
                                 error = %e,
@@ -194,8 +290,30 @@ impl ExecutorAPIService {
             )
             .await
             {
+                let (request_id, fn_name, namespace, app, version, allocation_id) =
+                    allocation_log_labels(&log_entry);
+                if is_malformed_report_error(&e) {
+                    warn!(
+                        executor_id = executor_id.get(),
+                        request_id = %request_id,
+                        "fn" = %fn_name,
+                        namespace = %namespace,
+                        app = %app,
+                        version = %version,
+                        allocation_id = %allocation_id,
+                        error = %e,
+                        "heartbeat: malformed allocation_log_entry; skipping"
+                    );
+                    continue;
+                }
                 warn!(
                     executor_id = executor_id.get(),
+                    request_id = %request_id,
+                    "fn" = %fn_name,
+                    namespace = %namespace,
+                    app = %app,
+                    version = %version,
+                    allocation_id = %allocation_id,
                     error = %e,
                     "heartbeat: handle_log_entry_v2 failed"
                 );

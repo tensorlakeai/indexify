@@ -16,6 +16,14 @@ pub enum AllocationIngestDisposition {
     SkippedNoop,
 }
 
+fn is_malformed_command_error(error: &anyhow::Error) -> bool {
+    let message = error.to_string().to_ascii_lowercase();
+    message.contains("missing ") ||
+        message.contains(" is empty") ||
+        message.contains("invalid") ||
+        message.contains("malformed")
+}
+
 /// Process command responses from a dataplane executor.
 ///
 /// Converts proto `CommandResponse` messages into a single
@@ -35,7 +43,17 @@ pub async fn process_command_responses(
 
     for resp in responses {
         let Some(response) = resp.response else {
-            warn!("CommandResponse with no response oneof, skipping");
+            warn!(
+                executor_id = executor_id.get(),
+                request_id = "",
+                "fn" = "",
+                namespace = "",
+                app = "",
+                version = "",
+                allocation_id = "",
+                command_seq = ?resp.command_seq,
+                "CommandResponse with no response oneof, skipping malformed item"
+            );
             continue;
         };
 
@@ -81,8 +99,31 @@ pub async fn process_command_responses(
                     "SnapshotCompleted received"
                 );
                 if let Err(err) = handle_snapshot_completed(indexify_state, &completed).await {
+                    if is_malformed_command_error(&err) {
+                        warn!(
+                            executor_id = executor_id.get(),
+                            request_id = "",
+                            "fn" = "",
+                            namespace = "",
+                            app = "",
+                            version = "",
+                            allocation_id = "",
+                            command_seq = ?resp.command_seq,
+                            container_id = %completed.container_id,
+                            snapshot_id = %completed.snapshot_id,
+                            error = %err,
+                            "heartbeat: malformed snapshot_completed command response; skipping"
+                        );
+                        continue;
+                    }
                     warn!(
                         executor_id = executor_id.get(),
+                        request_id = "",
+                        "fn" = "",
+                        namespace = "",
+                        app = "",
+                        version = "",
+                        allocation_id = "",
                         command_seq = ?resp.command_seq,
                         container_id = %completed.container_id,
                         snapshot_id = %completed.snapshot_id,
@@ -101,8 +142,31 @@ pub async fn process_command_responses(
                     "SnapshotFailed received"
                 );
                 if let Err(err) = handle_snapshot_failed(indexify_state, &failed).await {
+                    if is_malformed_command_error(&err) {
+                        warn!(
+                            executor_id = executor_id.get(),
+                            request_id = "",
+                            "fn" = "",
+                            namespace = "",
+                            app = "",
+                            version = "",
+                            allocation_id = "",
+                            command_seq = ?resp.command_seq,
+                            container_id = %failed.container_id,
+                            snapshot_id = %failed.snapshot_id,
+                            error = %err,
+                            "heartbeat: malformed snapshot_failed command response; skipping"
+                        );
+                        continue;
+                    }
                     warn!(
                         executor_id = executor_id.get(),
+                        request_id = "",
+                        "fn" = "",
+                        namespace = "",
+                        app = "",
+                        version = "",
+                        allocation_id = "",
                         command_seq = ?resp.command_seq,
                         container_id = %failed.container_id,
                         snapshot_id = %failed.snapshot_id,

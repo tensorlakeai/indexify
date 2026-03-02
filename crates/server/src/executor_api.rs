@@ -1262,7 +1262,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_process_command_responses_counts_all_invalid_items() {
+    async fn test_process_command_responses_skips_malformed_items() {
         let test_service = TestService::new().await.unwrap();
         let executor_id = crate::data_model::ExecutorId::from("executor-command-response-counts");
 
@@ -1296,11 +1296,11 @@ mod tests {
             vec![bad_snapshot_completed, bad_snapshot_failed],
         )
         .await
-        .expect("batch should continue and report per-item failures");
+        .expect("batch should continue and skip malformed command responses");
 
         assert_eq!(
-            failures, 2,
-            "all invalid command responses should be counted, not fail-fast"
+            failures, 0,
+            "malformed command responses should be skipped without failing heartbeat"
         );
     }
 
@@ -1338,7 +1338,7 @@ mod tests {
             )),
         };
 
-        let err = ExecutorApi::heartbeat(
+        ExecutorApi::heartbeat(
             &api,
             Request::new(executor_api_pb::HeartbeatRequest {
                 executor_id: Some(executor_id.get().to_string()),
@@ -1353,8 +1353,7 @@ mod tests {
             }),
         )
         .await
-        .expect_err("heartbeat should fail when one log entry fails ingestion");
-        assert_eq!(err.code(), tonic::Code::Internal);
+        .expect("heartbeat should skip malformed log entry and continue");
 
         assert_eq!(
             api.function_call_result_router.pending_len().await,
@@ -1398,7 +1397,7 @@ mod tests {
             ),
         };
 
-        let err = ExecutorApi::heartbeat(
+        ExecutorApi::heartbeat(
             &api,
             Request::new(executor_api_pb::HeartbeatRequest {
                 executor_id: Some(executor_id.get().to_string()),
@@ -1413,8 +1412,7 @@ mod tests {
             }),
         )
         .await
-        .expect_err("heartbeat should fail when command response ingestion fails");
-        assert_eq!(err.code(), tonic::Code::Internal);
+        .expect("heartbeat should skip malformed command response and continue");
 
         assert_eq!(
             api.function_call_result_router.pending_len().await,
