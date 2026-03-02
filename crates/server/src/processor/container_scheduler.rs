@@ -172,13 +172,17 @@ impl ContainerScheduler {
         })
     }
 
-    pub fn update(&mut self, state_machine_update_request: &RequestPayload) -> Result<()> {
+    pub fn update_with_intents(
+        &mut self,
+        state_machine_update_request: &RequestPayload,
+    ) -> Result<SchedulerUpdateRequest> {
+        let mut command_update = SchedulerUpdateRequest::default();
         match state_machine_update_request {
             RequestPayload::UpsertExecutor(request) => {
                 self.upsert_executor(&request.executor);
             }
             RequestPayload::DeleteApplicationRequest(request) => {
-                self.delete_application(&request.namespace, &request.name);
+                command_update.extend(self.delete_application(&request.namespace, &request.name));
             }
             RequestPayload::SchedulerUpdate(payload) => {
                 self.update_scheduler_update(&payload.update);
@@ -206,7 +210,8 @@ impl ContainerScheduler {
                 self.mark_pool_dirty(pool_key);
             }
             RequestPayload::DeleteContainerPool(request) => {
-                self.delete_container_pool(&request.namespace, &request.pool_id);
+                command_update
+                    .extend(self.delete_container_pool(&request.namespace, &request.pool_id));
             }
             RequestPayload::CreateOrUpdateApplication(req) => {
                 // Only update pools if container_pools is non-empty.
@@ -238,8 +243,13 @@ impl ContainerScheduler {
                     }
                 }
             }
-            _ => return Ok(()),
+            _ => return Ok(command_update),
         }
+        Ok(command_update)
+    }
+
+    pub fn update(&mut self, state_machine_update_request: &RequestPayload) -> Result<()> {
+        let _ = self.update_with_intents(state_machine_update_request)?;
         Ok(())
     }
 
@@ -303,7 +313,8 @@ impl ContainerScheduler {
         }
     }
 
-    fn delete_application(&mut self, namespace: &str, name: &str) {
+    fn delete_application(&mut self, namespace: &str, name: &str) -> SchedulerUpdateRequest {
+        let mut command_update = SchedulerUpdateRequest::default();
         // Use containers_by_function_uri index to find containers for this
         // application — O(F_app × C_f) instead of O(C_total).
         let matching_uris: Vec<FunctionURI> = self
@@ -340,6 +351,9 @@ impl ContainerScheduler {
                         fc.desired_state = ContainerState::Terminated {
                             reason: ContainerTerminationReason::DesiredStateRemoved,
                         };
+                        command_update
+                            .containers
+                            .insert(container_id.clone(), fc.clone());
                     }
                 }
             }
@@ -399,9 +413,15 @@ impl ContainerScheduler {
         // (desired_state = Terminated). Resources are not freed until the
         // dataplane confirms termination, at which point
         // update_container_indices will unblock matching pools.
+        command_update
     }
 
-    fn delete_container_pool(&mut self, namespace: &str, pool_id: &ContainerPoolId) {
+    fn delete_container_pool(
+        &mut self,
+        namespace: &str,
+        pool_id: &ContainerPoolId,
+    ) -> SchedulerUpdateRequest {
+        let mut command_update = SchedulerUpdateRequest::default();
         // Mark pool containers' desired_state as Terminated
         // Only marks warm (unclaimed) containers - claimed containers are terminated
         // when their associated sandbox terminates.
@@ -438,6 +458,9 @@ impl ContainerScheduler {
                 fc.desired_state = ContainerState::Terminated {
                     reason: ContainerTerminationReason::DesiredStateRemoved,
                 };
+                command_update
+                    .containers
+                    .insert(container_id.clone(), fc.clone());
             }
         }
 
@@ -473,6 +496,7 @@ impl ContainerScheduler {
         }
 
         self.mark_pool_dirty(pool_key);
+        command_update
     }
 
     /// Get a pool from either function_pools or sandbox_pools

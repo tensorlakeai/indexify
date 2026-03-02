@@ -447,26 +447,28 @@ impl ApplicationProcessor {
                         // to RocksDB and apply to local clones directly. No ArcSwap
                         // refresh needed since we publish complete clones at the end.
                         let payload = sm_update.payload;
-                        if let Err(err) = self
+                        match self
                             .apply_immediate_payload(
-                                payload.clone(),
+                                payload,
                                 &mut indexes,
                                 &mut container_scheduler,
                             )
                             .await
                         {
-                            error!(
-                                "error writing immediate state change {}: {:?}",
-                                state_change.change_type, err,
-                            );
-                        }
-                        let command_update = self
-                            .command_update_for_immediate_payload(&payload, &container_scheduler);
-                        if !command_update.containers.is_empty() ||
-                            !command_update.new_allocations.is_empty() ||
-                            !command_update.updated_snapshots.is_empty()
-                        {
-                            immediate_command_updates.push(command_update);
+                            Ok(command_update) => {
+                                if !command_update.containers.is_empty() ||
+                                    !command_update.new_allocations.is_empty() ||
+                                    !command_update.updated_snapshots.is_empty()
+                                {
+                                    immediate_command_updates.push(command_update);
+                                }
+                            }
+                            Err(err) => {
+                                error!(
+                                    "error writing immediate state change {}: {:?}",
+                                    state_change.change_type, err,
+                                );
+                            }
                         }
                     }
                     Err(err) => {
@@ -1117,7 +1119,7 @@ impl ApplicationProcessor {
         payload: RequestPayload,
         indexes: &mut crate::state_store::in_memory_state::InMemoryState,
         container_scheduler: &mut crate::processor::container_scheduler::ContainerScheduler,
-    ) -> Result<()> {
+    ) -> Result<SchedulerUpdateRequest> {
         self.indexify_state
             .write_scheduler_output(StateMachineUpdateRequest {
                 payload: payload.clone(),
@@ -1126,56 +1128,8 @@ impl ApplicationProcessor {
 
         let clock = indexes.clock;
         let _ = indexes.update_state(clock, &payload, "immediate")?;
-        container_scheduler.update(&payload)?;
-        Ok(())
-    }
-
-    /// Build a command-only scheduler update for immediate payloads that
-    /// mutate desired container state outside the normal scheduler update flow.
-    fn command_update_for_immediate_payload(
-        &self,
-        payload: &RequestPayload,
-        container_scheduler: &crate::processor::container_scheduler::ContainerScheduler,
-    ) -> SchedulerUpdateRequest {
-        let mut update = SchedulerUpdateRequest::default();
-        match payload {
-            RequestPayload::DeleteApplicationRequest(req) => {
-                for (container_id, container_meta) in &container_scheduler.function_containers {
-                    if container_meta.function_container.namespace == req.namespace &&
-                        container_meta.function_container.application_name == req.name &&
-                        matches!(
-                            container_meta.desired_state,
-                            data_model::ContainerState::Terminated { .. }
-                        )
-                    {
-                        update
-                            .containers
-                            .insert(container_id.clone(), container_meta.clone());
-                    }
-                }
-            }
-            RequestPayload::DeleteContainerPool(req) => {
-                for (container_id, container_meta) in &container_scheduler.function_containers {
-                    if container_meta.function_container.namespace == req.namespace &&
-                        container_meta
-                            .function_container
-                            .pool_id
-                            .as_ref()
-                            .is_some_and(|pool_id| *pool_id == req.pool_id) &&
-                        matches!(
-                            container_meta.desired_state,
-                            data_model::ContainerState::Terminated { .. }
-                        )
-                    {
-                        update
-                            .containers
-                            .insert(container_id.clone(), container_meta.clone());
-                    }
-                }
-            }
-            _ => {}
-        }
-        update
+        let command_update = container_scheduler.update_with_intents(&payload)?;
+        Ok(command_update)
     }
 
     /// Run buffer reconciliation for warm pool containers.
