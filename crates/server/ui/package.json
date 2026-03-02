@@ -41,16 +41,13 @@
     "web-vitals": "^5.1.0"
   },
   "overrides": {
-    "ajv": "^6.14.0",
-    "ajv-formats": {
-      "ajv": "^8.18.0"
-    },
     "body-parser": "^1.20.4",
     "bfj": "^9.1.3",
     "brace-expansion": "^1.1.11",
     "filelist": {
       "minimatch": "^5.1.9"
     },
+    "fork-ts-checker-webpack-plugin": "^9.1.0",
     "glob": {
       "minimatch": "^10.2.4"
     },
@@ -60,22 +57,16 @@
     "postcss": "^8.4.31",
     "qs": "^6.15.0",
     "rollup": "^2.80.0",
-    "schema-utils": {
-      "ajv": "^8.18.0"
-    },
+    "serialize-javascript": "^7.0.3",
     "serve": {
       "ajv": "^8.18.0"
     },
-    "serialize-javascript": "^7.0.3",
-    "workbox-build": "^7.4.0",
-    "workbox-webpack-plugin": "^7.4.0",
     "sucrase": {
       "minimatch": "^9.0.9"
     },
     "webpack-dev-server": "4.15.2",
-    "workbox-build": {
-      "ajv": "^8.18.0"
-    }
+    "workbox-build": "^7.4.0",
+    "workbox-webpack-plugin": "^7.4.0"
   },
   "scripts": {
     "start": "serve build --single",
