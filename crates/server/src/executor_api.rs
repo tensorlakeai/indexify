@@ -331,7 +331,7 @@ mod tests {
     use super::executor_api_pb::executor_api_server::ExecutorApi;
     use crate::{
         data_model::{self, ContainerTerminationReason, ContainerType},
-        executors::{EXECUTOR_TIMEOUT, ExecutorStateSnapshot},
+        executors::EXECUTOR_TIMEOUT,
         testing::TestService,
     };
 
@@ -473,53 +473,6 @@ mod tests {
         );
     }
 
-    fn make_fe_description(id: &str) -> executor_api_pb::ContainerDescription {
-        ContainerDescription {
-            id: Some(id.to_string()),
-            function: Some(FunctionRef {
-                namespace: Some("ns".to_string()),
-                application_name: Some("app".to_string()),
-                function_name: Some("fn".to_string()),
-                application_version: Some("v1".to_string()),
-            }),
-            resources: Some(ContainerResources {
-                cpu_ms_per_sec: Some(100),
-                memory_bytes: Some(256 * 1024 * 1024),
-                disk_bytes: Some(1024 * 1024 * 1024),
-                gpu: None,
-            }),
-            max_concurrency: Some(1),
-            container_type: Some(ContainerTypePb::Function.into()),
-            sandbox_metadata: None,
-            secret_names: vec![],
-            initialization_timeout_ms: None,
-            application: None,
-            allocation_timeout_ms: None,
-            pool_id: None,
-        }
-    }
-
-    fn make_allocation(id: &str) -> executor_api_pb::Allocation {
-        executor_api_pb::Allocation {
-            function: Some(FunctionRef {
-                namespace: Some("ns".to_string()),
-                application_name: Some("app".to_string()),
-                function_name: Some("fn".to_string()),
-                application_version: None,
-            }),
-            allocation_id: Some(id.to_string()),
-            function_call_id: Some(format!("fc-{id}")),
-            request_id: Some("req-1".to_string()),
-            args: vec![],
-            request_data_payload_uri_prefix: None,
-            request_error_payload_uri_prefix: None,
-            container_id: Some("c1".to_string()),
-            function_call_metadata: None,
-            replay_mode: None,
-            last_event_clock: None,
-        }
-    }
-
     fn make_command(seq: u64) -> executor_api_pb::Command {
         executor_api_pb::Command { seq, command: None }
     }
@@ -584,176 +537,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_command_emitter_first_call_emits_full_state() {
-        let mut emitter = super::CommandEmitter::new();
-
-        let desired = ExecutorStateSnapshot {
-            containers: vec![make_fe_description("c1")],
-            allocations: vec![make_allocation("a1")],
-            pending_snapshots: vec![],
-            clock: Some(1),
-        };
-
-        let commands = emitter.emit_commands(&desired);
-
-        // First call: AddContainer + RunAllocation
-        assert_eq!(commands.len(), 2, "expected 2 commands: {commands:?}");
-
-        let add_container = commands.iter().find(|c| {
-            matches!(
-                &c.command,
-                Some(executor_api_pb::command::Command::AddContainer(_))
-            )
-        });
-        assert!(add_container.is_some(), "expected AddContainer command");
-
-        let run_alloc = commands.iter().find(|c| {
-            matches!(
-                &c.command,
-                Some(executor_api_pb::command::Command::RunAllocation(_))
-            )
-        });
-        assert!(run_alloc.is_some(), "expected RunAllocation command");
-
-        // Sequence numbers should be monotonically increasing
-        let seqs: Vec<u64> = commands.iter().map(|c| c.seq).collect();
-        assert_eq!(seqs, vec![1, 2]);
-    }
-
-    #[test]
-    fn test_command_emitter_no_change_emits_nothing() {
-        let mut emitter = super::CommandEmitter::new();
-
-        let desired = ExecutorStateSnapshot {
-            containers: vec![make_fe_description("c1")],
-            allocations: vec![make_allocation("a1")],
-            pending_snapshots: vec![],
-            clock: Some(1),
-        };
-
-        // First call -- full sync
-        let commands = emitter.emit_commands(&desired);
-        assert_eq!(commands.len(), 2);
-        emitter.commit_snapshot(&desired);
-
-        // Second call -- same state -> no commands
-        let commands = emitter.emit_commands(&desired);
-        assert!(commands.is_empty(), "expected 0 commands: {commands:?}");
-    }
-
-    #[test]
-    fn test_command_emitter_container_removal() {
-        let mut emitter = super::CommandEmitter::new();
-
-        // First: one container
-        let desired1 = ExecutorStateSnapshot {
-            containers: vec![make_fe_description("c1")],
-            allocations: vec![],
-            pending_snapshots: vec![],
-            clock: Some(1),
-        };
-        emitter.emit_commands(&desired1);
-        emitter.commit_snapshot(&desired1);
-
-        // Second: container removed
-        let desired2 = ExecutorStateSnapshot {
-            containers: vec![],
-            allocations: vec![],
-            pending_snapshots: vec![],
-            clock: Some(2),
-        };
-        let commands = emitter.emit_commands(&desired2);
-        assert_eq!(commands.len(), 1, "{commands:?}");
-        assert!(matches!(
-            &commands[0].command,
-            Some(executor_api_pb::command::Command::RemoveContainer(r))
-            if r.container_id == "c1"
-        ));
-    }
-
-    #[test]
-    fn test_command_emitter_new_allocation_after_initial() {
-        let mut emitter = super::CommandEmitter::new();
-
-        // First: one container, one allocation
-        let desired1 = ExecutorStateSnapshot {
-            containers: vec![make_fe_description("c1")],
-            allocations: vec![make_allocation("a1")],
-            pending_snapshots: vec![],
-            clock: Some(1),
-        };
-        emitter.emit_commands(&desired1);
-        emitter.commit_snapshot(&desired1);
-
-        // Second: same container, new allocation added
-        let desired2 = ExecutorStateSnapshot {
-            containers: vec![make_fe_description("c1")],
-            allocations: vec![make_allocation("a1"), make_allocation("a2")],
-            pending_snapshots: vec![],
-            clock: Some(2),
-        };
-        let commands = emitter.emit_commands(&desired2);
-        assert_eq!(commands.len(), 1, "{commands:?}");
-        assert!(matches!(
-            &commands[0].command,
-            Some(executor_api_pb::command::Command::RunAllocation(r))
-            if r.allocation.as_ref().unwrap().allocation_id.as_deref() == Some("a2")
-        ));
-    }
-
-    #[test]
-    fn test_command_emitter_allocation_completion_no_command() {
-        let mut emitter = super::CommandEmitter::new();
-
-        // First: one allocation
-        let desired1 = ExecutorStateSnapshot {
-            containers: vec![make_fe_description("c1")],
-            allocations: vec![make_allocation("a1")],
-            pending_snapshots: vec![],
-            clock: Some(1),
-        };
-        emitter.emit_commands(&desired1);
-        emitter.commit_snapshot(&desired1);
-
-        // Second: allocation completed (removed from desired state)
-        let desired2 = ExecutorStateSnapshot {
-            containers: vec![make_fe_description("c1")],
-            allocations: vec![],
-            pending_snapshots: vec![],
-            clock: Some(2),
-        };
-        let commands = emitter.emit_commands(&desired2);
-        // Completed allocations disappear silently -- no KillAllocation
-        assert!(commands.is_empty(), "expected 0 commands: {commands:?}");
-    }
-
-    #[test]
-    fn test_command_emitter_seq_continuity() {
-        let mut emitter = super::CommandEmitter::new();
-
-        // First batch: 2 commands (seq 1, 2)
-        let desired1 = ExecutorStateSnapshot {
-            containers: vec![make_fe_description("c1")],
-            allocations: vec![make_allocation("a1")],
-            pending_snapshots: vec![],
-            clock: Some(1),
-        };
-        let cmds1 = emitter.emit_commands(&desired1);
-        assert_eq!(cmds1.last().unwrap().seq, 2);
-        emitter.commit_snapshot(&desired1);
-
-        // Second batch: 1 command (seq 3)
-        let desired2 = ExecutorStateSnapshot {
-            containers: vec![make_fe_description("c1")],
-            allocations: vec![make_allocation("a1"), make_allocation("a2")],
-            pending_snapshots: vec![],
-            clock: Some(2),
-        };
-        let cmds2 = emitter.emit_commands(&desired2);
-        assert_eq!(cmds2[0].seq, 3, "seq should continue from previous batch");
-    }
-
     #[tokio::test]
     async fn test_reconnect_full_state_resets_command_outbox() {
         let test_service = TestService::new().await.unwrap();
@@ -772,25 +555,18 @@ mod tests {
         .await
         .unwrap();
 
-        // Seed outbox with a pending command and observe non-zero ack
-        // progression to establish a cursor.
-        {
-            let connections = test_service
-                .service
-                .indexify_state
-                .executor_connections
-                .read()
-                .await;
-            let conn = connections
-                .get(&executor_id)
-                .expect("executor connection should exist");
-            conn.push_commands(vec![make_command(10)]).await;
-        }
+        // Seed outbox with persisted commands and ack progression.
+        test_service
+            .service
+            .indexify_state
+            .enqueue_executor_commands(&executor_id, vec![make_command(0), make_command(0)])
+            .await
+            .unwrap();
         let _ = ExecutorApi::poll_commands(
             &api,
             Request::new(executor_api_pb::PollCommandsRequest {
                 executor_id: executor_id.get().to_string(),
-                acked_command_seq: Some(7),
+                acked_command_seq: Some(1),
             }),
         )
         .await
@@ -817,6 +593,30 @@ mod tests {
         assert!(
             conn.clone_commands().await.is_empty(),
             "reconnect full state should clear stale pending commands"
+        );
+
+        // A new command after reconnect should start from seq=1
+        // (cursor reset), not continue the old stream.
+        test_service
+            .service
+            .indexify_state
+            .enqueue_executor_commands(&executor_id, vec![make_command(0)])
+            .await
+            .unwrap();
+        let response = ExecutorApi::poll_commands(
+            &api,
+            Request::new(executor_api_pb::PollCommandsRequest {
+                executor_id: executor_id.get().to_string(),
+                acked_command_seq: None,
+            }),
+        )
+        .await
+        .unwrap()
+        .into_inner();
+        assert_eq!(response.commands.len(), 1);
+        assert_eq!(
+            response.commands[0].seq, 1,
+            "reconnect full state should reset outbox sequence cursor"
         );
     }
 

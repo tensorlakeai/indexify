@@ -1443,21 +1443,6 @@ mod tests {
             .await
     }
 
-    /// Helper: get the emitter from a registered executor connection.
-    async fn get_emitter(
-        state: &IndexifyState,
-        executor_id: &ExecutorId,
-    ) -> Arc<tokio::sync::Mutex<crate::executor_api::CommandEmitter>> {
-        state
-            .executor_connections
-            .read()
-            .await
-            .get(executor_id)
-            .expect("executor connection should exist")
-            .emitter
-            .clone()
-    }
-
     #[tokio::test]
     async fn test_executor_connection_register_deregister() -> Result<()> {
         let state = TestStateStore::new().await?.indexify_state;
@@ -1485,73 +1470,32 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_emitter_starts_unsynced() -> Result<()> {
+    async fn test_re_registration_resets_command_outbox_and_cursors() -> Result<()> {
         let state = TestStateStore::new().await?.indexify_state;
         let executor_id = ExecutorId::new(TEST_EXECUTOR_ID.to_string());
 
         state.register_executor_connection(&executor_id).await;
-
-        let emitter = get_emitter(&state, &executor_id).await;
-        {
-            let emitter = emitter.lock().await;
-            assert!(
-                !emitter.has_synced,
-                "fresh emitter should have has_synced=false"
-            );
-        }
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_re_registration_resets_command_outbox_and_emitter() -> Result<()> {
-        let state = TestStateStore::new().await?.indexify_state;
-        let executor_id = ExecutorId::new(TEST_EXECUTOR_ID.to_string());
-
-        state.register_executor_connection(&executor_id).await;
-        let emitter = get_emitter(&state, &executor_id).await;
-
-        // Simulate a synced emitter with tracking state
-        {
-            let mut emitter = emitter.lock().await;
-            emitter.has_synced = true;
-            emitter.known_allocations.insert("alloc-1".to_string());
-            emitter
-                .known_containers
-                .insert("container-1".to_string(), Default::default());
-        }
-        {
-            let connections = state.executor_connections.read().await;
-            let conn = connections
-                .get(&executor_id)
-                .expect("executor connection should exist");
-            conn.push_commands(vec![executor_api_pb::Command {
-                seq: 99,
-                command: None,
-            }])
-            .await;
-        }
+        state
+            .enqueue_executor_commands(
+                &executor_id,
+                vec![
+                    executor_api_pb::Command {
+                        seq: 0,
+                        command: None,
+                    },
+                    executor_api_pb::Command {
+                        seq: 0,
+                        command: None,
+                    },
+                ],
+            )
+            .await?;
+        state.ack_executor_commands(&executor_id, 1).await?;
 
         // Re-register (simulates server asking for full state again)
         state.register_executor_connection(&executor_id).await;
 
-        // Emitter should be reset and pending commands cleared.
-        let emitter2 = get_emitter(&state, &executor_id).await;
-        {
-            let emitter = emitter2.lock().await;
-            assert!(
-                !emitter.has_synced,
-                "emitter should be reset to has_synced=false after re-registration"
-            );
-            assert!(
-                emitter.known_allocations.is_empty(),
-                "emitter allocations should be cleared after re-registration"
-            );
-            assert!(
-                emitter.known_containers.is_empty(),
-                "emitter containers should be cleared after re-registration"
-            );
-        }
+        // Pending commands must be cleared and durable cursors reset.
         {
             let connections = state.executor_connections.read().await;
             let conn = connections
@@ -1562,6 +1506,22 @@ mod tests {
                 "pending commands should be cleared after re-registration"
             );
         }
+        assert_eq!(
+            state.read_executor_cmd_ack(&executor_id).await?,
+            0,
+            "acked command cursor should reset on re-registration"
+        );
+        assert_eq!(
+            state.read_executor_cmd_next_seq(&executor_id).await?,
+            1,
+            "next command sequence should reset on re-registration"
+        );
+        let (acked, pending) = state.load_executor_pending_commands(&executor_id).await?;
+        assert_eq!(acked, 0, "restored ack cursor should be reset");
+        assert!(
+            pending.is_empty(),
+            "no persisted pending commands should remain after reset"
+        );
 
         Ok(())
     }
