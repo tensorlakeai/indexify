@@ -3023,8 +3023,7 @@ pub struct Snapshot {
     #[serde(default)]
     pub secret_names: Vec<String>,
     /// Upload URI for in-progress snapshots (set when snapshot is requested,
-    /// used by diff-based command generation to emit SnapshotContainer
-    /// commands).
+    /// used by command emission to emit SnapshotContainer commands).
     #[serde(default)]
     pub upload_uri: Option<String>,
 }

@@ -1091,16 +1091,6 @@ impl IndexifyState {
         }
     }
 
-    /// Return IDs of all currently connected executors.
-    pub async fn connected_executor_ids(&self) -> Vec<ExecutorId> {
-        self.executor_connections
-            .read()
-            .await
-            .keys()
-            .cloned()
-            .collect()
-    }
-
     /// Return executors affected by this scheduler batch.
     pub async fn affected_executors_from_update(
         &self,

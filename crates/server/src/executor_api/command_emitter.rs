@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use std::collections::{HashMap, HashSet};
 
 use crate::{executor_api::executor_api_pb, executors::ExecutorStateSnapshot};
