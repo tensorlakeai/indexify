@@ -72,6 +72,11 @@ pub struct ExecutorConnection {
     pending_results: Arc<tokio::sync::Mutex<Vec<executor_api_pb::SequencedAllocationResult>>>,
     /// Monotonic counter for result sequence numbers.
     next_result_seq: Arc<AtomicU64>,
+    /// Highest command sequence number acked by the dataplane.
+    /// Used to detect executor restarts (ack regression to 0/None).
+    last_acked_command_seq: Arc<AtomicU64>,
+    /// One-shot flag consumed by heartbeat to request a full-state sync.
+    request_full_state: Arc<atomic::AtomicBool>,
     /// Wakes a held poll_allocation_results request when new results arrive.
     results_notify: Arc<Notify>,
 
@@ -90,6 +95,8 @@ impl ExecutorConnection {
             commands_notify: Arc::new(Notify::new()),
             pending_results: Arc::new(tokio::sync::Mutex::new(Vec::new())),
             next_result_seq: Arc::new(AtomicU64::new(1)),
+            last_acked_command_seq: Arc::new(AtomicU64::new(0)),
+            request_full_state: Arc::new(atomic::AtomicBool::new(false)),
             results_notify: Arc::new(Notify::new()),
             command_generator_handle: None,
         }
@@ -114,6 +121,33 @@ impl ExecutorConnection {
     pub async fn drain_commands_up_to(&self, acked_seq: u64) {
         let mut buf = self.pending_commands.lock().await;
         buf.retain(|cmd| cmd.seq > acked_seq);
+    }
+
+    /// Observe command ack progression and detect regressions.
+    ///
+    /// Returns true when a regression is detected (e.g. ack resets from N>0 to
+    /// 0/None), which usually indicates dataplane local-state loss/restart.
+    pub fn observe_command_ack(&self, acked_seq: Option<u64>) -> bool {
+        let observed = acked_seq.unwrap_or(0);
+        let prev = self.last_acked_command_seq.load(atomic::Ordering::Relaxed);
+        if observed < prev {
+            self.last_acked_command_seq
+                .store(0, atomic::Ordering::Relaxed);
+            self.request_full_state
+                .store(true, atomic::Ordering::SeqCst);
+            return true;
+        }
+        if observed > prev {
+            self.last_acked_command_seq
+                .store(observed, atomic::Ordering::Relaxed);
+        }
+        false
+    }
+
+    /// Consume and clear the one-shot full-state request flag.
+    pub fn take_full_state_request(&self) -> bool {
+        self.request_full_state
+            .swap(false, atomic::Ordering::SeqCst)
     }
 
     /// Buffer a new allocation log entry as a sequenced result and wake any
@@ -157,6 +191,10 @@ impl ExecutorConnection {
     pub async fn reset_emitter(&self) {
         let mut emitter = self.emitter.lock().await;
         *emitter = CommandEmitter::new();
+        self.last_acked_command_seq
+            .store(0, atomic::Ordering::Relaxed);
+        self.request_full_state
+            .store(false, atomic::Ordering::SeqCst);
     }
 }
 

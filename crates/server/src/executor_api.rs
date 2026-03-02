@@ -573,6 +573,14 @@ async fn long_poll_commands(
         return vec![];
     };
 
+    if conn.observe_command_ack(acked_seq) {
+        warn!(
+            executor_id = executor_id.get(),
+            observed_ack = ?acked_seq,
+            "detected command ack regression; requesting full state sync"
+        );
+    }
+
     if let Some(seq) = acked_seq {
         conn.drain_commands_up_to(seq).await;
     }
@@ -683,7 +691,19 @@ impl ExecutorApi for ExecutorAPIService {
             }));
         }
 
-        let send_state = !executor_known;
+        let mut send_state = !executor_known;
+        if executor_known && !send_state {
+            let connections = self.indexify_state.executor_connections.read().await;
+            if let Some(conn) = connections.get(&executor_id) &&
+                conn.take_full_state_request()
+            {
+                info!(
+                    executor_id = executor_id.get(),
+                    "requesting full state after command ack regression"
+                );
+                send_state = true;
+            }
+        }
 
         Ok(Response::new(executor_api_pb::HeartbeatResponse {
             send_state: Some(send_state),
@@ -954,6 +974,10 @@ mod tests {
             replay_mode: None,
             last_event_clock: None,
         }
+    }
+
+    fn make_command(seq: u64) -> executor_api_pb::Command {
+        executor_api_pb::Command { seq, command: None }
     }
 
     fn make_call_function_log_entry(
@@ -1305,6 +1329,114 @@ mod tests {
                 .await;
             assert!(!runtime_data.contains_key(&executor_id));
         }
+    }
+
+    #[tokio::test]
+    async fn test_ack_regression_requests_full_state_on_next_heartbeat() {
+        let test_service = TestService::new().await.unwrap();
+        let api = super::ExecutorAPIService::new(
+            test_service.service.indexify_state.clone(),
+            test_service.service.executor_manager.clone(),
+            test_service.service.blob_storage_registry.clone(),
+        );
+        let executor_id = crate::data_model::ExecutorId::from("executor-ack-regression");
+
+        api.handle_full_state(
+            &executor_id,
+            executor_api_pb::DataplaneStateFullSync::default(),
+        )
+        .await
+        .unwrap();
+
+        // Seed one pending command so poll_commands returns immediately.
+        {
+            let connections = test_service
+                .service
+                .indexify_state
+                .executor_connections
+                .read()
+                .await;
+            let conn = connections
+                .get(&executor_id)
+                .expect("executor connection should exist");
+            conn.push_commands(vec![make_command(10)]).await;
+        }
+
+        // First poll reports a non-zero ack baseline.
+        let _ = ExecutorApi::poll_commands(
+            &api,
+            Request::new(executor_api_pb::PollCommandsRequest {
+                executor_id: executor_id.get().to_string(),
+                acked_command_seq: Some(5),
+            }),
+        )
+        .await
+        .unwrap();
+
+        let hb1 = ExecutorApi::heartbeat(
+            &api,
+            Request::new(executor_api_pb::HeartbeatRequest {
+                executor_id: Some(executor_id.get().to_string()),
+                status: Some(executor_api_pb::ExecutorStatus::Running.into()),
+                full_state: None,
+                command_responses: vec![],
+                allocation_outcomes: vec![],
+                allocation_log_entries: vec![],
+            }),
+        )
+        .await
+        .unwrap()
+        .into_inner();
+        assert_eq!(hb1.send_state, Some(false));
+
+        // Second poll regresses ack to None (0), which should trigger
+        // a one-shot full-state request on the next heartbeat.
+        let _ = ExecutorApi::poll_commands(
+            &api,
+            Request::new(executor_api_pb::PollCommandsRequest {
+                executor_id: executor_id.get().to_string(),
+                acked_command_seq: None,
+            }),
+        )
+        .await
+        .unwrap();
+
+        let hb2 = ExecutorApi::heartbeat(
+            &api,
+            Request::new(executor_api_pb::HeartbeatRequest {
+                executor_id: Some(executor_id.get().to_string()),
+                status: Some(executor_api_pb::ExecutorStatus::Running.into()),
+                full_state: None,
+                command_responses: vec![],
+                allocation_outcomes: vec![],
+                allocation_log_entries: vec![],
+            }),
+        )
+        .await
+        .unwrap()
+        .into_inner();
+        assert_eq!(
+            hb2.send_state,
+            Some(true),
+            "ack regression should request full state on next heartbeat"
+        );
+
+        // One-shot: subsequent heartbeat should clear the flag.
+        let hb3 = ExecutorApi::heartbeat(
+            &api,
+            Request::new(executor_api_pb::HeartbeatRequest {
+                executor_id: Some(executor_id.get().to_string()),
+                status: Some(executor_api_pb::ExecutorStatus::Running.into()),
+                full_state: None,
+                command_responses: vec![],
+                allocation_outcomes: vec![],
+                allocation_log_entries: vec![],
+            }),
+        )
+        .await
+        .unwrap()
+        .into_inner();
+        assert_eq!(hb3.send_state, Some(false));
     }
 
     #[tokio::test]
