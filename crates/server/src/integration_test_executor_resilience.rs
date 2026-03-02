@@ -6,6 +6,8 @@ use anyhow::Result;
 use tonic::Request;
 
 use crate::{
+    blob_store::BlobStorageConfig,
+    config::ServerConfig,
     data_model,
     executor_api::{
         ExecutorAPIService,
@@ -28,8 +30,17 @@ use crate::{
             executor_api_server::ExecutorApi,
         },
     },
-    executors::EXECUTOR_TIMEOUT,
-    state_store::requests::{RequestPayload, SchedulerUpdatePayload, SchedulerUpdateRequest, StateMachineUpdateRequest},
+    executors::{EXECUTOR_TIMEOUT, STARTUP_EXECUTOR_TIMEOUT},
+    service::Service,
+    state_store::{
+        driver::rocksdb::RocksDBConfig,
+        requests::{
+            RequestPayload,
+            SchedulerUpdatePayload,
+            SchedulerUpdateRequest,
+            StateMachineUpdateRequest,
+        },
+    },
     testing::TestService,
 };
 
@@ -271,6 +282,164 @@ async fn test_router_recreation_still_routes_results_from_persisted_routes() -> 
     assert!(
         test_service
             .service
+            .indexify_state
+            .get_function_call_route(child_fc)
+            .await?
+            .is_none(),
+        "route should be removed after successful routing"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_service_restart_still_routes_results_from_persisted_routes() -> Result<()> {
+    tokio::time::pause();
+    let temp_dir = tempfile::tempdir()?;
+    let state_store_path = temp_dir
+        .path()
+        .join("state_store")
+        .to_str()
+        .unwrap()
+        .to_string();
+    let blob_store_path = format!(
+        "file://{}",
+        temp_dir.path().join("blob_store").to_str().unwrap()
+    );
+    let executor_id = "executor-route-restart-real";
+    let child_fc = "child-fc-route-restart-real";
+
+    let service1 = Service::new(ServerConfig {
+        state_store_path: state_store_path.clone(),
+        rocksdb_config: RocksDBConfig::default(),
+        blob_storage: BlobStorageConfig {
+            path: blob_store_path.clone(),
+            region: None,
+        },
+        ..Default::default()
+    })
+    .await?;
+    // Let startup cleanup task install its sleep before we advance virtual
+    // time later, so it can fully complete and release DB resources.
+    tokio::task::yield_now().await;
+    let api1 = ExecutorAPIService::new(
+        service1.indexify_state.clone(),
+        service1.executor_manager.clone(),
+        service1.blob_storage_registry.clone(),
+    );
+
+    heartbeat_full_state(&api1, executor_id).await?;
+    ExecutorApi::heartbeat(
+        &api1,
+        Request::new(HeartbeatRequest {
+            executor_id: Some(executor_id.to_string()),
+            status: Some(executor_api_pb::ExecutorStatus::Running.into()),
+            full_state: None,
+            command_responses: vec![],
+            allocation_outcomes: vec![],
+            allocation_log_entries: vec![make_call_function_log_entry(
+                "parent-alloc-restart-real",
+                child_fc,
+            )],
+        }),
+    )
+    .await?;
+
+    assert!(
+        service1
+            .indexify_state
+            .get_function_call_route(child_fc)
+            .await?
+            .is_some(),
+        "route should be persisted before service restart"
+    );
+
+    // Seed child allocation so completion ingestion succeeds.
+    let child_allocation = data_model::AllocationBuilder::default()
+        .target(data_model::AllocationTarget::new(
+            data_model::ExecutorId::from(executor_id),
+            data_model::ContainerId::new("child-container-restart-real".to_string()),
+        ))
+        .function_call_id(data_model::FunctionCallId::from(child_fc))
+        .namespace("ns".to_string())
+        .application("app".to_string())
+        .application_version("v1".to_string())
+        .function("child-fn".to_string())
+        .request_id("req-1".to_string())
+        .outcome(data_model::FunctionRunOutcome::Unknown)
+        .input_args(vec![])
+        .call_metadata(bytes::Bytes::new())
+        .build()?;
+    let child_allocation_id = child_allocation.id.to_string();
+    let mut update = SchedulerUpdateRequest::default();
+    update.new_allocations.push(child_allocation);
+    service1
+        .indexify_state
+        .write(StateMachineUpdateRequest {
+            payload: RequestPayload::SchedulerUpdate(SchedulerUpdatePayload::new(update)),
+        })
+        .await?;
+
+    drop(api1);
+    drop(service1);
+    tokio::time::advance(STARTUP_EXECUTOR_TIMEOUT + Duration::from_secs(1)).await;
+    tokio::task::yield_now().await;
+
+    let service2 = Service::new(ServerConfig {
+        state_store_path,
+        rocksdb_config: RocksDBConfig::default(),
+        blob_storage: BlobStorageConfig {
+            path: blob_store_path,
+            region: None,
+        },
+        ..Default::default()
+    })
+    .await?;
+    assert!(
+        service2
+            .indexify_state
+            .get_function_call_route(child_fc)
+            .await?
+            .is_some(),
+        "route should be recoverable from persisted state after restart"
+    );
+    let api2 = Arc::new(ExecutorAPIService::new(
+        service2.indexify_state.clone(),
+        service2.executor_manager.clone(),
+        service2.blob_storage_registry.clone(),
+    ));
+    heartbeat_full_state(api2.as_ref(), executor_id).await?;
+
+    ExecutorApi::heartbeat(
+        api2.as_ref(),
+        Request::new(HeartbeatRequest {
+            executor_id: Some(executor_id.to_string()),
+            status: Some(executor_api_pb::ExecutorStatus::Running.into()),
+            full_state: None,
+            command_responses: vec![],
+            allocation_outcomes: vec![make_completed_outcome(child_fc, &child_allocation_id)],
+            allocation_log_entries: vec![],
+        }),
+    )
+    .await?;
+
+    let results = ExecutorApi::poll_allocation_results(
+        api2.as_ref(),
+        Request::new(PollAllocationResultsRequest {
+            executor_id: executor_id.to_string(),
+            acked_result_seq: None,
+        }),
+    )
+    .await?
+    .into_inner()
+    .results;
+    assert_eq!(
+        results.len(),
+        1,
+        "expected routed result after full service restart"
+    );
+    assert!(
+        service2
             .indexify_state
             .get_function_call_route(child_fc)
             .await?
