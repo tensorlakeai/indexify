@@ -1011,9 +1011,9 @@ impl IndexifyState {
         Ok(purged)
     }
 
-    /// Ensure an executor connection exists with a fresh emitter. Called
-    /// during registration (handle_v2_full_state) so commands/results can be
-    /// buffered for long-poll delivery.
+    /// Ensure an executor connection exists with a fresh command buffer.
+    /// Called during registration (handle_v2_full_state) so commands/results
+    /// can be buffered for long-poll delivery.
     ///
     /// If a connection already exists (re-registration without prior
     /// deregister), command emission state and persisted outbox are reset so
@@ -1049,7 +1049,7 @@ impl IndexifyState {
             std::collections::hash_map::Entry::Occupied(entry) => {
                 info!(
                     executor_id = executor_id.get(),
-                    "re-registration: resetting command outbox and emitter"
+                    "re-registration: resetting command outbox and command buffers"
                 );
                 existing_conn = Some(entry.get().clone());
             }

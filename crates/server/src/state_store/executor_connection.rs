@@ -5,21 +5,17 @@ use std::sync::{
 
 use tokio::sync::Notify;
 
-use crate::executor_api::{CommandEmitter, executor_api_pb};
+use crate::executor_api::executor_api_pb;
 
 /// Server-side connection state for a single executor.
 /// Created on registration, destroyed on deregistration.
 ///
-/// Holds the command emitter and buffered commands/results for long-poll
-/// delivery. Command emission is update-driven by scheduler batches and
-/// full-sync reconnects.
+/// Holds buffered commands/results for long-poll delivery. Command emission is
+/// update-driven by scheduler batches and full-sync reconnects.
 #[derive(Clone)]
 pub struct ExecutorConnection {
-    /// Command emitter — persists across reconnections.
-    /// Fresh emitter (has_synced=false) on first registration.
-    pub emitter: Arc<tokio::sync::Mutex<CommandEmitter>>,
     /// Serializes command emission + outbox enqueue per executor.
-    /// Prevents concurrent emitters from interleaving sequence/state updates.
+    /// Prevents concurrent emission tasks from interleaving sequence updates.
     pub command_emit_lock: Arc<tokio::sync::Mutex<()>>,
 
     /// Buffered commands for poll_commands delivery.
@@ -44,7 +40,6 @@ impl ExecutorConnection {
     /// Create a new connection (executor just registered).
     pub fn new() -> Self {
         Self {
-            emitter: Arc::new(tokio::sync::Mutex::new(CommandEmitter::new())),
             command_emit_lock: Arc::new(tokio::sync::Mutex::new(())),
             pending_commands: Arc::new(tokio::sync::Mutex::new(Vec::new())),
             commands_notify: Arc::new(Notify::new()),
@@ -155,11 +150,8 @@ impl ExecutorConnection {
 
     /// Reset command emission state for a reconnect/full-sync handshake.
     ///
-    /// Clears the pending command outbox and resets emitter tracking so the
-    /// next emit computes from a clean baseline and sequence cursor.
+    /// Clears the pending command outbox and resets command cursors.
     pub async fn reset_for_full_sync(&self) {
-        let mut emitter = self.emitter.lock().await;
-        *emitter = CommandEmitter::new();
         self.pending_commands.lock().await.clear();
         self.last_acked_command_seq
             .store(0, atomic::Ordering::Relaxed);

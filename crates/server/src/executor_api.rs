@@ -6,13 +6,11 @@ pub use proto_api::executor_api_pb;
 use tonic::{Request, Response, Status};
 use tracing::{info, warn};
 
-mod command_emitter;
 mod heartbeat_helpers;
 mod polling;
 mod report_processing;
 mod result_routing;
 
-pub use command_emitter::CommandEmitter;
 use polling::{long_poll_commands, long_poll_results};
 pub use report_processing::{
     process_allocation_completed,

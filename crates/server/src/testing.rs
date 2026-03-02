@@ -117,12 +117,15 @@ impl TestService {
             executor_id: executor.id.clone(),
             executor_metadata: executor.clone(),
             test_service: self,
-            command_emitter: crate::executor_api::CommandEmitter::new(),
         };
 
         // Initial registration — mirrors the production flow where an executor
         // connects and sends its full state on the first heartbeat.
         e.sync_executor_state(executor.clone()).await?;
+        self.service
+            .indexify_state
+            .register_executor_connection(&executor.id)
+            .await;
 
         Ok(e)
     }
@@ -313,25 +316,53 @@ pub struct TestExecutor<'a> {
     pub executor_id: ExecutorId,
     pub executor_metadata: ExecutorMetadata,
     pub test_service: &'a TestService,
-    pub command_emitter: crate::executor_api::CommandEmitter,
 }
 
 impl TestExecutor<'_> {
-    /// Get commands emitted since last call, based on current desired state.
+    /// Get and acknowledge commands buffered for this executor since last call.
     pub async fn pending_commands(&mut self) -> Vec<crate::executor_api::executor_api_pb::Command> {
-        let snapshot = self
-            .test_service
-            .service
-            .executor_manager
-            .get_executor_state(&self.executor_id)
-            .await
-            .unwrap();
-        let commands = self.command_emitter.emit_commands(&snapshot);
-        self.command_emitter.commit_snapshot(&snapshot);
+        let commands = {
+            let connections = self
+                .test_service
+                .service
+                .indexify_state
+                .executor_connections
+                .read()
+                .await;
+            let conn = connections
+                .get(&self.executor_id)
+                .expect("executor connection should exist");
+            conn.clone_commands().await
+        };
+
+        if commands.is_empty() {
+            return commands;
+        }
+
+        let ack_seq = commands.iter().map(|c| c.seq).max().unwrap_or(0);
+        if ack_seq > 0 {
+            self.test_service
+                .service
+                .indexify_state
+                .ack_executor_commands(&self.executor_id, ack_seq)
+                .await
+                .expect("ack_executor_commands should succeed");
+            let connections = self
+                .test_service
+                .service
+                .indexify_state
+                .executor_connections
+                .read()
+                .await;
+            if let Some(conn) = connections.get(&self.executor_id) {
+                conn.drain_commands_up_to(ack_seq).await;
+            }
+        }
+
         commands
     }
 
-    /// Receive pending commands from the CommandEmitter, categorized by type.
+    /// Receive pending commands, categorized by type.
     /// Mirrors production: executor receives commands and acts on them.
     pub async fn recv_commands(&mut self) -> ReceivedCommands {
         let commands = self.pending_commands().await;
