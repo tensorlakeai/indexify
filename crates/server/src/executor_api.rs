@@ -1144,7 +1144,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_outcome_ingest_failure_keeps_router_entry_for_retry() {
+    async fn test_outcome_ingest_failure_does_not_fail_heartbeat_and_keeps_router_entry() {
         let test_service = TestService::new().await.unwrap();
         let api = super::ExecutorAPIService::new(
             test_service.service.indexify_state.clone(),
@@ -1186,9 +1186,9 @@ mod tests {
             "expected one pending route before ingest failure"
         );
 
-        // Send a completion that references a missing allocation. Heartbeat
-        // must fail so dataplane retries, and router entry must be retained.
-        let err = ExecutorApi::heartbeat(
+        // Send a completion that references a missing allocation. The server
+        // should log and skip the bad item but keep processing the batch.
+        ExecutorApi::heartbeat(
             &api,
             Request::new(executor_api_pb::HeartbeatRequest {
                 executor_id: Some(executor_id.get().to_string()),
@@ -1203,13 +1203,118 @@ mod tests {
             }),
         )
         .await
-        .expect_err("heartbeat must fail when outcome ingestion fails");
-        assert_eq!(err.code(), tonic::Code::Internal);
+        .expect("heartbeat should not fail due to one bad outcome");
 
         assert_eq!(
             api.function_call_result_router.pending_len().await,
             1,
-            "router entry should remain so retried outcome can still route"
+            "router entry should remain when the outcome could not be ingested"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_outcome_ingest_failure_does_not_block_log_entries_in_same_heartbeat() {
+        let test_service = TestService::new().await.unwrap();
+        let api = super::ExecutorAPIService::new(
+            test_service.service.indexify_state.clone(),
+            test_service.service.executor_manager.clone(),
+            test_service.service.blob_storage_registry.clone(),
+        );
+
+        let executor_id = crate::data_model::ExecutorId::from("executor-batch-continue-on-error");
+        let routed_fc_id = "child-fc-batch-continue";
+
+        api.handle_full_state(
+            &executor_id,
+            executor_api_pb::DataplaneStateFullSync::default(),
+        )
+        .await
+        .unwrap();
+
+        // The first outcome references a missing allocation (ingest failure).
+        // The log entry in the same heartbeat must still be processed.
+        ExecutorApi::heartbeat(
+            &api,
+            Request::new(executor_api_pb::HeartbeatRequest {
+                executor_id: Some(executor_id.get().to_string()),
+                status: Some(executor_api_pb::ExecutorStatus::Running.into()),
+                full_state: None,
+                command_responses: vec![],
+                allocation_outcomes: vec![make_completed_outcome(
+                    "child-fc-missing-allocation",
+                    "missing-allocation",
+                )],
+                allocation_log_entries: vec![make_call_function_log_entry(
+                    "parent-batch-continue",
+                    routed_fc_id,
+                )],
+            }),
+        )
+        .await
+        .expect("heartbeat should continue processing remaining batch items");
+
+        assert_eq!(
+            api.function_call_result_router.pending_len().await,
+            1,
+            "valid log entry should still register a route after a bad outcome"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_malformed_log_entry_does_not_block_following_log_entries() {
+        let test_service = TestService::new().await.unwrap();
+        let api = super::ExecutorAPIService::new(
+            test_service.service.indexify_state.clone(),
+            test_service.service.executor_manager.clone(),
+            test_service.service.blob_storage_registry.clone(),
+        );
+
+        let executor_id =
+            crate::data_model::ExecutorId::from("executor-log-entry-continue-on-error");
+        let routed_fc_id = "child-fc-log-entry-continue";
+
+        api.handle_full_state(
+            &executor_id,
+            executor_api_pb::DataplaneStateFullSync::default(),
+        )
+        .await
+        .unwrap();
+
+        let malformed_log_entry = executor_api_pb::AllocationLogEntry {
+            allocation_id: "parent-malformed".to_string(),
+            clock: 0,
+            entry: Some(executor_api_pb::allocation_log_entry::Entry::CallFunction(
+                executor_api_pb::FunctionCallRequest {
+                    namespace: Some("ns".to_string()),
+                    application: Some("app".to_string()),
+                    request_id: Some("req-1".to_string()),
+                    source_function_call_id: Some("source-fc".to_string()),
+                    updates: None,
+                },
+            )),
+        };
+
+        ExecutorApi::heartbeat(
+            &api,
+            Request::new(executor_api_pb::HeartbeatRequest {
+                executor_id: Some(executor_id.get().to_string()),
+                status: Some(executor_api_pb::ExecutorStatus::Running.into()),
+                full_state: None,
+                command_responses: vec![],
+                allocation_outcomes: vec![],
+                allocation_log_entries: vec![
+                    malformed_log_entry,
+                    make_call_function_log_entry("parent-valid", routed_fc_id),
+                ],
+            }),
+        )
+        .await
+        .expect("heartbeat should continue processing log entries after malformed input");
+
+        assert_eq!(
+            api.function_call_result_router.pending_len().await,
+            1,
+            "valid log entries should still register routes after malformed entries"
         );
     }
 

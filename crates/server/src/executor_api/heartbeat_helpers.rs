@@ -67,27 +67,27 @@ impl ExecutorAPIService {
         for item in allocation_outcomes {
             match item.outcome {
                 Some(executor_api_pb::allocation_outcome::Outcome::Completed(completed)) => {
-                    // Ingest first, then route. If ingestion fails, return an
-                    // RPC error so dataplane retains the outcome for retry.
+                    // Ingest first, then route. If ingestion fails, log and
+                    // continue so one bad item does not block the rest.
                     let completed_for_routing = completed
                         .function_call_id
                         .as_ref()
                         .map(|_| completed.clone());
-                    process_allocation_completed(
+                    if let Err(e) = process_allocation_completed(
                         &self.indexify_state,
                         &self.blob_storage_registry,
                         executor_id,
                         completed,
                     )
                     .await
-                    .map_err(|e| {
+                    {
                         warn!(
                             executor_id = executor_id.get(),
                             error = %e,
                             "heartbeat: process_allocation_completed failed"
                         );
-                        Status::internal(e.to_string())
-                    })?;
+                        continue;
+                    }
                     if let Some(completed) = &completed_for_routing &&
                         let Some(fc_id) = completed.function_call_id.as_deref()
                     {
@@ -101,25 +101,25 @@ impl ExecutorAPIService {
                     }
                 }
                 Some(executor_api_pb::allocation_outcome::Outcome::Failed(failed)) => {
-                    // Ingest first, then route. If ingestion fails, return an
-                    // RPC error so dataplane retains the outcome for retry.
+                    // Ingest first, then route. If ingestion fails, log and
+                    // continue so one bad item does not block the rest.
                     let failed_for_routing =
                         failed.function_call_id.as_ref().map(|_| failed.clone());
-                    process_allocation_failed(
+                    if let Err(e) = process_allocation_failed(
                         &self.indexify_state,
                         &self.blob_storage_registry,
                         executor_id,
                         failed,
                     )
                     .await
-                    .map_err(|e| {
+                    {
                         warn!(
                             executor_id = executor_id.get(),
                             error = %e,
                             "heartbeat: process_allocation_failed failed"
                         );
-                        Status::internal(e.to_string())
-                    })?;
+                        continue;
+                    }
                     if let Some(failed) = &failed_for_routing &&
                         let Some(fc_id) = failed.function_call_id.as_deref()
                     {
@@ -145,7 +145,7 @@ impl ExecutorAPIService {
         allocation_log_entries: Vec<executor_api_pb::AllocationLogEntry>,
     ) -> Result<(), Status> {
         for log_entry in allocation_log_entries {
-            handle_log_entry(
+            if let Err(e) = handle_log_entry(
                 &log_entry,
                 executor_id,
                 &self.function_call_result_router,
@@ -153,14 +153,14 @@ impl ExecutorAPIService {
                 &self.blob_storage_registry,
             )
             .await
-            .map_err(|e| {
+            {
                 warn!(
                     executor_id = executor_id.get(),
                     error = %e,
                     "heartbeat: handle_log_entry_v2 failed"
                 );
-                Status::internal(e.to_string())
-            })?;
+                continue;
+            }
         }
 
         Ok(())
