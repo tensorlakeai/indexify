@@ -950,6 +950,7 @@ impl IndexifyState {
         StateStoreEncoder::decode::<u64>(&bytes)
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     async fn read_executor_cmd_next_seq(&self, executor_id: &ExecutorId) -> Result<u64> {
         let key = Self::executor_cmd_next_key(executor_id);
         let Some(bytes) = self
@@ -1011,7 +1012,17 @@ impl IndexifyState {
         }
 
         let txn = self.db.transaction();
-        let mut next_seq = self.read_executor_cmd_next_seq(executor_id).await?;
+        let next_key = Self::executor_cmd_next_key(executor_id);
+        let mut next_seq = match txn
+            .get(
+                IndexifyObjectsColumns::ExecutorCommandOutbox.as_ref(),
+                next_key.as_slice(),
+            )
+            .await?
+        {
+            Some(bytes) => StateStoreEncoder::decode::<u64>(&bytes)?,
+            None => 1,
+        };
         for cmd in &mut commands {
             cmd.seq = next_seq;
             let key = Self::executor_cmd_key(executor_id, next_seq);
@@ -1024,7 +1035,6 @@ impl IndexifyState {
             next_seq = next_seq.saturating_add(1);
         }
 
-        let next_key = Self::executor_cmd_next_key(executor_id);
         let next_bytes = StateStoreEncoder::encode(&next_seq)?;
         txn.put(
             IndexifyObjectsColumns::ExecutorCommandOutbox.as_ref(),
