@@ -11,6 +11,9 @@ if [[ -z "$TENSORLAKE_API_URL" ]]; then
     exit 1
 fi
 
+# Hard timeout per test file to prevent indefinite hangs in CI.
+TEST_FILE_TIMEOUT_SEC="${TEST_FILE_TIMEOUT_SEC:-900}"
+
 tests_exit_code=0
 
 run_test_suite() {
@@ -22,10 +25,27 @@ run_test_suite() {
     echo "========================================"
     echo "Running: $test_file ($test_suite_name)"
     echo "========================================"
-    python3 $test_file
-    local test_file_exit_code=$?
+    local test_file_exit_code=0
+    if command -v timeout >/dev/null 2>&1; then
+      if timeout --signal=TERM --kill-after=30s "${TEST_FILE_TIMEOUT_SEC}s" python3 "$test_file"; then
+        test_file_exit_code=0
+      else
+        test_file_exit_code=$?
+      fi
+    else
+      if python3 "$test_file"; then
+        test_file_exit_code=0
+      else
+        test_file_exit_code=$?
+      fi
+    fi
+
     if [ $test_file_exit_code -ne 0 ]; then
-      echo "FAILED: $test_file ($test_suite_name)" | tee -a $summary_file
+      if [ $test_file_exit_code -eq 124 ]; then
+        echo "FAILED: $test_file ($test_suite_name) [TIMEOUT ${TEST_FILE_TIMEOUT_SEC}s]" | tee -a $summary_file
+      else
+        echo "FAILED: $test_file ($test_suite_name)" | tee -a $summary_file
+      fi
     else
       echo "PASSED: $test_file ($test_suite_name)"
     fi
