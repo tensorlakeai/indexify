@@ -13,6 +13,7 @@ mod result_routing;
 
 use polling::{long_poll_commands, long_poll_results};
 pub use report_processing::{
+    AllocationIngestDisposition,
     process_allocation_completed,
     process_allocation_failed,
     process_command_responses,
@@ -326,7 +327,7 @@ mod tests {
     use proto_api::executor_api_pb;
     use tonic::Request;
 
-    use super::executor_api_pb::executor_api_server::ExecutorApi;
+    use super::{executor_api_pb::executor_api_server::ExecutorApi, process_command_responses};
     use crate::{
         data_model::{self, ContainerTerminationReason, ContainerType},
         executors::EXECUTOR_TIMEOUT,
@@ -1144,7 +1145,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_missing_allocation_outcome_is_idempotent_noop_and_routes_result() {
+    async fn test_missing_allocation_outcome_is_idempotent_noop_and_does_not_route_result() {
         let test_service = TestService::new().await.unwrap();
         let api = super::ExecutorAPIService::new(
             test_service.service.indexify_state.clone(),
@@ -1207,13 +1208,13 @@ mod tests {
 
         assert_eq!(
             api.function_call_result_router.pending_len().await,
-            0,
-            "route should be consumed when duplicate outcome is treated as no-op"
+            1,
+            "route should remain pending when outcome ingest is a no-op"
         );
     }
 
     #[tokio::test]
-    async fn test_outcome_ingest_failure_does_not_block_log_entries_in_same_heartbeat() {
+    async fn test_outcome_noop_does_not_block_log_entries_in_same_heartbeat() {
         let test_service = TestService::new().await.unwrap();
         let api = super::ExecutorAPIService::new(
             test_service.service.indexify_state.clone(),
@@ -1231,7 +1232,7 @@ mod tests {
         .await
         .unwrap();
 
-        // The first outcome references a missing allocation (ingest failure).
+        // The first outcome references a missing allocation (idempotent no-op).
         // The log entry in the same heartbeat must still be processed.
         ExecutorApi::heartbeat(
             &api,
@@ -1256,7 +1257,50 @@ mod tests {
         assert_eq!(
             api.function_call_result_router.pending_len().await,
             1,
-            "valid log entry should still register a route after a bad outcome"
+            "valid log entry should still register a route after a no-op outcome"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_process_command_responses_counts_all_invalid_items() {
+        let test_service = TestService::new().await.unwrap();
+        let executor_id = crate::data_model::ExecutorId::from("executor-command-response-counts");
+
+        let bad_snapshot_completed = executor_api_pb::CommandResponse {
+            command_seq: Some(1),
+            response: Some(
+                executor_api_pb::command_response::Response::SnapshotCompleted(
+                    executor_api_pb::SnapshotCompleted {
+                        container_id: "container-1".to_string(),
+                        snapshot_id: "".to_string(),
+                        snapshot_uri: "".to_string(),
+                        size_bytes: 0,
+                    },
+                ),
+            ),
+        };
+        let bad_snapshot_failed = executor_api_pb::CommandResponse {
+            command_seq: Some(2),
+            response: Some(executor_api_pb::command_response::Response::SnapshotFailed(
+                executor_api_pb::SnapshotFailed {
+                    container_id: "container-2".to_string(),
+                    snapshot_id: "".to_string(),
+                    error_message: "failed".to_string(),
+                },
+            )),
+        };
+
+        let failures = process_command_responses(
+            &test_service.service.indexify_state,
+            &executor_id,
+            vec![bad_snapshot_completed, bad_snapshot_failed],
+        )
+        .await
+        .expect("batch should continue and report per-item failures");
+
+        assert_eq!(
+            failures, 2,
+            "all invalid command responses should be counted, not fail-fast"
         );
     }
 

@@ -10,6 +10,12 @@ use crate::{
     },
 };
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AllocationIngestDisposition {
+    Applied,
+    SkippedNoop,
+}
+
 /// Process command responses from a dataplane executor.
 ///
 /// Converts proto `CommandResponse` messages into a single
@@ -20,9 +26,10 @@ pub async fn process_command_responses(
     indexify_state: &Arc<IndexifyState>,
     executor_id: &ExecutorId,
     responses: Vec<executor_api_pb::CommandResponse>,
-) -> Result<()> {
+) -> Result<usize> {
     use data_model::ContainerStateUpdateInfo;
 
+    let mut failed_items = 0usize;
     let mut container_state_updates = Vec::new();
     let mut container_started_ids = Vec::new();
 
@@ -73,7 +80,17 @@ pub async fn process_command_responses(
                     size_bytes = completed.size_bytes,
                     "SnapshotCompleted received"
                 );
-                handle_snapshot_completed(indexify_state, &completed).await?;
+                if let Err(err) = handle_snapshot_completed(indexify_state, &completed).await {
+                    warn!(
+                        executor_id = executor_id.get(),
+                        command_seq = ?resp.command_seq,
+                        container_id = %completed.container_id,
+                        snapshot_id = %completed.snapshot_id,
+                        error = %err,
+                        "SnapshotCompleted ingest failed"
+                    );
+                    failed_items = failed_items.saturating_add(1);
+                }
             }
             executor_api_pb::command_response::Response::SnapshotFailed(failed) => {
                 warn!(
@@ -83,13 +100,23 @@ pub async fn process_command_responses(
                     error = %failed.error_message,
                     "SnapshotFailed received"
                 );
-                handle_snapshot_failed(indexify_state, &failed).await?;
+                if let Err(err) = handle_snapshot_failed(indexify_state, &failed).await {
+                    warn!(
+                        executor_id = executor_id.get(),
+                        command_seq = ?resp.command_seq,
+                        container_id = %failed.container_id,
+                        snapshot_id = %failed.snapshot_id,
+                        error = %err,
+                        "SnapshotFailed ingest failed"
+                    );
+                    failed_items = failed_items.saturating_add(1);
+                }
             }
         }
     }
 
     if container_state_updates.is_empty() && container_started_ids.is_empty() {
-        return Ok(());
+        return Ok(failed_items);
     }
 
     write_dataplane_results(
@@ -99,7 +126,9 @@ pub async fn process_command_responses(
         container_state_updates,
         container_started_ids,
     )
-    .await
+    .await?;
+
+    Ok(failed_items)
 }
 
 /// Process a single AllocationCompleted message.
@@ -108,7 +137,7 @@ pub async fn process_allocation_completed(
     blob_storage_registry: &Arc<BlobStorageRegistry>,
     executor_id: &ExecutorId,
     completed: executor_api_pb::AllocationCompleted,
-) -> Result<()> {
+) -> Result<AllocationIngestDisposition> {
     use data_model::{AllocationOutputIngestedEvent, FunctionRunOutcome, GraphUpdates};
 
     let function = completed
@@ -150,7 +179,7 @@ pub async fn process_allocation_completed(
             function_call_id = %function_call_id,
             "AllocationCompleted: allocation not found, treating as idempotent no-op"
         );
-        return Ok(());
+        return Ok(AllocationIngestDisposition::SkippedNoop);
     };
 
     let (data_payload, graph_updates) = match completed.return_value {
@@ -248,7 +277,8 @@ pub async fn process_allocation_completed(
         execution_duration_ms: completed.execution_duration_ms,
     };
 
-    write_dataplane_results(indexify_state, executor_id, vec![event], vec![], vec![]).await
+    write_dataplane_results(indexify_state, executor_id, vec![event], vec![], vec![]).await?;
+    Ok(AllocationIngestDisposition::Applied)
 }
 
 /// Process a single AllocationFailed message.
@@ -257,7 +287,7 @@ pub async fn process_allocation_failed(
     blob_storage_registry: &Arc<BlobStorageRegistry>,
     executor_id: &ExecutorId,
     failed: executor_api_pb::AllocationFailed,
-) -> Result<()> {
+) -> Result<AllocationIngestDisposition> {
     use data_model::{AllocationOutputIngestedEvent, FunctionRunOutcome};
 
     let proto_reason = failed.reason();
@@ -301,7 +331,7 @@ pub async fn process_allocation_failed(
             failure_reason = ?proto_reason,
             "AllocationFailed: allocation not found, treating as idempotent no-op"
         );
-        return Ok(());
+        return Ok(AllocationIngestDisposition::SkippedNoop);
     };
 
     let request_exception = if let Some(dp) = failed.request_error {
@@ -375,7 +405,9 @@ pub async fn process_allocation_failed(
         container_state_updates,
         vec![],
     )
-    .await
+    .await?;
+
+    Ok(AllocationIngestDisposition::Applied)
 }
 
 /// Handle a snapshot completed response from the dataplane.

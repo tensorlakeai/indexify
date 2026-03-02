@@ -47,17 +47,22 @@ impl ExecutorAPIService {
 
         let mut failed_items = 0usize;
 
-        if !command_responses.is_empty() &&
-            let Err(e) =
-                process_command_responses(&self.indexify_state, executor_id, command_responses)
-                    .await
-        {
-            warn!(
-                executor_id = executor_id.get(),
-                error = %e,
-                "heartbeat: process_command_responses failed"
-            );
-            failed_items = failed_items.saturating_add(1);
+        if !command_responses.is_empty() {
+            match process_command_responses(&self.indexify_state, executor_id, command_responses)
+                .await
+            {
+                Ok(command_response_failures) => {
+                    failed_items = failed_items.saturating_add(command_response_failures);
+                }
+                Err(e) => {
+                    warn!(
+                        executor_id = executor_id.get(),
+                        error = %e,
+                        "heartbeat: process_command_responses failed"
+                    );
+                    failed_items = failed_items.saturating_add(1);
+                }
+            }
         }
 
         failed_items = failed_items.saturating_add(
@@ -94,7 +99,7 @@ impl ExecutorAPIService {
                         .function_call_id
                         .as_ref()
                         .map(|_| completed.clone());
-                    if let Err(e) = process_allocation_completed(
+                    match process_allocation_completed(
                         &self.indexify_state,
                         &self.blob_storage_registry,
                         executor_id,
@@ -102,24 +107,29 @@ impl ExecutorAPIService {
                     )
                     .await
                     {
-                        warn!(
-                            executor_id = executor_id.get(),
-                            error = %e,
-                            "heartbeat: process_allocation_completed failed"
-                        );
-                        failed_items = failed_items.saturating_add(1);
-                        continue;
-                    }
-                    if let Some(completed) = &completed_for_routing &&
-                        let Some(fc_id) = completed.function_call_id.as_deref()
-                    {
-                        try_route_result(
-                            &self.function_call_result_router,
-                            fc_id,
-                            completed,
-                            &self.indexify_state,
-                        )
-                        .await;
+                        Ok(AllocationIngestDisposition::Applied) => {
+                            if let Some(completed) = &completed_for_routing &&
+                                let Some(fc_id) = completed.function_call_id.as_deref()
+                            {
+                                try_route_result(
+                                    &self.function_call_result_router,
+                                    fc_id,
+                                    completed,
+                                    &self.indexify_state,
+                                )
+                                .await;
+                            }
+                        }
+                        Ok(AllocationIngestDisposition::SkippedNoop) => {}
+                        Err(e) => {
+                            warn!(
+                                executor_id = executor_id.get(),
+                                error = %e,
+                                "heartbeat: process_allocation_completed failed"
+                            );
+                            failed_items = failed_items.saturating_add(1);
+                            continue;
+                        }
                     }
                 }
                 Some(executor_api_pb::allocation_outcome::Outcome::Failed(failed)) => {
@@ -128,7 +138,7 @@ impl ExecutorAPIService {
                     // applied in this pass.
                     let failed_for_routing =
                         failed.function_call_id.as_ref().map(|_| failed.clone());
-                    if let Err(e) = process_allocation_failed(
+                    match process_allocation_failed(
                         &self.indexify_state,
                         &self.blob_storage_registry,
                         executor_id,
@@ -136,24 +146,29 @@ impl ExecutorAPIService {
                     )
                     .await
                     {
-                        warn!(
-                            executor_id = executor_id.get(),
-                            error = %e,
-                            "heartbeat: process_allocation_failed failed"
-                        );
-                        failed_items = failed_items.saturating_add(1);
-                        continue;
-                    }
-                    if let Some(failed) = &failed_for_routing &&
-                        let Some(fc_id) = failed.function_call_id.as_deref()
-                    {
-                        try_route_failure(
-                            &self.function_call_result_router,
-                            fc_id,
-                            failed,
-                            &self.indexify_state,
-                        )
-                        .await;
+                        Ok(AllocationIngestDisposition::Applied) => {
+                            if let Some(failed) = &failed_for_routing &&
+                                let Some(fc_id) = failed.function_call_id.as_deref()
+                            {
+                                try_route_failure(
+                                    &self.function_call_result_router,
+                                    fc_id,
+                                    failed,
+                                    &self.indexify_state,
+                                )
+                                .await;
+                            }
+                        }
+                        Ok(AllocationIngestDisposition::SkippedNoop) => {}
+                        Err(e) => {
+                            warn!(
+                                executor_id = executor_id.get(),
+                                error = %e,
+                                "heartbeat: process_allocation_failed failed"
+                            );
+                            failed_items = failed_items.saturating_add(1);
+                            continue;
+                        }
                     }
                 }
                 None => {}
