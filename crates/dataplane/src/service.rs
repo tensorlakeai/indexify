@@ -462,6 +462,10 @@ impl Service {
         // Always cancel all tasks and clean up, regardless of which branch triggered.
         cancel_token.cancel();
 
+        // Best-effort explicit shutdown signal so the server can deregister
+        // this executor immediately instead of waiting for heartbeat timeout.
+        runtime.send_stopped_heartbeat().await;
+
         // Graceful shutdown with force-exit fallback.
         // After cancel_token fires, background tasks may still hold the
         // state_reconciler lock while winding down.  A second Ctrl+C or a
@@ -558,6 +562,46 @@ impl ServiceRuntime {
                 reason,
                 "Connection state transition"
             );
+        }
+    }
+
+    /// Best-effort shutdown heartbeat with `status=STOPPED`.
+    ///
+    /// This allows the server to promptly deregister the executor and
+    /// reschedule in-flight work on other executors without waiting for the
+    /// heartbeat timeout window.
+    async fn send_stopped_heartbeat(&self) {
+        let mut client = ExecutorApiClient::new(self.channel.clone());
+        let req = proto_api::executor_api_pb::HeartbeatRequest {
+            executor_id: Some(self.identity.executor_id.clone()),
+            status: Some(ExecutorStatus::Stopped.into()),
+            full_state: None,
+            command_responses: vec![],
+            allocation_outcomes: vec![],
+            allocation_log_entries: vec![],
+        };
+
+        let result = tokio::time::timeout(Duration::from_secs(3), client.heartbeat(req)).await;
+        match result {
+            Ok(Ok(_)) => {
+                tracing::info!(
+                    executor_id = %self.identity.executor_id,
+                    "Sent shutdown heartbeat (status=STOPPED)"
+                );
+            }
+            Ok(Err(e)) => {
+                tracing::warn!(
+                    executor_id = %self.identity.executor_id,
+                    error = ?e,
+                    "Failed to send shutdown heartbeat"
+                );
+            }
+            Err(_) => {
+                tracing::warn!(
+                    executor_id = %self.identity.executor_id,
+                    "Timed out sending shutdown heartbeat"
+                );
+            }
         }
     }
 

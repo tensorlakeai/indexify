@@ -3,6 +3,7 @@ use std::{
     collections::{HashMap, HashSet},
     sync::{
         Arc,
+        RwLock as StdRwLock,
         atomic::{AtomicU64, Ordering},
     },
     time::Duration,
@@ -33,14 +34,17 @@ use crate::{
         StateChangeBuilder,
         StateChangeId,
     },
-    executor_api::executor_api_pb::{
-        self,
-        Allocation,
-        ContainerDescription,
-        ContainerType as ContainerTypePb,
-        DataPayloadEncoding,
-        FunctionRef,
-        SandboxMetadata,
+    executor_api::{
+        FunctionCallResultRouter,
+        executor_api_pb::{
+            self,
+            Allocation,
+            ContainerDescription,
+            ContainerType as ContainerTypePb,
+            DataPayloadEncoding,
+            FunctionRef,
+            SandboxMetadata,
+        },
     },
     http_objects::{self, ExecutorAllocations, ExecutorsAllocationsResponse, FnExecutor},
     pb_helpers::*,
@@ -128,6 +132,7 @@ pub struct ExecutorManager {
     indexify_state: Arc<IndexifyState>,
     runtime_data: RwLock<HashMap<ExecutorId, ExecutorRuntimeData>>,
     blob_store_registry: Arc<BlobStorageRegistry>,
+    function_call_result_router: StdRwLock<Option<Arc<FunctionCallResultRouter>>>,
 }
 
 impl ExecutorManager {
@@ -152,6 +157,7 @@ impl ExecutorManager {
             heartbeat_deadline_updater: heartbeat_sender,
             heartbeat_future,
             blob_store_registry,
+            function_call_result_router: StdRwLock::new(None),
         };
 
         let em = Arc::new(em);
@@ -270,6 +276,13 @@ impl ExecutorManager {
         Ok(())
     }
 
+    pub fn set_function_call_result_router(&self, router: Arc<FunctionCallResultRouter>) {
+        *self
+            .function_call_result_router
+            .write()
+            .expect("function_call_result_router lock poisoned") = Some(router);
+    }
+
     /// Wait for the an executor heartbeat deadline to lapse.
     pub(crate) async fn wait_executor_heartbeat_deadline(&self) {
         let mut fut = self.heartbeat_future.lock().await;
@@ -349,18 +362,70 @@ impl ExecutorManager {
         Ok(())
     }
 
-    async fn deregister_lapsed_executor(&self, executor_id: ExecutorId) -> Result<()> {
+    async fn deregister_executor_internal(
+        &self,
+        executor_id: ExecutorId,
+        reason: &str,
+    ) -> Result<()> {
         info!(
             executor_id = executor_id.get(),
-            "Deregistering lapsed executor (heartbeat timeout)"
+            reason, "Deregistering executor"
         );
-        self.runtime_data.write().await.remove(&executor_id);
+
+        // Remove from heartbeat queue if present and refresh the next deadline.
+        let next_deadline = {
+            let mut queue = self.heartbeat_deadline_queue.lock().await;
+            queue.remove(&executor_id);
+            queue
+                .peek()
+                .map(|(_, deadline)| deadline.0)
+                .unwrap_or_else(far_future)
+        };
+        if let Err(err) = self.heartbeat_deadline_updater.send(next_deadline) {
+            error!("Failed to update heartbeat deadline: {:?}", err);
+        }
+
+        // Runtime data is the source of truth for whether the executor is
+        // currently registered. If it's already gone, this is a duplicate
+        // deregistration request and we can no-op after dropping connection.
+        let was_registered = self
+            .runtime_data
+            .write()
+            .await
+            .remove(&executor_id)
+            .is_some();
 
         // Drop the ExecutorConnection — this drops the event sender, which
         // causes any active command_stream_loop to exit via recv() → None.
         self.indexify_state
             .deregister_executor_connection(&executor_id)
             .await;
+
+        // Purge stale function-call routing entries for this executor across
+        // all deregistration paths (STOPPED, heartbeat timeout, startup reap).
+        let router = self
+            .function_call_result_router
+            .read()
+            .expect("function_call_result_router lock poisoned")
+            .clone();
+        if let Some(router) = router {
+            let purged = router.purge_executor(&executor_id).await;
+            if purged > 0 {
+                info!(
+                    executor_id = executor_id.get(),
+                    purged_entries = purged,
+                    "purged stale function call router entries for deregistered executor"
+                );
+            }
+        }
+
+        if !was_registered {
+            info!(
+                executor_id = executor_id.get(),
+                reason, "executor already deregistered; skipping tombstone write"
+            );
+            return Ok(());
+        }
 
         let last_state_change_id = self.indexify_state.state_change_id_seq.clone();
         let state_changes = tombstone_executor(&last_state_change_id, &executor_id)?;
@@ -372,6 +437,17 @@ impl ExecutorManager {
         };
         self.indexify_state.write(sm_req).await?;
         Ok(())
+    }
+
+    async fn deregister_lapsed_executor(&self, executor_id: ExecutorId) -> Result<()> {
+        self.deregister_executor_internal(executor_id, "heartbeat timeout")
+            .await
+    }
+
+    /// Immediately deregister an executor (best effort), used by explicit
+    /// dataplane shutdown signals.
+    pub async fn deregister_executor(&self, executor_id: ExecutorId, reason: &str) -> Result<()> {
+        self.deregister_executor_internal(executor_id, reason).await
     }
 
     /// Get read access to executor runtime data (for v2 heartbeat hash
