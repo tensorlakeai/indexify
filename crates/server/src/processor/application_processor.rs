@@ -994,14 +994,43 @@ impl ApplicationProcessor {
                         .unblock_for_freed_resources(&executor_class, freed_memory_mb);
                 }
 
-                // Step 3: Allocate NEW function runs from output propagation (Step 2).
+                // Step 3: Allocate unblocked function runs first.
+                // Prioritize previously-blocked retries before newly-created work
+                // so fresh fanout doesn't repeatedly consume all freed capacity.
+                if !unblocked.function_run_keys.is_empty() {
+                    let function_runs =
+                        indexes_guard.resolve_pending_function_runs(&unblocked.function_run_keys);
+                    if !function_runs.is_empty() {
+                        info!(
+                            num_unblocked = function_runs.len(),
+                            "DataplaneResultsIngested Step 3: scheduling unblocked function runs"
+                        );
+                        let alloc_result = task_allocator.allocate_function_runs(
+                            indexes_guard,
+                            container_scheduler_guard,
+                            function_runs,
+                            &self.allocate_function_runs_latency,
+                            feas_cache,
+                        )?;
+                        // Apply intermediate result so subsequent scheduling in
+                        // this ingestion cycle sees latest request state.
+                        indexes_guard.apply_scheduler_update(
+                            clock,
+                            &alloc_result,
+                            "dataplane_step3_unblocked_intermediate",
+                        )?;
+                        scheduler_update.extend(alloc_result);
+                    }
+                }
+
+                // Step 4: Allocate NEW function runs from output propagation (Step 2).
                 // These are runs that were just created, not previously blocked.
                 let new_function_runs = scheduler_update.unallocated_function_runs();
                 if !new_function_runs.is_empty() {
                     info!(
                         num_new = new_function_runs.len(),
                         new_fns = ?new_function_runs.iter().map(|r| format!("{}:{}", r.name, r.id)).collect::<Vec<_>>(),
-                        "DataplaneResultsIngested Step 3: scheduling new function runs from output propagation"
+                        "DataplaneResultsIngested Step 4: scheduling new function runs from output propagation"
                     );
                     let alloc_result = task_allocator.allocate_function_runs(
                         indexes_guard,
@@ -1014,38 +1043,19 @@ impl ApplicationProcessor {
                         new_allocations = alloc_result.new_allocations.len(),
                         updated_runs = alloc_result.updated_function_runs.len(),
                         new_containers = alloc_result.containers.len(),
-                        "DataplaneResultsIngested Step 3: allocation results"
+                        "DataplaneResultsIngested Step 4: allocation results"
                     );
-                    // Apply intermediate result so Step 3b/4 see updated
+                    // Apply intermediate result so Step 5 sees updated
                     // request_ctx (prevents stale snapshot overwrite).
                     indexes_guard.apply_scheduler_update(
                         clock,
                         &alloc_result,
-                        "dataplane_step3_intermediate",
+                        "dataplane_step4_intermediate",
                     )?;
                     scheduler_update.extend(alloc_result);
                 }
 
-                // Step 3b: Allocate unblocked function runs (previously blocked, now retried).
-                if !unblocked.function_run_keys.is_empty() {
-                    let function_runs =
-                        indexes_guard.resolve_pending_function_runs(&unblocked.function_run_keys);
-                    if !function_runs.is_empty() {
-                        info!(
-                            num_unblocked = function_runs.len(),
-                            "DataplaneResultsIngested Step 3b: scheduling unblocked function runs"
-                        );
-                        scheduler_update.extend(task_allocator.allocate_function_runs(
-                            indexes_guard,
-                            container_scheduler_guard,
-                            function_runs,
-                            &self.allocate_function_runs_latency,
-                            feas_cache,
-                        )?);
-                    }
-                }
-
-                // Step 4: Allocate unblocked sandboxes.
+                // Step 5: Allocate unblocked sandboxes.
                 // Only retry sandboxes that were previously blocked and just
                 // unblocked by the freed resources.
                 for sandbox_key in &unblocked.sandbox_keys {
