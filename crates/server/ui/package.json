@@ -47,7 +47,6 @@
     "filelist": {
       "minimatch": "^5.1.9"
     },
-    "fork-ts-checker-webpack-plugin": "^9.1.0",
     "glob": {
       "minimatch": "^10.2.4"
     },
@@ -64,11 +63,12 @@
     "sucrase": {
       "minimatch": "^9.0.9"
     },
-    "webpack-dev-server": "4.15.2",
+    "webpack-dev-server": "^5.2.3",
     "workbox-build": "^7.4.0",
     "workbox-webpack-plugin": "^7.4.0"
   },
   "scripts": {
+    "postinstall": "patch-package",
     "start": "serve build --single",
     "dev": "react-scripts start",
     "build": "cross-env NODE_ENV=production react-scripts build",
@@ -99,6 +99,7 @@
     "@babel/plugin-proposal-private-property-in-object": "^7.21.11",
     "cross-env": "^10.1.0",
     "eslint": "^8.56.0",
+    "patch-package": "^8.0.1",
     "react-scripts": "5.0.1"
   }
 }
