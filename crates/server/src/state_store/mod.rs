@@ -802,6 +802,7 @@ impl IndexifyState {
         Ok(())
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     pub async fn take_scheduler_command_intents(
         &self,
         max_items: usize,
@@ -842,6 +843,96 @@ impl IndexifyState {
         }
         txn.commit().await?;
         Ok(intents)
+    }
+
+    /// Atomically move scheduler command intents into per-executor command
+    /// outboxes and return the enqueued commands grouped by executor.
+    pub async fn move_scheduler_command_intents_to_outbox(
+        &self,
+        max_items: usize,
+    ) -> Result<HashMap<ExecutorId, Vec<executor_api_pb::Command>>> {
+        if max_items == 0 {
+            return Ok(HashMap::new());
+        }
+
+        let prefix = Self::scheduler_command_intent_prefix_key();
+        let txn = self.db.transaction();
+        let iter = txn
+            .iter(
+                IndexifyObjectsColumns::SchedulerCommandIntents.as_ref(),
+                prefix.clone(),
+            )
+            .await;
+
+        let mut next_seq_by_executor: HashMap<ExecutorId, u64> = HashMap::new();
+        let mut enqueued: HashMap<ExecutorId, Vec<executor_api_pb::Command>> = HashMap::new();
+        let mut moved = 0usize;
+        for item in iter {
+            if moved >= max_items {
+                break;
+            }
+            let (key, value) = item?;
+            if !key.starts_with(prefix.as_slice()) {
+                break;
+            }
+
+            let persisted = StateStoreEncoder::decode::<PersistedSchedulerCommandIntent>(&value)?;
+            let mut command = executor_api_pb::Command::decode(persisted.command.as_slice())
+                .map_err(|e| anyhow!("failed to decode persisted scheduler command intent: {e}"))?;
+            let executor_id = persisted.executor_id;
+
+            let next_seq = if let Some(next_seq) = next_seq_by_executor.get_mut(&executor_id) {
+                next_seq
+            } else {
+                let next_key = Self::executor_cmd_next_key(&executor_id);
+                let next_seq = match txn
+                    .get(
+                        IndexifyObjectsColumns::ExecutorCommandOutbox.as_ref(),
+                        next_key.as_slice(),
+                    )
+                    .await?
+                {
+                    Some(bytes) => StateStoreEncoder::decode::<u64>(&bytes)?,
+                    None => 1,
+                };
+                next_seq_by_executor.insert(executor_id.clone(), next_seq);
+                next_seq_by_executor
+                    .get_mut(&executor_id)
+                    .expect("executor next seq should be inserted")
+            };
+
+            command.seq = *next_seq;
+            let cmd_key = Self::executor_cmd_key(&executor_id, command.seq);
+            txn.put(
+                IndexifyObjectsColumns::ExecutorCommandOutbox.as_ref(),
+                cmd_key.as_slice(),
+                &command.encode_to_vec(),
+            )
+            .await?;
+            *next_seq = (*next_seq).saturating_add(1);
+            enqueued.entry(executor_id).or_default().push(command);
+
+            txn.delete(
+                IndexifyObjectsColumns::SchedulerCommandIntents.as_ref(),
+                key.as_ref(),
+            )
+            .await?;
+            moved = moved.saturating_add(1);
+        }
+
+        for (executor_id, next_seq) in &next_seq_by_executor {
+            let next_key = Self::executor_cmd_next_key(executor_id);
+            let next_bytes = StateStoreEncoder::encode(next_seq)?;
+            txn.put(
+                IndexifyObjectsColumns::ExecutorCommandOutbox.as_ref(),
+                next_key.as_slice(),
+                next_bytes.as_slice(),
+            )
+            .await?;
+        }
+
+        txn.commit().await?;
+        Ok(enqueued)
     }
 
     async fn read_executor_cmd_ack(&self, executor_id: &ExecutorId) -> Result<u64> {

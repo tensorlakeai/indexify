@@ -321,12 +321,12 @@ impl ExecutorManager {
     pub async fn drain_and_emit_scheduler_command_intents(&self) {
         const PAGE_SIZE: usize = 256;
         loop {
-            let intents = match self
+            let enqueued = match self
                 .indexify_state
-                .take_scheduler_command_intents(PAGE_SIZE)
+                .move_scheduler_command_intents_to_outbox(PAGE_SIZE)
                 .await
             {
-                Ok(intents) => intents,
+                Ok(enqueued) => enqueued,
                 Err(err) => {
                     error!(
                         error = ?err,
@@ -335,10 +335,20 @@ impl ExecutorManager {
                     break;
                 }
             };
-            if intents.is_empty() {
+            if enqueued.is_empty() {
                 break;
             }
-            self.emit_scheduler_command_intents(intents).await;
+            for (executor_id, commands) in enqueued {
+                let conn = {
+                    let connections = self.indexify_state.executor_connections.read().await;
+                    connections.get(&executor_id).cloned()
+                };
+                let Some(conn) = conn else {
+                    continue;
+                };
+                let _emit_guard = conn.command_emit_lock.lock().await;
+                conn.push_commands(commands).await;
+            }
         }
     }
 
