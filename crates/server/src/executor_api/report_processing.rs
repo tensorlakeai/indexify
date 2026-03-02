@@ -133,16 +133,25 @@ pub async fn process_allocation_completed(
 
     let allocation_key =
         data_model::Allocation::key_from(&namespace, &application, &request_id, &allocation_id);
-    let allocation = indexify_state
+    let Some(allocation) = indexify_state
         .reader()
         .get_allocation(&allocation_key)
         .await?
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "AllocationCompleted: allocation not found: {}",
-                allocation_key
-            )
-        })?;
+    else {
+        // Duplicate/out-of-order outcome. The allocation may already be
+        // terminal and removed from active allocation storage.
+        info!(
+            executor_id = executor_id.get(),
+            allocation_id = %allocation_id,
+            request_id = %request_id,
+            namespace = %namespace,
+            app = %application,
+            "fn" = %fn_name,
+            function_call_id = %function_call_id,
+            "AllocationCompleted: allocation not found, treating as idempotent no-op"
+        );
+        return Ok(());
+    };
 
     let (data_payload, graph_updates) = match completed.return_value {
         Some(executor_api_pb::allocation_completed::ReturnValue::Value(dp)) => {
@@ -275,13 +284,25 @@ pub async fn process_allocation_failed(
 
     let allocation_key =
         data_model::Allocation::key_from(&namespace, &application, &request_id, &allocation_id);
-    let allocation = indexify_state
+    let Some(allocation) = indexify_state
         .reader()
         .get_allocation(&allocation_key)
         .await?
-        .ok_or_else(|| {
-            anyhow::anyhow!("AllocationFailed: allocation not found: {}", allocation_key)
-        })?;
+    else {
+        // Duplicate/out-of-order outcome. The allocation may already be
+        // terminal and removed from active allocation storage.
+        info!(
+            executor_id = executor_id.get(),
+            allocation_id = %allocation_id,
+            request_id = %request_id,
+            namespace = %namespace,
+            app = %application,
+            "fn" = %fn_name,
+            failure_reason = ?proto_reason,
+            "AllocationFailed: allocation not found, treating as idempotent no-op"
+        );
+        return Ok(());
+    };
 
     let request_exception = if let Some(dp) = failed.request_error {
         let blob_store_url_scheme = blob_storage_registry

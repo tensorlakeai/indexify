@@ -1144,7 +1144,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_outcome_ingest_failure_does_not_fail_heartbeat_and_keeps_router_entry() {
+    async fn test_missing_allocation_outcome_is_idempotent_noop_and_routes_result() {
         let test_service = TestService::new().await.unwrap();
         let api = super::ExecutorAPIService::new(
             test_service.service.indexify_state.clone(),
@@ -1207,8 +1207,8 @@ mod tests {
 
         assert_eq!(
             api.function_call_result_router.pending_len().await,
-            1,
-            "router entry should remain when the outcome could not be ingested"
+            0,
+            "route should be consumed when duplicate outcome is treated as no-op"
         );
     }
 
@@ -1294,7 +1294,7 @@ mod tests {
             )),
         };
 
-        ExecutorApi::heartbeat(
+        let err = ExecutorApi::heartbeat(
             &api,
             Request::new(executor_api_pb::HeartbeatRequest {
                 executor_id: Some(executor_id.get().to_string()),
@@ -1309,12 +1309,73 @@ mod tests {
             }),
         )
         .await
-        .expect("heartbeat should continue processing log entries after malformed input");
+        .expect_err("heartbeat should fail when one log entry fails ingestion");
+        assert_eq!(err.code(), tonic::Code::Internal);
 
         assert_eq!(
             api.function_call_result_router.pending_len().await,
             1,
-            "valid log entries should still register routes after malformed entries"
+            "valid log entries should still register routes despite one malformed entry"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_command_response_failure_still_processes_other_heartbeat_reports() {
+        let test_service = TestService::new().await.unwrap();
+        let api = super::ExecutorAPIService::new(
+            test_service.service.indexify_state.clone(),
+            test_service.service.executor_manager.clone(),
+            test_service.service.blob_storage_registry.clone(),
+        );
+
+        let executor_id = crate::data_model::ExecutorId::from("executor-command-response-error");
+        let routed_fc_id = "child-fc-command-response-error";
+
+        api.handle_full_state(
+            &executor_id,
+            executor_api_pb::DataplaneStateFullSync::default(),
+        )
+        .await
+        .unwrap();
+
+        // SnapshotCompleted with empty snapshot_id is invalid and should fail
+        // command-response ingestion.
+        let bad_response = executor_api_pb::CommandResponse {
+            command_seq: Some(1),
+            response: Some(
+                executor_api_pb::command_response::Response::SnapshotCompleted(
+                    executor_api_pb::SnapshotCompleted {
+                        container_id: "container-1".to_string(),
+                        snapshot_id: "".to_string(),
+                        snapshot_uri: "".to_string(),
+                        size_bytes: 0,
+                    },
+                ),
+            ),
+        };
+
+        let err = ExecutorApi::heartbeat(
+            &api,
+            Request::new(executor_api_pb::HeartbeatRequest {
+                executor_id: Some(executor_id.get().to_string()),
+                status: Some(executor_api_pb::ExecutorStatus::Running.into()),
+                full_state: None,
+                command_responses: vec![bad_response],
+                allocation_outcomes: vec![],
+                allocation_log_entries: vec![make_call_function_log_entry(
+                    "parent-command-response-error",
+                    routed_fc_id,
+                )],
+            }),
+        )
+        .await
+        .expect_err("heartbeat should fail when command response ingestion fails");
+        assert_eq!(err.code(), tonic::Code::Internal);
+
+        assert_eq!(
+            api.function_call_result_router.pending_len().await,
+            1,
+            "other heartbeat reports should still be processed before returning error"
         );
     }
 

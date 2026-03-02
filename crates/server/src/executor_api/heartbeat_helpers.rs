@@ -45,16 +45,35 @@ impl ExecutorAPIService {
             return Ok(());
         }
 
-        if !command_responses.is_empty() {
-            process_command_responses(&self.indexify_state, executor_id, command_responses)
-                .await
-                .map_err(|e| Status::internal(e.to_string()))?;
+        let mut failed_items = 0usize;
+
+        if !command_responses.is_empty() &&
+            let Err(e) =
+                process_command_responses(&self.indexify_state, executor_id, command_responses)
+                    .await
+        {
+            warn!(
+                executor_id = executor_id.get(),
+                error = %e,
+                "heartbeat: process_command_responses failed"
+            );
+            failed_items = failed_items.saturating_add(1);
         }
 
-        self.process_allocation_outcomes(executor_id, allocation_outcomes)
-            .await?;
-        self.process_allocation_log_entries(executor_id, allocation_log_entries)
-            .await?;
+        failed_items = failed_items.saturating_add(
+            self.process_allocation_outcomes(executor_id, allocation_outcomes)
+                .await?,
+        );
+        failed_items = failed_items.saturating_add(
+            self.process_allocation_log_entries(executor_id, allocation_log_entries)
+                .await?,
+        );
+
+        if failed_items > 0 {
+            return Err(Status::internal(format!(
+                "heartbeat ingestion failed for {failed_items} report item(s)"
+            )));
+        }
 
         Ok(())
     }
@@ -63,12 +82,14 @@ impl ExecutorAPIService {
         &self,
         executor_id: &ExecutorId,
         allocation_outcomes: Vec<executor_api_pb::AllocationOutcome>,
-    ) -> Result<(), Status> {
+    ) -> Result<usize, Status> {
+        let mut failed_items = 0usize;
         for item in allocation_outcomes {
             match item.outcome {
                 Some(executor_api_pb::allocation_outcome::Outcome::Completed(completed)) => {
-                    // Ingest first, then route. If ingestion fails, log and
-                    // continue so one bad item does not block the rest.
+                    // Ingest first, then route. Continue processing the batch
+                    // and report failures at the end so good items still get
+                    // applied in this pass.
                     let completed_for_routing = completed
                         .function_call_id
                         .as_ref()
@@ -86,6 +107,7 @@ impl ExecutorAPIService {
                             error = %e,
                             "heartbeat: process_allocation_completed failed"
                         );
+                        failed_items = failed_items.saturating_add(1);
                         continue;
                     }
                     if let Some(completed) = &completed_for_routing &&
@@ -101,8 +123,9 @@ impl ExecutorAPIService {
                     }
                 }
                 Some(executor_api_pb::allocation_outcome::Outcome::Failed(failed)) => {
-                    // Ingest first, then route. If ingestion fails, log and
-                    // continue so one bad item does not block the rest.
+                    // Ingest first, then route. Continue processing the batch
+                    // and report failures at the end so good items still get
+                    // applied in this pass.
                     let failed_for_routing =
                         failed.function_call_id.as_ref().map(|_| failed.clone());
                     if let Err(e) = process_allocation_failed(
@@ -118,6 +141,7 @@ impl ExecutorAPIService {
                             error = %e,
                             "heartbeat: process_allocation_failed failed"
                         );
+                        failed_items = failed_items.saturating_add(1);
                         continue;
                     }
                     if let Some(failed) = &failed_for_routing &&
@@ -136,14 +160,15 @@ impl ExecutorAPIService {
             }
         }
 
-        Ok(())
+        Ok(failed_items)
     }
 
     async fn process_allocation_log_entries(
         &self,
         executor_id: &ExecutorId,
         allocation_log_entries: Vec<executor_api_pb::AllocationLogEntry>,
-    ) -> Result<(), Status> {
+    ) -> Result<usize, Status> {
+        let mut failed_items = 0usize;
         for log_entry in allocation_log_entries {
             if let Err(e) = handle_log_entry(
                 &log_entry,
@@ -159,11 +184,12 @@ impl ExecutorAPIService {
                     error = %e,
                     "heartbeat: handle_log_entry_v2 failed"
                 );
+                failed_items = failed_items.saturating_add(1);
                 continue;
             }
         }
 
-        Ok(())
+        Ok(failed_items)
     }
 
     pub(super) async fn maybe_deregister_stopped_executor(
