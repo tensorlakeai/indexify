@@ -502,14 +502,15 @@ async fn test_service_restart_replays_persisted_scheduler_command_intents() -> R
     update.new_allocations.push(allocation.clone());
 
     let indexes_guard = service1.indexify_state.app_state.load();
-    let intents = service1
+    service1
         .executor_manager
-        .build_scheduler_command_intents(&update, &indexes_guard.indexes);
+        .append_scheduler_command_intents(&mut update, &indexes_guard.indexes);
     drop(indexes_guard);
     assert!(
-        !intents.is_empty(),
+        !update.scheduler_command_intents.is_empty(),
         "expected scheduler command intents for new allocation"
     );
+    let scheduler_command_intents = update.scheduler_command_intents.clone();
 
     service1
         .indexify_state
@@ -517,7 +518,7 @@ async fn test_service_restart_replays_persisted_scheduler_command_intents() -> R
             StateMachineUpdateRequest {
                 payload: RequestPayload::SchedulerUpdate(SchedulerUpdatePayload::new(update)),
             },
-            &intents,
+            &scheduler_command_intents,
         )
         .await?;
 
@@ -563,10 +564,10 @@ async fn test_service_restart_replays_persisted_scheduler_command_intents() -> R
 
     let none_left = service2
         .indexify_state
-        .take_scheduler_command_intents(1)
+        .pending_scheduler_command_intents_count()
         .await?;
     assert!(
-        none_left.is_empty(),
+        none_left == 0,
         "all persisted scheduler intents should be drained"
     );
 

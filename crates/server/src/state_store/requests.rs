@@ -34,7 +34,7 @@ use crate::{
         SnapshotKey,
         StateChange,
     },
-    state_store::{IndexifyState, state_changes},
+    state_store::{IndexifyState, SchedulerCommandIntent, state_changes},
 };
 
 #[derive(Debug)]
@@ -189,6 +189,10 @@ pub struct SchedulerUpdateRequest {
     /// Propagated to the real scheduler's blocked_pools for cross-cycle
     /// persistence so these pools are skipped until resources become available.
     pub newly_blocked_pools: imbl::HashSet<ContainerPoolKey>,
+    /// Scheduler-generated executor command intents associated with this
+    /// update. Runtime-only metadata: persisted separately in its own CF.
+    #[serde(skip, default)]
+    pub scheduler_command_intents: Vec<SchedulerCommandIntent>,
 }
 
 impl SchedulerUpdateRequest {
@@ -229,6 +233,8 @@ impl SchedulerUpdateRequest {
             self.sandbox_pool_deficits = other.sandbox_pool_deficits;
         }
         self.newly_blocked_pools.extend(other.newly_blocked_pools);
+        self.scheduler_command_intents
+            .extend(other.scheduler_command_intents);
     }
 
     pub fn cancel_allocation(&mut self, allocation: &mut Allocation) {

@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use tracing::{error, trace};
 
 use super::ExecutorManager;
@@ -179,11 +177,11 @@ impl ExecutorManager {
         }
     }
 
-    pub fn build_scheduler_command_intents(
+    pub fn append_scheduler_command_intents(
         &self,
-        update: &SchedulerUpdateRequest,
+        update: &mut SchedulerUpdateRequest,
         indexes: &InMemoryState,
-    ) -> Vec<SchedulerCommandIntent> {
+    ) {
         let mut intents = Vec::new();
 
         for (container_id, container_meta) in &update.containers {
@@ -201,6 +199,16 @@ impl ExecutorManager {
                     )),
                 }
             } else {
+                // Only emit AddContainer when the scheduler creates a new
+                // container (Pending). Pure runtime metadata updates (e.g.
+                // allocation bookkeeping, heartbeat state reflection) must not
+                // re-emit AddContainer.
+                if !matches!(
+                    container_meta.function_container.state,
+                    data_model::ContainerState::Pending
+                ) {
+                    continue;
+                }
                 let Some(container_pb) =
                     self.build_container_description_from_meta(indexes, container_meta)
                 else {
@@ -267,59 +275,27 @@ impl ExecutorManager {
             });
         }
 
-        intents
-    }
-
-    pub async fn emit_scheduler_command_intents(&self, intents: Vec<SchedulerCommandIntent>) {
-        if intents.is_empty() {
-            return;
-        }
-
-        let mut by_executor: HashMap<ExecutorId, Vec<executor_api_pb::Command>> = HashMap::new();
-        for intent in intents {
-            by_executor
-                .entry(intent.executor_id)
-                .or_default()
-                .push(intent.command);
-        }
-
-        for (executor_id, commands) in by_executor {
-            let conn = {
-                let connections = self.indexify_state.executor_connections.read().await;
-                connections.get(&executor_id).cloned()
-            };
-            if let Some(conn) = conn {
-                let _emit_guard = conn.command_emit_lock.lock().await;
-                if let Err(err) = self
-                    .indexify_state
-                    .enqueue_executor_commands(&executor_id, commands)
-                    .await
-                {
-                    error!(
-                        executor_id = executor_id.get(),
-                        error = ?err,
-                        "failed to enqueue scheduler command intent batch"
-                    );
-                }
-                continue;
-            }
-
-            if let Err(err) = self
-                .indexify_state
-                .enqueue_executor_commands(&executor_id, commands)
-                .await
-            {
-                error!(
-                    executor_id = executor_id.get(),
-                    error = ?err,
-                    "failed to enqueue scheduler command intent batch (no connection)"
-                );
-            }
-        }
+        update.scheduler_command_intents.extend(intents);
     }
 
     pub async fn drain_and_emit_scheduler_command_intents(&self) {
         const PAGE_SIZE: usize = 256;
+        let started_at = std::time::Instant::now();
+        let mut total_drained = 0u64;
+        match self
+            .indexify_state
+            .pending_scheduler_command_intents_count()
+            .await
+        {
+            Ok(backlog) => self
+                .scheduler_command_intent_backlog
+                .record(backlog as u64, &[]),
+            Err(err) => error!(
+                error = ?err,
+                "failed to read scheduler command intent backlog for metrics"
+            ),
+        }
+
         loop {
             let enqueued = match self
                 .indexify_state
@@ -338,6 +314,8 @@ impl ExecutorManager {
             if enqueued.is_empty() {
                 break;
             }
+            let batch_drained: u64 = enqueued.values().map(|cmds| cmds.len() as u64).sum();
+            total_drained = total_drained.saturating_add(batch_drained);
             for (executor_id, commands) in enqueued {
                 let conn = {
                     let connections = self.indexify_state.executor_connections.read().await;
@@ -350,14 +328,24 @@ impl ExecutorManager {
                 conn.push_commands(commands).await;
             }
         }
-    }
-
-    /// Compatibility wrapper for tests and direct call-sites.
-    #[cfg_attr(not(test), allow(dead_code))]
-    pub async fn emit_commands_from_scheduler_update(&self, update: &SchedulerUpdateRequest) {
-        let app_state = self.indexify_state.app_state.load();
-        let intents = self.build_scheduler_command_intents(update, &app_state.indexes);
-        drop(app_state);
-        self.emit_scheduler_command_intents(intents).await;
+        if total_drained > 0 {
+            self.scheduler_command_intent_drained_total
+                .add(total_drained, &[]);
+        }
+        self.scheduler_command_intent_drain_latency
+            .record(started_at.elapsed().as_secs_f64(), &[]);
+        match self
+            .indexify_state
+            .pending_scheduler_command_intents_count()
+            .await
+        {
+            Ok(backlog) => self
+                .scheduler_command_intent_backlog
+                .record(backlog as u64, &[]),
+            Err(err) => error!(
+                error = ?err,
+                "failed to read scheduler command intent backlog for metrics"
+            ),
+        }
     }
 }

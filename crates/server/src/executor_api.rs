@@ -1241,7 +1241,7 @@ mod tests {
             .application_name("app".to_string())
             .function_name("fn".to_string())
             .version("v1".to_string())
-            .state(crate::data_model::ContainerState::Running)
+            .state(crate::data_model::ContainerState::Pending)
             .resources(crate::data_model::ContainerResources {
                 cpu_ms_per_sec: 1000,
                 memory_mb: 512,
@@ -1270,7 +1270,7 @@ mod tests {
         let container_meta = crate::data_model::ContainerServerMetadata::new(
             executor_id.clone(),
             container.clone(),
-            crate::data_model::ContainerState::Running,
+            crate::data_model::ContainerState::Pending,
         );
 
         let mut update = crate::state_store::requests::SchedulerUpdateRequest::default();
@@ -1293,6 +1293,23 @@ mod tests {
         scheduler.apply_container_update(&update);
         test_service
             .service
+            .executor_manager
+            .append_scheduler_command_intents(&mut update, &indexes);
+        test_service
+            .service
+            .indexify_state
+            .write_scheduler_output_with_intents(
+                crate::state_store::requests::StateMachineUpdateRequest {
+                    payload: crate::state_store::requests::RequestPayload::SchedulerUpdate(
+                        crate::state_store::requests::SchedulerUpdatePayload::new(update.clone()),
+                    ),
+                },
+                &update.scheduler_command_intents,
+            )
+            .await
+            .unwrap();
+        test_service
+            .service
             .indexify_state
             .app_state
             .store(std::sync::Arc::new(crate::state_store::AppState {
@@ -1303,7 +1320,7 @@ mod tests {
         test_service
             .service
             .executor_manager
-            .emit_commands_from_scheduler_update(&update)
+            .drain_and_emit_scheduler_command_intents()
             .await;
 
         let response = ExecutorApi::poll_commands(

@@ -11,6 +11,7 @@ use std::{
 };
 
 use anyhow::Result;
+use opentelemetry::metrics::{Counter, Gauge, Histogram};
 use priority_queue::PriorityQueue;
 use tokio::{
     sync::{Mutex, RwLock, watch},
@@ -47,6 +48,7 @@ use crate::{
         },
     },
     http_objects::{self, ExecutorAllocations, ExecutorsAllocationsResponse, FnExecutor},
+    metrics::low_latency_boundaries,
     pb_helpers::*,
     state_store::{
         IndexifyState,
@@ -135,6 +137,9 @@ pub struct ExecutorManager {
     runtime_data: RwLock<HashMap<ExecutorId, ExecutorRuntimeData>>,
     blob_store_registry: Arc<BlobStorageRegistry>,
     function_call_result_router: StdRwLock<Option<Arc<FunctionCallResultRouter>>>,
+    scheduler_command_intent_backlog: Gauge<u64>,
+    scheduler_command_intent_drain_latency: Histogram<f64>,
+    scheduler_command_intent_drained_total: Counter<u64>,
 }
 
 impl ExecutorManager {
@@ -142,6 +147,22 @@ impl ExecutorManager {
         indexify_state: Arc<IndexifyState>,
         blob_store_registry: Arc<BlobStorageRegistry>,
     ) -> Arc<Self> {
+        let meter = opentelemetry::global::meter("executor_manager_metrics");
+        let scheduler_command_intent_backlog = meter
+            .u64_gauge("indexify.executor_manager.scheduler_command_intent_backlog")
+            .with_description("Current number of persisted scheduler command intents")
+            .build();
+        let scheduler_command_intent_drain_latency = meter
+            .f64_histogram("indexify.executor_manager.scheduler_command_intent_drain_latency")
+            .with_unit("s")
+            .with_boundaries(low_latency_boundaries())
+            .with_description("Latency of draining persisted scheduler command intents")
+            .build();
+        let scheduler_command_intent_drained_total = meter
+            .u64_counter("indexify.executor_manager.scheduler_command_intent_drained_total")
+            .with_description("Total scheduler command intents drained from persistence")
+            .build();
+
         let (heartbeat_future, heartbeat_sender) = DynamicSleepFuture::new(
             far_future(),
             // Chunk duration for the heartbeat future is set to 2 seconds before the timeout
@@ -160,6 +181,9 @@ impl ExecutorManager {
             heartbeat_future,
             blob_store_registry,
             function_call_result_router: StdRwLock::new(None),
+            scheduler_command_intent_backlog,
+            scheduler_command_intent_drain_latency,
+            scheduler_command_intent_drained_total,
         };
 
         let em = Arc::new(em);

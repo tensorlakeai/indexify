@@ -802,47 +802,24 @@ impl IndexifyState {
         Ok(())
     }
 
-    #[cfg_attr(not(test), allow(dead_code))]
-    pub async fn take_scheduler_command_intents(
-        &self,
-        max_items: usize,
-    ) -> Result<Vec<SchedulerCommandIntent>> {
-        if max_items == 0 {
-            return Ok(Vec::new());
-        }
-
+    pub async fn pending_scheduler_command_intents_count(&self) -> Result<usize> {
         let prefix = Self::scheduler_command_intent_prefix_key();
-        let txn = self.db.transaction();
-        let iter = txn
+        let iter = self
+            .db
             .iter(
                 IndexifyObjectsColumns::SchedulerCommandIntents.as_ref(),
-                prefix.clone(),
+                driver::IterOptions::default().starting_at(prefix.clone()),
             )
             .await;
-        let mut intents = Vec::new();
+        let mut count = 0usize;
         for item in iter {
-            if intents.len() >= max_items {
-                break;
-            }
-            let (key, value) = item?;
+            let (key, _) = item?;
             if !key.starts_with(prefix.as_slice()) {
                 break;
             }
-            let persisted = StateStoreEncoder::decode::<PersistedSchedulerCommandIntent>(&value)?;
-            let command = executor_api_pb::Command::decode(persisted.command.as_slice())
-                .map_err(|e| anyhow!("failed to decode persisted scheduler command intent: {e}"))?;
-            intents.push(SchedulerCommandIntent {
-                executor_id: persisted.executor_id,
-                command,
-            });
-            txn.delete(
-                IndexifyObjectsColumns::SchedulerCommandIntents.as_ref(),
-                key.as_ref(),
-            )
-            .await?;
+            count = count.saturating_add(1);
         }
-        txn.commit().await?;
-        Ok(intents)
+        Ok(count)
     }
 
     /// Atomically move scheduler command intents into per-executor command
@@ -1446,7 +1423,12 @@ pub async fn write_sm_meta(txn: &Transaction, sm_meta: &StateMachineMetadata) ->
 
 #[cfg(test)]
 mod tests {
-    use requests::{CreateOrUpdateApplicationRequest, NamespaceRequest};
+    use requests::{
+        CreateOrUpdateApplicationRequest,
+        NamespaceRequest,
+        SchedulerUpdatePayload,
+        SchedulerUpdateRequest,
+    };
     use test_state_store::TestStateStore;
 
     use super::*;
@@ -1794,6 +1776,80 @@ mod tests {
             assert_eq!(commands.len(), 1, "only unacked commands should restore");
             assert_eq!(commands[0].seq, 3, "restored command seq should be stable");
         }
+
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn test_outbox_sequences_stay_monotonic_with_concurrent_enqueue_and_intent_move()
+    -> Result<()> {
+        let state = TestStateStore::new().await?.indexify_state;
+        let executor_id = ExecutorId::new(TEST_EXECUTOR_ID.to_string());
+        state.register_executor_connection(&executor_id).await;
+
+        let scheduler_intents: Vec<SchedulerCommandIntent> = (0..100)
+            .map(|_| SchedulerCommandIntent {
+                executor_id: executor_id.clone(),
+                command: executor_api_pb::Command {
+                    seq: 0,
+                    command: None,
+                },
+            })
+            .collect();
+        state
+            .write_scheduler_output_with_intents(
+                StateMachineUpdateRequest {
+                    payload: RequestPayload::SchedulerUpdate(SchedulerUpdatePayload::new(
+                        SchedulerUpdateRequest::default(),
+                    )),
+                },
+                &scheduler_intents,
+            )
+            .await?;
+
+        let state_for_move = state.clone();
+        let state_for_enqueue = state.clone();
+        let executor_for_enqueue = executor_id.clone();
+
+        let move_task = tokio::spawn(async move {
+            state_for_move
+                .move_scheduler_command_intents_to_outbox(10_000)
+                .await
+        });
+        let enqueue_task = tokio::spawn(async move {
+            for _ in 0..100 {
+                state_for_enqueue
+                    .enqueue_executor_commands(
+                        &executor_for_enqueue,
+                        vec![executor_api_pb::Command {
+                            seq: 0,
+                            command: None,
+                        }],
+                    )
+                    .await?;
+            }
+            Ok::<(), anyhow::Error>(())
+        });
+
+        move_task.await??;
+        enqueue_task.await??;
+
+        let (acked, pending) = state.load_executor_pending_commands(&executor_id).await?;
+        assert_eq!(acked, 0);
+        assert_eq!(pending.len(), 200);
+
+        let mut seqs: Vec<u64> = pending.into_iter().map(|cmd| cmd.seq).collect();
+        seqs.sort_unstable();
+        let expected: Vec<u64> = (1..=200u64).collect();
+        assert_eq!(
+            seqs, expected,
+            "command sequence numbers must remain contiguous under concurrent writers"
+        );
+        assert_eq!(
+            state.pending_scheduler_command_intents_count().await?,
+            0,
+            "all persisted intents should be moved to outbox"
+        );
 
         Ok(())
     }

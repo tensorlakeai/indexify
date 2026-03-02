@@ -491,9 +491,8 @@ impl ApplicationProcessor {
 
         // 6a. Write scheduler results + dequeue processed payloads in one
         //     RocksDB transaction — atomic commit-and-dequeue.
-        let scheduler_command_intents = self
-            .executor_manager
-            .build_scheduler_command_intents(&merged_update, &indexes);
+        self.executor_manager
+            .append_scheduler_command_intents(&mut merged_update, &indexes);
         if let Err(err) = self
             .indexify_state
             .write_scheduler_output_and_dequeue_with_intents(
@@ -503,7 +502,7 @@ impl ApplicationProcessor {
                     }),
                 },
                 max_seq,
-                &scheduler_command_intents,
+                &merged_update.scheduler_command_intents,
             )
             .await
         {
@@ -1123,17 +1122,16 @@ impl ApplicationProcessor {
         container_scheduler: &mut crate::processor::container_scheduler::ContainerScheduler,
     ) -> Result<()> {
         let mut scheduler_probe = container_scheduler.clone();
-        let command_update = scheduler_probe.update_with_intents(&payload)?;
-        let scheduler_command_intents = self
-            .executor_manager
-            .build_scheduler_command_intents(&command_update, indexes);
+        let mut command_update = scheduler_probe.update_with_intents(&payload)?;
+        self.executor_manager
+            .append_scheduler_command_intents(&mut command_update, indexes);
 
         self.indexify_state
             .write_scheduler_output_with_intents(
                 StateMachineUpdateRequest {
                     payload: payload.clone(),
                 },
-                &scheduler_command_intents,
+                &command_update.scheduler_command_intents,
             )
             .await?;
 
@@ -1152,14 +1150,13 @@ impl ApplicationProcessor {
 
         let buffer_reconciler = BufferReconciler::new();
         let mut feas_cache = FeasibilityCache::new();
-        let buffer_update =
+        let mut buffer_update =
             buffer_reconciler.reconcile(&indexes, &mut container_scheduler, &mut feas_cache)?;
 
         if !buffer_update.containers.is_empty() || !buffer_update.updated_executor_states.is_empty()
         {
-            let scheduler_command_intents = self
-                .executor_manager
-                .build_scheduler_command_intents(&buffer_update, &indexes);
+            self.executor_manager
+                .append_scheduler_command_intents(&mut buffer_update, &indexes);
             // Write to RocksDB.
             self.indexify_state
                 .write_scheduler_output_with_intents(
@@ -1168,7 +1165,7 @@ impl ApplicationProcessor {
                             update: Box::new(buffer_update.clone()),
                         }),
                     },
-                    &scheduler_command_intents,
+                    &buffer_update.scheduler_command_intents,
                 )
                 .await?;
 
