@@ -1002,6 +1002,22 @@ async fn build_add_container_command(
             .unwrap_or(u32::MAX)
     });
 
+    // Build function_executor_metadata for function containers
+    let function_executor_metadata = if fe.container_type == data_model::ContainerType::Function {
+        let blob_store_url = blob_storage_registry
+            .get_blob_store(&fe.namespace)
+            .get_url();
+        Some(executor_api_pb::FunctionExecutorMetadata {
+            app_state_uri_prefix: Some(format!(
+                "{}/{}",
+                blob_store_url,
+                data_model::DataPayload::app_state_key_prefix(&fe.namespace, &fe.application_name,),
+            )),
+        })
+    } else {
+        None
+    };
+
     let fe_description_pb = executor_api_pb::ContainerDescription {
         id: Some(fe.id.get().to_string()),
         function: Some(executor_api_pb::FunctionRef {
@@ -1019,6 +1035,7 @@ async fn build_add_container_command(
         sandbox_metadata,
         container_type: Some(fe_type_pb.into()),
         pool_id: fe.pool_id.as_ref().map(|p| p.get().to_string()),
+        function_executor_metadata,
     };
 
     drop(indexes);
@@ -2019,6 +2036,7 @@ mod tests {
                 application: None,
                 allocation_timeout_ms: None,
                 pool_id: None,
+                function_executor_metadata: None,
             }),
             status: Some(status.into()),
             termination_reason: termination_reason.map(|r| r.into()),
@@ -2104,6 +2122,7 @@ mod tests {
                 application: None,
                 allocation_timeout_ms: None,
                 pool_id: None,
+                function_executor_metadata: None,
             }),
             status: Some(ContainerStatus::Running.into()),
             termination_reason: None,
@@ -2141,6 +2160,7 @@ mod tests {
             application: None,
             allocation_timeout_ms: None,
             pool_id: None,
+            function_executor_metadata: None,
         }
     }
 

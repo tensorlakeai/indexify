@@ -34,7 +34,7 @@ use super::{
     fe_client::FunctionExecutorGrpcClient,
     function_call_reconciler,
     proto_convert,
-    state_ops::RequestStateHandler,
+    state_ops::{AppStateHandler, RequestStateHandler},
 };
 use crate::{
     allocation_result_dispatcher::AllocationResultDispatcher,
@@ -54,6 +54,9 @@ pub struct AllocationContext {
     pub executor_id: String,
     pub stream_tx: mpsc::UnboundedSender<AllocationLogEntry>,
     pub allocation_result_dispatcher: Arc<AllocationResultDispatcher>,
+    /// URI prefix for application-scoped state. Set from
+    /// `ContainerDescription.function_executor_metadata.app_state_uri_prefix`.
+    pub app_state_uri_prefix: Option<String>,
 }
 
 /// Build an AllocationUpdate wrapping the given update variant.
@@ -117,6 +120,7 @@ struct AllocationRunner {
     seen_function_call_ids: HashSet<String>,
     seen_op_ids: HashSet<String>,
     state_handler: RequestStateHandler,
+    app_state_handler: AppStateHandler,
     output_blob_handles: Vec<MultipartUploadHandle>,
     // Maps root_function_call_id → watcher.id for delivering results with
     // the correct watcher_id that the FE expects.
@@ -152,6 +156,7 @@ impl AllocationRunner {
             seen_function_call_ids: HashSet::new(),
             seen_op_ids: HashSet::new(),
             state_handler: RequestStateHandler::new(),
+            app_state_handler: AppStateHandler::new(),
             output_blob_handles: Vec::new(),
             watcher_map: HashMap::new(),
             pending_results: Vec::new(),
@@ -693,6 +698,18 @@ impl AllocationRunner {
                 &self.uri_prefix,
             )
             .await;
+
+        if let Some(ref app_state_prefix) = self.ctx.app_state_uri_prefix {
+            self.app_state_handler
+                .reconcile(
+                    state,
+                    &mut self.client,
+                    &self.ctx.blob_store,
+                    &self.allocation_id,
+                    app_state_prefix,
+                )
+                .await;
+        }
     }
 }
 

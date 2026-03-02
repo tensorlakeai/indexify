@@ -148,6 +148,13 @@ message SandboxMetadata {
     optional string snapshot_uri = 16;
 }
 
+// Metadata specific to function executor containers (parallel to SandboxMetadata).
+message FunctionExecutorMetadata {
+    // URI prefix for application-scoped state KV pairs.
+    // e.g., "s3://bucket/namespace/app/app_state"
+    optional string app_state_uri_prefix = 1;
+}
+
 // Describes a container managed by the dataplane.
 // Covers both function containers and sandbox containers.
 message ContainerDescription {
@@ -169,6 +176,8 @@ message ContainerDescription {
     optional ContainerType container_type = 13;
     // Pool this container belongs to. Every container belongs to a pool.
     optional string pool_id = 14;
+    // Metadata specific to function executor containers.
+    optional FunctionExecutorMetadata function_executor_metadata = 15;
 }
 
 message ContainerState {

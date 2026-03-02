@@ -883,6 +883,10 @@ impl DataPayload {
         format!("{namespace}/{application}/{request_id}")
     }
 
+    pub fn app_state_key_prefix(namespace: &str, application: &str) -> String {
+        format!("{namespace}/{application}/app_state")
+    }
+
     pub fn data_size(&self) -> u64 {
         self.size - self.metadata_size
     }

@@ -306,6 +306,7 @@ fn create_test_fe_description(id: &str) -> ContainerDescription {
         }),
         container_type: None,
         pool_id: None,
+        function_executor_metadata: None,
     }
 }
 

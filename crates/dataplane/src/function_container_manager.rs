@@ -1135,6 +1135,7 @@ mod tests {
             sandbox_metadata: None,
             container_type: None,
             pool_id: None,
+            function_executor_metadata: None,
         }
     }
 
@@ -1164,6 +1165,7 @@ mod tests {
             sandbox_metadata: None,
             container_type: None,
             pool_id: None,
+            function_executor_metadata: None,
         };
         let info = ContainerInfo::from_description(&desc, "test-executor");
 

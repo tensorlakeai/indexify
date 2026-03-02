@@ -513,6 +513,12 @@ impl AllocationController {
                 let metrics = self.config.metrics.clone();
                 let allocation_timeout = Duration::from_millis(allocation_timeout_ms as u64);
 
+                let app_state_uri_prefix = fe
+                    .description
+                    .function_executor_metadata
+                    .as_ref()
+                    .and_then(|m| m.app_state_uri_prefix.clone());
+
                 let ctx = AllocationContext {
                     server_channel: self.config.server_channel.clone(),
                     blob_store: self.config.blob_store.clone(),
@@ -522,6 +528,7 @@ impl AllocationController {
                     executor_id: self.config.executor_id.clone(),
                     stream_tx: self.config.activity_tx.clone(),
                     allocation_result_dispatcher: self.allocation_result_dispatcher.clone(),
+                    app_state_uri_prefix,
                 };
 
                 let allocation = alloc.allocation.clone();
