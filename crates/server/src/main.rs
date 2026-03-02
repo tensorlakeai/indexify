@@ -37,6 +37,8 @@ mod integration_test_buffer;
 #[cfg(test)]
 mod integration_test_executor_catalog;
 #[cfg(test)]
+mod integration_test_executor_resilience;
+#[cfg(test)]
 mod integration_test_http_routes;
 #[cfg(test)]
 mod integration_test_sandboxes;

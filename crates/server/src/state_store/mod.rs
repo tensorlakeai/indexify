@@ -16,6 +16,7 @@ use prost::Message;
 use request_events::{PersistedRequestStateChangeEvent, RequestStateChangeEvent};
 use requests::{RequestPayload, StateMachineUpdateRequest};
 use rocksdb::{ColumnFamilyDescriptor, Options};
+use serde::{Deserialize, Serialize};
 use state_machine::IndexifyObjectsColumns;
 use strum::IntoEnumIterator;
 use tokio::sync::{Notify, RwLock, watch};
@@ -245,6 +246,13 @@ pub struct AppState {
     pub scheduler: ContainerScheduler,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PersistedFunctionCallRoute {
+    pub parent_allocation_id: String,
+    pub original_function_call_id: String,
+    pub executor_id: ExecutorId,
+}
+
 pub struct IndexifyState {
     pub db: Arc<RocksDBDriver>,
     pub db_version: u64,
@@ -309,6 +317,7 @@ impl IndexifyState {
     const EXECUTOR_CMD_ACK_PREFIX: &'static str = "ack|";
     const EXECUTOR_CMD_NEXT_PREFIX: &'static str = "next|";
     const EXECUTOR_CMD_PREFIX: &'static str = "cmd|";
+    const FUNCTION_CALL_ROUTE_PREFIX: &'static str = "route|";
 
     pub async fn new(
         path: PathBuf,
@@ -824,6 +833,14 @@ impl IndexifyState {
         format!("{}{}|", Self::EXECUTOR_CMD_PREFIX, executor_id.get()).into_bytes()
     }
 
+    fn function_call_route_prefix_key() -> Vec<u8> {
+        Self::FUNCTION_CALL_ROUTE_PREFIX.as_bytes().to_vec()
+    }
+
+    fn function_call_route_key(function_call_id: &str) -> Vec<u8> {
+        format!("{}{}", Self::FUNCTION_CALL_ROUTE_PREFIX, function_call_id).into_bytes()
+    }
+
     fn executor_cmd_key(executor_id: &ExecutorId, seq: u64) -> Vec<u8> {
         format!(
             "{}{}|{:020}",
@@ -1043,6 +1060,119 @@ impl IndexifyState {
         Ok(())
     }
 
+    pub async fn upsert_function_call_route(
+        &self,
+        function_call_id: &str,
+        parent_allocation_id: &str,
+        original_function_call_id: &str,
+        executor_id: &ExecutorId,
+    ) -> Result<()> {
+        let key = Self::function_call_route_key(function_call_id);
+        let route = PersistedFunctionCallRoute {
+            parent_allocation_id: parent_allocation_id.to_string(),
+            original_function_call_id: original_function_call_id.to_string(),
+            executor_id: executor_id.clone(),
+        };
+        let encoded = StateStoreEncoder::encode(&route)?;
+        self.db
+            .put(
+                IndexifyObjectsColumns::FunctionCallResultRoutes.as_ref(),
+                key.as_slice(),
+                encoded.as_slice(),
+            )
+            .await?;
+        Ok(())
+    }
+
+    pub async fn get_function_call_route(
+        &self,
+        function_call_id: &str,
+    ) -> Result<Option<PersistedFunctionCallRoute>> {
+        let key = Self::function_call_route_key(function_call_id);
+        let value = self
+            .db
+            .get(
+                IndexifyObjectsColumns::FunctionCallResultRoutes.as_ref(),
+                key.as_slice(),
+            )
+            .await?;
+        match value {
+            Some(value) => Ok(Some(
+                StateStoreEncoder::decode::<PersistedFunctionCallRoute>(&value)?,
+            )),
+            None => Ok(None),
+        }
+    }
+
+    pub async fn take_function_call_route(
+        &self,
+        function_call_id: &str,
+    ) -> Result<Option<PersistedFunctionCallRoute>> {
+        let key = Self::function_call_route_key(function_call_id);
+        let txn = self.db.transaction();
+        let value = txn
+            .get(
+                IndexifyObjectsColumns::FunctionCallResultRoutes.as_ref(),
+                key.as_slice(),
+            )
+            .await?;
+        let Some(value) = value else {
+            return Ok(None);
+        };
+        let route = StateStoreEncoder::decode::<PersistedFunctionCallRoute>(&value)?;
+        txn.delete(
+            IndexifyObjectsColumns::FunctionCallResultRoutes.as_ref(),
+            key.as_slice(),
+        )
+        .await?;
+        txn.commit().await?;
+        Ok(Some(route))
+    }
+
+    pub async fn delete_function_call_route(&self, function_call_id: &str) -> Result<()> {
+        let key = Self::function_call_route_key(function_call_id);
+        let txn = self.db.transaction();
+        txn.delete(
+            IndexifyObjectsColumns::FunctionCallResultRoutes.as_ref(),
+            key.as_slice(),
+        )
+        .await?;
+        txn.commit().await?;
+        Ok(())
+    }
+
+    pub async fn purge_function_call_routes_for_executor(
+        &self,
+        executor_id: &ExecutorId,
+    ) -> Result<usize> {
+        let prefix = Self::function_call_route_prefix_key();
+        let txn = self.db.transaction();
+        let iter = txn
+            .iter(
+                IndexifyObjectsColumns::FunctionCallResultRoutes.as_ref(),
+                prefix.clone(),
+            )
+            .await;
+        let mut purged = 0usize;
+        for kv in iter {
+            let (key, value) = kv?;
+            if !key.starts_with(prefix.as_slice()) {
+                break;
+            }
+            let route = StateStoreEncoder::decode::<PersistedFunctionCallRoute>(&value)?;
+            if route.executor_id == *executor_id {
+                txn.delete(
+                    IndexifyObjectsColumns::FunctionCallResultRoutes.as_ref(),
+                    key.as_ref(),
+                )
+                .await?;
+                purged += 1;
+            }
+        }
+        txn.commit().await?;
+        Ok(purged)
+    }
+
     /// Ensure an executor connection exists with a fresh emitter. Called
     /// during registration (handle_v2_full_state) so commands/results can be
     /// buffered for long-poll delivery.
@@ -1156,11 +1286,16 @@ impl IndexifyState {
             }
         }
 
-        // Snapshot updates don't carry executor_id directly; conservatively
-        // mark all connected executors when snapshots change.
         if !update.updated_snapshots.is_empty() {
-            let connections = self.executor_connections.read().await;
-            affected.extend(connections.keys().cloned());
+            let app_state = self.app_state.load();
+            for snapshot in update.updated_snapshots.values() {
+                let sandbox_key = SandboxKey::new(&snapshot.namespace, snapshot.sandbox_id.get());
+                if let Some(sandbox) = app_state.indexes.sandboxes.get(&sandbox_key) &&
+                    let Some(executor_id) = &sandbox.executor_id
+                {
+                    affected.insert(executor_id.clone());
+                }
+            }
         }
 
         affected
@@ -1401,6 +1536,7 @@ mod tests {
             "Executors",
             "PayloadQueue",
             "ExecutorCommandOutbox",
+            "FunctionCallResultRoutes",
         ];
 
         let columns_iter = columns

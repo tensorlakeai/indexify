@@ -29,6 +29,7 @@ use crate::{
         ExecutorMetadata,
         ExecutorRemovedEvent,
         FunctionURI,
+        SandboxKey,
         SandboxStatus,
         StateChange,
         StateChangeBuilder,
@@ -414,13 +415,22 @@ impl ExecutorManager {
             .expect("function_call_result_router lock poisoned")
             .clone();
         if let Some(router) = router {
-            let purged = router.purge_executor(&executor_id).await;
-            if purged > 0 {
-                info!(
-                    executor_id = executor_id.get(),
-                    purged_entries = purged,
-                    "purged stale function call router entries for deregistered executor"
-                );
+            match router.purge_executor(&executor_id).await {
+                Ok(purged) if purged > 0 => {
+                    info!(
+                        executor_id = executor_id.get(),
+                        purged_entries = purged,
+                        "purged stale function call router entries for deregistered executor"
+                    );
+                }
+                Ok(_) => {}
+                Err(err) => {
+                    error!(
+                        executor_id = executor_id.get(),
+                        error = ?err,
+                        "failed to purge stale function call router entries"
+                    );
+                }
             }
         }
 
@@ -1085,13 +1095,7 @@ impl ExecutorManager {
             .affected_executors_from_update(update)
             .await;
         let app_state = self.indexify_state.app_state.load();
-        let has_snapshot_updates = !update.updated_snapshots.is_empty();
         for executor_id in affected {
-            if has_snapshot_updates {
-                self.emit_commands_for_executor(&executor_id, false).await;
-                continue;
-            }
-
             let conn = {
                 let connections = self.indexify_state.executor_connections.read().await;
                 let Some(conn) = connections.get(&executor_id).cloned() else {
@@ -1206,6 +1210,54 @@ impl ExecutorManager {
                     }
                     if allocation.is_terminal() {
                         staged.known_allocations.remove(&allocation.id.to_string());
+                    }
+                }
+
+                for snapshot in update.updated_snapshots.values() {
+                    let sandbox_key =
+                        SandboxKey::new(&snapshot.namespace, snapshot.sandbox_id.get());
+                    let Some(sandbox) = app_state.indexes.sandboxes.get(&sandbox_key) else {
+                        continue;
+                    };
+                    let Some(snapshot_executor_id) = &sandbox.executor_id else {
+                        continue;
+                    };
+                    if *snapshot_executor_id != executor_id {
+                        continue;
+                    }
+
+                    let snapshot_id = snapshot.id.get().to_string();
+                    match snapshot.status {
+                        data_model::SnapshotStatus::InProgress => {
+                            let Some(upload_uri) = snapshot.upload_uri.clone() else {
+                                staged.known_snapshot_ids.remove(&snapshot_id);
+                                continue;
+                            };
+                            let Some(container_id) = sandbox.container_id.as_ref() else {
+                                staged.known_snapshot_ids.remove(&snapshot_id);
+                                continue;
+                            };
+                            if !staged.known_snapshot_ids.contains(&snapshot_id) {
+                                let seq = staged.next_seq();
+                                commands.push(executor_api_pb::Command {
+                                    seq,
+                                    command: Some(
+                                        executor_api_pb::command::Command::SnapshotContainer(
+                                            executor_api_pb::SnapshotContainer {
+                                                container_id: container_id.get().to_string(),
+                                                snapshot_id: snapshot_id.clone(),
+                                                upload_uri,
+                                            },
+                                        ),
+                                    ),
+                                });
+                                staged.known_snapshot_ids.insert(snapshot_id);
+                            }
+                        }
+                        data_model::SnapshotStatus::Completed |
+                        data_model::SnapshotStatus::Failed { .. } => {
+                            staged.known_snapshot_ids.remove(&snapshot_id);
+                        }
                     }
                 }
 

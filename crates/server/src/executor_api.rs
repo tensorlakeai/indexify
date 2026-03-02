@@ -1,9 +1,4 @@
-use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-    time::Duration,
-    vec,
-};
+use std::{sync::Arc, vec};
 
 use anyhow::Result;
 use executor_api_pb::executor_api_server::ExecutorApi;
@@ -11,10 +6,14 @@ pub use proto_api::executor_api_pb;
 use tonic::{Request, Response, Status};
 use tracing::{info, warn};
 
+mod command_emitter;
 mod heartbeat_helpers;
+mod polling;
 mod report_processing;
 mod result_routing;
 
+pub use command_emitter::CommandEmitter;
+use polling::{long_poll_commands, long_poll_results};
 pub use report_processing::{
     process_allocation_completed,
     process_allocation_failed,
@@ -26,7 +25,7 @@ use result_routing::{handle_log_entry, try_route_failure, try_route_result};
 use crate::{
     blob_store::registry::BlobStorageRegistry,
     data_model::{self, ExecutorId, ExecutorMetadataBuilder, FunctionAllowlist},
-    executors::{ExecutorManager, ExecutorStateSnapshot},
+    executors::ExecutorManager,
     state_store::{
         IndexifyState,
         requests::{RequestPayload, StateMachineUpdateRequest, UpsertExecutorRequest},
@@ -34,207 +33,6 @@ use crate::{
 };
 
 // Proto <-> internal conversion impls live in crate::proto_convert.
-
-/// Pure, stateful diff engine that compares the current `ExecutorStateSnapshot`
-/// against what it previously saw and produces typed `Command` messages.
-///
-/// On the first call, the tracking sets are empty so everything is "new" ---
-/// producing AddContainer + RunAllocation for full state (equivalent to
-/// initial sync).
-///
-/// `command_seq = 0` means the command is informational / unsolicited.
-#[derive(Clone)]
-pub struct CommandEmitter {
-    next_seq: u64,
-    /// Container descriptions sent via AddContainer, keyed by container ID.
-    /// Tracked as full descriptions so we can detect changes and emit
-    /// `UpdateContainerDescription` commands.
-    pub(crate) known_containers: HashMap<String, executor_api_pb::ContainerDescription>,
-    /// Allocation IDs sent via RunAllocation.
-    pub(crate) known_allocations: HashSet<String>,
-    /// Snapshot IDs sent via SnapshotContainer.
-    pub(crate) known_snapshot_ids: HashSet<String>,
-    /// Whether this emitter has completed at least one full sync
-    /// (commit_snapshot). `false` on initial creation or after
-    /// re-registration. `true` after the first successful
-    /// `commit_snapshot`. Used by the command generator task to decide:
-    /// - `has_synced == false` -> initial full sync needed
-    /// - `has_synced == true` -> skip full sync, drain buffered events
-    pub has_synced: bool,
-}
-
-impl CommandEmitter {
-    pub fn new() -> Self {
-        Self {
-            next_seq: 1,
-            known_containers: HashMap::new(),
-            known_allocations: HashSet::new(),
-            known_snapshot_ids: HashSet::new(),
-            has_synced: false,
-        }
-    }
-
-    pub(crate) fn next_seq(&mut self) -> u64 {
-        let seq = self.next_seq;
-        self.next_seq += 1;
-        seq
-    }
-
-    /// Diff the current desired state against what was previously seen and
-    /// produce a batch of `Command` messages for the delta.
-    ///
-    /// **Command ordering** matches what `emit_scheduler_events` guarantees:
-    /// 1. REMOVALS first — free GPU/memory before new containers claim them
-    /// 2. ADDITIONS — new containers
-    /// 3. UPDATES — changed descriptions (sandbox_metadata)
-    /// 4. ALLOCATIONS — must come after AddContainer so container exists
-    /// 5. SNAPSHOTS — new snapshot commands
-    ///
-    /// **Important**: this does NOT update the emitter's tracking state.
-    /// Call [`commit_snapshot`] after all commands have been successfully
-    /// delivered to the client so that the tracking sets stay accurate if
-    /// delivery fails partway through.
-    pub fn emit_commands(
-        &mut self,
-        snapshot: &ExecutorStateSnapshot,
-    ) -> Vec<executor_api_pb::Command> {
-        let mut commands = Vec::new();
-
-        let current_containers: HashMap<String, executor_api_pb::ContainerDescription> = snapshot
-            .containers
-            .iter()
-            .filter_map(|fe| fe.id.clone().map(|id| (id, fe.clone())))
-            .collect();
-
-        // 1. REMOVALS first — free GPU/memory before new containers claim them
-        let removed_containers: Vec<String> = self
-            .known_containers
-            .keys()
-            .filter(|id| !current_containers.contains_key(*id))
-            .cloned()
-            .collect();
-        for id in removed_containers {
-            let seq = self.next_seq();
-            commands.push(executor_api_pb::Command {
-                seq,
-                command: Some(executor_api_pb::command::Command::RemoveContainer(
-                    executor_api_pb::RemoveContainer {
-                        container_id: id,
-                        reason: None,
-                    },
-                )),
-            });
-        }
-
-        // 2. ADDITIONS — new containers
-        for fe in &snapshot.containers {
-            if let Some(id) = &fe.id &&
-                !self.known_containers.contains_key(id)
-            {
-                let seq = self.next_seq();
-                commands.push(executor_api_pb::Command {
-                    seq,
-                    command: Some(executor_api_pb::command::Command::AddContainer(
-                        executor_api_pb::AddContainer {
-                            container: Some(fe.clone()),
-                        },
-                    )),
-                });
-            }
-        }
-
-        // 3. UPDATES — changed descriptions (sandbox_metadata)
-        for fe in &snapshot.containers {
-            if let Some(id) = &fe.id &&
-                let Some(known) = self.known_containers.get(id) &&
-                known != fe
-            {
-                let mut update = executor_api_pb::UpdateContainerDescription {
-                    container_id: id.clone(),
-                    sandbox_metadata: None,
-                };
-                if known.sandbox_metadata != fe.sandbox_metadata {
-                    update.sandbox_metadata = fe.sandbox_metadata.clone();
-                }
-                if update.sandbox_metadata.is_some() {
-                    let seq = self.next_seq();
-                    commands.push(executor_api_pb::Command {
-                        seq,
-                        command: Some(
-                            executor_api_pb::command::Command::UpdateContainerDescription(update),
-                        ),
-                    });
-                }
-            }
-        }
-
-        // 4. ALLOCATIONS — must come after AddContainer so container exists
-        for allocation in &snapshot.allocations {
-            if let Some(id) = &allocation.allocation_id &&
-                !self.known_allocations.contains(id)
-            {
-                let seq = self.next_seq();
-                commands.push(executor_api_pb::Command {
-                    seq,
-                    command: Some(executor_api_pb::command::Command::RunAllocation(
-                        executor_api_pb::RunAllocation {
-                            allocation: Some(allocation.clone()),
-                        },
-                    )),
-                });
-            }
-        }
-
-        // 5. SNAPSHOTS — new snapshot commands
-        for snap in &snapshot.pending_snapshots {
-            if !self.known_snapshot_ids.contains(&snap.snapshot_id) {
-                let seq = self.next_seq();
-                commands.push(executor_api_pb::Command {
-                    seq,
-                    command: Some(executor_api_pb::command::Command::SnapshotContainer(
-                        executor_api_pb::SnapshotContainer {
-                            container_id: snap.container_id.clone(),
-                            snapshot_id: snap.snapshot_id.clone(),
-                            upload_uri: snap.upload_uri.clone(),
-                        },
-                    )),
-                });
-            }
-        }
-
-        commands
-    }
-
-    /// Commit the snapshot to the emitter's tracking state.
-    ///
-    /// Call this only after all commands from [`emit_commands`] have been
-    /// successfully delivered to the client.  If delivery fails partway
-    /// through, skipping this call ensures the next full sync re-emits the
-    /// missing commands.
-    pub fn commit_snapshot(&mut self, snapshot: &ExecutorStateSnapshot) {
-        self.known_containers = snapshot
-            .containers
-            .iter()
-            .filter_map(|fe| fe.id.clone().map(|id| (id, fe.clone())))
-            .collect();
-
-        // Allocations that disappear are completed, not killed. We just stop
-        // tracking.
-        self.known_allocations = snapshot
-            .allocations
-            .iter()
-            .filter_map(|a| a.allocation_id.clone())
-            .collect();
-
-        self.known_snapshot_ids = snapshot
-            .pending_snapshots
-            .iter()
-            .map(|s| s.snapshot_id.clone())
-            .collect();
-
-        self.has_synced = true;
-    }
-}
 
 /// Register an executor's full state --- the shared business logic behind
 /// both the v2 heartbeat RPC (with `full_state`) and the test
@@ -279,7 +77,8 @@ impl ExecutorAPIService {
         executor_manager: Arc<ExecutorManager>,
         blob_storage_registry: Arc<BlobStorageRegistry>,
     ) -> Self {
-        let function_call_result_router = Arc::new(FunctionCallResultRouter::new());
+        let function_call_result_router =
+            Arc::new(FunctionCallResultRouter::new(indexify_state.clone()));
         executor_manager.set_function_call_result_router(function_call_result_router.clone());
 
         Self {
@@ -383,103 +182,6 @@ pub(crate) fn network_policy_to_pb(
         allow_internet_access: Some(np.allow_internet_access),
         allow_out: np.allow_out.clone(),
         deny_out: np.deny_out.clone(),
-    }
-}
-
-const LONG_POLL_TIMEOUT: Duration = Duration::from_secs(300);
-
-/// Long-poll helper for the commands buffer.
-///
-/// Both `poll_commands` and `poll_allocation_results` share this structure:
-/// 1. Drain acked items.
-/// 2. Clone current items; return early if non-empty.
-/// 3. Wait on notify or timeout.
-/// 4. Re-clone and return.
-///
-/// `kind` selects which buffer (commands vs results) to operate on.
-async fn long_poll_commands(
-    indexify_state: &IndexifyState,
-    executor_id: &ExecutorId,
-    acked_seq: Option<u64>,
-) -> Vec<executor_api_pb::Command> {
-    let connections = indexify_state.executor_connections.read().await;
-    let Some(conn) = connections.get(executor_id) else {
-        return vec![];
-    };
-
-    if conn.observe_command_ack(acked_seq) {
-        warn!(
-            executor_id = executor_id.get(),
-            observed_ack = ?acked_seq,
-            "detected command ack regression; requesting full state sync"
-        );
-    }
-
-    if let Some(seq) = acked_seq {
-        if let Err(err) = indexify_state.ack_executor_commands(executor_id, seq).await {
-            warn!(
-                executor_id = executor_id.get(),
-                acked_seq = seq,
-                error = ?err,
-                "failed to persist command ack"
-            );
-        }
-        conn.drain_commands_up_to(seq).await;
-    }
-
-    let items = conn.clone_commands().await;
-    if !items.is_empty() {
-        return items;
-    }
-
-    let notify = conn.commands_notify();
-    drop(connections);
-
-    tokio::select! {
-        _ = notify.notified() => {},
-        _ = tokio::time::sleep(LONG_POLL_TIMEOUT) => {},
-    }
-
-    let connections = indexify_state.executor_connections.read().await;
-    if let Some(conn) = connections.get(executor_id) {
-        conn.clone_commands().await
-    } else {
-        vec![]
-    }
-}
-
-async fn long_poll_results(
-    indexify_state: &IndexifyState,
-    executor_id: &ExecutorId,
-    acked_seq: Option<u64>,
-) -> Vec<executor_api_pb::SequencedAllocationResult> {
-    let connections = indexify_state.executor_connections.read().await;
-    let Some(conn) = connections.get(executor_id) else {
-        return vec![];
-    };
-
-    if let Some(seq) = acked_seq {
-        conn.drain_results_up_to(seq).await;
-    }
-
-    let items = conn.clone_results().await;
-    if !items.is_empty() {
-        return items;
-    }
-
-    let notify = conn.results_notify();
-    drop(connections);
-
-    tokio::select! {
-        _ = notify.notified() => {},
-        _ = tokio::time::sleep(LONG_POLL_TIMEOUT) => {},
-    }
-
-    let connections = indexify_state.executor_connections.read().await;
-    if let Some(conn) = connections.get(executor_id) {
-        conn.clone_results().await
-    } else {
-        vec![]
     }
 }
 

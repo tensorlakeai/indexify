@@ -14,6 +14,7 @@ use super::{
 };
 use crate::{data_model::FunctionCallId, proto_convert::to_internal_compute_op};
 
+#[derive(Clone)]
 struct PendingFunctionCall {
     parent_allocation_id: String,
     /// The function_call_id from the original CallFunction that the parent FE
@@ -27,6 +28,7 @@ struct PendingFunctionCall {
 /// back to the parent executor's pending_results buffer via ExecutorConnection.
 pub struct FunctionCallResultRouter {
     pending: RwLock<HashMap<String, PendingFunctionCall>>,
+    indexify_state: Arc<IndexifyState>,
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -37,9 +39,20 @@ enum RegistrationOutcome {
 }
 
 impl FunctionCallResultRouter {
-    pub fn new() -> Self {
+    pub fn new(indexify_state: Arc<IndexifyState>) -> Self {
         Self {
             pending: RwLock::new(HashMap::new()),
+            indexify_state,
+        }
+    }
+
+    fn from_persisted(
+        route: crate::state_store::PersistedFunctionCallRoute,
+    ) -> PendingFunctionCall {
+        PendingFunctionCall {
+            parent_allocation_id: route.parent_allocation_id,
+            original_function_call_id: route.original_function_call_id,
+            executor_id: route.executor_id,
         }
     }
 
@@ -53,7 +66,15 @@ impl FunctionCallResultRouter {
         parent_allocation_id: String,
         original_function_call_id: String,
         executor_id: ExecutorId,
-    ) {
+    ) -> Result<()> {
+        self.indexify_state
+            .upsert_function_call_route(
+                &function_call_id,
+                &parent_allocation_id,
+                &original_function_call_id,
+                &executor_id,
+            )
+            .await?;
         self.pending.write().await.insert(
             function_call_id,
             PendingFunctionCall {
@@ -62,6 +83,7 @@ impl FunctionCallResultRouter {
                 executor_id,
             },
         );
+        Ok(())
     }
 
     /// Register a route coming from parent `CallFunction` logs.
@@ -79,48 +101,107 @@ impl FunctionCallResultRouter {
         parent_allocation_id: String,
         original_function_call_id: String,
         executor_id: ExecutorId,
-    ) -> RegistrationOutcome {
-        use std::collections::hash_map::Entry;
-        let mut pending = self.pending.write().await;
-        match pending.entry(function_call_id) {
-            Entry::Occupied(mut occ) => {
-                let should_replace = {
-                    let existing = occ.get();
-                    existing.parent_allocation_id != parent_allocation_id ||
-                        existing.executor_id != executor_id
-                };
+    ) -> Result<RegistrationOutcome> {
+        let existing = {
+            let pending = self.pending.read().await;
+            pending.get(&function_call_id).cloned()
+        };
 
-                if should_replace {
-                    occ.insert(PendingFunctionCall {
-                        parent_allocation_id,
-                        original_function_call_id,
-                        executor_id,
-                    });
-                    RegistrationOutcome::Replaced
-                } else {
-                    RegistrationOutcome::Unchanged
-                }
+        let existing = match existing {
+            Some(route) => Some(route),
+            None => self
+                .indexify_state
+                .get_function_call_route(&function_call_id)
+                .await?
+                .map(Self::from_persisted),
+        };
+
+        let new_route = PendingFunctionCall {
+            parent_allocation_id: parent_allocation_id.clone(),
+            original_function_call_id: original_function_call_id.clone(),
+            executor_id: executor_id.clone(),
+        };
+
+        match existing {
+            Some(existing_route)
+                if existing_route.parent_allocation_id == parent_allocation_id &&
+                    existing_route.executor_id == executor_id =>
+            {
+                self.pending
+                    .write()
+                    .await
+                    .entry(function_call_id)
+                    .or_insert(existing_route);
+                Ok(RegistrationOutcome::Unchanged)
             }
-            Entry::Vacant(v) => {
-                v.insert(PendingFunctionCall {
-                    parent_allocation_id,
-                    original_function_call_id,
-                    executor_id,
-                });
-                RegistrationOutcome::Inserted
+            Some(_) => {
+                self.indexify_state
+                    .upsert_function_call_route(
+                        &function_call_id,
+                        &parent_allocation_id,
+                        &original_function_call_id,
+                        &executor_id,
+                    )
+                    .await?;
+                self.pending
+                    .write()
+                    .await
+                    .insert(function_call_id, new_route);
+                Ok(RegistrationOutcome::Replaced)
+            }
+            None => {
+                self.indexify_state
+                    .upsert_function_call_route(
+                        &function_call_id,
+                        &parent_allocation_id,
+                        &original_function_call_id,
+                        &executor_id,
+                    )
+                    .await?;
+                self.pending
+                    .write()
+                    .await
+                    .insert(function_call_id, new_route);
+                Ok(RegistrationOutcome::Inserted)
             }
         }
     }
 
-    pub async fn purge_executor(&self, executor_id: &ExecutorId) -> usize {
+    pub async fn purge_executor(&self, executor_id: &ExecutorId) -> Result<usize> {
         let mut pending = self.pending.write().await;
         let before = pending.len();
         pending.retain(|_, route| &route.executor_id != executor_id);
-        before.saturating_sub(pending.len())
+        let in_mem_purged = before.saturating_sub(pending.len());
+        drop(pending);
+
+        let persisted_purged = self
+            .indexify_state
+            .purge_function_call_routes_for_executor(executor_id)
+            .await?;
+        Ok(persisted_purged.max(in_mem_purged))
     }
 
-    async fn take(&self, function_call_id: &str) -> Option<PendingFunctionCall> {
-        self.pending.write().await.remove(function_call_id)
+    async fn take(&self, function_call_id: &str) -> Result<Option<PendingFunctionCall>> {
+        if let Some(route) = self.pending.write().await.remove(function_call_id) {
+            if let Err(err) = self
+                .indexify_state
+                .delete_function_call_route(function_call_id)
+                .await
+            {
+                warn!(
+                    function_call_id = %function_call_id,
+                    error = ?err,
+                    "failed to delete persisted function call route after in-memory take"
+                );
+            }
+            return Ok(Some(route));
+        }
+
+        Ok(self
+            .indexify_state
+            .take_function_call_route(function_call_id)
+            .await?
+            .map(Self::from_persisted))
     }
 
     #[cfg(test)]
@@ -162,7 +243,7 @@ pub(super) async fn handle_log_entry(
                                 individual_fc_id.clone(),
                                 executor_id.clone(),
                             )
-                            .await
+                            .await?
                         {
                             RegistrationOutcome::Inserted => {
                                 debug!(
@@ -297,7 +378,19 @@ pub(super) async fn try_route_result(
     completed: &executor_api_pb::AllocationCompleted,
     indexify_state: &Arc<IndexifyState>,
 ) {
-    if let Some(pending) = router.take(function_call_id).await {
+    let pending = match router.take(function_call_id).await {
+        Ok(route) => route,
+        Err(err) => {
+            warn!(
+                function_call_id = %function_call_id,
+                error = ?err,
+                "try_route_result: failed to load/take function call route"
+            );
+            None
+        }
+    };
+
+    if let Some(pending) = pending {
         match &completed.return_value {
             Some(executor_api_pb::allocation_completed::ReturnValue::Value(dp)) => {
                 debug!(
@@ -346,7 +439,15 @@ pub(super) async fn try_route_result(
                             pending.original_function_call_id,
                             pending.executor_id,
                         )
-                        .await;
+                        .await
+                        .unwrap_or_else(|err| {
+                            warn!(
+                                function_call_id = %function_call_id,
+                                downstream_function_call_id = %downstream_fc_id,
+                                error = ?err,
+                                "failed to persist downstream function call route"
+                            );
+                        });
                 } else {
                     warn!(
                         function_call_id = %function_call_id,
@@ -397,7 +498,19 @@ pub(super) async fn try_route_failure(
     failed: &executor_api_pb::AllocationFailed,
     indexify_state: &Arc<IndexifyState>,
 ) {
-    if let Some(pending) = router.take(function_call_id).await {
+    let pending = match router.take(function_call_id).await {
+        Ok(route) => route,
+        Err(err) => {
+            warn!(
+                function_call_id = %function_call_id,
+                error = ?err,
+                "try_route_failure: failed to load/take function call route"
+            );
+            None
+        }
+    };
+
+    if let Some(pending) = pending {
         let log_entry = executor_api_pb::AllocationLogEntry {
             allocation_id: pending.parent_allocation_id,
             clock: 0,
@@ -464,10 +577,12 @@ fn build_result_log_entry(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::state_store::test_state_store::TestStateStore;
 
     #[tokio::test]
     async fn test_register_from_parent_replaces_stale_entry_on_reschedule() {
-        let router = FunctionCallResultRouter::new();
+        let store = TestStateStore::new().await.unwrap();
+        let router = FunctionCallResultRouter::new(store.indexify_state.clone());
         let executor_a = ExecutorId::new("executor-a".to_string());
         let executor_b = ExecutorId::new("executor-b".to_string());
 
@@ -478,7 +593,8 @@ mod tests {
                 "fc-1".to_string(),
                 executor_a,
             )
-            .await;
+            .await
+            .unwrap();
         assert_eq!(first, RegistrationOutcome::Inserted);
 
         let second = router
@@ -488,10 +604,15 @@ mod tests {
                 "fc-1".to_string(),
                 executor_b.clone(),
             )
-            .await;
+            .await
+            .unwrap();
         assert_eq!(second, RegistrationOutcome::Replaced);
 
-        let entry = router.take("fc-1").await.expect("entry should exist");
+        let entry = router
+            .take("fc-1")
+            .await
+            .unwrap()
+            .expect("entry should exist");
         assert_eq!(entry.parent_allocation_id, "alloc-b");
         assert_eq!(entry.executor_id, executor_b);
         assert_eq!(entry.original_function_call_id, "fc-1");
@@ -499,7 +620,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_register_from_parent_keeps_existing_for_same_chain() {
-        let router = FunctionCallResultRouter::new();
+        let store = TestStateStore::new().await.unwrap();
+        let router = FunctionCallResultRouter::new(store.indexify_state.clone());
         let executor = ExecutorId::new("executor-a".to_string());
 
         // Simulate tail-call registration that already preserved the original
@@ -511,7 +633,8 @@ mod tests {
                 "root-fc".to_string(),
                 executor.clone(),
             )
-            .await;
+            .await
+            .unwrap();
 
         let outcome = router
             .register_from_parent(
@@ -520,17 +643,23 @@ mod tests {
                 "fc-1".to_string(),
                 executor,
             )
-            .await;
+            .await
+            .unwrap();
         assert_eq!(outcome, RegistrationOutcome::Unchanged);
 
-        let entry = router.take("fc-1").await.expect("entry should exist");
+        let entry = router
+            .take("fc-1")
+            .await
+            .unwrap()
+            .expect("entry should exist");
         assert_eq!(entry.parent_allocation_id, "alloc-a");
         assert_eq!(entry.original_function_call_id, "root-fc");
     }
 
     #[tokio::test]
     async fn test_purge_executor_removes_only_target_executor_entries() {
-        let router = FunctionCallResultRouter::new();
+        let store = TestStateStore::new().await.unwrap();
+        let router = FunctionCallResultRouter::new(store.indexify_state.clone());
         let executor_a = ExecutorId::new("executor-a".to_string());
         let executor_b = ExecutorId::new("executor-b".to_string());
 
@@ -541,7 +670,8 @@ mod tests {
                 "fc-a1".to_string(),
                 executor_a.clone(),
             )
-            .await;
+            .await
+            .unwrap();
         router
             .register(
                 "fc-a2".to_string(),
@@ -549,7 +679,8 @@ mod tests {
                 "fc-a2".to_string(),
                 executor_a,
             )
-            .await;
+            .await
+            .unwrap();
         router
             .register(
                 "fc-b1".to_string(),
@@ -557,12 +688,46 @@ mod tests {
                 "fc-b1".to_string(),
                 executor_b.clone(),
             )
-            .await;
+            .await
+            .unwrap();
 
-        let purged = router.purge_executor(&executor_b).await;
+        let purged = router.purge_executor(&executor_b).await.unwrap();
         assert_eq!(purged, 1);
-        assert!(router.take("fc-b1").await.is_none());
-        assert!(router.take("fc-a1").await.is_some());
-        assert!(router.take("fc-a2").await.is_some());
+        assert!(router.take("fc-b1").await.unwrap().is_none());
+        assert!(router.take("fc-a1").await.unwrap().is_some());
+        assert!(router.take("fc-a2").await.unwrap().is_some());
+    }
+
+    #[tokio::test]
+    async fn test_take_falls_back_to_persisted_route_after_router_restart() {
+        let store = TestStateStore::new().await.unwrap();
+        let executor = ExecutorId::new("executor-a".to_string());
+
+        {
+            let router = FunctionCallResultRouter::new(store.indexify_state.clone());
+            router
+                .register(
+                    "fc-1".to_string(),
+                    "alloc-a".to_string(),
+                    "fc-1".to_string(),
+                    executor.clone(),
+                )
+                .await
+                .unwrap();
+        }
+
+        // Simulate process/router restart: in-memory map is empty, only
+        // persisted route remains.
+        let router = FunctionCallResultRouter::new(store.indexify_state.clone());
+        let entry = router
+            .take("fc-1")
+            .await
+            .unwrap()
+            .expect("entry should exist");
+        assert_eq!(entry.parent_allocation_id, "alloc-a");
+        assert_eq!(entry.executor_id, executor);
+
+        let none = router.take("fc-1").await.unwrap();
+        assert!(none.is_none());
     }
 }

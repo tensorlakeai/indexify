@@ -112,6 +112,10 @@ pub enum IndexifyObjectsColumns {
     // ack|<executor_id> -> encoded u64 highest acked command seq
     // next|<executor_id> -> encoded u64 next sequence to allocate
     ExecutorCommandOutbox,
+
+    // Function call result router persistence.
+    // route|<function_call_id> -> PersistedFunctionCallRoute
+    FunctionCallResultRoutes,
 }
 
 pub(crate) async fn upsert_namespace(
