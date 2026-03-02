@@ -190,6 +190,29 @@ message AllocationRequestStateOperation {
     }
 }
 
+message AllocationAppStatePrepareReadOperation {}
+
+message AllocationAppStatePrepareWriteOperation {
+    optional uint64 size = 1;
+}
+
+message AllocationAppStateCommitWriteOperation {
+    // BLOB with the uploaded data.
+    optional BLOB blob = 1;
+}
+
+message AllocationAppStateOperation {
+    // ID of the operation in AllocationState, unique per allocation.
+    // New operations are detected by comparing IDs.
+    optional string operation_id = 1;
+    optional string state_key = 2;
+    oneof operation {
+        AllocationAppStatePrepareReadOperation prepare_read = 3;
+        AllocationAppStatePrepareWriteOperation prepare_write = 4;
+        AllocationAppStateCommitWriteOperation commit_write = 5;
+    }
+}
+
 message AllocationState {
     // Optional current allocation progress.
     optional AllocationProgress progress = 1;
@@ -204,6 +227,8 @@ message AllocationState {
     repeated AllocationFunctionCallWatcher function_call_watchers = 4;
     // Request state operations.
     repeated AllocationRequestStateOperation request_state_operations = 7;
+    // Application state operations.
+    repeated AllocationAppStateOperation app_state_operations = 8;
 
     // Optional allocation result. Set when allocation finishes.
     AllocationResult result = 5;
@@ -360,6 +385,30 @@ message AllocationRequestStateOperationResult {
     }
 }
 
+message AllocationAppStatePrepareReadOperationResult {
+    // A readable BLOB with the value of the requested key.
+    // Reading the BLOB will fail if the state key doesn't exist.
+    optional BLOB blob = 1;
+}
+
+message AllocationAppStatePrepareWriteOperationResult {
+    // A writable BLOB where the allocation can upload the value for the requested key.
+    optional BLOB blob = 1;
+}
+
+message AllocationAppStateCommitWriteOperationResult {}
+
+message AllocationAppStateOperationResult {
+    optional string operation_id = 1;
+    optional google.rpc.Status status = 3;
+    // result is set if status is OK.
+    oneof result {
+        AllocationAppStatePrepareReadOperationResult prepare_read = 4;
+        AllocationAppStatePrepareWriteOperationResult prepare_write = 5;
+        AllocationAppStateCommitWriteOperationResult commit_write = 6;
+    }
+}
+
 message AllocationUpdate {
     // Target allocation ID.
     optional string allocation_id = 1;
@@ -373,6 +422,7 @@ message AllocationUpdate {
         AllocationRequestStateOperationResult request_state_operation_result = 5;
         // Result of creating a function call requested by the allocation.
         AllocationFunctionCallCreationResult function_call_creation_result = 6;
+        AllocationAppStateOperationResult app_state_operation_result = 7;
     }
 }
 

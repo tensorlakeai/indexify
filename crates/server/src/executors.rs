@@ -606,6 +606,27 @@ impl ExecutorManager {
                 }
             };
 
+            // Build function_executor_metadata for function containers
+            let function_executor_metadata =
+                if fe.container_type == data_model::ContainerType::Function {
+                    let blob_store_url = self
+                        .blob_store_registry
+                        .get_blob_store(&fe.namespace)
+                        .get_url();
+                    Some(executor_api_pb::FunctionExecutorMetadata {
+                        app_state_uri_prefix: Some(format!(
+                            "{}/{}",
+                            blob_store_url,
+                            data_model::DataPayload::app_state_key_prefix(
+                                &fe.namespace,
+                                &fe.application_name,
+                            ),
+                        )),
+                    })
+                } else {
+                    None
+                };
+
             let fe_description_pb = ContainerDescription {
                 id: Some(fe.id.get().to_string()),
                 function: Some(FunctionRef {
@@ -623,6 +644,7 @@ impl ExecutorManager {
                 sandbox_metadata,
                 container_type: Some(fe_type_pb.into()),
                 pool_id: fe.pool_id.as_ref().map(|p| p.get().to_string()),
+                function_executor_metadata,
             };
             containers_pb.push(fe_description_pb);
         }
