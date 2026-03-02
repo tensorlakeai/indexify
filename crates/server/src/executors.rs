@@ -51,7 +51,12 @@ use crate::{
     state_store::{
         IndexifyState,
         in_memory_state::{self, DesiredStateFunctionExecutor},
-        requests::{DeregisterExecutorRequest, RequestPayload, StateMachineUpdateRequest},
+        requests::{
+            DeregisterExecutorRequest,
+            RequestPayload,
+            SchedulerUpdateRequest,
+            StateMachineUpdateRequest,
+        },
     },
     utils::{dynamic_sleep::DynamicSleepFuture, get_epoch_time_in_ms},
 };
@@ -808,6 +813,73 @@ impl ExecutorManager {
             pending_snapshots: desired_executor_state.pending_snapshots,
             clock: Some(desired_executor_state.clock),
         })
+    }
+
+    /// Emit commands for one executor by diffing current desired state
+    /// against the executor connection's emitter snapshot.
+    ///
+    /// When `force_full_sync` is true, command emission state is reset first
+    /// (reconnect/local-state-loss recovery).
+    pub async fn emit_commands_for_executor(
+        &self,
+        executor_id: &ExecutorId,
+        force_full_sync: bool,
+    ) {
+        let emitter = {
+            let connections = self.indexify_state.executor_connections.read().await;
+            let Some(conn) = connections.get(executor_id) else {
+                return;
+            };
+            if force_full_sync {
+                conn.reset_for_full_sync().await;
+            }
+            conn.emitter.clone()
+        };
+
+        let Some(snapshot) = self.get_executor_state(executor_id).await else {
+            trace!(
+                executor_id = executor_id.get(),
+                "emit_commands_for_executor: desired state unavailable"
+            );
+            return;
+        };
+
+        let commands = {
+            let mut emitter_guard = emitter.lock().await;
+            emitter_guard.emit_commands(&snapshot)
+        };
+
+        if !commands.is_empty() {
+            let connections = self.indexify_state.executor_connections.read().await;
+            if let Some(conn) = connections.get(executor_id) {
+                conn.push_commands(commands).await;
+            } else {
+                return;
+            }
+        }
+
+        let mut emitter_guard = emitter.lock().await;
+        emitter_guard.commit_snapshot(&snapshot);
+    }
+
+    /// Emit commands for all connected executors.
+    pub async fn emit_commands_for_all_connected(&self, force_full_sync: bool) {
+        let executor_ids = self.indexify_state.connected_executor_ids().await;
+        for executor_id in executor_ids {
+            self.emit_commands_for_executor(&executor_id, force_full_sync)
+                .await;
+        }
+    }
+
+    /// Emit commands only for executors affected by the scheduler update.
+    pub async fn emit_commands_from_scheduler_update(&self, update: &SchedulerUpdateRequest) {
+        let affected = self
+            .indexify_state
+            .affected_executors_from_update(update)
+            .await;
+        for executor_id in affected {
+            self.emit_commands_for_executor(&executor_id, false).await;
+        }
     }
 
     pub async fn list_executors(&self) -> Result<Vec<ExecutorMetadata>> {

@@ -117,6 +117,7 @@ impl Service {
 
         let application_processor = Arc::new(ApplicationProcessor::new(
             indexify_state.clone(),
+            executor_manager.clone(),
             config.queue_size,
         ));
         application_processor.validate_app_constraints().await?;

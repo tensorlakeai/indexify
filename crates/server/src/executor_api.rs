@@ -9,7 +9,7 @@ use anyhow::Result;
 use executor_api_pb::executor_api_server::ExecutorApi;
 pub use proto_api::executor_api_pb;
 use tonic::{Request, Response, Status};
-use tracing::{debug, info, trace, warn};
+use tracing::{info, warn};
 
 mod heartbeat_helpers;
 mod report_processing;
@@ -365,14 +365,10 @@ impl ExecutorAPIService {
             .register_executor_connection(executor_id)
             .await;
 
-        // Spawn the background command generator for this executor.
-        spawn_command_generator(
-            executor_id.clone(),
-            self.executor_manager.clone(),
-            self.blob_storage_registry.clone(),
-            self.indexify_state.clone(),
-        )
-        .await;
+        // Emit an immediate full-sync command batch for this executor.
+        self.executor_manager
+            .emit_commands_for_executor(executor_id, true)
+            .await;
 
         Ok(())
     }
@@ -386,182 +382,6 @@ pub(crate) fn network_policy_to_pb(
         allow_internet_access: Some(np.allow_internet_access),
         allow_out: np.allow_out.clone(),
         deny_out: np.deny_out.clone(),
-    }
-}
-
-/// Perform a full sync: fetch complete executor state, diff via emitter,
-/// and push all resulting commands into the connection's pending_commands
-/// buffer.
-///
-/// **Lock ordering**: emitter lock is acquired and released BEFORE
-/// `executor_connections.read()` to prevent ABBA deadlock with
-/// `register_executor_connection()` which takes the reverse order.
-async fn do_full_sync_buffered(
-    executor_id: &ExecutorId,
-    executor_manager: &ExecutorManager,
-    emitter: &Arc<tokio::sync::Mutex<CommandEmitter>>,
-    indexify_state: &IndexifyState,
-) {
-    let Some(snapshot) = executor_manager.get_executor_state(executor_id).await else {
-        warn!(
-            executor_id = executor_id.get(),
-            "command_generator: executor state not available for full sync"
-        );
-        return;
-    };
-
-    // Emit under emitter lock, then drop before acquiring connections lock.
-    let commands = {
-        let mut guard = emitter.lock().await;
-        guard.emit_commands(&snapshot)
-    };
-
-    if !commands.is_empty() {
-        info!(
-            executor_id = executor_id.get(),
-            num_commands = commands.len(),
-            "command_generator: full sync emitting commands"
-        );
-        let connections = indexify_state.executor_connections.read().await;
-        if let Some(conn) = connections.get(executor_id) {
-            conn.push_commands(commands).await;
-        }
-    }
-
-    // All commands buffered -- update tracking state.
-    {
-        let mut guard = emitter.lock().await;
-        guard.commit_snapshot(&snapshot);
-    }
-}
-
-/// Spawn a background task that diffs ArcSwap state on global wake
-/// notifications and pushes generated `Command` messages into the
-/// connection's pending_commands buffer for long-poll delivery.
-///
-/// The task runs until the executor is deregistered (get_executor_state
-/// returns None) or the wake channel closes (server shutting down).
-async fn spawn_command_generator(
-    executor_id: ExecutorId,
-    executor_manager: Arc<ExecutorManager>,
-    _blob_storage_registry: Arc<BlobStorageRegistry>,
-    indexify_state: Arc<IndexifyState>,
-) {
-    // Get emitter handle from the connection
-    let emitter = {
-        let connections = indexify_state.executor_connections.read().await;
-        let Some(conn) = connections.get(&executor_id) else {
-            warn!(
-                executor_id = executor_id.get(),
-                "spawn_command_generator: connection not found"
-            );
-            return;
-        };
-        conn.emitter.clone()
-    };
-
-    let mut wake_rx = indexify_state.subscribe_executor_wake();
-    let eid = executor_id.clone();
-    let indexify_state_for_handle = indexify_state.clone();
-    let handle = tokio::spawn(async move {
-        let mut last_processed_dirty_seq: u64 = 0;
-        // Initial full sync
-        {
-            let should_sync = !emitter.lock().await.has_synced;
-            if should_sync {
-                do_full_sync_buffered(&eid, &executor_manager, &emitter, &indexify_state).await;
-            }
-        }
-
-        loop {
-            // Wait for global wake notification
-            if wake_rx.changed().await.is_err() {
-                // Channel closed — server shutting down
-                info!(
-                    executor_id = eid.get(),
-                    "command_generator: wake channel closed, exiting"
-                );
-                break;
-            }
-
-            let dirty_seq = indexify_state.executor_dirty_seq_for(&eid).await;
-            if dirty_seq <= last_processed_dirty_seq {
-                trace!(
-                    executor_id = eid.get(),
-                    dirty_seq,
-                    last_processed_dirty_seq,
-                    "command_generator: skip diff, executor not marked dirty"
-                );
-                continue;
-            }
-
-            // Diff against current ArcSwap state
-            let snapshot = if let Some(snapshot) = executor_manager.get_executor_state(&eid).await {
-                snapshot
-            } else {
-                // `None` can mean either:
-                // 1) executor truly deregistered (connection removed), or
-                // 2) executor registered but not yet reconciled (no desired state yet).
-                //
-                // Exiting on (2) causes a startup race where this task dies
-                // permanently before allocations are emitted.
-                let connections = indexify_state.executor_connections.read().await;
-                if connections.contains_key(&eid) {
-                    debug!(
-                        executor_id = eid.get(),
-                        "command_generator: executor state not yet available, waiting"
-                    );
-                    continue;
-                }
-
-                info!(
-                    executor_id = eid.get(),
-                    "command_generator: executor deregistered, exiting"
-                );
-                break;
-            };
-
-            // Emit commands under the emitter lock, then DROP the guard
-            // before acquiring executor_connections.read(). This prevents
-            // an ABBA deadlock with register_executor_connection() which
-            // acquires executor_connections.write() then emitter.lock()
-            // (via reset_emitter).
-            let commands = {
-                let mut emitter_guard = emitter.lock().await;
-                emitter_guard.emit_commands(&snapshot)
-            };
-
-            if !commands.is_empty() {
-                debug!(
-                    executor_id = eid.get(),
-                    num_commands = commands.len(),
-                    "command_generator: emitting diff commands"
-                );
-                let connections = indexify_state.executor_connections.read().await;
-                if let Some(conn) = connections.get(&eid) {
-                    conn.push_commands(commands).await;
-                }
-            }
-
-            // Commit tracking state only after commands are buffered.
-            // If push_commands fails (connection removed), skipping this
-            // ensures the next wake re-emits the missing commands.
-            {
-                let mut emitter_guard = emitter.lock().await;
-                emitter_guard.commit_snapshot(&snapshot);
-            }
-            last_processed_dirty_seq = dirty_seq;
-        }
-    });
-
-    // Store the handle on the connection so it gets aborted on deregistration
-    let mut connections = indexify_state_for_handle.executor_connections.write().await;
-    if let Some(conn) = connections.get_mut(&executor_id) {
-        // Abort any existing command generator
-        if let Some(old_handle) = conn.command_generator_handle.take() {
-            old_handle.abort();
-        }
-        conn.command_generator_handle = Some(handle);
     }
 }
 
@@ -1224,19 +1044,16 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_command_generator_survives_unreconciled_executor_state() {
-        // Reproduces the startup race from CI:
-        // registration spawns command generator before application processor
-        // has created executor server metadata.
+    async fn test_reconnect_full_state_resets_command_outbox() {
         let test_service = TestService::new().await.unwrap();
         let api = super::ExecutorAPIService::new(
             test_service.service.indexify_state.clone(),
             test_service.service.executor_manager.clone(),
             test_service.service.blob_storage_registry.clone(),
         );
-        let executor_id = crate::data_model::ExecutorId::from("executor-startup-race");
+        let executor_id = crate::data_model::ExecutorId::from("executor-reconnect-reset");
 
-        // Register executor (full_state path) without running app processor yet.
+        // Initial register.
         api.handle_full_state(
             &executor_id,
             executor_api_pb::DataplaneStateFullSync::default(),
@@ -1244,14 +1061,38 @@ mod tests {
         .await
         .unwrap();
 
-        // Wake command generators before reconciliation; desired state is still
-        // unavailable at this point.
-        let _ = test_service
-            .service
-            .indexify_state
-            .executor_wake_tx
-            .send(());
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        // Seed outbox with a pending command and observe non-zero ack
+        // progression to establish a cursor.
+        {
+            let connections = test_service
+                .service
+                .indexify_state
+                .executor_connections
+                .read()
+                .await;
+            let conn = connections
+                .get(&executor_id)
+                .expect("executor connection should exist");
+            conn.push_commands(vec![make_command(10)]).await;
+        }
+        let _ = ExecutorApi::poll_commands(
+            &api,
+            Request::new(executor_api_pb::PollCommandsRequest {
+                executor_id: executor_id.get().to_string(),
+                acked_command_seq: Some(7),
+            }),
+        )
+        .await
+        .unwrap();
+
+        // Reconnect with full state (same executor_id): this should reset
+        // command outbox/cursor before re-syncing.
+        api.handle_full_state(
+            &executor_id,
+            executor_api_pb::DataplaneStateFullSync::default(),
+        )
+        .await
+        .unwrap();
 
         let connections = test_service
             .service
@@ -1262,14 +1103,9 @@ mod tests {
         let conn = connections
             .get(&executor_id)
             .expect("executor connection should exist");
-        let handle = conn
-            .command_generator_handle
-            .as_ref()
-            .expect("command generator should be running");
-
         assert!(
-            !handle.is_finished(),
-            "command generator exited before executor reconciliation completed"
+            conn.clone_commands().await.is_empty(),
+            "reconnect full state should clear stale pending commands"
         );
     }
 
@@ -1745,6 +1581,122 @@ mod tests {
             api.function_call_result_router.pending_len().await,
             1,
             "router entry should remain so retried outcome can still route"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_scheduler_update_emits_commands_without_wake_loop() {
+        let test_service = TestService::new().await.unwrap();
+        let api = super::ExecutorAPIService::new(
+            test_service.service.indexify_state.clone(),
+            test_service.service.executor_manager.clone(),
+            test_service.service.blob_storage_registry.clone(),
+        );
+        let executor_id = crate::data_model::ExecutorId::from("executor-update-driven-emission");
+
+        api.handle_full_state(
+            &executor_id,
+            executor_api_pb::DataplaneStateFullSync::default(),
+        )
+        .await
+        .unwrap();
+
+        // Process queued UpsertExecutor so scheduler has executor metadata.
+        test_service.process_all_state_changes().await.unwrap();
+
+        let container = crate::data_model::ContainerBuilder::default()
+            .id(crate::data_model::ContainerId::new(
+                "container-update-driven".to_string(),
+            ))
+            .namespace("ns".to_string())
+            .application_name("app".to_string())
+            .function_name("fn".to_string())
+            .version("v1".to_string())
+            .state(crate::data_model::ContainerState::Running)
+            .resources(crate::data_model::ContainerResources {
+                cpu_ms_per_sec: 1000,
+                memory_mb: 512,
+                ephemeral_disk_mb: 1024,
+                gpu: None,
+            })
+            .max_concurrency(1)
+            .container_type(crate::data_model::ContainerType::Function)
+            .build()
+            .unwrap();
+        let mut executor_state = crate::data_model::ExecutorServerMetadata {
+            executor_id: executor_id.clone(),
+            function_container_ids: imbl::HashSet::new(),
+            free_resources: crate::data_model::HostResources {
+                cpu_ms_per_sec: 8_000,
+                memory_bytes: 16 * 1024 * 1024 * 1024,
+                disk_bytes: 100 * 1024 * 1024 * 1024,
+                gpu: None,
+            },
+            resource_claims: imbl::HashMap::new(),
+        };
+        executor_state
+            .add_container(&container)
+            .expect("container should fit executor resources");
+
+        let container_meta = crate::data_model::ContainerServerMetadata::new(
+            executor_id.clone(),
+            container.clone(),
+            crate::data_model::ContainerState::Running,
+        );
+
+        let mut update = crate::state_store::requests::SchedulerUpdateRequest::default();
+        update
+            .updated_executor_states
+            .insert(executor_id.clone(), Box::new(executor_state));
+        update
+            .containers
+            .insert(container.id.clone(), Box::new(container_meta));
+
+        // Mirror scheduler publish path (ArcSwap update), then emit commands
+        // directly from the scheduler update.
+        let current = test_service.service.indexify_state.app_state.load_full();
+        let mut indexes = current.indexes.clone();
+        let mut scheduler = current.scheduler.clone();
+        let clock = indexes.clock;
+        indexes
+            .apply_scheduler_update(clock, &update, "test_scheduler_update")
+            .unwrap();
+        scheduler.apply_container_update(&update);
+        test_service
+            .service
+            .indexify_state
+            .app_state
+            .store(std::sync::Arc::new(crate::state_store::AppState {
+                indexes,
+                scheduler,
+            }));
+
+        test_service
+            .service
+            .executor_manager
+            .emit_commands_from_scheduler_update(&update)
+            .await;
+
+        let response = ExecutorApi::poll_commands(
+            &api,
+            Request::new(executor_api_pb::PollCommandsRequest {
+                executor_id: executor_id.get().to_string(),
+                acked_command_seq: None,
+            }),
+        )
+        .await
+        .unwrap()
+        .into_inner();
+
+        let has_add = response.commands.iter().any(|c| {
+            matches!(
+                c.command,
+                Some(executor_api_pb::command::Command::AddContainer(_))
+            )
+        });
+        assert!(
+            has_add,
+            "expected AddContainer command after scheduler update"
         );
     }
 }

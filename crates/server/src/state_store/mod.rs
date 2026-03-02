@@ -56,8 +56,8 @@ impl ExecutorCatalog {
 /// Created on registration, destroyed on deregistration.
 ///
 /// Holds the command emitter and buffered commands/results for long-poll
-/// delivery. Command generation is driven by the global executor wake
-/// channel — the background task diffs ArcSwap state on each wake.
+/// delivery. Command emission is update-driven by scheduler batches and
+/// full-sync reconnects.
 pub struct ExecutorConnection {
     /// Command emitter — persists across reconnections.
     /// Fresh emitter (has_synced=false) on first registration.
@@ -79,11 +79,6 @@ pub struct ExecutorConnection {
     request_full_state: Arc<atomic::AtomicBool>,
     /// Wakes a held poll_allocation_results request when new results arrive.
     results_notify: Arc<Notify>,
-
-    /// Background task that diffs state and produces commands.
-    /// Spawned externally (in executor_api.rs) because it needs
-    /// executor_manager and blob_storage_registry.
-    pub command_generator_handle: Option<tokio::task::JoinHandle<()>>,
 }
 
 impl ExecutorConnection {
@@ -98,7 +93,6 @@ impl ExecutorConnection {
             last_acked_command_seq: Arc::new(AtomicU64::new(0)),
             request_full_state: Arc::new(atomic::AtomicBool::new(false)),
             results_notify: Arc::new(Notify::new()),
-            command_generator_handle: None,
         }
     }
 
@@ -184,13 +178,14 @@ impl ExecutorConnection {
         self.results_notify.clone()
     }
 
-    /// Reset the emitter to fresh state (has_synced=false, empty tracking
-    /// sets). Called on re-registration so the next command generation cycle
-    /// does a full sync with accurate state instead of using stale tracking
-    /// data.
-    pub async fn reset_emitter(&self) {
+    /// Reset command emission state for a reconnect/full-sync handshake.
+    ///
+    /// Clears the pending command outbox and resets emitter tracking so the
+    /// next emit computes from a clean baseline and sequence cursor.
+    pub async fn reset_for_full_sync(&self) {
         let mut emitter = self.emitter.lock().await;
         *emitter = CommandEmitter::new();
+        self.pending_commands.lock().await.clear();
         self.last_acked_command_seq
             .store(0, atomic::Ordering::Relaxed);
         self.request_full_state
@@ -243,26 +238,14 @@ pub struct IndexifyState {
     pub usage_events_tx: watch::Sender<()>,
     pub usage_events_rx: watch::Receiver<()>,
 
-    /// Global wake channel for diff-based command generation.
-    /// The scheduler fires this after publishing to ArcSwap; per-executor
-    /// command generator tasks subscribe and diff against the new state.
-    pub executor_wake_tx: watch::Sender<()>,
-
     pub metrics: Arc<StateStoreMetrics>,
     pub app_state: Arc<ArcSwap<AppState>>,
     /// Serializes writers to app_state.
     /// ArcSwap provides lock-free reads but concurrent fork-mutate-publish
     /// cycles need serialization to prevent lost updates.
     pub write_mutex: tokio::sync::Mutex<()>,
-    /// Per-executor connection state for diff-based command generation.
-    /// A background task diffs against ArcSwap on wake and buffers
-    /// commands/results for long-poll delivery.
+    /// Per-executor long-poll connection state and command/result outboxes.
     pub executor_connections: RwLock<HashMap<ExecutorId, ExecutorConnection>>,
-    /// Per-executor dirty sequence used by command generators to skip
-    /// unnecessary diffs when a scheduler batch did not affect that executor.
-    executor_dirty: RwLock<HashMap<ExecutorId, u64>>,
-    /// Monotonic sequence for executor_dirty entries.
-    executor_dirty_seq: AtomicU64,
     pub request_event_buffers: RequestEventBuffers,
     // Observable gauges - must be kept alive for callbacks to fire
     _in_memory_store_gauges: InMemoryStoreGauges,
@@ -332,8 +315,6 @@ impl IndexifyState {
 
         let (change_events_tx, change_events_rx) = watch::channel(());
         let (usage_events_tx, usage_events_rx) = watch::channel(());
-        let (executor_wake_tx, _executor_wake_rx) = watch::channel(());
-
         let state_reader = scanner::StateReader::new(db.clone(), state_store_metrics.clone());
 
         let in_memory_state = InMemoryState::new(
@@ -389,10 +370,7 @@ impl IndexifyState {
             app_state,
             usage_events_tx,
             usage_events_rx,
-            executor_wake_tx,
             executor_connections: RwLock::new(HashMap::new()),
-            executor_dirty: RwLock::new(HashMap::new()),
-            executor_dirty_seq: AtomicU64::new(0),
             request_event_buffers,
             write_mutex: tokio::sync::Mutex::new(()),
             _in_memory_store_gauges: in_memory_store_gauges,
@@ -457,13 +435,6 @@ impl IndexifyState {
         }
 
         Ok(())
-    }
-
-    /// Subscribe to the global executor wake channel. Each subscriber gets
-    /// its own independent receiver that tracks which notifications it has
-    /// seen.
-    pub fn subscribe_executor_wake(&self) -> watch::Receiver<()> {
-        self.executor_wake_tx.subscribe()
     }
 
     async fn write_in_persistent_store(
@@ -824,14 +795,12 @@ impl IndexifyState {
     }
 
     /// Ensure an executor connection exists with a fresh emitter. Called
-    /// during registration (handle_v2_full_state) so events can be buffered
-    /// even before the command generator task starts.
+    /// during registration (handle_v2_full_state) so commands/results can be
+    /// buffered for long-poll delivery.
     ///
     /// If a connection already exists (re-registration without prior
-    /// deregister), the emitter is reset to `has_synced = false` so the
-    /// next command generation cycle does a full sync with accurate
-    /// tracking state. Pending buffers are preserved so buffered
-    /// commands are not lost.
+    /// deregister), command emission state is reset so the executor gets
+    /// a clean full-sync command stream.
     pub async fn register_executor_connection(&self, executor_id: &ExecutorId) {
         let mut connections = self.executor_connections.write().await;
         match connections.entry(executor_id.clone()) {
@@ -845,25 +814,18 @@ impl IndexifyState {
             std::collections::hash_map::Entry::Occupied(entry) => {
                 info!(
                     executor_id = executor_id.get(),
-                    "re-registration: resetting emitter on existing executor connection"
+                    "re-registration: resetting command outbox and emitter"
                 );
-                entry.get().reset_emitter().await;
+                entry.get().reset_for_full_sync().await;
             }
         }
     }
 
     /// Remove the connection for an executor. Called on deregistration.
-    /// Aborts the background command generator task and wakes any held
-    /// long-poll requests.
+    /// Wakes any held long-poll requests.
     pub async fn deregister_executor_connection(&self, executor_id: &ExecutorId) {
         let removed = self.executor_connections.write().await.remove(executor_id);
-        self.executor_dirty.write().await.remove(executor_id);
         if let Some(conn) = removed {
-            // Abort the background command generator task so it doesn't
-            // linger if it's blocked on emitter lock or I/O.
-            if let Some(handle) = conn.command_generator_handle {
-                handle.abort();
-            }
             // Wake any held long-poll requests so they return immediately
             // instead of blocking until the 5-minute timeout.
             conn.commands_notify.notify_one();
@@ -875,43 +837,21 @@ impl IndexifyState {
         }
     }
 
-    fn next_executor_dirty_seq(&self) -> u64 {
-        self.executor_dirty_seq
-            .fetch_add(1, atomic::Ordering::Relaxed)
-            .saturating_add(1)
+    /// Return IDs of all currently connected executors.
+    pub async fn connected_executor_ids(&self) -> Vec<ExecutorId> {
+        self.executor_connections
+            .read()
+            .await
+            .keys()
+            .cloned()
+            .collect()
     }
 
-    async fn mark_executors_dirty<I>(&self, executors: I)
-    where
-        I: IntoIterator<Item = ExecutorId>,
-    {
-        let affected: HashSet<ExecutorId> = executors.into_iter().collect();
-        if affected.is_empty() {
-            return;
-        }
-        let seq = self.next_executor_dirty_seq();
-        let mut dirty = self.executor_dirty.write().await;
-        for executor_id in affected {
-            dirty.insert(executor_id, seq);
-        }
-    }
-
-    /// Conservatively mark all currently connected executors dirty.
-    pub async fn mark_all_connected_executors_dirty(&self) {
-        let connections = self.executor_connections.read().await;
-        if connections.is_empty() {
-            return;
-        }
-        let ids: Vec<ExecutorId> = connections.keys().cloned().collect();
-        drop(connections);
-        self.mark_executors_dirty(ids).await;
-    }
-
-    /// Mark executors affected by this scheduler batch as dirty.
-    pub async fn mark_executors_dirty_from_update(
+    /// Return executors affected by this scheduler batch.
+    pub async fn affected_executors_from_update(
         &self,
         update: &crate::state_store::requests::SchedulerUpdateRequest,
-    ) {
+    ) -> HashSet<ExecutorId> {
         let mut affected: HashSet<ExecutorId> = HashSet::new();
         affected.extend(update.updated_executor_states.keys().cloned());
         affected.extend(update.remove_executors.iter().cloned());
@@ -937,17 +877,7 @@ impl IndexifyState {
             affected.extend(connections.keys().cloned());
         }
 
-        self.mark_executors_dirty(affected).await;
-    }
-
-    /// Latest dirty sequence for this executor.
-    pub async fn executor_dirty_seq_for(&self, executor_id: &ExecutorId) -> u64 {
-        self.executor_dirty
-            .read()
-            .await
-            .get(executor_id)
-            .copied()
-            .unwrap_or(0)
+        affected
     }
 
     /// Persist a scheduler-generated write (allocations, updated requests,
@@ -1262,8 +1192,6 @@ mod tests {
             .await
     }
 
-    // --- Executor wake channel tests ---
-
     /// Helper: get the emitter from a registered executor connection.
     async fn get_emitter(
         state: &IndexifyState,
@@ -1277,20 +1205,6 @@ mod tests {
             .expect("executor connection should exist")
             .emitter
             .clone()
-    }
-
-    #[tokio::test]
-    async fn test_executor_wake_channel() -> Result<()> {
-        let state = TestStateStore::new().await?.indexify_state;
-
-        // Subscribe before sending
-        let mut rx = state.subscribe_executor_wake();
-
-        // Fire wake — should be received
-        let _ = state.executor_wake_tx.send(());
-        rx.changed().await.unwrap();
-
-        Ok(())
     }
 
     #[tokio::test]
@@ -1339,7 +1253,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_re_registration_resets_emitter() -> Result<()> {
+    async fn test_re_registration_resets_command_outbox_and_emitter() -> Result<()> {
         let state = TestStateStore::new().await?.indexify_state;
         let executor_id = ExecutorId::new(TEST_EXECUTOR_ID.to_string());
 
@@ -1355,11 +1269,22 @@ mod tests {
                 .known_containers
                 .insert("container-1".to_string(), Default::default());
         }
+        {
+            let connections = state.executor_connections.read().await;
+            let conn = connections
+                .get(&executor_id)
+                .expect("executor connection should exist");
+            conn.push_commands(vec![executor_api_pb::Command {
+                seq: 99,
+                command: None,
+            }])
+            .await;
+        }
 
         // Re-register (simulates server asking for full state again)
         state.register_executor_connection(&executor_id).await;
 
-        // Emitter should be reset: has_synced=false, empty tracking
+        // Emitter should be reset and pending commands cleared.
         let emitter2 = get_emitter(&state, &executor_id).await;
         {
             let emitter = emitter2.lock().await;
@@ -1374,6 +1299,16 @@ mod tests {
             assert!(
                 emitter.known_containers.is_empty(),
                 "emitter containers should be cleared after re-registration"
+            );
+        }
+        {
+            let connections = state.executor_connections.read().await;
+            let conn = connections
+                .get(&executor_id)
+                .expect("executor connection should exist");
+            assert!(
+                conn.clone_commands().await.is_empty(),
+                "pending commands should be cleared after re-registration"
             );
         }
 

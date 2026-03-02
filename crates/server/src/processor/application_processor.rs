@@ -14,6 +14,7 @@ use tracing::{error, info, instrument, trace, warn};
 
 use crate::{
     data_model::{self, Application, ApplicationState, ChangeType, StateChange},
+    executors::ExecutorManager,
     metrics::{Timer, low_latency_boundaries},
     processor::{
         buffer_reconciler::BufferReconciler,
@@ -56,6 +57,7 @@ pub(crate) enum StateChangeResult {
 
 pub struct ApplicationProcessor {
     pub indexify_state: Arc<IndexifyState>,
+    pub executor_manager: Arc<ExecutorManager>,
     pub write_sm_update_latency: Histogram<f64>,
     pub state_change_latency: Histogram<f64>,
     pub state_changes_total: Counter<u64>,
@@ -67,7 +69,11 @@ pub struct ApplicationProcessor {
 }
 
 impl ApplicationProcessor {
-    pub fn new(indexify_state: Arc<IndexifyState>, queue_size: u32) -> Self {
+    pub fn new(
+        indexify_state: Arc<IndexifyState>,
+        executor_manager: Arc<ExecutorManager>,
+        queue_size: u32,
+    ) -> Self {
         let meter = opentelemetry::global::meter("processor_metrics");
 
         let write_sm_update_latency = meter
@@ -117,6 +123,7 @@ impl ApplicationProcessor {
 
         Self {
             indexify_state,
+            executor_manager,
             write_sm_update_latency,
             state_change_latency,
             state_changes_total,
@@ -299,6 +306,7 @@ impl ApplicationProcessor {
         let mut container_scheduler = current.scheduler.clone();
 
         let mut merged_update = SchedulerUpdateRequest::default();
+        let mut emit_all_connected = false;
         let mut feas_cache = FeasibilityCache::new();
 
         // 4b. Reap idle containers — frees resources so subsequent
@@ -452,6 +460,7 @@ impl ApplicationProcessor {
                                 state_change.change_type, err,
                             );
                         }
+                        emit_all_connected = true;
                     }
                     Err(err) => {
                         error!(
@@ -493,13 +502,15 @@ impl ApplicationProcessor {
                 scheduler: container_scheduler,
             }));
 
-        // Mark affected executors so command generators only diff when needed.
-        self.indexify_state
-            .mark_executors_dirty_from_update(&merged_update)
-            .await;
-
-        // 6c. Wake command generators — they'll diff against the new ArcSwap state.
-        let _ = self.indexify_state.executor_wake_tx.send(());
+        if emit_all_connected {
+            self.executor_manager
+                .emit_commands_for_all_connected(false)
+                .await;
+        } else {
+            self.executor_manager
+                .emit_commands_from_scheduler_update(&merged_update)
+                .await;
+        }
 
         Ok(true)
     }
@@ -1101,22 +1112,6 @@ impl ApplicationProcessor {
         let clock = indexes.clock;
         let _ = indexes.update_state(clock, &payload, "immediate")?;
         container_scheduler.update(&payload)?;
-        match &payload {
-            RequestPayload::SchedulerUpdate(scheduler_update) => {
-                self.indexify_state
-                    .mark_executors_dirty_from_update(&scheduler_update.update)
-                    .await;
-            }
-            _ => {
-                // Immediate payloads are infrequent and may impact executor
-                // desired state indirectly; conservatively mark all.
-                self.indexify_state
-                    .mark_all_connected_executors_dirty()
-                    .await;
-            }
-        }
-        // Wake command generators — they'll diff against the new ArcSwap state.
-        let _ = self.indexify_state.executor_wake_tx.send(());
         Ok(())
     }
 
@@ -1155,12 +1150,9 @@ impl ApplicationProcessor {
                     scheduler: container_scheduler,
                 }));
 
-            self.indexify_state
-                .mark_executors_dirty_from_update(&buffer_update)
+            self.executor_manager
+                .emit_commands_from_scheduler_update(&buffer_update)
                 .await;
-
-            // Wake command generators.
-            let _ = self.indexify_state.executor_wake_tx.send(());
         }
 
         Ok(())
