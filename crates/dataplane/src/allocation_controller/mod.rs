@@ -631,7 +631,7 @@ impl AllocationController {
                     Some(fe_id.to_string()),
                 );
                 proto_convert::record_outcome_metrics(&outcome, &self.config.metrics.counters);
-                if let Err(err) = self.config.outcome_tx.try_send(outcome) {
+                if let Err(err) = self.config.outcome_tx.send(outcome) {
                     tracing::warn!(
                         allocation_id = %alloc_id,
                         container_id = %fe_id,

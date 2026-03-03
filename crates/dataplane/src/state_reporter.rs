@@ -38,8 +38,7 @@ const STATE_REPORT_MAX_PENDING_ITEMS: usize = 50_000;
 
 /// A size-aware append-only buffer that supports collect-then-drain semantics.
 ///
-/// Items arrive via an `mpsc::UnboundedReceiver` and are buffered in a
-/// `VecDeque`
+/// Items arrive via an mpsc receiver and are buffered in a `VecDeque`
 /// behind a `Mutex`. The heartbeat loop collects a batch that fits within the
 /// message size limit, sends the RPC, and then drains exactly the sent items.
 struct PendingBuffer<T> {
@@ -57,9 +56,38 @@ impl<T: Message + Clone + Send + 'static> PendingBuffer<T> {
         }
     }
 
-    /// Spawn a background task that drains `rx` into the buffer and wakes
-    /// the heartbeat loop via `notify`.
+    /// Spawn a background task that drains a bounded receiver into the buffer
+    /// and wakes the heartbeat loop via `notify`.
     fn spawn_drainer(&self, mut rx: mpsc::Receiver<T>) {
+        let label = self.label;
+        let items = self.items.clone();
+        let notify = self.notify.clone();
+        tokio::spawn(async move {
+            let mut dropped_since_last_log = 0usize;
+            while let Some(item) = rx.recv().await {
+                let mut buf = items.lock().await;
+                if buf.len() >= STATE_REPORT_MAX_PENDING_ITEMS {
+                    buf.pop_front();
+                    dropped_since_last_log = dropped_since_last_log.saturating_add(1);
+                    if dropped_since_last_log == 1 || dropped_since_last_log.is_multiple_of(1000) {
+                        warn!(
+                            label,
+                            dropped = dropped_since_last_log,
+                            max_pending = STATE_REPORT_MAX_PENDING_ITEMS,
+                            "State reporter buffer over capacity; dropping oldest buffered item"
+                        );
+                    }
+                }
+                buf.push_back(item);
+                drop(buf);
+                notify.notify_one();
+            }
+        });
+    }
+
+    /// Spawn a background task that drains an unbounded receiver into the
+    /// buffer and wakes the heartbeat loop via `notify`.
+    fn spawn_unbounded_drainer(&self, mut rx: mpsc::UnboundedReceiver<T>) {
         let label = self.label;
         let items = self.items.clone();
         let notify = self.notify.clone();
@@ -177,7 +205,7 @@ impl StateReporter {
         response_rx: mpsc::Receiver<CommandResponse>,
         container_response_rx: mpsc::Receiver<CommandResponse>,
         activity_rx: mpsc::Receiver<AllocationLogEntry>,
-        outcome_rx: mpsc::Receiver<AllocationOutcome>,
+        outcome_rx: mpsc::UnboundedReceiver<AllocationOutcome>,
     ) -> Self {
         let responses = PendingBuffer::new("command_responses");
         let activities = PendingBuffer::new("allocation_log_entries");
@@ -188,7 +216,7 @@ impl StateReporter {
         responses.spawn_drainer(container_response_rx);
 
         activities.spawn_drainer(activity_rx);
-        outcomes.spawn_drainer(outcome_rx);
+        outcomes.spawn_unbounded_drainer(outcome_rx);
 
         Self {
             responses,
@@ -291,7 +319,7 @@ mod tests {
         let (_tx, rx) = mpsc::channel::<CommandResponse>(32);
         let (_cs_tx, cs_rx) = mpsc::channel::<CommandResponse>(32);
         let (_act_tx, act_rx) = mpsc::channel::<AllocationLogEntry>(32);
-        let (_out_tx, out_rx) = mpsc::channel::<AllocationOutcome>(32);
+        let (_out_tx, out_rx) = mpsc::unbounded_channel::<AllocationOutcome>();
         let reporter = StateReporter::new(rx, cs_rx, act_rx, out_rx);
         {
             let mut pending = reporter.responses.items.lock().await;
@@ -514,7 +542,7 @@ mod tests {
         let (tx, rx) = mpsc::channel::<CommandResponse>(32);
         let (_cs_tx, cs_rx) = mpsc::channel::<CommandResponse>(32);
         let (_act_tx, act_rx) = mpsc::channel::<AllocationLogEntry>(32);
-        let (_out_tx, out_rx) = mpsc::channel::<AllocationOutcome>(32);
+        let (_out_tx, out_rx) = mpsc::unbounded_channel::<AllocationOutcome>();
         let reporter = StateReporter::new(rx, cs_rx, act_rx, out_rx);
 
         // Send responses through the channel

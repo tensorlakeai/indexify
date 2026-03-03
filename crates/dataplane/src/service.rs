@@ -164,7 +164,7 @@ impl Service {
         let (container_state_tx, container_state_rx) = mpsc::channel(STATE_REPORT_CHANNEL_CAPACITY); // CommandResponse (ContainerTerminated)
         let (activity_tx, activity_rx) =
             mpsc::channel::<AllocationLogEntry>(STATE_REPORT_CHANNEL_CAPACITY); // AllocationLogEntry (CallFunction)
-        let (outcome_tx, outcome_rx) = mpsc::channel(STATE_REPORT_CHANNEL_CAPACITY); // AllocationOutcome (Completed/Failed, guaranteed delivery)
+        let (outcome_tx, outcome_rx) = mpsc::unbounded_channel(); // AllocationOutcome (Completed/Failed)
 
         // Ensure the state directory exists
         std::fs::create_dir_all(&config.state_dir).context("Failed to create state directory")?;

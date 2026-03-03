@@ -109,7 +109,7 @@ impl AllocationController {
                 );
                 // Send failure via outcome channel — no blobs to clean up.
                 proto_convert::record_outcome_metrics(&outcome, &self.config.metrics.counters);
-                if let Err(err) = self.config.outcome_tx.try_send(outcome) {
+                if let Err(err) = self.config.outcome_tx.send(outcome) {
                     tracing::warn!(
                         allocation_id = %alloc_id,
                         container_id = %fe_id,
@@ -794,7 +794,7 @@ impl AllocationController {
         // Record metrics and send result via outcome channel (guaranteed delivery)
         let outcome = proto_convert::allocation_result_to_outcome(&result, terminated_container_id);
         proto_convert::record_outcome_metrics(&outcome, &self.config.metrics.counters);
-        if let Err(err) = self.config.outcome_tx.try_send(outcome) {
+        if let Err(err) = self.config.outcome_tx.send(outcome) {
             tracing::warn!(
                 allocation_id = %allocation_id,
                 container_id = %alloc.fe_id,
@@ -1089,7 +1089,7 @@ impl AllocationController {
                 let container_id = terminated_container_id.or_else(|| Some(alloc.fe_id.clone()));
                 let outcome = proto_convert::allocation_result_to_outcome(&result, container_id);
                 proto_convert::record_outcome_metrics(&outcome, &self.config.metrics.counters);
-                if let Err(err) = self.config.outcome_tx.try_send(outcome) {
+                if let Err(err) = self.config.outcome_tx.send(outcome) {
                     tracing::warn!(
                         allocation_id = %alloc_id,
                         container_id = %alloc.fe_id,

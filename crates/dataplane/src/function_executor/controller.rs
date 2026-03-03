@@ -31,7 +31,7 @@ pub struct FESpawnConfig {
     /// Channel for allocation outcomes (AllocationCompleted/AllocationFailed),
     /// sent via the unary report_allocation_activities RPC for guaranteed
     /// delivery.
-    pub outcome_tx: mpsc::Sender<AllocationOutcome>,
+    pub outcome_tx: mpsc::UnboundedSender<AllocationOutcome>,
     /// Channel for allocation log entries (CallFunction),
     /// sent via the heartbeat's allocation_log_entries field.
     pub activity_tx: mpsc::Sender<AllocationLogEntry>,
