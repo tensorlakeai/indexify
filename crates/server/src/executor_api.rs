@@ -1037,6 +1037,58 @@ mod tests {
         .await
         .unwrap();
 
+        // Seed parent allocations so routed-result liveness checks treat both
+        // attempts as live (route ownership should still prefer latest B).
+        let parent_allocation_a = data_model::AllocationBuilder::default()
+            .target(data_model::AllocationTarget::new(
+                executor_a.clone(),
+                data_model::ContainerId::new("parent-container-a".to_string()),
+            ))
+            .function_call_id(data_model::FunctionCallId::from("parent-fc-a"))
+            .namespace("ns".to_string())
+            .application("app".to_string())
+            .application_version("v1".to_string())
+            .function("parent-fn".to_string())
+            .request_id("req-1".to_string())
+            .outcome(data_model::FunctionRunOutcome::Unknown)
+            .input_args(vec![])
+            .call_metadata(bytes::Bytes::new())
+            .build()
+            .expect("parent allocation A should build");
+        let parent_allocation_a_id = parent_allocation_a.id.to_string();
+
+        let parent_allocation_b = data_model::AllocationBuilder::default()
+            .target(data_model::AllocationTarget::new(
+                executor_b.clone(),
+                data_model::ContainerId::new("parent-container-b".to_string()),
+            ))
+            .function_call_id(data_model::FunctionCallId::from("parent-fc-b"))
+            .namespace("ns".to_string())
+            .application("app".to_string())
+            .application_version("v1".to_string())
+            .function("parent-fn".to_string())
+            .request_id("req-1".to_string())
+            .outcome(data_model::FunctionRunOutcome::Unknown)
+            .input_args(vec![])
+            .call_metadata(bytes::Bytes::new())
+            .build()
+            .expect("parent allocation B should build");
+        let parent_allocation_b_id = parent_allocation_b.id.to_string();
+
+        let mut parent_update = crate::state_store::requests::SchedulerUpdateRequest::default();
+        parent_update.new_allocations.push(parent_allocation_a);
+        parent_update.new_allocations.push(parent_allocation_b);
+        test_service
+            .service
+            .indexify_state
+            .write(crate::state_store::requests::StateMachineUpdateRequest {
+                payload: crate::state_store::requests::RequestPayload::SchedulerUpdate(
+                    crate::state_store::requests::SchedulerUpdatePayload::new(parent_update),
+                ),
+            })
+            .await
+            .unwrap();
+
         // Attempt A registers a child call route first.
         ExecutorApi::heartbeat(
             &api,
@@ -1047,7 +1099,7 @@ mod tests {
                 command_responses: vec![],
                 allocation_outcomes: vec![],
                 allocation_log_entries: vec![make_call_function_log_entry(
-                    "parent-alloc-a",
+                    &parent_allocation_a_id,
                     child_fc_id,
                 )],
             }),
@@ -1066,7 +1118,7 @@ mod tests {
                 command_responses: vec![],
                 allocation_outcomes: vec![],
                 allocation_log_entries: vec![make_call_function_log_entry(
-                    "parent-alloc-b",
+                    &parent_allocation_b_id,
                     child_fc_id,
                 )],
             }),
@@ -1154,7 +1206,7 @@ mod tests {
             .entry
             .as_ref()
             .expect("sequenced result should include log entry");
-        assert_eq!(routed.allocation_id, "parent-alloc-b");
+        assert_eq!(routed.allocation_id, parent_allocation_b_id);
 
         match routed
             .entry
