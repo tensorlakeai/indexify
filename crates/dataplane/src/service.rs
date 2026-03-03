@@ -1105,9 +1105,8 @@ impl ServiceRuntime {
                             if !dispatched {
                                 tracing::warn!(
                                     seq,
-                                    "poll_allocation_results: result dispatch failed, retaining ack cursor for retry"
+                                    "poll_allocation_results: result dispatch failed, dropping result and continuing"
                                 );
-                                break;
                             }
                         } else {
                             let reason = "missing_entry_payload";
