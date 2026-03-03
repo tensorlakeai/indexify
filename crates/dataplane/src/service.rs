@@ -47,6 +47,7 @@ use crate::{
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
 const MAX_GRPC_DECODE_MESSAGE_SIZE: usize = 32 * 1024 * 1024;
 const FULL_STATE_RESYNC_INTERVAL: Duration = Duration::from_secs(5 * 60);
+const STATE_REPORT_CHANNEL_CAPACITY: usize = 8192;
 
 /// Explicit connection state for the dataplane's relationship with the server.
 ///
@@ -157,10 +158,11 @@ impl Service {
             "Process drivers configured"
         );
 
-        let (result_tx, result_rx) = mpsc::unbounded_channel(); // CommandResponse (acks + container events)
-        let (container_state_tx, container_state_rx) = mpsc::unbounded_channel(); // CommandResponse (ContainerTerminated)
-        let (activity_tx, activity_rx) = mpsc::unbounded_channel::<AllocationLogEntry>(); // AllocationLogEntry (CallFunction)
-        let (outcome_tx, outcome_rx) = mpsc::unbounded_channel(); // AllocationOutcome (Completed/Failed, guaranteed delivery)
+        let (result_tx, result_rx) = mpsc::channel(STATE_REPORT_CHANNEL_CAPACITY); // CommandResponse (acks + container events)
+        let (container_state_tx, container_state_rx) = mpsc::channel(STATE_REPORT_CHANNEL_CAPACITY); // CommandResponse (ContainerTerminated)
+        let (activity_tx, activity_rx) =
+            mpsc::channel::<AllocationLogEntry>(STATE_REPORT_CHANNEL_CAPACITY); // AllocationLogEntry (CallFunction)
+        let (outcome_tx, outcome_rx) = mpsc::channel(STATE_REPORT_CHANNEL_CAPACITY); // AllocationOutcome (Completed/Failed, guaranteed delivery)
 
         // Ensure the state directory exists
         std::fs::create_dir_all(&config.state_dir).context("Failed to create state directory")?;
@@ -1245,12 +1247,13 @@ impl ServiceRuntime {
                 }
             }
             Cmd::KillAllocation(kill) => {
-                tracing::warn!(
+                tracing::info!(
                     seq,
                     allocation_id = %kill.allocation_id,
-                    "KillAllocation command received (not yet implemented), acking as no-op to avoid stream stall"
+                    "KillAllocation command"
                 );
-                true
+                let mut reconciler = self.state_reconciler.lock().await;
+                reconciler.kill_allocation(kill.allocation_id).await
             }
             // DeliverResult was removed from Command — function call results
             // are now delivered via the AllocationEvent log.

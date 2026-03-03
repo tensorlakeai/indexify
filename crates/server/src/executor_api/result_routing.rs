@@ -709,7 +709,7 @@ async fn push_result_to_executor(
         return Err(anyhow::Error::new(MissingExecutorConnectionError));
     };
 
-    conn.push_result(log_entry).await;
+    conn.push_result(log_entry).await?;
     Ok(())
 }
 

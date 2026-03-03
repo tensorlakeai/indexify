@@ -3,10 +3,17 @@ use std::sync::{
     atomic::{self, AtomicU64},
 };
 
+use anyhow::{Result, anyhow};
 use prost::Message;
 use tokio::sync::Notify;
+use tracing::error;
 
 use crate::executor_api::executor_api_pb;
+
+/// Hard ceiling for a single poll item (command or result). Any item larger
+/// than this cannot be delivered via poll and must be rejected at enqueue
+/// time.
+pub const MAX_POLL_RESPONSE_BYTES: usize = 8 * 1024 * 1024;
 
 /// Server-side connection state for a single executor.
 /// Created on registration, destroyed on deregistration.
@@ -72,13 +79,25 @@ impl ExecutorConnection {
     }
 
     /// Append commands to the pending buffer and wake any waiting poll.
-    pub async fn push_commands(&self, cmds: Vec<executor_api_pb::Command>) {
+    pub async fn push_commands(&self, cmds: Vec<executor_api_pb::Command>) -> Result<()> {
         if cmds.is_empty() {
-            return;
+            return Ok(());
+        }
+        for cmd in &cmds {
+            let encoded_len = cmd.encoded_len();
+            if encoded_len > MAX_POLL_RESPONSE_BYTES {
+                return Err(anyhow!(
+                    "command seq {} exceeds max poll item size: {} > {} bytes",
+                    cmd.seq,
+                    encoded_len,
+                    MAX_POLL_RESPONSE_BYTES
+                ));
+            }
         }
         let mut buf = self.pending_commands.lock().await;
         buf.extend(cmds);
         self.commands_notify.notify_one();
+        Ok(())
     }
 
     /// Clone all pending commands (does NOT remove them).
@@ -89,7 +108,20 @@ impl ExecutorConnection {
 
     /// Clone a size-bounded prefix of pending commands (does NOT remove them).
     pub async fn clone_commands_capped(&self, limit_bytes: usize) -> Vec<executor_api_pb::Command> {
-        let buf = self.pending_commands.lock().await;
+        let mut buf = self.pending_commands.lock().await;
+        while let Some(first) = buf.first() {
+            let encoded_len = first.encoded_len();
+            if encoded_len <= limit_bytes {
+                break;
+            }
+            let dropped = buf.remove(0);
+            error!(
+                seq = dropped.seq,
+                encoded_len,
+                limit_bytes,
+                "dropping oversized command that can never fit in poll response"
+            );
+        }
         Self::capped_clone_by_encoded_size(&buf, limit_bytes)
     }
 
@@ -154,15 +186,27 @@ impl ExecutorConnection {
 
     /// Buffer a new allocation log entry as a sequenced result and wake any
     /// waiting poll.
-    pub async fn push_result(&self, entry: executor_api_pb::AllocationLogEntry) {
-        let seq = self.next_result_seq.fetch_add(1, atomic::Ordering::Relaxed);
+    pub async fn push_result(&self, entry: executor_api_pb::AllocationLogEntry) -> Result<()> {
+        let mut buf = self.pending_results.lock().await;
+        let seq = self.next_result_seq.load(atomic::Ordering::Relaxed);
         let result = executor_api_pb::SequencedAllocationResult {
             seq,
             entry: Some(entry),
         };
-        let mut buf = self.pending_results.lock().await;
+        let encoded_len = result.encoded_len();
+        if encoded_len > MAX_POLL_RESPONSE_BYTES {
+            return Err(anyhow!(
+                "allocation result seq {} exceeds max poll item size: {} > {} bytes",
+                seq,
+                encoded_len,
+                MAX_POLL_RESPONSE_BYTES
+            ));
+        }
         buf.push(result);
+        self.next_result_seq
+            .store(seq.saturating_add(1), atomic::Ordering::Relaxed);
         self.results_notify.notify_one();
+        Ok(())
     }
 
     /// Clone all pending results (does NOT remove them).
@@ -176,7 +220,20 @@ impl ExecutorConnection {
         &self,
         limit_bytes: usize,
     ) -> Vec<executor_api_pb::SequencedAllocationResult> {
-        let buf = self.pending_results.lock().await;
+        let mut buf = self.pending_results.lock().await;
+        while let Some(first) = buf.first() {
+            let encoded_len = first.encoded_len();
+            if encoded_len <= limit_bytes {
+                break;
+            }
+            let dropped = buf.remove(0);
+            error!(
+                seq = dropped.seq,
+                encoded_len,
+                limit_bytes,
+                "dropping oversized allocation result that can never fit in poll response"
+            );
+        }
         Self::capped_clone_by_encoded_size(&buf, limit_bytes)
     }
 
@@ -232,7 +289,7 @@ mod tests {
         let c2 = make_command(2, 32);
         let c3 = make_command(3, 32);
         let limit = c1.encoded_len() + c2.encoded_len();
-        conn.push_commands(vec![c1, c2, c3]).await;
+        conn.push_commands(vec![c1, c2, c3]).await.unwrap();
 
         let batch = conn.clone_commands_capped(limit).await;
         assert_eq!(batch.len(), 2);
@@ -241,23 +298,58 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_clone_results_capped_always_includes_first() {
+    async fn test_clone_results_capped_drops_oversized_front() {
         let conn = ExecutorConnection::new();
         conn.push_result(executor_api_pb::AllocationLogEntry {
-            allocation_id: "a".repeat(128),
+            allocation_id: "a".repeat(2048),
             clock: 0,
             entry: None,
         })
-        .await;
+        .await
+        .unwrap();
         conn.push_result(executor_api_pb::AllocationLogEntry {
-            allocation_id: "b".repeat(128),
+            allocation_id: "b".repeat(8),
             clock: 0,
             entry: None,
         })
-        .await;
+        .await
+        .unwrap();
 
-        let batch = conn.clone_results_capped(1).await;
+        let batch = conn.clone_results_capped(512).await;
         assert_eq!(batch.len(), 1);
-        assert_eq!(batch[0].seq, 1);
+        assert_eq!(batch[0].seq, 2);
+    }
+
+    #[tokio::test]
+    async fn test_push_commands_rejects_oversized_items() {
+        let conn = ExecutorConnection::new();
+        let oversize = make_command(1, MAX_POLL_RESPONSE_BYTES + 128);
+        let err = conn.push_commands(vec![oversize]).await.unwrap_err();
+        assert!(err.to_string().contains("exceeds max poll item size"));
+        assert!(
+            conn.clone_commands_capped(MAX_POLL_RESPONSE_BYTES)
+                .await
+                .is_empty()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_push_result_rejects_oversized_items_without_advancing_seq() {
+        let conn = ExecutorConnection::new();
+        let err = conn
+            .push_result(executor_api_pb::AllocationLogEntry {
+                allocation_id: "x".repeat(MAX_POLL_RESPONSE_BYTES + 128),
+                clock: 0,
+                entry: None,
+            })
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("exceeds max poll item size"));
+        assert_eq!(conn.next_result_seq(), 1);
+        assert!(
+            conn.clone_results_capped(MAX_POLL_RESPONSE_BYTES)
+                .await
+                .is_empty()
+        );
     }
 }

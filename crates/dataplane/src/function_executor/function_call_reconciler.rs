@@ -29,7 +29,7 @@ pub(super) async fn reconcile_function_calls(
     client: &mut FunctionExecutorGrpcClient,
     allocation_id: &str,
     allocation: &ServerAllocation,
-    stream_tx: &mpsc::UnboundedSender<AllocationLogEntry>,
+    stream_tx: &mpsc::Sender<AllocationLogEntry>,
     seen_function_call_ids: &mut HashSet<String>,
     seen_op_ids: &mut HashSet<String>,
     metrics: &crate::metrics::DataplaneMetrics,
@@ -277,7 +277,7 @@ async fn send_fc_validation_error(
 
 /// Send an allocation log entry via the activity channel.
 async fn send_execution_update_with_retry(
-    stream_tx: &mpsc::UnboundedSender<AllocationLogEntry>,
+    stream_tx: &mpsc::Sender<AllocationLogEntry>,
     request: AllocationLogEntry,
     metrics: &crate::metrics::DataplaneMetrics,
 ) -> Result<(), String> {
@@ -289,7 +289,7 @@ async fn send_execution_update_with_retry(
 
     metrics.counters.call_function_rpcs.add(1, &[]);
 
-    match stream_tx.send(request) {
+    match stream_tx.send(request).await {
         Ok(_) => Ok(()),
         Err(e) => {
             metrics.counters.call_function_rpc_errors.add(1, &[]);

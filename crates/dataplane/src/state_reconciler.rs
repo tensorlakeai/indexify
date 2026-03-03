@@ -197,6 +197,26 @@ impl StateReconciler {
         true
     }
 
+    /// Forward a targeted allocation cancellation to the AllocationController.
+    pub async fn kill_allocation(&mut self, allocation_id: String) -> bool {
+        if allocation_id.is_empty() {
+            warn!("Ignoring KillAllocation with empty allocation_id");
+            return false;
+        }
+        if let Err(err) = self
+            .allocation_controller
+            .command_tx
+            .send(ACCommand::KillAllocation { allocation_id })
+        {
+            warn!(
+                error = %err,
+                "Failed to send KillAllocation to AllocationController"
+            );
+            return false;
+        }
+        true
+    }
+
     /// Snapshot a container's filesystem.
     ///
     /// Delegates to the container manager which handles stopping the container,

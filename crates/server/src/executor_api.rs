@@ -930,7 +930,7 @@ mod tests {
             let conn = connections
                 .get(&executor_id)
                 .expect("executor connection should exist");
-            conn.push_commands(vec![make_command(10)]).await;
+            conn.push_commands(vec![make_command(10)]).await.unwrap();
         }
 
         // First poll reports a non-zero ack baseline.

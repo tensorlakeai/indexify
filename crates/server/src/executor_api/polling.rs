@@ -3,9 +3,9 @@ use std::time::Duration;
 use tracing::warn;
 
 use super::{ExecutorId, IndexifyState, executor_api_pb};
+use crate::state_store::executor_connection::MAX_POLL_RESPONSE_BYTES;
 
 const LONG_POLL_TIMEOUT: Duration = Duration::from_secs(300);
-const MAX_POLL_RESPONSE_BYTES: usize = 8 * 1024 * 1024;
 
 /// Long-poll helper for the commands buffer.
 ///
@@ -33,15 +33,17 @@ pub async fn long_poll_commands(
     }
 
     if let Some(seq) = acked_seq {
-        if let Err(err) = indexify_state.ack_executor_commands(executor_id, seq).await {
-            warn!(
-                executor_id = executor_id.get(),
-                acked_seq = seq,
-                error = ?err,
-                "failed to persist command ack"
-            );
+        match indexify_state.ack_executor_commands(executor_id, seq).await {
+            Ok(()) => conn.drain_commands_up_to(seq).await,
+            Err(err) => {
+                warn!(
+                    executor_id = executor_id.get(),
+                    acked_seq = seq,
+                    error = ?err,
+                    "failed to persist command ack; keeping in-memory outbox for retry"
+                );
+            }
         }
-        conn.drain_commands_up_to(seq).await;
     }
 
     let items = conn.clone_commands_capped(MAX_POLL_RESPONSE_BYTES).await;

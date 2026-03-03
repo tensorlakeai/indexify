@@ -39,6 +39,7 @@ use crate::{
     service::Service,
     state_store::{
         driver::rocksdb::RocksDBConfig,
+        executor_connection::MAX_POLL_RESPONSE_BYTES,
         requests::{
             RequestPayload,
             SchedulerUpdatePayload,
@@ -183,6 +184,94 @@ async fn heartbeat_full_state(api: &ExecutorAPIService, executor_id: &str) -> Re
 }
 
 #[tokio::test]
+async fn test_oversized_command_enqueue_rejected() -> Result<()> {
+    let test_service = TestService::new().await?;
+    let api = ExecutorAPIService::new(
+        test_service.service.indexify_state.clone(),
+        test_service.service.executor_manager.clone(),
+        test_service.service.blob_storage_registry.clone(),
+    );
+    let executor_id = "executor-oversized-command";
+    let executor_dm_id = data_model::ExecutorId::from(executor_id);
+
+    heartbeat_full_state(&api, executor_id).await?;
+
+    let conn = {
+        let connections = test_service
+            .service
+            .indexify_state
+            .executor_connections
+            .read()
+            .await;
+        connections
+            .get(&executor_dm_id)
+            .expect("executor connection should exist")
+            .clone()
+    };
+
+    let oversized = executor_api_pb::Command {
+        seq: 1,
+        command: Some(executor_api_pb::command::Command::KillAllocation(
+            executor_api_pb::KillAllocation {
+                allocation_id: "x".repeat(MAX_POLL_RESPONSE_BYTES + 256),
+            },
+        )),
+    };
+    let err = conn.push_commands(vec![oversized]).await.unwrap_err();
+    assert!(
+        err.to_string().contains("exceeds max poll item size"),
+        "expected oversized command rejection error, got {err:?}"
+    );
+    assert!(conn.clone_commands().await.is_empty());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_oversized_result_enqueue_rejected_without_seq_advance() -> Result<()> {
+    let test_service = TestService::new().await?;
+    let api = ExecutorAPIService::new(
+        test_service.service.indexify_state.clone(),
+        test_service.service.executor_manager.clone(),
+        test_service.service.blob_storage_registry.clone(),
+    );
+    let executor_id = "executor-oversized-result";
+    let executor_dm_id = data_model::ExecutorId::from(executor_id);
+
+    heartbeat_full_state(&api, executor_id).await?;
+
+    let conn = {
+        let connections = test_service
+            .service
+            .indexify_state
+            .executor_connections
+            .read()
+            .await;
+        connections
+            .get(&executor_dm_id)
+            .expect("executor connection should exist")
+            .clone()
+    };
+
+    let err = conn
+        .push_result(AllocationLogEntry {
+            allocation_id: "x".repeat(MAX_POLL_RESPONSE_BYTES + 256),
+            clock: 0,
+            entry: None,
+        })
+        .await
+        .unwrap_err();
+    assert!(
+        err.to_string().contains("exceeds max poll item size"),
+        "expected oversized result rejection error, got {err:?}"
+    );
+    assert_eq!(conn.next_result_seq(), 1);
+    assert!(conn.clone_results().await.is_empty());
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn test_reconnect_full_state_clears_stale_pending_results() -> Result<()> {
     let test_service = TestService::new().await?;
     let api = ExecutorAPIService::new(
@@ -212,7 +301,7 @@ async fn test_reconnect_full_state_clears_stale_pending_results() -> Result<()> 
         clock: 0,
         entry: None,
     })
-    .await;
+    .await?;
 
     // Simulate dataplane reconnect with same executor ID.
     heartbeat_full_state(&api, executor_id).await?;

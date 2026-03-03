@@ -51,7 +51,7 @@ pub struct FunctionContainerManager {
     /// Channel for container state change notifications (ContainerTerminated).
     /// Feeds into the same `report_command_responses` pipeline as allocation
     /// results.
-    container_state_tx: mpsc::UnboundedSender<CommandResponse>,
+    container_state_tx: mpsc::Sender<CommandResponse>,
     /// Optional snapshotter for creating/restoring filesystem snapshots.
     snapshotter: Option<Arc<dyn Snapshotter>>,
 }
@@ -65,7 +65,7 @@ impl FunctionContainerManager {
         metrics: Arc<DataplaneMetrics>,
         state_file: Arc<StateFile>,
         executor_id: String,
-        container_state_tx: mpsc::UnboundedSender<CommandResponse>,
+        container_state_tx: mpsc::Sender<CommandResponse>,
         snapshotter: Option<Arc<dyn Snapshotter>>,
     ) -> Self {
         Self {
@@ -477,13 +477,14 @@ impl FunctionContainerManager {
 
     /// Send a container started notification via the v2 command response
     /// channel.
-    fn send_container_started(tx: &mpsc::UnboundedSender<CommandResponse>, container_id: &str) {
+    fn send_container_started(tx: &mpsc::Sender<CommandResponse>, container_id: &str) {
         let response =
             crate::function_executor::proto_convert::make_container_started_response(container_id);
-        if tx.send(response).is_err() {
+        if let Err(err) = tx.try_send(response) {
             tracing::warn!(
                 container_id = %container_id,
-                "Failed to send ContainerStarted: channel closed"
+                error = ?err,
+                "Failed to send ContainerStarted"
             );
         }
     }
@@ -758,8 +759,8 @@ impl FunctionContainerManager {
             command_seq: None,
             response: Some(response),
         };
-        if self.container_state_tx.send(msg).is_err() {
-            tracing::warn!("Failed to send snapshot response: channel closed");
+        if let Err(err) = self.container_state_tx.try_send(msg) {
+            tracing::warn!(error = ?err, "Failed to send snapshot response");
         }
     }
 
@@ -856,7 +857,7 @@ impl FunctionContainerManager {
     /// Send a container terminated notification via the v2 command response
     /// channel.
     fn send_container_terminated(
-        tx: &mpsc::UnboundedSender<CommandResponse>,
+        tx: &mpsc::Sender<CommandResponse>,
         container_id: &str,
         reason: ContainerTerminationReason,
     ) {
@@ -864,10 +865,11 @@ impl FunctionContainerManager {
             container_id,
             reason,
         );
-        if tx.send(response).is_err() {
+        if let Err(err) = tx.try_send(response) {
             tracing::warn!(
                 container_id = %container_id,
-                "Failed to send ContainerTerminated: channel closed"
+                error = ?err,
+                "Failed to send ContainerTerminated"
             );
         }
     }
@@ -952,7 +954,7 @@ fn spawn_grace_period_kill(
     containers_ref: Arc<RwLock<ContainerStore>>,
     driver: Arc<dyn ProcessDriver>,
     metrics: Arc<DataplaneMetrics>,
-    container_state_tx: mpsc::UnboundedSender<CommandResponse>,
+    container_state_tx: mpsc::Sender<CommandResponse>,
     span: tracing::Span,
 ) {
     tokio::spawn(
@@ -1258,7 +1260,7 @@ mod tests {
         let metrics = create_test_metrics();
         let state_file = create_test_state_file().await;
         let (container_state_tx, _container_state_rx) =
-            tokio::sync::mpsc::unbounded_channel::<CommandResponse>();
+            tokio::sync::mpsc::channel::<CommandResponse>(32);
         let manager = FunctionContainerManager::new(
             driver.clone(),
             resolver,

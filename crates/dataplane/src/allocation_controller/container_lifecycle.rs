@@ -531,7 +531,13 @@ impl AllocationController {
                     crate::function_executor::proto_convert::make_container_started_response(
                         &fe_id,
                     );
-                let _ = self.config.container_state_tx.send(response);
+                if let Err(err) = self.config.container_state_tx.try_send(response) {
+                    warn!(
+                        container_id = %fe_id,
+                        error = ?err,
+                        "container_state_tx unavailable while sending ContainerStarted"
+                    );
+                }
 
                 // Unblock WaitingForContainer allocations
                 self.try_schedule();
@@ -691,7 +697,13 @@ impl AllocationController {
             container_id,
             reason,
         );
-        let _ = self.config.container_state_tx.send(response);
+        if let Err(err) = self.config.container_state_tx.try_send(response) {
+            warn!(
+                container_id = %container_id,
+                error = ?err,
+                "container_state_tx unavailable while sending ContainerTerminated"
+            );
+        }
     }
 }
 

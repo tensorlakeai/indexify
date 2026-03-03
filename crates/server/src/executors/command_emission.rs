@@ -401,7 +401,13 @@ impl ExecutorManager {
                     continue;
                 };
                 let _emit_guard = conn.command_emit_lock.lock().await;
-                conn.push_commands(commands).await;
+                if let Err(err) = conn.push_commands(commands).await {
+                    error!(
+                        executor_id = executor_id.get(),
+                        error = ?err,
+                        "failed to enqueue commands for executor poll delivery"
+                    );
+                }
             }
         }
         if total_drained > 0 {

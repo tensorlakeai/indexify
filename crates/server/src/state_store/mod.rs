@@ -1062,7 +1062,7 @@ impl IndexifyState {
 
         let connections = self.executor_connections.read().await;
         if let Some(conn) = connections.get(executor_id) {
-            conn.push_commands(commands).await;
+            conn.push_commands(commands).await?;
         }
         Ok(())
     }

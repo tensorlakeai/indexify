@@ -59,7 +59,7 @@ impl<T: Message + Clone + Send + 'static> PendingBuffer<T> {
 
     /// Spawn a background task that drains `rx` into the buffer and wakes
     /// the heartbeat loop via `notify`.
-    fn spawn_drainer(&self, mut rx: mpsc::UnboundedReceiver<T>) {
+    fn spawn_drainer(&self, mut rx: mpsc::Receiver<T>) {
         let label = self.label;
         let items = self.items.clone();
         let notify = self.notify.clone();
@@ -174,10 +174,10 @@ impl StateReporter {
     /// the response, container response, activity, and outcome channels and
     /// notify the respective loops.
     pub fn new(
-        response_rx: mpsc::UnboundedReceiver<CommandResponse>,
-        container_response_rx: mpsc::UnboundedReceiver<CommandResponse>,
-        activity_rx: mpsc::UnboundedReceiver<AllocationLogEntry>,
-        outcome_rx: mpsc::UnboundedReceiver<AllocationOutcome>,
+        response_rx: mpsc::Receiver<CommandResponse>,
+        container_response_rx: mpsc::Receiver<CommandResponse>,
+        activity_rx: mpsc::Receiver<AllocationLogEntry>,
+        outcome_rx: mpsc::Receiver<AllocationOutcome>,
     ) -> Self {
         let responses = PendingBuffer::new("command_responses");
         let activities = PendingBuffer::new("allocation_log_entries");
@@ -288,10 +288,10 @@ mod tests {
     /// Helper: create a StateReporter and push responses directly into the
     /// buffer.
     async fn setup_reporter(responses: Vec<CommandResponse>) -> StateReporter {
-        let (_tx, rx) = mpsc::unbounded_channel::<CommandResponse>();
-        let (_cs_tx, cs_rx) = mpsc::unbounded_channel::<CommandResponse>();
-        let (_act_tx, act_rx) = mpsc::unbounded_channel::<AllocationLogEntry>();
-        let (_out_tx, out_rx) = mpsc::unbounded_channel::<AllocationOutcome>();
+        let (_tx, rx) = mpsc::channel::<CommandResponse>(32);
+        let (_cs_tx, cs_rx) = mpsc::channel::<CommandResponse>(32);
+        let (_act_tx, act_rx) = mpsc::channel::<AllocationLogEntry>(32);
+        let (_out_tx, out_rx) = mpsc::channel::<AllocationOutcome>(32);
         let reporter = StateReporter::new(rx, cs_rx, act_rx, out_rx);
         {
             let mut pending = reporter.responses.items.lock().await;
@@ -511,15 +511,15 @@ mod tests {
 
     #[tokio::test]
     async fn test_drain_from_channel() {
-        let (tx, rx) = mpsc::unbounded_channel::<CommandResponse>();
-        let (_cs_tx, cs_rx) = mpsc::unbounded_channel::<CommandResponse>();
-        let (_act_tx, act_rx) = mpsc::unbounded_channel::<AllocationLogEntry>();
-        let (_out_tx, out_rx) = mpsc::unbounded_channel::<AllocationOutcome>();
+        let (tx, rx) = mpsc::channel::<CommandResponse>(32);
+        let (_cs_tx, cs_rx) = mpsc::channel::<CommandResponse>(32);
+        let (_act_tx, act_rx) = mpsc::channel::<AllocationLogEntry>(32);
+        let (_out_tx, out_rx) = mpsc::channel::<AllocationOutcome>(32);
         let reporter = StateReporter::new(rx, cs_rx, act_rx, out_rx);
 
         // Send responses through the channel
-        tx.send(make_response("c1")).unwrap();
-        tx.send(make_response("c2")).unwrap();
+        tx.send(make_response("c1")).await.unwrap();
+        tx.send(make_response("c2")).await.unwrap();
 
         // Give the drain task a moment to process
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
