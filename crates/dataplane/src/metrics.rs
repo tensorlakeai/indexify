@@ -381,7 +381,8 @@ impl DataplaneCounters {
         );
     }
 
-    /// Record a malformed allocation result delivered through poll_allocation_results.
+    /// Record a malformed allocation result delivered through
+    /// poll_allocation_results.
     pub fn record_poll_result_malformed(&self, command_type: &str, reason: &str) {
         self.poll_results_malformed_total.add(
             1,

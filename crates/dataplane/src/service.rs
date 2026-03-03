@@ -9,7 +9,10 @@ use std::{
 
 use anyhow::{Context, Result};
 use proto_api::executor_api_pb::{
-    AllocationLogEntry, ExecutorStatus, HostResources, executor_api_client::ExecutorApiClient,
+    AllocationLogEntry,
+    ExecutorStatus,
+    HostResources,
+    executor_api_client::ExecutorApiClient,
 };
 use tokio::{
     sync::{Mutex, Notify, mpsc, watch},
@@ -572,7 +575,8 @@ impl ServiceRuntime {
         }
     }
 
-    /// Record malformed command metrics and detect repeated malformed sequence numbers.
+    /// Record malformed command metrics and detect repeated malformed sequence
+    /// numbers.
     fn record_malformed_command(&self, seq: u64, command_type: &str, reason: &str) -> bool {
         self.metrics
             .counters
@@ -587,7 +591,8 @@ impl ServiceRuntime {
         false
     }
 
-    /// Record malformed result metrics and detect repeated malformed sequence numbers.
+    /// Record malformed result metrics and detect repeated malformed sequence
+    /// numbers.
     fn record_malformed_result(&self, seq: u64, command_type: &str, reason: &str) -> bool {
         self.metrics
             .counters
