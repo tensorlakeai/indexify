@@ -18,16 +18,19 @@
 //! Message size limiting: items are fragmented across multiple RPCs if the
 //! total message would exceed 10 MB.
 
-use std::sync::Arc;
+use std::{collections::VecDeque, sync::Arc};
 
 use prost::Message;
 use proto_api::executor_api_pb::{AllocationLogEntry, AllocationOutcome, CommandResponse};
 use tokio::sync::{Mutex, Notify, mpsc};
-use tracing::debug;
+use tracing::{debug, warn};
 
 /// Maximum state report message size in bytes (10 MB).
 /// Matches Python executor's `_STATE_REPORT_MAX_MESSAGE_SIZE_MB`.
 const STATE_REPORT_MAX_MESSAGE_SIZE: usize = 10 * 1024 * 1024;
+/// Soft cap on buffered pending report items per category to limit memory use
+/// during prolonged outages/backpressure.
+const STATE_REPORT_MAX_PENDING_ITEMS: usize = 50_000;
 
 // ---------------------------------------------------------------------------
 // Generic pending buffer shared by responses and activities
@@ -35,18 +38,21 @@ const STATE_REPORT_MAX_MESSAGE_SIZE: usize = 10 * 1024 * 1024;
 
 /// A size-aware append-only buffer that supports collect-then-drain semantics.
 ///
-/// Items arrive via an `mpsc::UnboundedReceiver` and are buffered in a `Vec`
+/// Items arrive via an `mpsc::UnboundedReceiver` and are buffered in a
+/// `VecDeque`
 /// behind a `Mutex`. The heartbeat loop collects a batch that fits within the
 /// message size limit, sends the RPC, and then drains exactly the sent items.
 struct PendingBuffer<T> {
-    items: Arc<Mutex<Vec<T>>>,
+    label: &'static str,
+    items: Arc<Mutex<VecDeque<T>>>,
     notify: Arc<Notify>,
 }
 
 impl<T: Message + Clone + Send + 'static> PendingBuffer<T> {
-    fn new() -> Self {
+    fn new(label: &'static str) -> Self {
         Self {
-            items: Arc::new(Mutex::new(Vec::new())),
+            label,
+            items: Arc::new(Mutex::new(VecDeque::new())),
             notify: Arc::new(Notify::new()),
         }
     }
@@ -54,12 +60,26 @@ impl<T: Message + Clone + Send + 'static> PendingBuffer<T> {
     /// Spawn a background task that drains `rx` into the buffer and wakes
     /// the heartbeat loop via `notify`.
     fn spawn_drainer(&self, mut rx: mpsc::UnboundedReceiver<T>) {
+        let label = self.label;
         let items = self.items.clone();
         let notify = self.notify.clone();
         tokio::spawn(async move {
+            let mut dropped_since_last_log = 0usize;
             while let Some(item) = rx.recv().await {
                 let mut buf = items.lock().await;
-                buf.push(item);
+                if buf.len() >= STATE_REPORT_MAX_PENDING_ITEMS {
+                    buf.pop_front();
+                    dropped_since_last_log = dropped_since_last_log.saturating_add(1);
+                    if dropped_since_last_log == 1 || dropped_since_last_log.is_multiple_of(1000) {
+                        warn!(
+                            label,
+                            dropped = dropped_since_last_log,
+                            max_pending = STATE_REPORT_MAX_PENDING_ITEMS,
+                            "State reporter buffer over capacity; dropping oldest buffered item"
+                        );
+                    }
+                }
+                buf.push_back(item);
                 drop(buf);
                 notify.notify_one();
             }
@@ -131,7 +151,7 @@ impl<T: Message + Clone + Send + 'static> PendingBuffer<T> {
         }
         let mut pending = self.items.lock().await;
         let n = count.min(pending.len());
-        pending.drain(..n);
+        pending.drain(0..n);
     }
 }
 
@@ -159,9 +179,9 @@ impl StateReporter {
         activity_rx: mpsc::UnboundedReceiver<AllocationLogEntry>,
         outcome_rx: mpsc::UnboundedReceiver<AllocationOutcome>,
     ) -> Self {
-        let responses = PendingBuffer::new();
-        let activities = PendingBuffer::new();
-        let outcomes = PendingBuffer::new();
+        let responses = PendingBuffer::new("command_responses");
+        let activities = PendingBuffer::new("allocation_log_entries");
+        let outcomes = PendingBuffer::new("allocation_outcomes");
 
         // Two drainers feed the same response buffer (acks + container events).
         responses.spawn_drainer(response_rx);
@@ -450,7 +470,7 @@ mod tests {
         // Simulate new item arriving between collect and drain.
         {
             let mut pending = reporter.responses.items.lock().await;
-            pending.push(make_response("a3"));
+            pending.push_back(make_response("a3"));
         }
 
         // Drain only the 2 that were collected.

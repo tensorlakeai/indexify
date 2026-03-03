@@ -279,8 +279,9 @@ impl Service {
                     )
                     .build_v1()
                     .unwrap();
-                // 4GB max message size for large execution plans
-                const MAX_MESSAGE_SIZE: usize = 4 * 1024 * 1024 * 1024;
+                // Keep envelope bounds tight; heartbeat/report payloads are
+                // fragmented and poll responses are capped server-side.
+                const MAX_MESSAGE_SIZE: usize = 32 * 1024 * 1024;
 
                 Server::builder()
                     .layer(instance_trace)

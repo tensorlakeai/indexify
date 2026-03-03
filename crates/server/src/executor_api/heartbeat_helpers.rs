@@ -47,14 +47,6 @@ fn allocation_log_labels(
     ("", "", "", "", "", allocation_id)
 }
 
-fn is_malformed_report_error(error: &anyhow::Error) -> bool {
-    let message = error.to_string().to_ascii_lowercase();
-    message.contains("missing ") ||
-        message.contains(" is empty") ||
-        message.contains("invalid") ||
-        message.contains("malformed")
-}
-
 impl ExecutorAPIService {
     /// Process full-state sync if present and return whether the executor is
     /// known to the server after processing.
@@ -178,7 +170,7 @@ impl ExecutorAPIService {
                                     function_ref_labels(completed.function.as_ref());
                                 let request_id = completed.request_id.as_deref().unwrap_or("");
                                 let allocation_id = completed.allocation_id.as_str();
-                                if is_malformed_report_error(&e) {
+                                if super::is_malformed_payload_error(&e) {
                                     warn!(
                                         executor_id = executor_id.get(),
                                         request_id = %request_id,
@@ -219,7 +211,7 @@ impl ExecutorAPIService {
                             let request_id =
                                 completed_for_logging.request_id.as_deref().unwrap_or("");
                             let allocation_id = completed_for_logging.allocation_id.as_str();
-                            if is_malformed_report_error(&e) {
+                            if super::is_malformed_payload_error(&e) {
                                 warn!(
                                     executor_id = executor_id.get(),
                                     request_id = %request_id,
@@ -275,7 +267,7 @@ impl ExecutorAPIService {
                                     function_ref_labels(failed.function.as_ref());
                                 let request_id = failed.request_id.as_deref().unwrap_or("");
                                 let allocation_id = failed.allocation_id.as_str();
-                                if is_malformed_report_error(&e) {
+                                if super::is_malformed_payload_error(&e) {
                                     warn!(
                                         executor_id = executor_id.get(),
                                         request_id = %request_id,
@@ -315,7 +307,7 @@ impl ExecutorAPIService {
                                 function_ref_labels(failed_for_logging.function.as_ref());
                             let request_id = failed_for_logging.request_id.as_deref().unwrap_or("");
                             let allocation_id = failed_for_logging.allocation_id.as_str();
-                            if is_malformed_report_error(&e) {
+                            if super::is_malformed_payload_error(&e) {
                                 warn!(
                                     executor_id = executor_id.get(),
                                     request_id = %request_id,
@@ -364,7 +356,7 @@ impl ExecutorAPIService {
             {
                 let (request_id, fn_name, namespace, app, version, allocation_id) =
                     allocation_log_labels(&log_entry);
-                if is_malformed_report_error(&e) {
+                if super::is_malformed_payload_error(&e) {
                     warn!(
                         executor_id = executor_id.get(),
                         request_id = %request_id,

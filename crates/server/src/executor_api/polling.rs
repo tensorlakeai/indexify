@@ -5,6 +5,7 @@ use tracing::warn;
 use super::{ExecutorId, IndexifyState, executor_api_pb};
 
 const LONG_POLL_TIMEOUT: Duration = Duration::from_secs(300);
+const MAX_POLL_RESPONSE_BYTES: usize = 8 * 1024 * 1024;
 
 /// Long-poll helper for the commands buffer.
 ///
@@ -43,7 +44,7 @@ pub async fn long_poll_commands(
         conn.drain_commands_up_to(seq).await;
     }
 
-    let items = conn.clone_commands().await;
+    let items = conn.clone_commands_capped(MAX_POLL_RESPONSE_BYTES).await;
     if !items.is_empty() {
         return items;
     }
@@ -58,7 +59,7 @@ pub async fn long_poll_commands(
 
     let connections = indexify_state.executor_connections.read().await;
     if let Some(conn) = connections.get(executor_id) {
-        conn.clone_commands().await
+        conn.clone_commands_capped(MAX_POLL_RESPONSE_BYTES).await
     } else {
         vec![]
     }
@@ -78,7 +79,7 @@ pub async fn long_poll_results(
         conn.drain_results_up_to(seq).await;
     }
 
-    let items = conn.clone_results().await;
+    let items = conn.clone_results_capped(MAX_POLL_RESPONSE_BYTES).await;
     if !items.is_empty() {
         return items;
     }
@@ -93,7 +94,7 @@ pub async fn long_poll_results(
 
     let connections = indexify_state.executor_connections.read().await;
     if let Some(conn) = connections.get(executor_id) {
-        conn.clone_results().await
+        conn.clone_results_capped(MAX_POLL_RESPONSE_BYTES).await
     } else {
         vec![]
     }

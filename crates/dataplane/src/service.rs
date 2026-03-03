@@ -45,6 +45,8 @@ use crate::{
 };
 
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
+const MAX_GRPC_DECODE_MESSAGE_SIZE: usize = 32 * 1024 * 1024;
+const FULL_STATE_RESYNC_INTERVAL: Duration = Duration::from_secs(5 * 60);
 
 /// Explicit connection state for the dataplane's relationship with the server.
 ///
@@ -571,7 +573,7 @@ impl ServiceRuntime {
     /// reschedule in-flight work on other executors without waiting for the
     /// heartbeat timeout window.
     async fn send_stopped_heartbeat(&self) {
-        let mut client = ExecutorApiClient::new(self.channel.clone());
+        let mut client = self.make_client();
         let req = proto_api::executor_api_pb::HeartbeatRequest {
             executor_id: Some(self.identity.executor_id.clone()),
             status: Some(ExecutorStatus::Stopped.into()),
@@ -605,15 +607,41 @@ impl ServiceRuntime {
         }
     }
 
+    fn make_client(&self) -> ExecutorApiClient<Channel> {
+        ExecutorApiClient::new(self.channel.clone())
+            .max_decoding_message_size(MAX_GRPC_DECODE_MESSAGE_SIZE)
+    }
+
     /// Wait for the connection state to become `Ready`. Returns `true` if
-    /// ready, `false` if the channel closed (should exit the loop).
-    async fn wait_for_ready(&self, loop_name: &str) -> bool {
-        let mut state_rx = self.connection_state.subscribe();
-        if state_rx
-            .wait_for(|s| *s == ConnectionState::Ready)
-            .await
-            .is_err()
-        {
+    /// ready, `false` if the loop should exit.
+    async fn wait_for_ready(
+        &self,
+        state_rx: &mut watch::Receiver<ConnectionState>,
+        loop_name: &str,
+    ) -> bool {
+        if *state_rx.borrow() == ConnectionState::Ready {
+            return true;
+        }
+
+        tracing::info!(
+            executor_id = %self.identity.executor_id,
+            loop_name,
+            state = ?*state_rx.borrow(),
+            "Connection not ready, pausing poll loop"
+        );
+        let wait_result = tokio::select! {
+            _ = self.cancel_token.cancelled() => {
+                tracing::info!(
+                    executor_id = %self.identity.executor_id,
+                    loop_name,
+                    "Poll loop cancelled while waiting for ready state"
+                );
+                return false;
+            }
+            result = state_rx.wait_for(|s| *s == ConnectionState::Ready) => result,
+        };
+
+        if wait_result.is_err() {
             tracing::info!(
                 executor_id = %self.identity.executor_id,
                 loop_name,
@@ -621,10 +649,11 @@ impl ServiceRuntime {
             );
             return false;
         }
+
         tracing::info!(
             executor_id = %self.identity.executor_id,
             loop_name,
-            "Connection ready, starting poll loop"
+            "Connection ready, resuming poll loop"
         );
         true
     }
@@ -651,14 +680,24 @@ impl ServiceRuntime {
     }
 
     async fn run_heartbeat_loop(&self) {
-        let mut client = ExecutorApiClient::new(self.channel.clone());
+        let mut client = self.make_client();
         let mut retry_interval = HEARTBEAT_MIN_RETRY_INTERVAL;
         let mut send_full_state = false; // First heartbeat has no state; server asks for it
+        let mut next_periodic_full_state_at =
+            tokio::time::Instant::now() + FULL_STATE_RESYNC_INTERVAL;
 
         loop {
             if self.cancel_token.is_cancelled() {
                 tracing::info!("Heartbeat loop cancelled");
                 return;
+            }
+
+            if tokio::time::Instant::now() >= next_periodic_full_state_at {
+                send_full_state = true;
+                tracing::info!(
+                    interval_secs = FULL_STATE_RESYNC_INTERVAL.as_secs(),
+                    "Sending periodic full state for drift healing"
+                );
             }
 
             // Phase 1: Build and send heartbeat(s) (includes batched reports).
@@ -724,9 +763,16 @@ impl ServiceRuntime {
                     .record(request_size as f64 / (1024.0 * 1024.0), &[]);
 
                 if is_first_fragment {
-                    // Store reported state for monitoring endpoint
-                    *self.monitoring_state.last_reported_state.lock().await =
-                        Some(format!("{:#?}", heartbeat_req));
+                    // Keep monitoring payload compact to avoid large heap allocations.
+                    *self.monitoring_state.last_reported_state.lock().await = Some(format!(
+                        "executor_id={} full_state={} command_responses={} allocation_outcomes={} allocation_log_entries={} size_bytes={}",
+                        self.identity.executor_id,
+                        heartbeat_req.full_state.is_some(),
+                        heartbeat_req.command_responses.len(),
+                        heartbeat_req.allocation_outcomes.len(),
+                        heartbeat_req.allocation_log_entries.len(),
+                        request_size,
+                    ));
                 }
 
                 let rpc_result = tokio::select! {
@@ -783,6 +829,10 @@ impl ServiceRuntime {
                         }
 
                         send_full_state = false;
+                        if is_first_fragment && full_state.is_some() {
+                            next_periodic_full_state_at =
+                                tokio::time::Instant::now() + FULL_STATE_RESYNC_INTERVAL;
+                        }
 
                         // Server accepted our reports — safe to drain.
                         self.state_reporter.drain_sent(resp_count).await;
@@ -884,15 +934,12 @@ impl ServiceRuntime {
     // ---------------------------------------------------------------
 
     async fn run_poll_commands_loop(&self) {
-        if !self.wait_for_ready("poll_commands").await {
-            return;
-        }
-        let mut client = ExecutorApiClient::new(self.channel.clone());
+        let mut state_rx = self.connection_state.subscribe();
+        let mut client = self.make_client();
         let mut retry_interval = Duration::from_secs(1);
 
         loop {
-            if self.cancel_token.is_cancelled() {
-                tracing::info!("Poll commands loop cancelled");
+            if !self.wait_for_ready(&mut state_rx, "poll_commands").await {
                 return;
             }
 
@@ -904,21 +951,50 @@ impl ServiceRuntime {
 
             let rpc_result = tokio::select! {
                 _ = self.cancel_token.cancelled() => return,
+                changed = state_rx.changed() => {
+                    if changed.is_err() {
+                        tracing::info!(
+                            executor_id = %self.identity.executor_id,
+                            "poll_commands: connection state watch closed"
+                        );
+                        return;
+                    }
+                    continue;
+                }
                 result = client.poll_commands(request) => result,
             };
 
             match rpc_result {
                 Ok(response) => {
                     retry_interval = Duration::from_secs(1);
+                    let mut next_seq = self
+                        .last_applied_command_seq
+                        .load(Ordering::SeqCst)
+                        .saturating_add(1);
                     for command in response.into_inner().commands {
                         let seq = command.seq;
                         // Skip commands already processed (re-delivery after lost ack)
-                        if seq <= self.last_applied_command_seq.load(Ordering::SeqCst) {
+                        if seq < next_seq {
                             continue;
                         }
-                        self.handle_command(command).await;
-                        self.last_applied_command_seq
-                            .fetch_max(seq, Ordering::SeqCst);
+                        if seq > next_seq {
+                            tracing::warn!(
+                                expected_seq = next_seq,
+                                observed_seq = seq,
+                                "poll_commands: encountered sequence gap; deferring ack advancement"
+                            );
+                            break;
+                        }
+                        let applied = self.handle_command(command).await;
+                        if !applied {
+                            tracing::warn!(
+                                seq,
+                                "poll_commands: command not applied, retaining ack cursor for retry"
+                            );
+                            break;
+                        }
+                        self.last_applied_command_seq.store(seq, Ordering::SeqCst);
+                        next_seq = next_seq.saturating_add(1);
                     }
                 }
                 Err(e) => {
@@ -938,15 +1014,12 @@ impl ServiceRuntime {
     // ---------------------------------------------------------------
 
     async fn run_poll_results_loop(&self) {
-        if !self.wait_for_ready("poll_results").await {
-            return;
-        }
-        let mut client = ExecutorApiClient::new(self.channel.clone());
+        let mut state_rx = self.connection_state.subscribe();
+        let mut client = self.make_client();
         let mut retry_interval = Duration::from_secs(1);
 
         loop {
-            if self.cancel_token.is_cancelled() {
-                tracing::info!("Poll results loop cancelled");
+            if !self.wait_for_ready(&mut state_rx, "poll_results").await {
                 return;
             }
 
@@ -958,23 +1031,58 @@ impl ServiceRuntime {
 
             let rpc_result = tokio::select! {
                 _ = self.cancel_token.cancelled() => return,
+                changed = state_rx.changed() => {
+                    if changed.is_err() {
+                        tracing::info!(
+                            executor_id = %self.identity.executor_id,
+                            "poll_allocation_results: connection state watch closed"
+                        );
+                        return;
+                    }
+                    continue;
+                }
                 result = client.poll_allocation_results(request) => result,
             };
 
             match rpc_result {
                 Ok(response) => {
                     retry_interval = Duration::from_secs(1);
+                    let mut next_seq = self
+                        .last_applied_result_seq
+                        .load(Ordering::SeqCst)
+                        .saturating_add(1);
                     for result in response.into_inner().results {
                         let seq = result.seq;
                         // Skip results already processed (re-delivery after lost ack)
-                        if seq <= self.last_applied_result_seq.load(Ordering::SeqCst) {
+                        if seq < next_seq {
                             continue;
                         }
-                        if let Some(entry) = result.entry {
-                            self.dispatch_function_call_result(entry);
+                        if seq > next_seq {
+                            tracing::warn!(
+                                expected_seq = next_seq,
+                                observed_seq = seq,
+                                "poll_allocation_results: encountered sequence gap; deferring ack advancement"
+                            );
+                            break;
                         }
-                        self.last_applied_result_seq
-                            .fetch_max(seq, Ordering::SeqCst);
+                        if let Some(entry) = result.entry {
+                            let dispatched = self.dispatch_function_call_result(entry).await;
+                            if !dispatched {
+                                tracing::warn!(
+                                    seq,
+                                    "poll_allocation_results: result dispatch failed, retaining ack cursor for retry"
+                                );
+                                break;
+                            }
+                        } else {
+                            tracing::warn!(
+                                seq,
+                                "poll_allocation_results: missing entry payload, retaining ack cursor for retry"
+                            );
+                            break;
+                        }
+                        self.last_applied_result_seq.store(seq, Ordering::SeqCst);
+                        next_seq = next_seq.saturating_add(1);
                     }
                 }
                 Err(e) => {
@@ -991,10 +1099,10 @@ impl ServiceRuntime {
 
     /// Dispatch a function call result from the poll results loop to the
     /// allocation runner handling the target allocation.
-    fn dispatch_function_call_result(
+    async fn dispatch_function_call_result(
         &self,
         log_entry: proto_api::executor_api_pb::AllocationLogEntry,
-    ) {
+    ) -> bool {
         // Extract lightweight debug context before moving the protobuf into
         // dispatch(), avoiding a full AllocationLogEntry clone on this hot path.
         let (namespace, request_id, function_call_id) = match &log_entry.entry {
@@ -1018,27 +1126,29 @@ impl ServiceRuntime {
         };
 
         let allocation_id = log_entry.allocation_id.clone();
-        let dispatcher = self.allocation_result_dispatcher.clone();
-        tokio::spawn(async move {
-            if !dispatcher.dispatch(&allocation_id, log_entry).await {
-                tracing::warn!(
-                    allocation_id = %allocation_id,
-                    namespace = %namespace,
-                    request_id = %request_id,
-                    function_call_id = %function_call_id,
-                    "No allocation runner for result dispatch"
-                );
-            }
-        });
+        let dispatched = self
+            .allocation_result_dispatcher
+            .dispatch(&allocation_id, log_entry)
+            .await;
+        if !dispatched {
+            tracing::warn!(
+                allocation_id = %allocation_id,
+                namespace = %namespace,
+                request_id = %request_id,
+                function_call_id = %function_call_id,
+                "No allocation runner for result dispatch"
+            );
+        }
+        dispatched
     }
 
     /// Handle a single Command from the poll commands loop.
-    async fn handle_command(&self, command: proto_api::executor_api_pb::Command) {
+    async fn handle_command(&self, command: proto_api::executor_api_pb::Command) -> bool {
         let seq = command.seq;
 
         let Some(cmd) = command.command else {
             tracing::warn!(seq, "Received command with no payload, skipping");
-            return;
+            return false;
         };
 
         use proto_api::executor_api_pb::command::Command as Cmd;
@@ -1057,6 +1167,7 @@ impl ServiceRuntime {
                             error = %e,
                             "Skipping invalid AddContainer command"
                         );
+                        false
                     } else {
                         tracing::info!(
                             seq,
@@ -1071,8 +1182,11 @@ impl ServiceRuntime {
                         let mut reconciler = self.state_reconciler.lock().await;
                         reconciler
                             .reconcile_containers(vec![container], vec![])
-                            .await;
+                            .await
                     }
+                } else {
+                    tracing::warn!(seq, "AddContainer missing container payload");
+                    false
                 }
             }
             Cmd::RemoveContainer(remove) => {
@@ -1084,7 +1198,7 @@ impl ServiceRuntime {
                 let mut reconciler = self.state_reconciler.lock().await;
                 reconciler
                     .reconcile_containers(vec![], vec![remove.container_id])
-                    .await;
+                    .await
             }
             Cmd::RunAllocation(run) => {
                 if let Some(allocation) = run.allocation {
@@ -1099,6 +1213,7 @@ impl ServiceRuntime {
                             error = %e,
                             "Skipping invalid RunAllocation command"
                         );
+                        false
                     } else if let Some(fe_id) = allocation.container_id.clone() {
                         tracing::info!(
                             seq,
@@ -1112,7 +1227,7 @@ impl ServiceRuntime {
                         let mut reconciler = self.state_reconciler.lock().await;
                         reconciler
                             .reconcile_allocations(vec![(fe_id, allocation, seq)])
-                            .await;
+                            .await
                     } else {
                         tracing::warn!(
                             seq,
@@ -1122,15 +1237,20 @@ impl ServiceRuntime {
                             "fn" = %allocation.function.as_ref().and_then(|f| f.function_name.as_deref()).unwrap_or(""),
                             "RunAllocation missing container_id"
                         );
+                        false
                     }
+                } else {
+                    tracing::warn!(seq, "RunAllocation missing allocation payload");
+                    false
                 }
             }
             Cmd::KillAllocation(kill) => {
                 tracing::warn!(
                     seq,
                     allocation_id = %kill.allocation_id,
-                    "KillAllocation command received (not yet implemented)"
+                    "KillAllocation command received (not yet implemented), acking as no-op to avoid stream stall"
                 );
+                true
             }
             // DeliverResult was removed from Command — function call results
             // are now delivered via the AllocationEvent log.
@@ -1142,7 +1262,7 @@ impl ServiceRuntime {
                     "UpdateContainerDescription command"
                 );
                 let mut reconciler = self.state_reconciler.lock().await;
-                reconciler.update_container_description(update).await;
+                reconciler.update_container_description(update).await
             }
             Cmd::SnapshotContainer(snapshot) => {
                 tracing::info!(
@@ -1164,6 +1284,7 @@ impl ServiceRuntime {
                         )
                         .await;
                 });
+                true
             }
         }
     }

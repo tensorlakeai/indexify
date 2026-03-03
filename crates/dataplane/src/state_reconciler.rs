@@ -37,7 +37,7 @@ use std::{collections::HashSet, sync::Arc};
 use proto_api::executor_api_pb::{Allocation, ContainerDescription, ContainerState, ContainerType};
 use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::{
     allocation_controller::{AllocationController, AllocationControllerHandle, events::ACCommand},
@@ -93,7 +93,7 @@ impl StateReconciler {
         &mut self,
         added_or_updated: Vec<ContainerDescription>,
         removed_container_ids: Vec<String>,
-    ) {
+    ) -> bool {
         let mut function_fes = Vec::new();
 
         for fe in added_or_updated {
@@ -116,21 +116,33 @@ impl StateReconciler {
         let removed_count = removed_container_ids.len();
         let changed = function_fe_count > 0 || removed_count > 0;
 
-        let _ = self
+        if !changed {
+            return true;
+        }
+
+        if let Err(err) = self
             .allocation_controller
             .command_tx
             .send(ACCommand::Reconcile {
                 added_or_updated_fes: function_fes,
                 removed_fe_ids: removed_container_ids,
                 new_allocations: vec![],
-            });
-
-        if changed {
-            info!(
+            })
+        {
+            warn!(
+                error = %err,
                 function_fe_count,
-                removed_count, "Sent container Reconcile to AllocationController"
+                removed_count,
+                "Failed to send container Reconcile to AllocationController"
             );
+            return false;
         }
+
+        info!(
+            function_fe_count,
+            removed_count, "Sent container Reconcile to AllocationController"
+        );
+        true
     }
 
     /// Apply a targeted description update to an existing container.
@@ -142,31 +154,47 @@ impl StateReconciler {
     pub async fn update_container_description(
         &mut self,
         update: proto_api::executor_api_pb::UpdateContainerDescription,
-    ) {
+    ) -> bool {
         self.container_manager
             .update_container_description(update)
             .await;
+        true
     }
 
     /// Reconcile allocation stream update: route allocations.
     ///
     /// Each allocation tuple is `(fe_id, allocation, command_seq)`.
-    pub async fn reconcile_allocations(&mut self, allocations: Vec<(String, Allocation, u64)>) {
-        if !allocations.is_empty() {
-            let allocation_count = allocations.len();
-            let _ = self
-                .allocation_controller
-                .command_tx
-                .send(ACCommand::Reconcile {
-                    added_or_updated_fes: vec![],
-                    removed_fe_ids: vec![],
-                    new_allocations: allocations,
-                });
-            info!(
-                allocation_count,
-                "Sent allocation Reconcile to AllocationController"
-            );
+    pub async fn reconcile_allocations(
+        &mut self,
+        allocations: Vec<(String, Allocation, u64)>,
+    ) -> bool {
+        if allocations.is_empty() {
+            return true;
         }
+
+        let allocation_count = allocations.len();
+        if let Err(err) = self
+            .allocation_controller
+            .command_tx
+            .send(ACCommand::Reconcile {
+                added_or_updated_fes: vec![],
+                removed_fe_ids: vec![],
+                new_allocations: allocations,
+            })
+        {
+            warn!(
+                error = %err,
+                allocation_count,
+                "Failed to send allocation Reconcile to AllocationController"
+            );
+            return false;
+        }
+
+        info!(
+            allocation_count,
+            "Sent allocation Reconcile to AllocationController"
+        );
+        true
     }
 
     /// Snapshot a container's filesystem.

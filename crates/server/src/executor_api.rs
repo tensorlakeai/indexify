@@ -2,6 +2,7 @@ use std::{sync::Arc, vec};
 
 use anyhow::Result;
 use executor_api_pb::executor_api_server::ExecutorApi;
+use opentelemetry::{global, metrics::Counter};
 pub use proto_api::executor_api_pb;
 use tonic::{Request, Response, Status};
 use tracing::{info, warn};
@@ -68,6 +69,24 @@ pub struct ExecutorAPIService {
     executor_manager: Arc<ExecutorManager>,
     blob_storage_registry: Arc<BlobStorageRegistry>,
     function_call_result_router: Arc<FunctionCallResultRouter>,
+}
+
+static MALFORMED_FULL_STATE_CONTAINERS_COUNTER: std::sync::LazyLock<Counter<u64>> =
+    std::sync::LazyLock::new(|| {
+        global::meter("indexify.executor_api")
+            .u64_counter("indexify.executor_api.full_state_malformed_containers")
+            .with_description(
+                "Number of malformed container state entries ignored during full-state sync",
+            )
+            .build()
+    });
+
+pub(super) fn is_malformed_payload_error(error: &anyhow::Error) -> bool {
+    let message = error.to_string().to_ascii_lowercase();
+    message.contains("missing ") ||
+        message.contains(" is empty") ||
+        message.contains("invalid") ||
+        message.contains("malformed")
 }
 
 impl ExecutorAPIService {
@@ -152,10 +171,13 @@ impl ExecutorAPIService {
         if malformed_container_count > 0 {
             let first_error = first_malformed_container_error
                 .unwrap_or_else(|| "unknown container conversion error".to_string());
-            return Err(Status::invalid_argument(format!(
-                "full_state contains {malformed_container_count} malformed container state(s): \
-                 first error: {first_error}"
-            )));
+            MALFORMED_FULL_STATE_CONTAINERS_COUNTER.add(malformed_container_count as u64, &[]);
+            warn!(
+                executor_id = executor_id.get(),
+                malformed_container_count,
+                first_error = %first_error,
+                "ignoring malformed container state entries in full state sync"
+            );
         }
         executor_metadata.containers(containers);
 
@@ -658,6 +680,37 @@ mod tests {
         assert_eq!(
             response.commands[0].seq, 1,
             "reconnect full state should reset outbox sequence cursor"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_full_state_ignores_malformed_container_entries() {
+        let test_service = TestService::new().await.unwrap();
+        let api = super::ExecutorAPIService::new(
+            test_service.service.indexify_state.clone(),
+            test_service.service.executor_manager.clone(),
+            test_service.service.blob_storage_registry.clone(),
+        );
+        let executor_id = crate::data_model::ExecutorId::from("executor-malformed-full-state");
+
+        let mut full_state = executor_api_pb::DataplaneStateFullSync::default();
+        // Missing description/status fields should fail proto->model conversion.
+        full_state
+            .container_states
+            .push(executor_api_pb::ContainerState::default());
+
+        api.handle_full_state(&executor_id, full_state)
+            .await
+            .expect("malformed container entries should be ignored");
+
+        let runtime_data = test_service
+            .service
+            .executor_manager
+            .runtime_data_read()
+            .await;
+        assert!(
+            runtime_data.contains_key(&executor_id),
+            "executor should still register despite malformed containers"
         );
     }
 

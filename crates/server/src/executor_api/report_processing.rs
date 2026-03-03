@@ -16,14 +16,6 @@ pub enum AllocationIngestDisposition {
     SkippedNoop,
 }
 
-fn is_malformed_command_error(error: &anyhow::Error) -> bool {
-    let message = error.to_string().to_ascii_lowercase();
-    message.contains("missing ") ||
-        message.contains(" is empty") ||
-        message.contains("invalid") ||
-        message.contains("malformed")
-}
-
 /// Process command responses from a dataplane executor.
 ///
 /// Converts proto `CommandResponse` messages into a single
@@ -99,7 +91,7 @@ pub async fn process_command_responses(
                     "SnapshotCompleted received"
                 );
                 if let Err(err) = handle_snapshot_completed(indexify_state, &completed).await {
-                    if is_malformed_command_error(&err) {
+                    if super::is_malformed_payload_error(&err) {
                         warn!(
                             executor_id = executor_id.get(),
                             request_id = "",
@@ -142,7 +134,7 @@ pub async fn process_command_responses(
                     "SnapshotFailed received"
                 );
                 if let Err(err) = handle_snapshot_failed(indexify_state, &failed).await {
-                    if is_malformed_command_error(&err) {
+                    if super::is_malformed_payload_error(&err) {
                         warn!(
                             executor_id = executor_id.get(),
                             request_id = "",

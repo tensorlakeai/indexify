@@ -3,6 +3,7 @@ use std::sync::{
     atomic::{self, AtomicU64},
 };
 
+use prost::Message;
 use tokio::sync::Notify;
 
 use crate::executor_api::executor_api_pb;
@@ -37,6 +38,25 @@ pub struct ExecutorConnection {
 }
 
 impl ExecutorConnection {
+    fn capped_clone_by_encoded_size<T: Message + Clone>(items: &[T], limit_bytes: usize) -> Vec<T> {
+        if items.is_empty() {
+            return Vec::new();
+        }
+
+        let mut selected = Vec::new();
+        let mut total = 0usize;
+        for item in items {
+            let item_size = item.encoded_len();
+            if selected.is_empty() || total.saturating_add(item_size) <= limit_bytes {
+                total = total.saturating_add(item_size);
+                selected.push(item.clone());
+            } else {
+                break;
+            }
+        }
+        selected
+    }
+
     /// Create a new connection (executor just registered).
     pub fn new() -> Self {
         Self {
@@ -62,8 +82,15 @@ impl ExecutorConnection {
     }
 
     /// Clone all pending commands (does NOT remove them).
+    #[cfg(test)]
     pub async fn clone_commands(&self) -> Vec<executor_api_pb::Command> {
         self.pending_commands.lock().await.clone()
+    }
+
+    /// Clone a size-bounded prefix of pending commands (does NOT remove them).
+    pub async fn clone_commands_capped(&self, limit_bytes: usize) -> Vec<executor_api_pb::Command> {
+        let buf = self.pending_commands.lock().await;
+        Self::capped_clone_by_encoded_size(&buf, limit_bytes)
     }
 
     /// Replace buffered commands (used on reconnect/restart hydration).
@@ -139,8 +166,18 @@ impl ExecutorConnection {
     }
 
     /// Clone all pending results (does NOT remove them).
+    #[cfg(test)]
     pub async fn clone_results(&self) -> Vec<executor_api_pb::SequencedAllocationResult> {
         self.pending_results.lock().await.clone()
+    }
+
+    /// Clone a size-bounded prefix of pending results (does NOT remove them).
+    pub async fn clone_results_capped(
+        &self,
+        limit_bytes: usize,
+    ) -> Vec<executor_api_pb::SequencedAllocationResult> {
+        let buf = self.pending_results.lock().await;
+        Self::capped_clone_by_encoded_size(&buf, limit_bytes)
     }
 
     /// Remove results with seq <= `acked_seq`.
@@ -170,5 +207,57 @@ impl ExecutorConnection {
             .store(0, atomic::Ordering::Relaxed);
         self.request_full_state
             .store(false, atomic::Ordering::SeqCst);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_command(seq: u64, payload_size: usize) -> executor_api_pb::Command {
+        executor_api_pb::Command {
+            seq,
+            command: Some(executor_api_pb::command::Command::KillAllocation(
+                executor_api_pb::KillAllocation {
+                    allocation_id: "x".repeat(payload_size),
+                },
+            )),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_clone_commands_capped_respects_limit() {
+        let conn = ExecutorConnection::new();
+        let c1 = make_command(1, 32);
+        let c2 = make_command(2, 32);
+        let c3 = make_command(3, 32);
+        let limit = c1.encoded_len() + c2.encoded_len();
+        conn.push_commands(vec![c1, c2, c3]).await;
+
+        let batch = conn.clone_commands_capped(limit).await;
+        assert_eq!(batch.len(), 2);
+        assert_eq!(batch[0].seq, 1);
+        assert_eq!(batch[1].seq, 2);
+    }
+
+    #[tokio::test]
+    async fn test_clone_results_capped_always_includes_first() {
+        let conn = ExecutorConnection::new();
+        conn.push_result(executor_api_pb::AllocationLogEntry {
+            allocation_id: "a".repeat(128),
+            clock: 0,
+            entry: None,
+        })
+        .await;
+        conn.push_result(executor_api_pb::AllocationLogEntry {
+            allocation_id: "b".repeat(128),
+            clock: 0,
+            entry: None,
+        })
+        .await;
+
+        let batch = conn.clone_results_capped(1).await;
+        assert_eq!(batch.len(), 1);
+        assert_eq!(batch[0].seq, 1);
     }
 }
