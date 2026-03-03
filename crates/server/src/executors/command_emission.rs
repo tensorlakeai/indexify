@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use tracing::{error, trace};
 
 use super::ExecutorManager;
@@ -184,6 +186,11 @@ impl ExecutorManager {
     ) {
         update.scheduler_command_intents.clear();
         let mut intents = Vec::new();
+        let updated_sandbox_container_ids: HashSet<_> = update
+            .updated_sandboxes
+            .values()
+            .filter_map(|sandbox| sandbox.container_id.clone())
+            .collect();
 
         for (container_id, container_meta) in &update.containers {
             let command = if matches!(
@@ -204,24 +211,47 @@ impl ExecutorManager {
                 // container (Pending). Pure runtime metadata updates (e.g.
                 // allocation bookkeeping, heartbeat state reflection) must not
                 // re-emit AddContainer.
-                if !matches!(
+                if matches!(
                     container_meta.function_container.state,
                     data_model::ContainerState::Pending
                 ) {
+                    let Some(container_pb) =
+                        self.build_container_description_from_meta(indexes, container_meta)
+                    else {
+                        continue;
+                    };
+                    executor_api_pb::Command {
+                        seq: 0,
+                        command: Some(executor_api_pb::command::Command::AddContainer(
+                            executor_api_pb::AddContainer {
+                                container: Some(container_pb),
+                            },
+                        )),
+                    }
+                } else if container_meta.container_type == data_model::ContainerType::Sandbox &&
+                    updated_sandbox_container_ids.contains(container_id)
+                {
+                    // Warm pool claims keep containers Running and only mutate
+                    // sandbox metadata (sandbox_id/timeout). Emit a targeted
+                    // metadata update so the dataplane can apply the claim.
+                    let Some(container_pb) =
+                        self.build_container_description_from_meta(indexes, container_meta)
+                    else {
+                        continue;
+                    };
+                    executor_api_pb::Command {
+                        seq: 0,
+                        command: Some(
+                            executor_api_pb::command::Command::UpdateContainerDescription(
+                                executor_api_pb::UpdateContainerDescription {
+                                    container_id: container_id.get().to_string(),
+                                    sandbox_metadata: container_pb.sandbox_metadata,
+                                },
+                            ),
+                        ),
+                    }
+                } else {
                     continue;
-                }
-                let Some(container_pb) =
-                    self.build_container_description_from_meta(indexes, container_meta)
-                else {
-                    continue;
-                };
-                executor_api_pb::Command {
-                    seq: 0,
-                    command: Some(executor_api_pb::command::Command::AddContainer(
-                        executor_api_pb::AddContainer {
-                            container: Some(container_pb),
-                        },
-                    )),
                 }
             };
             intents.push(SchedulerCommandIntent {

@@ -214,25 +214,31 @@ impl ExecutorApi for ExecutorAPIService {
         let executor_known = self
             .resolve_executor_known(&executor_id, full_state)
             .await?;
-        self.process_heartbeat_reports(
-            &executor_id,
-            executor_known,
-            command_responses,
-            allocation_outcomes,
-            allocation_log_entries,
-        )
-        .await?;
+        let report_result = self
+            .process_heartbeat_reports(
+                &executor_id,
+                executor_known,
+                command_responses,
+                allocation_outcomes,
+                allocation_log_entries,
+            )
+            .await;
 
-        if self
+        let stopped = self
             .maybe_deregister_stopped_executor(&executor_id, reported_status)
-            .await?
-        {
+            .await?;
+
+        if stopped {
+            // Preserve report-ingest error semantics, but always honor
+            // explicit stop signals by attempting deregistration first.
+            report_result?;
             // Executor is intentionally shutting down; do not request full
             // state re-registration.
             return Ok(Response::new(executor_api_pb::HeartbeatResponse {
                 send_state: Some(false),
             }));
         }
+        report_result?;
 
         let mut send_state = !executor_known;
         if executor_known && !send_state {
@@ -513,6 +519,28 @@ mod tests {
         }
     }
 
+    fn make_call_function_log_entry_missing_op(
+        parent_allocation_id: &str,
+    ) -> executor_api_pb::AllocationLogEntry {
+        executor_api_pb::AllocationLogEntry {
+            allocation_id: parent_allocation_id.to_string(),
+            clock: 0,
+            entry: Some(executor_api_pb::allocation_log_entry::Entry::CallFunction(
+                executor_api_pb::FunctionCallRequest {
+                    namespace: Some("ns".to_string()),
+                    application: Some("app".to_string()),
+                    request_id: Some("req-1".to_string()),
+                    source_function_call_id: Some("source-fc".to_string()),
+                    updates: Some(executor_api_pb::ExecutionPlanUpdates {
+                        updates: vec![executor_api_pb::ExecutionPlanUpdate { op: None }],
+                        root_function_call_id: Some("root-fc".to_string()),
+                        start_at: None,
+                    }),
+                },
+            )),
+        }
+    }
+
     fn make_completed_outcome(
         child_function_call_id: &str,
         allocation_id: &str,
@@ -730,6 +758,63 @@ mod tests {
         .into_inner();
 
         assert_eq!(response.send_state, Some(false));
+
+        {
+            let connections = test_service
+                .service
+                .indexify_state
+                .executor_connections
+                .read()
+                .await;
+            assert!(!connections.contains_key(&executor_id));
+        }
+        {
+            let runtime_data = test_service
+                .service
+                .executor_manager
+                .runtime_data_read()
+                .await;
+            assert!(!runtime_data.contains_key(&executor_id));
+        }
+    }
+
+    #[tokio::test]
+    async fn test_stopped_heartbeat_deregisters_even_when_report_ingestion_fails() {
+        let test_service = TestService::new().await.unwrap();
+        let api = super::ExecutorAPIService::new(
+            test_service.service.indexify_state.clone(),
+            test_service.service.executor_manager.clone(),
+            test_service.service.blob_storage_registry.clone(),
+        );
+        let executor_id =
+            crate::data_model::ExecutorId::from("executor-stopped-heartbeat-report-failure");
+
+        api.handle_full_state(
+            &executor_id,
+            executor_api_pb::DataplaneStateFullSync::default(),
+        )
+        .await
+        .unwrap();
+
+        let result = ExecutorApi::heartbeat(
+            &api,
+            Request::new(executor_api_pb::HeartbeatRequest {
+                executor_id: Some(executor_id.get().to_string()),
+                status: Some(executor_api_pb::ExecutorStatus::Stopped.into()),
+                full_state: None,
+                command_responses: vec![],
+                allocation_outcomes: vec![],
+                allocation_log_entries: vec![make_call_function_log_entry_missing_op(
+                    "parent-stopped-error",
+                )],
+            }),
+        )
+        .await;
+
+        assert!(
+            result.is_err(),
+            "heartbeat should still surface report-ingestion errors"
+        );
 
         {
             let connections = test_service
@@ -1548,6 +1633,170 @@ mod tests {
         assert!(
             has_add,
             "expected AddContainer command after scheduler update"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_scheduler_update_emits_update_for_claimed_warm_sandbox() {
+        let test_service = TestService::new().await.unwrap();
+        let api = super::ExecutorAPIService::new(
+            test_service.service.indexify_state.clone(),
+            test_service.service.executor_manager.clone(),
+            test_service.service.blob_storage_registry.clone(),
+        );
+        let executor_id = crate::data_model::ExecutorId::from("executor-warm-claim-update");
+
+        api.handle_full_state(
+            &executor_id,
+            executor_api_pb::DataplaneStateFullSync::default(),
+        )
+        .await
+        .unwrap();
+
+        // Process queued UpsertExecutor so scheduler has executor metadata.
+        test_service.process_all_state_changes().await.unwrap();
+
+        let container_id =
+            crate::data_model::ContainerId::new("container-warm-claim-update".to_string());
+        let sandbox_id = crate::data_model::SandboxId::new("sandbox-claimed-update".to_string());
+        let pool_id = crate::data_model::ContainerPoolId::new("pool-claimed-update");
+
+        let container = crate::data_model::ContainerBuilder::default()
+            .id(container_id.clone())
+            .namespace("ns".to_string())
+            .application_name("app".to_string())
+            .function_name("sandbox-fn".to_string())
+            .version("v1".to_string())
+            .state(crate::data_model::ContainerState::Running)
+            .resources(crate::data_model::ContainerResources {
+                cpu_ms_per_sec: 1000,
+                memory_mb: 512,
+                ephemeral_disk_mb: 1024,
+                gpu: None,
+            })
+            .max_concurrency(1)
+            .container_type(crate::data_model::ContainerType::Sandbox)
+            .image(Some("ubuntu:latest".to_string()))
+            .timeout_secs(600)
+            .sandbox_id(Some(sandbox_id.clone()))
+            .pool_id(Some(pool_id.clone()))
+            .build()
+            .unwrap();
+        let mut executor_state = crate::data_model::ExecutorServerMetadata {
+            executor_id: executor_id.clone(),
+            function_container_ids: imbl::HashSet::new(),
+            free_resources: crate::data_model::HostResources {
+                cpu_ms_per_sec: 8_000,
+                memory_bytes: 16 * 1024 * 1024 * 1024,
+                disk_bytes: 100 * 1024 * 1024 * 1024,
+                gpu: None,
+            },
+            resource_claims: imbl::HashMap::new(),
+        };
+        executor_state
+            .add_container(&container)
+            .expect("container should fit executor resources");
+
+        let container_meta = crate::data_model::ContainerServerMetadata::new(
+            executor_id.clone(),
+            container.clone(),
+            crate::data_model::ContainerState::Running,
+        );
+        let sandbox = crate::data_model::SandboxBuilder::default()
+            .id(sandbox_id.clone())
+            .namespace("ns".to_string())
+            .image("ubuntu:latest".to_string())
+            .status(crate::data_model::SandboxStatus::Running)
+            .resources(container.resources.clone())
+            .timeout_secs(600)
+            .executor_id(Some(executor_id.clone()))
+            .pool_id(Some(pool_id.clone()))
+            .container_id(Some(container_id.clone()))
+            .build()
+            .unwrap();
+
+        let mut update = crate::state_store::requests::SchedulerUpdateRequest::default();
+        update
+            .updated_executor_states
+            .insert(executor_id.clone(), Box::new(executor_state));
+        update
+            .containers
+            .insert(container.id.clone(), Box::new(container_meta));
+        update
+            .updated_sandboxes
+            .insert(crate::data_model::SandboxKey::from(&sandbox), sandbox);
+
+        let current = test_service.service.indexify_state.app_state.load_full();
+        let mut indexes = current.indexes.clone();
+        let mut scheduler = current.scheduler.clone();
+        let clock = indexes.clock;
+        indexes
+            .apply_scheduler_update(clock, &update, "test_scheduler_update")
+            .unwrap();
+        scheduler.apply_container_update(&update);
+        test_service
+            .service
+            .executor_manager
+            .rebuild_scheduler_command_intents(&mut update, &indexes);
+        test_service
+            .service
+            .indexify_state
+            .write_scheduler_output(crate::state_store::requests::StateMachineUpdateRequest {
+                payload: crate::state_store::requests::RequestPayload::SchedulerUpdate(
+                    crate::state_store::requests::SchedulerUpdatePayload::new(update.clone()),
+                ),
+            })
+            .await
+            .unwrap();
+        test_service
+            .service
+            .indexify_state
+            .app_state
+            .store(std::sync::Arc::new(crate::state_store::AppState {
+                indexes,
+                scheduler,
+            }));
+
+        test_service
+            .service
+            .executor_manager
+            .drain_and_emit_scheduler_command_intents()
+            .await;
+
+        let response = ExecutorApi::poll_commands(
+            &api,
+            Request::new(executor_api_pb::PollCommandsRequest {
+                executor_id: executor_id.get().to_string(),
+                acked_command_seq: None,
+            }),
+        )
+        .await
+        .unwrap()
+        .into_inner();
+
+        let update_cmd = response
+            .commands
+            .iter()
+            .find_map(|command| match &command.command {
+                Some(executor_api_pb::command::Command::UpdateContainerDescription(update)) => {
+                    Some(update)
+                }
+                _ => None,
+            });
+        let Some(update_cmd) = update_cmd else {
+            panic!(
+                "expected UpdateContainerDescription command after warm-sandbox claim update: {:?}",
+                response.commands
+            );
+        };
+        assert_eq!(update_cmd.container_id, container_id.get().to_string());
+        assert_eq!(
+            update_cmd
+                .sandbox_metadata
+                .as_ref()
+                .and_then(|m| m.sandbox_id.as_deref()),
+            Some(sandbox_id.get()),
+            "expected claimed sandbox metadata to be propagated"
         );
     }
 }
