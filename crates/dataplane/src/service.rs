@@ -48,6 +48,8 @@ const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
 const MAX_GRPC_DECODE_MESSAGE_SIZE: usize = 32 * 1024 * 1024;
 const FULL_STATE_RESYNC_INTERVAL: Duration = Duration::from_secs(5 * 60);
 const STATE_REPORT_CHANNEL_CAPACITY: usize = 8192;
+/// Sentinel for "no malformed sequence seen yet".
+const UNSET_MALFORMED_SEQ: u64 = u64::MAX;
 
 /// Explicit connection state for the dataplane's relationship with the server.
 ///
@@ -382,8 +384,8 @@ impl Service {
             monitoring_state: self.monitoring_state.clone(),
             last_applied_command_seq: Arc::new(AtomicU64::new(0)),
             last_applied_result_seq: Arc::new(AtomicU64::new(0)),
-            last_malformed_command_seq: Arc::new(AtomicU64::new(0)),
-            last_malformed_result_seq: Arc::new(AtomicU64::new(0)),
+            last_malformed_command_seq: Arc::new(AtomicU64::new(UNSET_MALFORMED_SEQ)),
+            last_malformed_result_seq: Arc::new(AtomicU64::new(UNSET_MALFORMED_SEQ)),
             allocation_result_dispatcher: self.allocation_result_dispatcher.clone(),
         });
 
@@ -582,7 +584,7 @@ impl ServiceRuntime {
             .counters
             .record_poll_command_malformed(command_type, reason);
         let prev = self.last_malformed_command_seq.swap(seq, Ordering::SeqCst);
-        if prev == seq {
+        if prev != UNSET_MALFORMED_SEQ && prev == seq {
             self.metrics
                 .counters
                 .record_poll_command_malformed_repeated_seq(command_type, reason);
@@ -598,7 +600,7 @@ impl ServiceRuntime {
             .counters
             .record_poll_result_malformed(command_type, reason);
         let prev = self.last_malformed_result_seq.swap(seq, Ordering::SeqCst);
-        if prev == seq {
+        if prev != UNSET_MALFORMED_SEQ && prev == seq {
             self.metrics
                 .counters
                 .record_poll_result_malformed_repeated_seq(command_type, reason);
@@ -838,6 +840,10 @@ impl ServiceRuntime {
                         if is_first_fragment && full_state.is_some() {
                             self.last_applied_command_seq.store(0, Ordering::SeqCst);
                             self.last_applied_result_seq.store(0, Ordering::SeqCst);
+                            self.last_malformed_command_seq
+                                .store(UNSET_MALFORMED_SEQ, Ordering::SeqCst);
+                            self.last_malformed_result_seq
+                                .store(UNSET_MALFORMED_SEQ, Ordering::SeqCst);
                         }
 
                         // Check send_state BEFORE draining buffers. When the
