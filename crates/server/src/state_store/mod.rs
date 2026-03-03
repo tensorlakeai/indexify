@@ -126,6 +126,9 @@ pub struct IndexifyState {
     pub write_mutex: tokio::sync::Mutex<()>,
     /// Per-executor long-poll connection state and command/result outboxes.
     pub executor_connections: RwLock<HashMap<ExecutorId, ExecutorConnection>>,
+    /// Next allocation-result sequence number to use per executor, preserved
+    /// across connection recreation to avoid ack/seq skew.
+    pub executor_next_result_seq: RwLock<HashMap<ExecutorId, u64>>,
     /// Monotonic sequence for scheduler command intent records.
     pub scheduler_command_intent_seq: AtomicU64,
     /// In-memory backlog count for persisted scheduler command intents.
@@ -274,6 +277,7 @@ impl IndexifyState {
             usage_events_tx,
             usage_events_rx,
             executor_connections: RwLock::new(HashMap::new()),
+            executor_next_result_seq: RwLock::new(HashMap::new()),
             request_event_buffers,
             write_mutex: tokio::sync::Mutex::new(()),
             _in_memory_store_gauges: in_memory_store_gauges,
@@ -1265,14 +1269,7 @@ impl IndexifyState {
         Ok(purged)
     }
 
-    /// Ensure an executor connection exists with a fresh command buffer.
-    /// Called during registration (handle_v2_full_state) so commands/results
-    /// can be buffered for long-poll delivery.
-    ///
-    /// If a connection already exists (re-registration without prior
-    /// deregister), command emission state and persisted outbox are reset so
-    /// the executor gets a clean full-sync command stream.
-    pub async fn register_executor_connection(&self, executor_id: &ExecutorId) {
+    async fn build_executor_connection(&self, executor_id: &ExecutorId) -> ExecutorConnection {
         let (acked, pending_commands) = match self.load_executor_pending_commands(executor_id).await
         {
             Ok(v) => v,
@@ -1286,40 +1283,81 @@ impl IndexifyState {
             }
         };
 
+        let next_result_seq = self
+            .executor_next_result_seq
+            .read()
+            .await
+            .get(executor_id)
+            .copied()
+            .unwrap_or(1);
+
         let conn = ExecutorConnection::new();
         conn.restore_acked_command_seq(acked);
+        conn.restore_next_result_seq(next_result_seq);
         conn.replace_commands(pending_commands).await;
+        conn
+    }
 
-        let mut existing_conn: Option<ExecutorConnection> = None;
+    async fn ensure_executor_connection_internal(
+        &self,
+        executor_id: &ExecutorId,
+    ) -> (ExecutorConnection, bool) {
+        {
+            let connections = self.executor_connections.read().await;
+            if let Some(conn) = connections.get(executor_id) {
+                return (conn.clone(), false);
+            }
+        }
+
+        let conn = self.build_executor_connection(executor_id).await;
         let mut connections = self.executor_connections.write().await;
-        match connections.entry(executor_id.clone()) {
-            std::collections::hash_map::Entry::Vacant(entry) => {
-                info!(
-                    executor_id = executor_id.get(),
-                    "created executor connection"
-                );
-                entry.insert(conn);
-            }
-            std::collections::hash_map::Entry::Occupied(entry) => {
-                info!(
-                    executor_id = executor_id.get(),
-                    "re-registration: resetting command outbox and command buffers"
-                );
-                existing_conn = Some(entry.get().clone());
-            }
+        if let Some(existing) = connections.get(executor_id) {
+            return (existing.clone(), false);
         }
-        drop(connections);
+        info!(
+            executor_id = executor_id.get(),
+            "created executor connection"
+        );
+        connections.insert(executor_id.clone(), conn.clone());
+        (conn, true)
+    }
 
-        if let Some(existing_conn) = existing_conn {
-            if let Err(err) = self.reset_executor_command_outbox(executor_id).await {
-                error!(
-                    executor_id = executor_id.get(),
-                    error = ?err,
-                    "failed to reset persisted command outbox during re-registration"
-                );
-            }
-            existing_conn.reset_for_full_sync().await;
+    /// Ensure an executor connection exists with a fresh command buffer.
+    /// Called during registration (handle_v2_full_state) so commands/results
+    /// can be buffered for long-poll delivery.
+    ///
+    /// If a connection already exists (re-registration without prior
+    /// deregister), command emission state and persisted outbox are reset so
+    /// the executor gets a clean full-sync command stream.
+    pub async fn register_executor_connection(&self, executor_id: &ExecutorId) {
+        let (conn, created) = self.ensure_executor_connection_internal(executor_id).await;
+
+        if created {
+            // Full-state registration starts a new result stream from seq=1.
+            conn.restore_next_result_seq(1);
+            self.executor_next_result_seq
+                .write()
+                .await
+                .insert(executor_id.clone(), 1);
+            return;
         }
+
+        info!(
+            executor_id = executor_id.get(),
+            "re-registration: resetting command outbox and command buffers"
+        );
+        if let Err(err) = self.reset_executor_command_outbox(executor_id).await {
+            error!(
+                executor_id = executor_id.get(),
+                error = ?err,
+                "failed to reset persisted command outbox during re-registration"
+            );
+        }
+        conn.reset_for_full_sync().await;
+        self.executor_next_result_seq
+            .write()
+            .await
+            .insert(executor_id.clone(), 1);
     }
 
     /// Remove the connection for an executor. Called on deregistration.
@@ -1327,6 +1365,10 @@ impl IndexifyState {
     pub async fn deregister_executor_connection(&self, executor_id: &ExecutorId) {
         let removed = self.executor_connections.write().await.remove(executor_id);
         if let Some(conn) = removed {
+            self.executor_next_result_seq
+                .write()
+                .await
+                .insert(executor_id.clone(), conn.next_result_seq().max(1));
             if let Err(err) = self.reset_executor_command_outbox(executor_id).await {
                 error!(
                     executor_id = executor_id.get(),
@@ -1343,6 +1385,13 @@ impl IndexifyState {
                 "deregistered executor connection"
             );
         }
+    }
+
+    pub async fn clear_executor_result_seq(&self, executor_id: &ExecutorId) {
+        self.executor_next_result_seq
+            .write()
+            .await
+            .remove(executor_id);
     }
 
     /// Persist a scheduler-generated write (allocations, updated requests,

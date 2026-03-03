@@ -114,6 +114,17 @@ impl ExecutorConnection {
             .store(seq, atomic::Ordering::Relaxed);
     }
 
+    /// Restore next result sequence number for this executor connection.
+    pub fn restore_next_result_seq(&self, next_seq: u64) {
+        self.next_result_seq
+            .store(next_seq.max(1), atomic::Ordering::Relaxed);
+    }
+
+    /// Read the next result sequence number that will be assigned.
+    pub fn next_result_seq(&self) -> u64 {
+        self.next_result_seq.load(atomic::Ordering::Relaxed)
+    }
+
     /// Buffer a new allocation log entry as a sequenced result and wake any
     /// waiting poll.
     pub async fn push_result(&self, entry: executor_api_pb::AllocationLogEntry) {

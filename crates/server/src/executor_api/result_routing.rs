@@ -14,6 +14,22 @@ use super::{
 };
 use crate::{data_model::FunctionCallId, proto_convert::to_internal_compute_op};
 
+#[derive(Debug)]
+struct MissingExecutorConnectionError;
+
+impl std::fmt::Display for MissingExecutorConnectionError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "executor connection not found")
+    }
+}
+
+impl std::error::Error for MissingExecutorConnectionError {}
+
+fn is_missing_executor_connection_error(err: &anyhow::Error) -> bool {
+    err.downcast_ref::<MissingExecutorConnectionError>()
+        .is_some()
+}
+
 #[derive(Clone)]
 struct PendingFunctionCall {
     parent_allocation_id: String,
@@ -413,6 +429,14 @@ pub(super) async fn try_route_result(
                 )
                 .await
                 {
+                    if is_missing_executor_connection_error(&err) {
+                        warn!(
+                            function_call_id = %function_call_id,
+                            executor_id = pending.executor_id.get(),
+                            "try_route_result: parent executor connection missing, dropping routed result"
+                        );
+                        return Ok(());
+                    }
                     if let Err(recover_err) = router
                         .register(
                             function_call_id.to_string(),
@@ -523,6 +547,14 @@ pub(super) async fn try_route_result(
                 )
                 .await
                 {
+                    if is_missing_executor_connection_error(&err) {
+                        warn!(
+                            function_call_id = %function_call_id,
+                            executor_id = pending.executor_id.get(),
+                            "try_route_result: parent executor connection missing, dropping routed result"
+                        );
+                        return Ok(());
+                    }
                     if let Err(recover_err) = router
                         .register(
                             function_call_id.to_string(),
@@ -597,6 +629,14 @@ pub(super) async fn try_route_failure(
         )
         .await
         {
+            if is_missing_executor_connection_error(&err) {
+                warn!(
+                    function_call_id = %function_call_id,
+                    executor_id = pending.executor_id.get(),
+                    "try_route_failure: parent executor connection missing, dropping routed failure"
+                );
+                return Ok(());
+            }
             if let Err(recover_err) = router
                 .register(
                     function_call_id.to_string(),
@@ -660,23 +700,13 @@ async fn push_result_to_executor(
         let connections = indexify_state.executor_connections.read().await;
         connections.get(executor_id).cloned()
     };
-
-    let conn = if let Some(conn) = conn {
-        conn
-    } else {
+    let Some(conn) = conn else {
         warn!(
             function_call_id = %function_call_id,
             executor_id = executor_id.get(),
-            "missing executor connection while routing result; recreating connection"
+            "missing executor connection while routing result"
         );
-        indexify_state
-            .register_executor_connection(executor_id)
-            .await;
-        let connections = indexify_state.executor_connections.read().await;
-        connections
-            .get(executor_id)
-            .cloned()
-            .ok_or_else(|| anyhow::anyhow!("executor connection not found after recreation"))?
+        return Err(anyhow::Error::new(MissingExecutorConnectionError));
     };
 
     conn.push_result(log_entry).await;

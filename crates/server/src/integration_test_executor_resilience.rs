@@ -137,6 +137,35 @@ fn make_completed_outcome(
     }
 }
 
+fn make_completed_updates_missing_root_outcome(
+    child_function_call_id: &str,
+    allocation_id: &str,
+) -> executor_api_pb::AllocationOutcome {
+    AllocationOutcome {
+        outcome: Some(allocation_outcome::Outcome::Completed(
+            AllocationCompleted {
+                allocation_id: allocation_id.to_string(),
+                function: Some(FunctionRef {
+                    namespace: Some("ns".to_string()),
+                    application_name: Some("app".to_string()),
+                    function_name: Some("child-fn".to_string()),
+                    application_version: Some("v1".to_string()),
+                }),
+                function_call_id: Some(child_function_call_id.to_string()),
+                request_id: Some("req-1".to_string()),
+                return_value: Some(executor_api_pb::allocation_completed::ReturnValue::Updates(
+                    ExecutionPlanUpdates {
+                        updates: vec![],
+                        root_function_call_id: None,
+                        start_at: None,
+                    },
+                )),
+                execution_duration_ms: None,
+            },
+        )),
+    }
+}
+
 async fn heartbeat_full_state(api: &ExecutorAPIService, executor_id: &str) -> Result<()> {
     ExecutorApi::heartbeat(
         api,
@@ -209,7 +238,7 @@ async fn test_reconnect_full_state_clears_stale_pending_results() -> Result<()> 
 }
 
 #[tokio::test]
-async fn test_routed_result_survives_parent_connection_gap() -> Result<()> {
+async fn test_routed_result_dropped_when_parent_connection_missing() -> Result<()> {
     let test_service = TestService::new().await?;
     let api = ExecutorAPIService::new(
         test_service.service.indexify_state.clone(),
@@ -221,6 +250,7 @@ async fn test_routed_result_survives_parent_connection_gap() -> Result<()> {
     let child_fc = "child-fc-connection-gap";
 
     heartbeat_full_state(&api, executor_id).await?;
+
     ExecutorApi::heartbeat(
         &api,
         Request::new(HeartbeatRequest {
@@ -295,23 +325,104 @@ async fn test_routed_result_survives_parent_connection_gap() -> Result<()> {
     )
     .await?;
 
-    // Connection should be recreated during route recovery.
-    let results = {
-        let connections = test_service
+    // Parent connection is missing, so routed result must not be delivered and
+    // no connection should be recreated implicitly.
+    assert!(
+        test_service
             .service
             .indexify_state
             .executor_connections
             .read()
-            .await;
-        let conn = connections
+            .await
             .get(&executor_dm_id)
-            .expect("executor connection should exist after route recovery");
-        conn.clone_results().await
-    };
-    assert_eq!(
-        results.len(),
-        1,
-        "routed result should survive temporary parent disconnect"
+            .is_none(),
+        "routing should not recreate missing parent executor connection"
+    );
+    assert!(
+        test_service
+            .service
+            .indexify_state
+            .get_function_call_route(child_fc)
+            .await?
+            .is_none(),
+        "route should be consumed to avoid repeated retries for undeliverable result"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_malformed_updates_routing_does_not_fail_heartbeat() -> Result<()> {
+    let test_service = TestService::new().await?;
+    let api = ExecutorAPIService::new(
+        test_service.service.indexify_state.clone(),
+        test_service.service.executor_manager.clone(),
+        test_service.service.blob_storage_registry.clone(),
+    );
+    let executor_id = "executor-malformed-updates-route";
+    let child_fc = "child-fc-malformed-updates-route";
+
+    heartbeat_full_state(&api, executor_id).await?;
+    ExecutorApi::heartbeat(
+        &api,
+        Request::new(HeartbeatRequest {
+            executor_id: Some(executor_id.to_string()),
+            status: Some(executor_api_pb::ExecutorStatus::Running.into()),
+            full_state: None,
+            command_responses: vec![],
+            allocation_outcomes: vec![],
+            allocation_log_entries: vec![make_call_function_log_entry(
+                "parent-alloc-malformed-updates",
+                child_fc,
+            )],
+        }),
+    )
+    .await?;
+
+    let child_allocation = data_model::AllocationBuilder::default()
+        .target(data_model::AllocationTarget::new(
+            data_model::ExecutorId::from(executor_id),
+            data_model::ContainerId::new("child-container-malformed-updates".to_string()),
+        ))
+        .function_call_id(data_model::FunctionCallId::from(child_fc))
+        .namespace("ns".to_string())
+        .application("app".to_string())
+        .application_version("v1".to_string())
+        .function("child-fn".to_string())
+        .request_id("req-1".to_string())
+        .outcome(data_model::FunctionRunOutcome::Unknown)
+        .input_args(vec![])
+        .call_metadata(bytes::Bytes::new())
+        .build()?;
+    let child_allocation_id = child_allocation.id.to_string();
+    let mut update = SchedulerUpdateRequest::default();
+    update.new_allocations.push(child_allocation);
+    test_service
+        .service
+        .indexify_state
+        .write(StateMachineUpdateRequest {
+            payload: RequestPayload::SchedulerUpdate(SchedulerUpdatePayload::new(update)),
+        })
+        .await?;
+
+    let heartbeat = ExecutorApi::heartbeat(
+        &api,
+        Request::new(HeartbeatRequest {
+            executor_id: Some(executor_id.to_string()),
+            status: Some(executor_api_pb::ExecutorStatus::Running.into()),
+            full_state: None,
+            command_responses: vec![],
+            allocation_outcomes: vec![make_completed_updates_missing_root_outcome(
+                child_fc,
+                &child_allocation_id,
+            )],
+            allocation_log_entries: vec![],
+        }),
+    )
+    .await;
+    assert!(
+        heartbeat.is_ok(),
+        "malformed updates routing should be logged and skipped, not fail the heartbeat"
     );
 
     Ok(())

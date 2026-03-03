@@ -140,6 +140,8 @@ pub struct ExecutorManager {
     scheduler_command_intent_backlog: Gauge<u64>,
     scheduler_command_intent_drain_latency: Histogram<f64>,
     scheduler_command_intent_drained_total: Counter<u64>,
+    #[cfg(test)]
+    inject_deregister_write_failure: std::sync::atomic::AtomicBool,
 }
 
 impl ExecutorManager {
@@ -184,6 +186,8 @@ impl ExecutorManager {
             scheduler_command_intent_backlog,
             scheduler_command_intent_drain_latency,
             scheduler_command_intent_drained_total,
+            #[cfg(test)]
+            inject_deregister_write_failure: std::sync::atomic::AtomicBool::new(false),
         };
 
         let em = Arc::new(em);
@@ -191,6 +195,12 @@ impl ExecutorManager {
         em.clone().schedule_clean_lapsed_executors();
 
         em
+    }
+
+    #[cfg(test)]
+    fn set_inject_deregister_write_failure_for_test(&self, enabled: bool) {
+        self.inject_deregister_write_failure
+            .store(enabled, Ordering::SeqCst);
     }
 
     pub fn schedule_clean_lapsed_executors(self: Arc<Self>) {
@@ -380,9 +390,35 @@ impl ExecutorManager {
             info!(count = lapsed_executors.len(), "Found lapsed executors");
         }
 
-        // 3. Deregister each lapsed executor without holding the lock
+        // 3. Deregister each lapsed executor without holding the lock.
+        // If deregistration fails (for example, persistent-store write error),
+        // requeue for retry so we do not lose heartbeat tracking.
         for executor_id in lapsed_executors {
-            self.deregister_lapsed_executor(executor_id).await?;
+            if let Err(err) = self.deregister_lapsed_executor(executor_id.clone()).await {
+                error!(
+                    executor_id = executor_id.get(),
+                    error = ?err,
+                    "failed to deregister lapsed executor; requeueing for retry"
+                );
+                let next_deadline = {
+                    let mut queue = self.heartbeat_deadline_queue.lock().await;
+                    queue.push(
+                        executor_id.clone(),
+                        ReverseInstant(Instant::now() + Duration::from_secs(1)),
+                    );
+                    queue
+                        .peek()
+                        .map(|(_, deadline)| deadline.0)
+                        .unwrap_or_else(far_future)
+                };
+                if let Err(update_err) = self.heartbeat_deadline_updater.send(next_deadline) {
+                    error!(
+                        executor_id = executor_id.get(),
+                        error = ?update_err,
+                        "failed to update heartbeat deadline after requeue"
+                    );
+                }
+            }
         }
 
         Ok(())
@@ -398,6 +434,31 @@ impl ExecutorManager {
             reason, "Deregistering executor"
         );
 
+        let was_registered = self.runtime_data.read().await.contains_key(&executor_id);
+
+        if was_registered {
+            // Persist deregistration first. If this fails, keep runtime and
+            // heartbeat tracking intact so lapsed cleanup can retry.
+            #[cfg(test)]
+            if self.inject_deregister_write_failure.load(Ordering::SeqCst) {
+                return Err(anyhow::anyhow!("injected deregister write failure"));
+            }
+            let last_state_change_id = self.indexify_state.state_change_id_seq.clone();
+            let state_changes = tombstone_executor(&last_state_change_id, &executor_id)?;
+            let sm_req = StateMachineUpdateRequest {
+                payload: RequestPayload::DeregisterExecutor(DeregisterExecutorRequest {
+                    executor_id: executor_id.clone(),
+                    state_changes,
+                }),
+            };
+            self.indexify_state.write(sm_req).await?;
+        } else {
+            info!(
+                executor_id = executor_id.get(),
+                reason, "executor already deregistered; skipping tombstone write"
+            );
+        }
+
         // Remove from heartbeat queue if present and refresh the next deadline.
         let next_deadline = {
             let mut queue = self.heartbeat_deadline_queue.lock().await;
@@ -411,15 +472,9 @@ impl ExecutorManager {
             error!("Failed to update heartbeat deadline: {:?}", err);
         }
 
-        // Runtime data is the source of truth for whether the executor is
-        // currently registered. If it's already gone, this is a duplicate
-        // deregistration request and we can no-op after dropping connection.
-        let was_registered = self
-            .runtime_data
-            .write()
-            .await
-            .remove(&executor_id)
-            .is_some();
+        if was_registered {
+            self.runtime_data.write().await.remove(&executor_id);
+        }
 
         // Drop the ExecutorConnection — this drops the event sender, which
         // causes any active command_stream_loop to exit via recv() → None.
@@ -453,24 +508,9 @@ impl ExecutorManager {
                 }
             }
         }
-
-        if !was_registered {
-            info!(
-                executor_id = executor_id.get(),
-                reason, "executor already deregistered; skipping tombstone write"
-            );
-            return Ok(());
-        }
-
-        let last_state_change_id = self.indexify_state.state_change_id_seq.clone();
-        let state_changes = tombstone_executor(&last_state_change_id, &executor_id)?;
-        let sm_req = StateMachineUpdateRequest {
-            payload: RequestPayload::DeregisterExecutor(DeregisterExecutorRequest {
-                executor_id,
-                state_changes,
-            }),
-        };
-        self.indexify_state.write(sm_req).await?;
+        self.indexify_state
+            .clear_executor_result_seq(&executor_id)
+            .await;
         Ok(())
     }
 
@@ -1281,6 +1321,76 @@ mod tests {
                 "All executor server metadata should be removed"
             );
         }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_lapsed_executor_requeued_when_deregister_persist_fails() -> Result<()> {
+        time::pause();
+        let test_srv = testing::TestService::new().await?;
+        let executor_manager = test_srv.service.executor_manager.clone();
+        let executor_id = ExecutorId::new("test-executor-requeue-on-failure".to_string());
+
+        let executor = ExecutorMetadataBuilder::default()
+            .id(executor_id.clone())
+            .executor_version("1.0".to_string())
+            .function_allowlist(None)
+            .addr("".to_string())
+            .labels(Default::default())
+            .containers(Default::default())
+            .host_resources(Default::default())
+            .state(Default::default())
+            .tombstoned(false)
+            .state_hash("state_hash".to_string())
+            .clock(0)
+            .build()
+            .unwrap();
+
+        sync_executor_state(&test_srv, executor).await?;
+
+        // Lapse the executor and force deregister persistence to fail.
+        time::advance(EXECUTOR_TIMEOUT + Duration::from_secs(1)).await;
+        executor_manager.wait_executor_heartbeat_deadline().await;
+        executor_manager.set_inject_deregister_write_failure_for_test(true);
+
+        executor_manager.process_lapsed_executors().await?;
+
+        // Failed deregister must keep heartbeat/runtime tracking intact and
+        // schedule a retry.
+        assert!(
+            executor_manager
+                .runtime_data
+                .read()
+                .await
+                .contains_key(&executor_id),
+            "runtime data should remain when deregister persistence fails"
+        );
+        assert!(
+            executor_manager
+                .heartbeat_deadline_queue
+                .lock()
+                .await
+                .get_priority(&executor_id)
+                .is_some(),
+            "failed deregister should requeue executor heartbeat deadline"
+        );
+
+        // Allow retry to succeed and confirm cleanup completes.
+        executor_manager.set_inject_deregister_write_failure_for_test(false);
+        time::advance(Duration::from_secs(2)).await;
+        executor_manager.wait_executor_heartbeat_deadline().await;
+        executor_manager.process_lapsed_executors().await?;
+        test_srv.process_all_state_changes().await?;
+
+        assert!(
+            !executor_manager
+                .runtime_data
+                .read()
+                .await
+                .contains_key(&executor_id),
+            "runtime data should be removed after successful retry"
+        );
 
         Ok(())
     }

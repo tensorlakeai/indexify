@@ -163,8 +163,7 @@ impl ExecutorAPIService {
                     )
                     .await
                     {
-                        Ok(AllocationIngestDisposition::Applied) |
-                        Ok(AllocationIngestDisposition::SkippedNoop) => {
+                        Ok(AllocationIngestDisposition::Applied) => {
                             if let Some(completed) = &completed_for_routing &&
                                 let Some(fc_id) = completed.function_call_id.as_deref() &&
                                 let Err(e) = try_route_result(
@@ -179,6 +178,22 @@ impl ExecutorAPIService {
                                     function_ref_labels(completed.function.as_ref());
                                 let request_id = completed.request_id.as_deref().unwrap_or("");
                                 let allocation_id = completed.allocation_id.as_str();
+                                if is_malformed_report_error(&e) {
+                                    warn!(
+                                        executor_id = executor_id.get(),
+                                        request_id = %request_id,
+                                        "fn" = %fn_name,
+                                        namespace = %namespace,
+                                        app = %app,
+                                        version = %version,
+                                        allocation_id = %allocation_id,
+                                        function_call_id = %fc_id,
+                                        error = %e,
+                                        "heartbeat: malformed allocation_completed routing \
+                                         payload; skipping"
+                                    );
+                                    continue;
+                                }
                                 warn!(
                                     executor_id = executor_id.get(),
                                     request_id = %request_id,
@@ -193,6 +208,10 @@ impl ExecutorAPIService {
                                 );
                                 failed_items = failed_items.saturating_add(1);
                             }
+                        }
+                        Ok(AllocationIngestDisposition::SkippedNoop) => {
+                            // Duplicate/out-of-order outcomes must be no-op for
+                            // ingest and routing to preserve pending routes.
                         }
                         Err(e) => {
                             let (namespace, app, fn_name, version) =
@@ -241,8 +260,7 @@ impl ExecutorAPIService {
                     )
                     .await
                     {
-                        Ok(AllocationIngestDisposition::Applied) |
-                        Ok(AllocationIngestDisposition::SkippedNoop) => {
+                        Ok(AllocationIngestDisposition::Applied) => {
                             if let Some(failed) = &failed_for_routing &&
                                 let Some(fc_id) = failed.function_call_id.as_deref() &&
                                 let Err(e) = try_route_failure(
@@ -257,6 +275,22 @@ impl ExecutorAPIService {
                                     function_ref_labels(failed.function.as_ref());
                                 let request_id = failed.request_id.as_deref().unwrap_or("");
                                 let allocation_id = failed.allocation_id.as_str();
+                                if is_malformed_report_error(&e) {
+                                    warn!(
+                                        executor_id = executor_id.get(),
+                                        request_id = %request_id,
+                                        "fn" = %fn_name,
+                                        namespace = %namespace,
+                                        app = %app,
+                                        version = %version,
+                                        allocation_id = %allocation_id,
+                                        function_call_id = %fc_id,
+                                        error = %e,
+                                        "heartbeat: malformed allocation_failed routing \
+                                         payload; skipping"
+                                    );
+                                    continue;
+                                }
                                 warn!(
                                     executor_id = executor_id.get(),
                                     request_id = %request_id,
@@ -271,6 +305,10 @@ impl ExecutorAPIService {
                                 );
                                 failed_items = failed_items.saturating_add(1);
                             }
+                        }
+                        Ok(AllocationIngestDisposition::SkippedNoop) => {
+                            // Duplicate/out-of-order outcomes must be no-op for
+                            // ingest and routing to preserve pending routes.
                         }
                         Err(e) => {
                             let (namespace, app, fn_name, version) =
