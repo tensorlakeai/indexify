@@ -377,7 +377,7 @@ pub(super) async fn try_route_result(
     function_call_id: &str,
     completed: &executor_api_pb::AllocationCompleted,
     indexify_state: &Arc<IndexifyState>,
-) {
+) -> Result<()> {
     let pending = match router.take(function_call_id).await {
         Ok(route) => route,
         Err(err) => {
@@ -386,7 +386,7 @@ pub(super) async fn try_route_result(
                 error = ?err,
                 "try_route_result: failed to load/take function call route"
             );
-            None
+            return Err(err);
         }
     };
 
@@ -400,21 +400,35 @@ pub(super) async fn try_route_result(
                 );
 
                 let log_entry = build_result_log_entry(
-                    pending.parent_allocation_id,
+                    pending.parent_allocation_id.clone(),
                     pending.original_function_call_id.clone(),
                     completed,
                     Some(dp.clone()),
                 );
-
-                let connections = indexify_state.executor_connections.read().await;
-                if let Some(conn) = connections.get(&pending.executor_id) {
-                    conn.push_result(log_entry).await;
-                } else {
-                    warn!(
-                        function_call_id = %function_call_id,
-                        executor_id = pending.executor_id.get(),
-                        "try_route_result: executor connection not found, dropping result"
-                    );
+                if let Err(err) = push_result_to_executor(
+                    indexify_state,
+                    &pending.executor_id,
+                    function_call_id,
+                    log_entry,
+                )
+                .await
+                {
+                    if let Err(recover_err) = router
+                        .register(
+                            function_call_id.to_string(),
+                            pending.parent_allocation_id,
+                            pending.original_function_call_id,
+                            pending.executor_id,
+                        )
+                        .await
+                    {
+                        warn!(
+                            function_call_id = %function_call_id,
+                            error = ?recover_err,
+                            "try_route_result: failed to restore route after routing error"
+                        );
+                    }
+                    return Err(err);
                 }
             }
             Some(executor_api_pb::allocation_completed::ReturnValue::Updates(updates)) => {
@@ -432,28 +446,59 @@ pub(super) async fn try_route_result(
                         "try_route_result: child returned Updates, re-registering \
                          pending entry for downstream function call"
                     );
-                    router
+                    if let Err(err) = router
                         .register(
                             downstream_fc_id.clone(),
-                            pending.parent_allocation_id,
-                            pending.original_function_call_id,
-                            pending.executor_id,
+                            pending.parent_allocation_id.clone(),
+                            pending.original_function_call_id.clone(),
+                            pending.executor_id.clone(),
                         )
                         .await
-                        .unwrap_or_else(|err| {
+                    {
+                        if let Err(recover_err) = router
+                            .register(
+                                function_call_id.to_string(),
+                                pending.parent_allocation_id,
+                                pending.original_function_call_id,
+                                pending.executor_id,
+                            )
+                            .await
+                        {
                             warn!(
                                 function_call_id = %function_call_id,
                                 downstream_function_call_id = %downstream_fc_id,
-                                error = ?err,
-                                "failed to persist downstream function call route"
+                                error = ?recover_err,
+                                "try_route_result: failed to restore route after downstream \
+                                 registration error"
                             );
-                        });
+                        }
+                        return Err(err);
+                    }
                 } else {
                     warn!(
                         function_call_id = %function_call_id,
                         "try_route_result: child returned Updates without \
                          root_function_call_id, cannot re-register"
                     );
+                    if let Err(recover_err) = router
+                        .register(
+                            function_call_id.to_string(),
+                            pending.parent_allocation_id,
+                            pending.original_function_call_id,
+                            pending.executor_id,
+                        )
+                        .await
+                    {
+                        warn!(
+                            function_call_id = %function_call_id,
+                            error = ?recover_err,
+                            "try_route_result: failed to restore route after missing \
+                             root_function_call_id"
+                        );
+                    }
+                    return Err(anyhow::anyhow!(
+                        "AllocationCompleted Updates missing root_function_call_id"
+                    ));
                 }
             }
             None => {
@@ -465,21 +510,35 @@ pub(super) async fn try_route_result(
                 );
 
                 let log_entry = build_result_log_entry(
-                    pending.parent_allocation_id,
+                    pending.parent_allocation_id.clone(),
                     pending.original_function_call_id.clone(),
                     completed,
                     None,
                 );
-
-                let connections = indexify_state.executor_connections.read().await;
-                if let Some(conn) = connections.get(&pending.executor_id) {
-                    conn.push_result(log_entry).await;
-                } else {
-                    warn!(
-                        function_call_id = %function_call_id,
-                        executor_id = pending.executor_id.get(),
-                        "try_route_result: executor connection not found, dropping result"
-                    );
+                if let Err(err) = push_result_to_executor(
+                    indexify_state,
+                    &pending.executor_id,
+                    function_call_id,
+                    log_entry,
+                )
+                .await
+                {
+                    if let Err(recover_err) = router
+                        .register(
+                            function_call_id.to_string(),
+                            pending.parent_allocation_id,
+                            pending.original_function_call_id,
+                            pending.executor_id,
+                        )
+                        .await
+                    {
+                        warn!(
+                            function_call_id = %function_call_id,
+                            error = ?recover_err,
+                            "try_route_result: failed to restore route after routing error"
+                        );
+                    }
+                    return Err(err);
                 }
             }
         }
@@ -490,6 +549,7 @@ pub(super) async fn try_route_result(
             "try_route_result: no match in router"
         );
     }
+    Ok(())
 }
 
 pub(super) async fn try_route_failure(
@@ -497,7 +557,7 @@ pub(super) async fn try_route_failure(
     function_call_id: &str,
     failed: &executor_api_pb::AllocationFailed,
     indexify_state: &Arc<IndexifyState>,
-) {
+) -> Result<()> {
     let pending = match router.take(function_call_id).await {
         Ok(route) => route,
         Err(err) => {
@@ -506,13 +566,13 @@ pub(super) async fn try_route_failure(
                 error = ?err,
                 "try_route_failure: failed to load/take function call route"
             );
-            None
+            return Err(err);
         }
     };
 
     if let Some(pending) = pending {
         let log_entry = executor_api_pb::AllocationLogEntry {
-            allocation_id: pending.parent_allocation_id,
+            allocation_id: pending.parent_allocation_id.clone(),
             clock: 0,
             entry: Some(
                 executor_api_pb::allocation_log_entry::Entry::FunctionCallResult(
@@ -529,17 +589,33 @@ pub(super) async fn try_route_failure(
             ),
         };
 
-        let connections = indexify_state.executor_connections.read().await;
-        if let Some(conn) = connections.get(&pending.executor_id) {
-            conn.push_result(log_entry).await;
-        } else {
-            warn!(
-                function_call_id = %function_call_id,
-                executor_id = pending.executor_id.get(),
-                "try_route_failure: executor connection not found, dropping result"
-            );
+        if let Err(err) = push_result_to_executor(
+            indexify_state,
+            &pending.executor_id,
+            function_call_id,
+            log_entry,
+        )
+        .await
+        {
+            if let Err(recover_err) = router
+                .register(
+                    function_call_id.to_string(),
+                    pending.parent_allocation_id,
+                    pending.original_function_call_id,
+                    pending.executor_id,
+                )
+                .await
+            {
+                warn!(
+                    function_call_id = %function_call_id,
+                    error = ?recover_err,
+                    "try_route_failure: failed to restore route after routing error"
+                );
+            }
+            return Err(err);
         }
     }
+    Ok(())
 }
 
 /// Build a `FunctionCallResult` log entry to route back to the parent executor.
@@ -572,6 +648,39 @@ fn build_result_log_entry(
             ),
         ),
     }
+}
+
+async fn push_result_to_executor(
+    indexify_state: &Arc<IndexifyState>,
+    executor_id: &ExecutorId,
+    function_call_id: &str,
+    log_entry: executor_api_pb::AllocationLogEntry,
+) -> Result<()> {
+    let conn = {
+        let connections = indexify_state.executor_connections.read().await;
+        connections.get(executor_id).cloned()
+    };
+
+    let conn = if let Some(conn) = conn {
+        conn
+    } else {
+        warn!(
+            function_call_id = %function_call_id,
+            executor_id = executor_id.get(),
+            "missing executor connection while routing result; recreating connection"
+        );
+        indexify_state
+            .register_executor_connection(executor_id)
+            .await;
+        let connections = indexify_state.executor_connections.read().await;
+        connections
+            .get(executor_id)
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("executor connection not found after recreation"))?
+    };
+
+    conn.push_result(log_entry).await;
+    Ok(())
 }
 
 #[cfg(test)]

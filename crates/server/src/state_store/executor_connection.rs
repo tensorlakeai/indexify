@@ -153,6 +153,8 @@ impl ExecutorConnection {
     /// Clears the pending command outbox and resets command cursors.
     pub async fn reset_for_full_sync(&self) {
         self.pending_commands.lock().await.clear();
+        self.pending_results.lock().await.clear();
+        self.next_result_seq.store(1, atomic::Ordering::Relaxed);
         self.last_acked_command_seq
             .store(0, atomic::Ordering::Relaxed);
         self.request_full_state

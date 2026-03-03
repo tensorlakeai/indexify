@@ -129,19 +129,33 @@ impl ExecutorAPIService {
         executor_metadata.state_hash(String::new());
 
         let mut containers = imbl::HashMap::new();
+        let mut malformed_container_count = 0usize;
+        let mut first_malformed_container_error: Option<String> = None;
         for fe_state in full_state.container_states {
             match data_model::Container::try_from(fe_state) {
                 Ok(container) => {
                     containers.insert(container.id.clone(), container);
                 }
                 Err(e) => {
+                    malformed_container_count = malformed_container_count.saturating_add(1);
+                    if first_malformed_container_error.is_none() {
+                        first_malformed_container_error = Some(e.to_string());
+                    }
                     warn!(
                         executor_id = executor_id.get(),
                         error = %e,
-                        "skipping container in full state sync"
+                        "malformed container in full state sync"
                     );
                 }
             }
+        }
+        if malformed_container_count > 0 {
+            let first_error = first_malformed_container_error
+                .unwrap_or_else(|| "unknown container conversion error".to_string());
+            return Err(Status::invalid_argument(format!(
+                "full_state contains {malformed_container_count} malformed container state(s): \
+                 first error: {first_error}"
+            )));
         }
         executor_metadata.containers(containers);
 

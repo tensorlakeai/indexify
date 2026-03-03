@@ -163,20 +163,37 @@ impl ExecutorAPIService {
                     )
                     .await
                     {
-                        Ok(AllocationIngestDisposition::Applied) => {
+                        Ok(AllocationIngestDisposition::Applied) |
+                        Ok(AllocationIngestDisposition::SkippedNoop) => {
                             if let Some(completed) = &completed_for_routing &&
-                                let Some(fc_id) = completed.function_call_id.as_deref()
-                            {
-                                try_route_result(
+                                let Some(fc_id) = completed.function_call_id.as_deref() &&
+                                let Err(e) = try_route_result(
                                     &self.function_call_result_router,
                                     fc_id,
                                     completed,
                                     &self.indexify_state,
                                 )
-                                .await;
+                                .await
+                            {
+                                let (namespace, app, fn_name, version) =
+                                    function_ref_labels(completed.function.as_ref());
+                                let request_id = completed.request_id.as_deref().unwrap_or("");
+                                let allocation_id = completed.allocation_id.as_str();
+                                warn!(
+                                    executor_id = executor_id.get(),
+                                    request_id = %request_id,
+                                    "fn" = %fn_name,
+                                    namespace = %namespace,
+                                    app = %app,
+                                    version = %version,
+                                    allocation_id = %allocation_id,
+                                    function_call_id = %fc_id,
+                                    error = %e,
+                                    "heartbeat: failed to route allocation_completed result"
+                                );
+                                failed_items = failed_items.saturating_add(1);
                             }
                         }
-                        Ok(AllocationIngestDisposition::SkippedNoop) => {}
                         Err(e) => {
                             let (namespace, app, fn_name, version) =
                                 function_ref_labels(completed_for_logging.function.as_ref());
@@ -224,20 +241,37 @@ impl ExecutorAPIService {
                     )
                     .await
                     {
-                        Ok(AllocationIngestDisposition::Applied) => {
+                        Ok(AllocationIngestDisposition::Applied) |
+                        Ok(AllocationIngestDisposition::SkippedNoop) => {
                             if let Some(failed) = &failed_for_routing &&
-                                let Some(fc_id) = failed.function_call_id.as_deref()
-                            {
-                                try_route_failure(
+                                let Some(fc_id) = failed.function_call_id.as_deref() &&
+                                let Err(e) = try_route_failure(
                                     &self.function_call_result_router,
                                     fc_id,
                                     failed,
                                     &self.indexify_state,
                                 )
-                                .await;
+                                .await
+                            {
+                                let (namespace, app, fn_name, version) =
+                                    function_ref_labels(failed.function.as_ref());
+                                let request_id = failed.request_id.as_deref().unwrap_or("");
+                                let allocation_id = failed.allocation_id.as_str();
+                                warn!(
+                                    executor_id = executor_id.get(),
+                                    request_id = %request_id,
+                                    "fn" = %fn_name,
+                                    namespace = %namespace,
+                                    app = %app,
+                                    version = %version,
+                                    allocation_id = %allocation_id,
+                                    function_call_id = %fc_id,
+                                    error = %e,
+                                    "heartbeat: failed to route allocation_failed result"
+                                );
+                                failed_items = failed_items.saturating_add(1);
                             }
                         }
-                        Ok(AllocationIngestDisposition::SkippedNoop) => {}
                         Err(e) => {
                             let (namespace, app, fn_name, version) =
                                 function_ref_labels(failed_for_logging.function.as_ref());

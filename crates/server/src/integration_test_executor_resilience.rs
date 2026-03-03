@@ -16,6 +16,11 @@ use crate::{
             AllocationCompleted,
             AllocationLogEntry,
             AllocationOutcome,
+            ContainerDescription,
+            ContainerResources,
+            ContainerState,
+            ContainerStatus,
+            ContainerType,
             DataplaneStateFullSync,
             ExecutionPlanUpdate,
             ExecutionPlanUpdates,
@@ -79,6 +84,36 @@ fn make_call_function_log_entry(
     }
 }
 
+fn function_fe_state_proto(container_id: &str) -> ContainerState {
+    ContainerState {
+        description: Some(ContainerDescription {
+            id: Some(container_id.to_string()),
+            function: Some(FunctionRef {
+                namespace: Some("ns".to_string()),
+                application_name: Some("app".to_string()),
+                function_name: Some("fn".to_string()),
+                application_version: Some("v1".to_string()),
+            }),
+            resources: Some(ContainerResources {
+                cpu_ms_per_sec: Some(100),
+                memory_bytes: Some(256 * 1024 * 1024),
+                disk_bytes: Some(1024 * 1024 * 1024),
+                gpu: None,
+            }),
+            max_concurrency: Some(1),
+            container_type: Some(ContainerType::Function.into()),
+            sandbox_metadata: None,
+            secret_names: vec![],
+            initialization_timeout_ms: None,
+            application: None,
+            allocation_timeout_ms: None,
+            pool_id: None,
+        }),
+        status: Some(ContainerStatus::Running.into()),
+        termination_reason: None,
+    }
+}
+
 fn make_completed_outcome(
     child_function_call_id: &str,
     allocation_id: &str,
@@ -115,6 +150,211 @@ async fn heartbeat_full_state(api: &ExecutorAPIService, executor_id: &str) -> Re
         }),
     )
     .await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_reconnect_full_state_clears_stale_pending_results() -> Result<()> {
+    let test_service = TestService::new().await?;
+    let api = ExecutorAPIService::new(
+        test_service.service.indexify_state.clone(),
+        test_service.service.executor_manager.clone(),
+        test_service.service.blob_storage_registry.clone(),
+    );
+    let executor_id = "executor-reconnect-result-reset";
+    let executor_dm_id = data_model::ExecutorId::from(executor_id);
+
+    heartbeat_full_state(&api, executor_id).await?;
+
+    let conn = {
+        let connections = test_service
+            .service
+            .indexify_state
+            .executor_connections
+            .read()
+            .await;
+        connections
+            .get(&executor_dm_id)
+            .expect("executor connection should exist")
+            .clone()
+    };
+    conn.push_result(AllocationLogEntry {
+        allocation_id: "stale-result-allocation".to_string(),
+        clock: 0,
+        entry: None,
+    })
+    .await;
+
+    // Simulate dataplane reconnect with same executor ID.
+    heartbeat_full_state(&api, executor_id).await?;
+
+    let results = {
+        let connections = test_service
+            .service
+            .indexify_state
+            .executor_connections
+            .read()
+            .await;
+        let conn = connections
+            .get(&executor_dm_id)
+            .expect("executor connection should still exist");
+        conn.clone_results().await
+    };
+    assert!(
+        results.is_empty(),
+        "reconnect full-state should clear stale pending results"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_routed_result_survives_parent_connection_gap() -> Result<()> {
+    let test_service = TestService::new().await?;
+    let api = ExecutorAPIService::new(
+        test_service.service.indexify_state.clone(),
+        test_service.service.executor_manager.clone(),
+        test_service.service.blob_storage_registry.clone(),
+    );
+    let executor_id = "executor-route-connection-gap";
+    let executor_dm_id = data_model::ExecutorId::from(executor_id);
+    let child_fc = "child-fc-connection-gap";
+
+    heartbeat_full_state(&api, executor_id).await?;
+    ExecutorApi::heartbeat(
+        &api,
+        Request::new(HeartbeatRequest {
+            executor_id: Some(executor_id.to_string()),
+            status: Some(executor_api_pb::ExecutorStatus::Running.into()),
+            full_state: None,
+            command_responses: vec![],
+            allocation_outcomes: vec![],
+            allocation_log_entries: vec![make_call_function_log_entry(
+                "parent-alloc-connection-gap",
+                child_fc,
+            )],
+        }),
+    )
+    .await?;
+
+    assert!(
+        test_service
+            .service
+            .indexify_state
+            .get_function_call_route(child_fc)
+            .await?
+            .is_some(),
+        "route should exist before child outcome arrives"
+    );
+
+    // Seed child allocation so completion ingestion succeeds.
+    let child_allocation = data_model::AllocationBuilder::default()
+        .target(data_model::AllocationTarget::new(
+            data_model::ExecutorId::from(executor_id),
+            data_model::ContainerId::new("child-container-connection-gap".to_string()),
+        ))
+        .function_call_id(data_model::FunctionCallId::from(child_fc))
+        .namespace("ns".to_string())
+        .application("app".to_string())
+        .application_version("v1".to_string())
+        .function("child-fn".to_string())
+        .request_id("req-1".to_string())
+        .outcome(data_model::FunctionRunOutcome::Unknown)
+        .input_args(vec![])
+        .call_metadata(bytes::Bytes::new())
+        .build()?;
+    let child_allocation_id = child_allocation.id.to_string();
+    let mut update = SchedulerUpdateRequest::default();
+    update.new_allocations.push(child_allocation);
+    test_service
+        .service
+        .indexify_state
+        .write(StateMachineUpdateRequest {
+            payload: RequestPayload::SchedulerUpdate(SchedulerUpdatePayload::new(update)),
+        })
+        .await?;
+
+    // Simulate a transient parent connection loss exactly when child outcome
+    // arrives.
+    test_service
+        .service
+        .indexify_state
+        .deregister_executor_connection(&executor_dm_id)
+        .await;
+
+    ExecutorApi::heartbeat(
+        &api,
+        Request::new(HeartbeatRequest {
+            executor_id: Some(executor_id.to_string()),
+            status: Some(executor_api_pb::ExecutorStatus::Running.into()),
+            full_state: None,
+            command_responses: vec![],
+            allocation_outcomes: vec![make_completed_outcome(child_fc, &child_allocation_id)],
+            allocation_log_entries: vec![],
+        }),
+    )
+    .await?;
+
+    // Connection should be recreated during route recovery.
+    let results = {
+        let connections = test_service
+            .service
+            .indexify_state
+            .executor_connections
+            .read()
+            .await;
+        let conn = connections
+            .get(&executor_dm_id)
+            .expect("executor connection should exist after route recovery");
+        conn.clone_results().await
+    };
+    assert_eq!(
+        results.len(),
+        1,
+        "routed result should survive temporary parent disconnect"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_full_state_rejects_malformed_container_entries() -> Result<()> {
+    let test_service = TestService::new().await?;
+    let api = ExecutorAPIService::new(
+        test_service.service.indexify_state.clone(),
+        test_service.service.executor_manager.clone(),
+        test_service.service.blob_storage_registry.clone(),
+    );
+    let executor_id = "executor-full-state-mixed-malformed";
+
+    let heartbeat = ExecutorApi::heartbeat(
+        &api,
+        Request::new(HeartbeatRequest {
+            executor_id: Some(executor_id.to_string()),
+            status: Some(executor_api_pb::ExecutorStatus::Running.into()),
+            full_state: Some(DataplaneStateFullSync {
+                container_states: vec![
+                    function_fe_state_proto("valid-function-container"),
+                    ContainerState {
+                        description: None,
+                        status: Some(ContainerStatus::Running.into()),
+                        termination_reason: None,
+                    },
+                ],
+                ..Default::default()
+            }),
+            command_responses: vec![],
+            allocation_outcomes: vec![],
+            allocation_log_entries: vec![],
+        }),
+    )
+    .await;
+
+    assert!(
+        heartbeat.is_err(),
+        "heartbeat with malformed full_state container list should fail"
+    );
+
     Ok(())
 }
 
