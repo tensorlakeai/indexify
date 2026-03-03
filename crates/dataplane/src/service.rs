@@ -9,10 +9,7 @@ use std::{
 
 use anyhow::{Context, Result};
 use proto_api::executor_api_pb::{
-    AllocationLogEntry,
-    ExecutorStatus,
-    HostResources,
-    executor_api_client::ExecutorApiClient,
+    AllocationLogEntry, ExecutorStatus, HostResources, executor_api_client::ExecutorApiClient,
 };
 use tokio::{
     sync::{Mutex, Notify, mpsc, watch},
@@ -338,12 +335,10 @@ impl Service {
         }
 
         // Recover containers from previous run (AC function path)
-        let ac_known_handles = self
-            .state_reconciler
-            .lock()
-            .await
-            .recover_ac_containers()
-            .await;
+        let ac_known_handles = {
+            let mut reconciler = self.state_reconciler.lock().await;
+            reconciler.recover_ac_containers().await
+        };
         if !ac_known_handles.is_empty() {
             tracing::info!(
                 recovered = ac_known_handles.len(),

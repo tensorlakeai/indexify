@@ -32,7 +32,10 @@
 //!   reconnection would incorrectly stop containers that haven't been
 //!   re-announced yet.
 
-use std::{collections::HashSet, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use proto_api::executor_api_pb::{Allocation, ContainerDescription, ContainerState, ContainerType};
 use tokio::sync::Notify;
@@ -46,6 +49,12 @@ use crate::{
     function_executor::controller::FESpawnConfig,
 };
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ContainerOwner {
+    Function,
+    Sandbox,
+}
+
 /// Routes desired state to the AllocationController and sandbox containers.
 ///
 /// See [module docs](self) for the two execution paths.
@@ -57,6 +66,9 @@ pub struct StateReconciler {
     /// Notify for state changes (added/removed FEs) to trigger immediate
     /// heartbeats.
     state_change_notify: Arc<Notify>,
+    /// Authoritative command-order routing for container ownership by id.
+    /// Updated from Add/Remove commands (intent), not runtime state snapshots.
+    container_owners: HashMap<String, ContainerOwner>,
 }
 
 impl StateReconciler {
@@ -77,6 +89,7 @@ impl StateReconciler {
             allocation_controller: ac_handle,
             container_manager,
             state_change_notify,
+            container_owners: HashMap::new(),
         }
     }
 
@@ -100,8 +113,16 @@ impl StateReconciler {
 
         for fe in added_or_updated {
             match fe.container_type() {
-                ContainerType::Function => function_fes.push(fe),
+                ContainerType::Function => {
+                    if let Some(id) = fe.id.clone() {
+                        self.container_owners.insert(id, ContainerOwner::Function);
+                    }
+                    function_fes.push(fe);
+                }
                 ContainerType::Sandbox | ContainerType::Unknown => {
+                    if let Some(id) = fe.id.clone() {
+                        self.container_owners.insert(id, ContainerOwner::Sandbox);
+                    }
                     self.container_manager.add_or_update_container(fe).await;
                 }
             }
@@ -112,33 +133,21 @@ impl StateReconciler {
         let mut unknown_removed_count = 0usize;
 
         for id in removed_container_ids {
-            if self.container_manager.has_container(&id).await {
-                self.container_manager.remove_container_by_id(&id).await;
-                sandbox_removed_count = sandbox_removed_count.saturating_add(1);
-                continue;
-            }
-
-            let known_function_id =
-                self.allocation_controller
-                    .state_rx
-                    .borrow()
-                    .iter()
-                    .any(|state| {
-                        state
-                            .description
-                            .as_ref()
-                            .and_then(|desc| desc.id.as_deref())
-                            .is_some_and(|desc_id| desc_id == id)
-                    });
-
-            if known_function_id {
-                function_removed_ids.push(id);
-            } else {
-                unknown_removed_count = unknown_removed_count.saturating_add(1);
-                info!(
-                    container_id = %id,
-                    "RemoveContainer for unknown container; treating as already removed"
-                );
+            match self.container_owners.remove(&id) {
+                Some(ContainerOwner::Sandbox) => {
+                    self.container_manager.remove_container_by_id(&id).await;
+                    sandbox_removed_count = sandbox_removed_count.saturating_add(1);
+                }
+                Some(ContainerOwner::Function) => {
+                    function_removed_ids.push(id);
+                }
+                None => {
+                    unknown_removed_count = unknown_removed_count.saturating_add(1);
+                    info!(
+                        container_id = %id,
+                        "RemoveContainer for unknown container; treating as already removed"
+                    );
+                }
             }
         }
 
@@ -299,13 +308,32 @@ impl StateReconciler {
     ///
     /// Sends a Recover command to the AllocationController and waits for
     /// it to process. Returns the set of recovered handle IDs.
-    pub async fn recover_ac_containers(&self) -> HashSet<String> {
+    pub async fn recover_ac_containers(&mut self) -> HashSet<String> {
         let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
         let _ = self
             .allocation_controller
             .command_tx
             .send(ACCommand::Recover { reply: reply_tx });
-        reply_rx.await.unwrap_or_default()
+        let recovered = reply_rx.await.unwrap_or_default();
+        for id in &recovered {
+            self.container_owners
+                .insert(id.clone(), ContainerOwner::Function);
+        }
+
+        // Seed sandbox ownership from current manager state on startup.
+        for state in self.container_manager.get_states().await {
+            if let Some(id) = state
+                .description
+                .as_ref()
+                .and_then(|desc| desc.id.as_deref())
+            {
+                self.container_owners
+                    .entry(id.to_string())
+                    .or_insert(ContainerOwner::Sandbox);
+            }
+        }
+
+        recovered
     }
 
     /// Clean up orphaned containers from all execution paths.

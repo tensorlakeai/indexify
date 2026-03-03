@@ -67,17 +67,21 @@ impl<T: Message + Clone + Send + 'static> PendingBuffer<T> {
             while let Some(item) = rx.recv().await {
                 let mut buf = items.lock().await;
                 if buf.len() >= STATE_REPORT_MAX_PENDING_ITEMS {
-                    buf.pop_front();
+                    // Keep existing ordering stable for collect/drain_sent safety.
+                    // Dropping incoming items avoids mutating the front while a
+                    // previously collected batch is in-flight.
                     dropped_since_last_log = dropped_since_last_log.saturating_add(1);
                     if dropped_since_last_log == 1 || dropped_since_last_log.is_multiple_of(1000) {
                         warn!(
                             label,
                             dropped = dropped_since_last_log,
                             max_pending = STATE_REPORT_MAX_PENDING_ITEMS,
-                            "State reporter buffer over capacity; dropping oldest buffered item"
+                            "State reporter buffer over capacity; dropping incoming item"
                         );
                     }
+                    continue;
                 }
+                dropped_since_last_log = 0;
                 buf.push_back(item);
                 drop(buf);
                 notify.notify_one();
@@ -96,17 +100,21 @@ impl<T: Message + Clone + Send + 'static> PendingBuffer<T> {
             while let Some(item) = rx.recv().await {
                 let mut buf = items.lock().await;
                 if buf.len() >= STATE_REPORT_MAX_PENDING_ITEMS {
-                    buf.pop_front();
+                    // Keep existing ordering stable for collect/drain_sent safety.
+                    // Dropping incoming items avoids mutating the front while a
+                    // previously collected batch is in-flight.
                     dropped_since_last_log = dropped_since_last_log.saturating_add(1);
                     if dropped_since_last_log == 1 || dropped_since_last_log.is_multiple_of(1000) {
                         warn!(
                             label,
                             dropped = dropped_since_last_log,
                             max_pending = STATE_REPORT_MAX_PENDING_ITEMS,
-                            "State reporter buffer over capacity; dropping oldest buffered item"
+                            "State reporter buffer over capacity; dropping incoming item"
                         );
                     }
+                    continue;
                 }
+                dropped_since_last_log = 0;
                 buf.push_back(item);
                 drop(buf);
                 notify.notify_one();
