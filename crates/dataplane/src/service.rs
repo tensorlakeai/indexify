@@ -747,7 +747,11 @@ impl ServiceRuntime {
             // additional heartbeats until all buffers are drained.
             let report_start = std::time::Instant::now();
 
-            // Build full_state payload if the server requested it
+            let full_state_for_registration =
+                send_full_state && *self.connection_state.borrow() == ConnectionState::Registering;
+
+            // Build full_state payload if requested (server-driven re-registration
+            // or periodic drift-healing sync).
             let full_state = if send_full_state {
                 tracing::info!("Sending full state in heartbeat");
                 let reconciler_guard = self.state_reconciler.lock().await;
@@ -833,11 +837,11 @@ impl ServiceRuntime {
                         // Any successful RPC means the server is reachable.
                         self.monitoring_state.ready.store(true, Ordering::SeqCst);
 
-                        // Reset seq counters whenever we sent full_state. The
-                        // server creates a fresh ExecutorConnection with new
-                        // command/result buffers on re-registration, so old
-                        // acked_seq values would incorrectly drain new data.
-                        if is_first_fragment && full_state.is_some() {
+                        // Reset seq counters only for re-registration full-state
+                        // syncs. Periodic drift-healing full-state runs against
+                        // an existing server connection and must preserve cursors.
+                        if is_first_fragment && full_state.is_some() && full_state_for_registration
+                        {
                             self.last_applied_command_seq.store(0, Ordering::SeqCst);
                             self.last_applied_result_seq.store(0, Ordering::SeqCst);
                             self.last_malformed_command_seq

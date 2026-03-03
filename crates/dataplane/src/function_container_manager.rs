@@ -526,6 +526,12 @@ impl FunctionContainerManager {
         update_container_counts(&containers, &self.metrics).await;
     }
 
+    /// Return whether this manager currently tracks `id`.
+    pub async fn has_container(&self, id: &str) -> bool {
+        let containers = self.containers.read().await;
+        containers.get(id).is_some()
+    }
+
     /// Snapshot a container's filesystem.
     ///
     /// Stops the container's processes, exports the filesystem via the

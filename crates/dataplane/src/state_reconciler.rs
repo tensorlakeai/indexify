@@ -87,8 +87,10 @@ impl StateReconciler {
     /// - **Sandbox** FEs → `FunctionContainerManager` delta methods
     ///   (`add_or_update_container` / `remove_container_by_id`)
     ///
-    /// Removal IDs are applied to both paths: forwarded to the
-    /// AllocationController and to `FunctionContainerManager`.
+    /// Removal IDs are routed to exactly one path:
+    /// - sandbox manager if the ID is known there
+    /// - AllocationController if the ID is known there
+    /// - otherwise treated as already removed (ack and continue)
     pub async fn reconcile_containers(
         &mut self,
         added_or_updated: Vec<ContainerDescription>,
@@ -105,18 +107,53 @@ impl StateReconciler {
             }
         }
 
-        // Apply removals to both paths. We don't know the type of removed IDs
-        // upfront, so try both — the AllocationController ignores IDs it
-        // doesn't know about, and FunctionContainerManager ignores unknown IDs.
-        for id in &removed_container_ids {
-            self.container_manager.remove_container_by_id(id).await;
+        let mut function_removed_ids = Vec::new();
+        let mut sandbox_removed_count = 0usize;
+        let mut unknown_removed_count = 0usize;
+
+        for id in removed_container_ids {
+            if self.container_manager.has_container(&id).await {
+                self.container_manager.remove_container_by_id(&id).await;
+                sandbox_removed_count = sandbox_removed_count.saturating_add(1);
+                continue;
+            }
+
+            let known_function_id =
+                self.allocation_controller
+                    .state_rx
+                    .borrow()
+                    .iter()
+                    .any(|state| {
+                        state
+                            .description
+                            .as_ref()
+                            .and_then(|desc| desc.id.as_deref())
+                            .is_some_and(|desc_id| desc_id == id)
+                    });
+
+            if known_function_id {
+                function_removed_ids.push(id);
+            } else {
+                unknown_removed_count = unknown_removed_count.saturating_add(1);
+                info!(
+                    container_id = %id,
+                    "RemoveContainer for unknown container; treating as already removed"
+                );
+            }
         }
 
         let function_fe_count = function_fes.len();
-        let removed_count = removed_container_ids.len();
-        let changed = function_fe_count > 0 || removed_count > 0;
+        let function_removed_count = function_removed_ids.len();
+        let changed = function_fe_count > 0 || function_removed_count > 0;
 
         if !changed {
+            if sandbox_removed_count > 0 || unknown_removed_count > 0 {
+                info!(
+                    sandbox_removed_count,
+                    unknown_removed_count,
+                    "Handled container removals without AllocationController update"
+                );
+            }
             return true;
         }
 
@@ -125,14 +162,16 @@ impl StateReconciler {
             .command_tx
             .send(ACCommand::Reconcile {
                 added_or_updated_fes: function_fes,
-                removed_fe_ids: removed_container_ids,
+                removed_fe_ids: function_removed_ids,
                 new_allocations: vec![],
             })
         {
             warn!(
                 error = %err,
                 function_fe_count,
-                removed_count,
+                function_removed_count,
+                sandbox_removed_count,
+                unknown_removed_count,
                 "Failed to send container Reconcile to AllocationController"
             );
             return false;
@@ -140,7 +179,10 @@ impl StateReconciler {
 
         info!(
             function_fe_count,
-            removed_count, "Sent container Reconcile to AllocationController"
+            function_removed_count,
+            sandbox_removed_count,
+            unknown_removed_count,
+            "Sent container Reconcile to AllocationController"
         );
         true
     }
