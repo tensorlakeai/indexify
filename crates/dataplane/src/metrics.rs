@@ -278,6 +278,10 @@ define_counters! {
 
     // Stream
     stream_creations: "indexify.dataplane.stream.creations", "Number of stream creations";
+    poll_commands_malformed_total: "indexify.dataplane.poll_commands.malformed_total", "Number of malformed command entries received via poll_commands";
+    poll_results_malformed_total: "indexify.dataplane.poll_results.malformed_total", "Number of malformed result entries received via poll_allocation_results";
+    poll_commands_malformed_repeated_seq_total: "indexify.dataplane.poll_commands.malformed_repeated_seq_total", "Number of repeated malformed command sequence numbers observed";
+    poll_results_malformed_repeated_seq_total: "indexify.dataplane.poll_results.malformed_repeated_seq_total", "Number of repeated malformed result sequence numbers observed";
 
     // Sandbox lifecycle
     sandbox_warm_pool_claims: "indexify.dataplane.sandbox.warm_pool_claims", "Number of warm pool containers claimed by a sandbox";
@@ -364,6 +368,50 @@ impl DataplaneCounters {
         if let Some(ms) = duration_ms {
             self.allocation_duration_ms.record(ms, &attrs);
         }
+    }
+
+    /// Record a malformed command delivered through poll_commands.
+    pub fn record_poll_command_malformed(&self, command_type: &str, reason: &str) {
+        self.poll_commands_malformed_total.add(
+            1,
+            &[
+                KeyValue::new("command_type", command_type.to_string()),
+                KeyValue::new("reason", reason.to_string()),
+            ],
+        );
+    }
+
+    /// Record a malformed allocation result delivered through poll_allocation_results.
+    pub fn record_poll_result_malformed(&self, command_type: &str, reason: &str) {
+        self.poll_results_malformed_total.add(
+            1,
+            &[
+                KeyValue::new("command_type", command_type.to_string()),
+                KeyValue::new("reason", reason.to_string()),
+            ],
+        );
+    }
+
+    /// Record a repeated malformed command sequence for poll_commands.
+    pub fn record_poll_command_malformed_repeated_seq(&self, command_type: &str, reason: &str) {
+        self.poll_commands_malformed_repeated_seq_total.add(
+            1,
+            &[
+                KeyValue::new("command_type", command_type.to_string()),
+                KeyValue::new("reason", reason.to_string()),
+            ],
+        );
+    }
+
+    /// Record a repeated malformed result sequence for poll_allocation_results.
+    pub fn record_poll_result_malformed_repeated_seq(&self, command_type: &str, reason: &str) {
+        self.poll_results_malformed_repeated_seq_total.add(
+            1,
+            &[
+                KeyValue::new("command_type", command_type.to_string()),
+                KeyValue::new("reason", reason.to_string()),
+            ],
+        );
     }
 }
 

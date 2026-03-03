@@ -379,6 +379,8 @@ impl Service {
             monitoring_state: self.monitoring_state.clone(),
             last_applied_command_seq: Arc::new(AtomicU64::new(0)),
             last_applied_result_seq: Arc::new(AtomicU64::new(0)),
+            last_malformed_command_seq: Arc::new(AtomicU64::new(0)),
+            last_malformed_result_seq: Arc::new(AtomicU64::new(0)),
             allocation_result_dispatcher: self.allocation_result_dispatcher.clone(),
         });
 
@@ -544,6 +546,10 @@ struct ServiceRuntime {
     /// Highest result seq successfully applied (used by poll_allocation_results
     /// ack).
     last_applied_result_seq: Arc<AtomicU64>,
+    /// Last malformed command sequence observed in poll_commands.
+    last_malformed_command_seq: Arc<AtomicU64>,
+    /// Last malformed result sequence observed in poll_allocation_results.
+    last_malformed_result_seq: Arc<AtomicU64>,
     /// Dispatcher for routing allocation results to allocation runners.
     allocation_result_dispatcher: Arc<AllocationResultDispatcher>,
 }
@@ -564,6 +570,36 @@ impl ServiceRuntime {
                 "Connection state transition"
             );
         }
+    }
+
+    /// Record malformed command metrics and detect repeated malformed sequence numbers.
+    fn record_malformed_command(&self, seq: u64, command_type: &str, reason: &str) -> bool {
+        self.metrics
+            .counters
+            .record_poll_command_malformed(command_type, reason);
+        let prev = self.last_malformed_command_seq.swap(seq, Ordering::SeqCst);
+        if prev == seq {
+            self.metrics
+                .counters
+                .record_poll_command_malformed_repeated_seq(command_type, reason);
+            return true;
+        }
+        false
+    }
+
+    /// Record malformed result metrics and detect repeated malformed sequence numbers.
+    fn record_malformed_result(&self, seq: u64, command_type: &str, reason: &str) -> bool {
+        self.metrics
+            .counters
+            .record_poll_result_malformed(command_type, reason);
+        let prev = self.last_malformed_result_seq.swap(seq, Ordering::SeqCst);
+        if prev == seq {
+            self.metrics
+                .counters
+                .record_poll_result_malformed_repeated_seq(command_type, reason);
+            return true;
+        }
+        false
     }
 
     /// Best-effort shutdown heartbeat with `status=STOPPED`.
@@ -1074,8 +1110,21 @@ impl ServiceRuntime {
                                 break;
                             }
                         } else {
-                            tracing::warn!(
+                            let reason = "missing_entry_payload";
+                            let repeated_seq =
+                                self.record_malformed_result(seq, "allocation_result", reason);
+                            tracing::error!(
+                                executor_id = %self.identity.executor_id,
                                 seq,
+                                command_type = "allocation_result",
+                                reason,
+                                repeated_seq,
+                                allocation_id = "",
+                                request_id = "",
+                                namespace = "",
+                                app = "",
+                                version = "",
+                                "fn" = "",
                                 "poll_allocation_results: missing entry payload, dropping malformed result and advancing ack"
                             );
                             self.last_applied_result_seq.store(seq, Ordering::SeqCst);
@@ -1152,8 +1201,22 @@ impl ServiceRuntime {
         let seq = command.seq;
 
         let Some(cmd) = command.command else {
-            tracing::warn!(
+            let reason = "missing_command_payload";
+            let command_type = "Unknown";
+            let repeated_seq = self.record_malformed_command(seq, command_type, reason);
+            tracing::error!(
+                executor_id = %self.identity.executor_id,
                 seq,
+                command_type,
+                reason,
+                repeated_seq,
+                allocation_id = "",
+                request_id = "",
+                container_id = "",
+                namespace = "",
+                app = "",
+                version = "",
+                "fn" = "",
                 "Received command with no payload, dropping and advancing ack"
             );
             return true;
@@ -1164,11 +1227,21 @@ impl ServiceRuntime {
             Cmd::AddContainer(add) => {
                 if let Some(container) = add.container {
                     if let Err(e) = validation::validate_fe_description(&container) {
-                        tracing::warn!(
+                        let reason = "invalid_add_container";
+                        let command_type = "AddContainer";
+                        let repeated_seq = self.record_malformed_command(seq, command_type, reason);
+                        tracing::error!(
+                            executor_id = %self.identity.executor_id,
                             seq,
+                            command_type,
+                            reason,
+                            repeated_seq,
+                            allocation_id = "",
+                            request_id = "",
                             container_id = %container.id.as_deref().unwrap_or(""),
                             namespace = %container.function.as_ref().and_then(|f| f.namespace.as_deref()).unwrap_or(""),
                             app = %container.function.as_ref().and_then(|f| f.application_name.as_deref()).unwrap_or(""),
+                            version = %container.function.as_ref().and_then(|f| f.application_version.as_deref()).unwrap_or(""),
                             "fn" = %container.function.as_ref().and_then(|f| f.function_name.as_deref()).unwrap_or(""),
                             sandbox_id = %container.sandbox_metadata.as_ref().and_then(|m| m.sandbox_id.as_deref()).unwrap_or(""),
                             pool_id = %container.pool_id.as_deref().unwrap_or(""),
@@ -1193,8 +1266,22 @@ impl ServiceRuntime {
                             .await
                     }
                 } else {
-                    tracing::warn!(
+                    let reason = "missing_container_payload";
+                    let command_type = "AddContainer";
+                    let repeated_seq = self.record_malformed_command(seq, command_type, reason);
+                    tracing::error!(
+                        executor_id = %self.identity.executor_id,
                         seq,
+                        command_type,
+                        reason,
+                        repeated_seq,
+                        allocation_id = "",
+                        request_id = "",
+                        container_id = "",
+                        namespace = "",
+                        app = "",
+                        version = "",
+                        "fn" = "",
                         "AddContainer missing container payload; dropping and advancing ack"
                     );
                     true
@@ -1214,12 +1301,21 @@ impl ServiceRuntime {
             Cmd::RunAllocation(run) => {
                 if let Some(allocation) = run.allocation {
                     if let Err(e) = validation::validate_allocation(&allocation) {
-                        tracing::warn!(
+                        let reason = "invalid_run_allocation";
+                        let command_type = "RunAllocation";
+                        let repeated_seq = self.record_malformed_command(seq, command_type, reason);
+                        tracing::error!(
+                            executor_id = %self.identity.executor_id,
                             seq,
+                            command_type,
+                            reason,
+                            repeated_seq,
                             allocation_id = %allocation.allocation_id.as_deref().unwrap_or(""),
                             request_id = %allocation.request_id.as_deref().unwrap_or(""),
                             container_id = %allocation.container_id.as_deref().unwrap_or(""),
                             namespace = %allocation.function.as_ref().and_then(|f| f.namespace.as_deref()).unwrap_or(""),
+                            app = %allocation.function.as_ref().and_then(|f| f.application_name.as_deref()).unwrap_or(""),
+                            version = %allocation.function.as_ref().and_then(|f| f.application_version.as_deref()).unwrap_or(""),
                             "fn" = %allocation.function.as_ref().and_then(|f| f.function_name.as_deref()).unwrap_or(""),
                             error = %e,
                             "Skipping invalid RunAllocation command and advancing ack"
@@ -1240,19 +1336,43 @@ impl ServiceRuntime {
                             .reconcile_allocations(vec![(fe_id, allocation, seq)])
                             .await
                     } else {
-                        tracing::warn!(
+                        let reason = "missing_container_id";
+                        let command_type = "RunAllocation";
+                        let repeated_seq = self.record_malformed_command(seq, command_type, reason);
+                        tracing::error!(
+                            executor_id = %self.identity.executor_id,
                             seq,
+                            command_type,
+                            reason,
+                            repeated_seq,
                             allocation_id = %allocation.allocation_id.as_deref().unwrap_or(""),
                             request_id = %allocation.request_id.as_deref().unwrap_or(""),
+                            container_id = "",
                             namespace = %allocation.function.as_ref().and_then(|f| f.namespace.as_deref()).unwrap_or(""),
+                            app = %allocation.function.as_ref().and_then(|f| f.application_name.as_deref()).unwrap_or(""),
+                            version = %allocation.function.as_ref().and_then(|f| f.application_version.as_deref()).unwrap_or(""),
                             "fn" = %allocation.function.as_ref().and_then(|f| f.function_name.as_deref()).unwrap_or(""),
                             "RunAllocation missing container_id"
                         );
                         true
                     }
                 } else {
-                    tracing::warn!(
+                    let reason = "missing_allocation_payload";
+                    let command_type = "RunAllocation";
+                    let repeated_seq = self.record_malformed_command(seq, command_type, reason);
+                    tracing::error!(
+                        executor_id = %self.identity.executor_id,
                         seq,
+                        command_type,
+                        reason,
+                        repeated_seq,
+                        allocation_id = "",
+                        request_id = "",
+                        container_id = "",
+                        namespace = "",
+                        app = "",
+                        version = "",
+                        "fn" = "",
                         "RunAllocation missing allocation payload; dropping and advancing ack"
                     );
                     true
@@ -1260,8 +1380,22 @@ impl ServiceRuntime {
             }
             Cmd::KillAllocation(kill) => {
                 if kill.allocation_id.is_empty() {
-                    tracing::warn!(
+                    let reason = "missing_allocation_id";
+                    let command_type = "KillAllocation";
+                    let repeated_seq = self.record_malformed_command(seq, command_type, reason);
+                    tracing::error!(
+                        executor_id = %self.identity.executor_id,
                         seq,
+                        command_type,
+                        reason,
+                        repeated_seq,
+                        allocation_id = "",
+                        request_id = "",
+                        container_id = "",
+                        namespace = "",
+                        app = "",
+                        version = "",
+                        "fn" = "",
                         "KillAllocation missing allocation_id; dropping and advancing ack"
                     );
                     return true;
