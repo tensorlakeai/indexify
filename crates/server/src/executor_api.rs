@@ -14,7 +14,9 @@ mod result_routing;
 
 use polling::{long_poll_commands, long_poll_results};
 pub use report_processing::{
-    AllocationIngestDisposition, process_allocation_completed, process_allocation_failed,
+    AllocationIngestDisposition,
+    process_allocation_completed,
+    process_allocation_failed,
     process_command_responses,
 };
 pub use result_routing::FunctionCallResultRouter;
@@ -81,10 +83,10 @@ static MALFORMED_FULL_STATE_CONTAINERS_COUNTER: std::sync::LazyLock<Counter<u64>
 
 pub(super) fn is_malformed_payload_error(error: &anyhow::Error) -> bool {
     let message = error.to_string().to_ascii_lowercase();
-    message.contains("missing ")
-        || message.contains(" is empty")
-        || message.contains("invalid")
-        || message.contains("malformed")
+    message.contains("missing ") ||
+        message.contains(" is empty") ||
+        message.contains("invalid") ||
+        message.contains("malformed")
 }
 
 impl ExecutorAPIService {
@@ -277,8 +279,8 @@ impl ExecutorApi for ExecutorAPIService {
         let mut send_state = !executor_known;
         if executor_known && !send_state {
             let connections = self.indexify_state.executor_connections.read().await;
-            if let Some(conn) = connections.get(&executor_id)
-                && conn.take_full_state_request()
+            if let Some(conn) = connections.get(&executor_id) &&
+                conn.take_full_state_request()
             {
                 info!(
                     executor_id = executor_id.get(),
@@ -355,9 +357,14 @@ mod tests {
     use std::{sync::Arc, time::Duration};
 
     use executor_api_pb::{
-        ContainerDescription, ContainerResources, ContainerState, ContainerStatus,
-        ContainerTerminationReason as TerminationReasonPb, ContainerType as ContainerTypePb,
-        FunctionRef, SandboxMetadata,
+        ContainerDescription,
+        ContainerResources,
+        ContainerState,
+        ContainerStatus,
+        ContainerTerminationReason as TerminationReasonPb,
+        ContainerType as ContainerTypePb,
+        FunctionRef,
+        SandboxMetadata,
     };
     use proto_api::executor_api_pb;
     use tonic::Request;
