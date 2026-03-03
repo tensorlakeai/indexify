@@ -5,7 +5,11 @@ use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
 
 use super::{
-    BlobStorageRegistry, ExecutorId, IndexifyState, RequestPayload, StateMachineUpdateRequest,
+    BlobStorageRegistry,
+    ExecutorId,
+    IndexifyState,
+    RequestPayload,
+    StateMachineUpdateRequest,
     executor_api_pb,
 };
 use crate::{data_model::FunctionCallId, proto_convert::to_internal_compute_op};
@@ -34,6 +38,13 @@ struct PendingFunctionCall {
     /// the final result is delivered with the ID the FE expects.
     original_function_call_id: String,
     executor_id: ExecutorId,
+}
+
+#[derive(Clone, Copy)]
+struct ParentRequestContext<'a> {
+    namespace: &'a str,
+    application: &'a str,
+    request_id: &'a str,
 }
 
 /// Routes function call results from child allocation completions
@@ -113,9 +124,7 @@ impl FunctionCallResultRouter {
         parent_allocation_id: String,
         original_function_call_id: String,
         executor_id: ExecutorId,
-        namespace: &str,
-        application: &str,
-        request_id: &str,
+        request_ctx: ParentRequestContext<'_>,
     ) -> Result<RegistrationOutcome> {
         let existing = {
             let pending = self.pending.read().await;
@@ -139,8 +148,8 @@ impl FunctionCallResultRouter {
 
         match existing {
             Some(existing_route)
-                if existing_route.parent_allocation_id == parent_allocation_id
-                    && existing_route.executor_id == executor_id =>
+                if existing_route.parent_allocation_id == parent_allocation_id &&
+                    existing_route.executor_id == executor_id =>
             {
                 self.pending
                     .write()
@@ -159,9 +168,9 @@ impl FunctionCallResultRouter {
                 // live parent route.
                 let existing_parent_alive = self
                     .is_allocation_alive_for_request(
-                        namespace,
-                        application,
-                        request_id,
+                        request_ctx.namespace,
+                        request_ctx.application,
+                        request_ctx.request_id,
                         &existing_route.parent_allocation_id,
                     )
                     .await?;
@@ -329,9 +338,9 @@ pub(super) async fn handle_log_entry(
             // must match on those individual IDs to route results back.
             if let Some(ref updates) = call.updates {
                 for update in &updates.updates {
-                    if let Some(ref op) = update.op
-                        && let executor_api_pb::execution_plan_update::Op::FunctionCall(fc) = op
-                        && let Some(ref individual_fc_id) = fc.id
+                    if let Some(ref op) = update.op &&
+                        let executor_api_pb::execution_plan_update::Op::FunctionCall(fc) = op &&
+                        let Some(ref individual_fc_id) = fc.id
                     {
                         match router
                             .register_from_parent(
@@ -339,9 +348,11 @@ pub(super) async fn handle_log_entry(
                                 allocation_id.clone(),
                                 individual_fc_id.clone(),
                                 executor_id.clone(),
-                                &namespace,
-                                &application,
-                                &request_id,
+                                ParentRequestContext {
+                                    namespace: &namespace,
+                                    application: &application,
+                                    request_id: &request_id,
+                                },
                             )
                             .await?
                         {
@@ -852,7 +863,9 @@ mod tests {
         data_model::{AllocationBuilder, AllocationTarget, ContainerId, FunctionCallId},
         state_store::{
             requests::{
-                RequestPayload, SchedulerUpdatePayload, SchedulerUpdateRequest,
+                RequestPayload,
+                SchedulerUpdatePayload,
+                SchedulerUpdateRequest,
                 StateMachineUpdateRequest,
             },
             test_state_store::TestStateStore,
@@ -897,6 +910,14 @@ mod tests {
         allocation_id
     }
 
+    fn parent_request_context() -> ParentRequestContext<'static> {
+        ParentRequestContext {
+            namespace: "ns",
+            application: "app",
+            request_id: "req-1",
+        }
+    }
+
     #[tokio::test]
     async fn test_register_from_parent_replaces_stale_entry_on_reschedule() {
         let store = TestStateStore::new().await.unwrap();
@@ -910,9 +931,7 @@ mod tests {
                 "alloc-a".to_string(),
                 "fc-1".to_string(),
                 executor_a,
-                "ns",
-                "app",
-                "req-1",
+                parent_request_context(),
             )
             .await
             .unwrap();
@@ -924,9 +943,7 @@ mod tests {
                 "alloc-b".to_string(),
                 "fc-1".to_string(),
                 executor_b.clone(),
-                "ns",
-                "app",
-                "req-1",
+                parent_request_context(),
             )
             .await
             .unwrap();
@@ -966,9 +983,7 @@ mod tests {
                 "alloc-a".to_string(),
                 "fc-1".to_string(),
                 executor,
-                "ns",
-                "app",
-                "req-1",
+                parent_request_context(),
             )
             .await
             .unwrap();
@@ -1029,9 +1044,11 @@ mod tests {
                 child_allocation_id,
                 "downstream-fc".to_string(),
                 executor,
-                namespace,
-                application,
-                request_id,
+                ParentRequestContext {
+                    namespace,
+                    application,
+                    request_id,
+                },
             )
             .await
             .unwrap();
@@ -1092,9 +1109,11 @@ mod tests {
                 replacement_parent_allocation_id.clone(),
                 "downstream-fc".to_string(),
                 executor,
-                namespace,
-                application,
-                request_id,
+                ParentRequestContext {
+                    namespace,
+                    application,
+                    request_id,
+                },
             )
             .await
             .unwrap();
