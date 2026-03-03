@@ -9,7 +9,10 @@ use std::{
 
 use anyhow::{Context, Result};
 use proto_api::executor_api_pb::{
-    AllocationLogEntry, ExecutorStatus, HostResources, executor_api_client::ExecutorApiClient,
+    AllocationLogEntry,
+    ExecutorStatus,
+    HostResources,
+    executor_api_client::ExecutorApiClient,
 };
 use tokio::{
     sync::{Mutex, Notify, mpsc, watch},
@@ -43,7 +46,6 @@ use crate::{
 
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
 const MAX_GRPC_DECODE_MESSAGE_SIZE: usize = 32 * 1024 * 1024;
-const FULL_STATE_RESYNC_INTERVAL: Duration = Duration::from_secs(5 * 60);
 const STATE_REPORT_CHANNEL_CAPACITY: usize = 8192;
 /// Sentinel for "no malformed sequence seen yet".
 const UNSET_MALFORMED_SEQ: u64 = u64::MAX;
@@ -720,21 +722,11 @@ impl ServiceRuntime {
         let mut client = self.make_client();
         let mut retry_interval = HEARTBEAT_MIN_RETRY_INTERVAL;
         let mut send_full_state = false; // First heartbeat has no state; server asks for it
-        let mut next_periodic_full_state_at =
-            tokio::time::Instant::now() + FULL_STATE_RESYNC_INTERVAL;
 
         loop {
             if self.cancel_token.is_cancelled() {
                 tracing::info!("Heartbeat loop cancelled");
                 return;
-            }
-
-            if tokio::time::Instant::now() >= next_periodic_full_state_at {
-                send_full_state = true;
-                tracing::info!(
-                    interval_secs = FULL_STATE_RESYNC_INTERVAL.as_secs(),
-                    "Sending periodic full state for drift healing"
-                );
             }
 
             // Phase 1: Build and send heartbeat(s) (includes batched reports).
@@ -745,8 +737,8 @@ impl ServiceRuntime {
             let full_state_for_registration =
                 send_full_state && *self.connection_state.borrow() == ConnectionState::Registering;
 
-            // Build full_state payload if requested (server-driven re-registration
-            // or periodic drift-healing sync).
+            // Build full_state payload only when the server requests
+            // re-registration.
             let full_state = if send_full_state {
                 tracing::info!("Sending full state in heartbeat");
                 let reconciler_guard = self.state_reconciler.lock().await;
@@ -833,8 +825,7 @@ impl ServiceRuntime {
                         self.monitoring_state.ready.store(true, Ordering::SeqCst);
 
                         // Reset seq counters only for re-registration full-state
-                        // syncs. Periodic drift-healing full-state runs against
-                        // an existing server connection and must preserve cursors.
+                        // syncs (server-driven).
                         if is_first_fragment && full_state.is_some() && full_state_for_registration
                         {
                             self.last_applied_command_seq.store(0, Ordering::SeqCst);
@@ -874,10 +865,6 @@ impl ServiceRuntime {
                         }
 
                         send_full_state = false;
-                        if is_first_fragment && full_state.is_some() {
-                            next_periodic_full_state_at =
-                                tokio::time::Instant::now() + FULL_STATE_RESYNC_INTERVAL;
-                        }
 
                         // Server accepted our reports — safe to drain.
                         self.state_reporter.drain_sent(resp_count).await;
