@@ -1040,11 +1040,15 @@ pub enum SandboxLookupResult {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+    };
 
     use async_trait::async_trait;
     use proto_api::executor_api_pb::{ContainerStatus, FunctionRef, SandboxMetadata};
     use tempfile::tempdir;
+    use tokio::sync::{Notify, mpsc::error::TryRecvError};
 
     use super::*;
     use crate::driver::ExitStatus;
@@ -1052,16 +1056,22 @@ mod tests {
     /// Mock process driver for testing
     struct MockProcessDriver {
         start_count: AtomicUsize,
+        kill_count: AtomicUsize,
         alive_result: AtomicBool,
         should_fail: AtomicBool,
+        block_kill: AtomicBool,
+        kill_gate: Notify,
     }
 
     impl MockProcessDriver {
         fn new() -> Self {
             Self {
                 start_count: AtomicUsize::new(0),
+                kill_count: AtomicUsize::new(0),
                 alive_result: AtomicBool::new(true),
                 should_fail: AtomicBool::new(false),
+                block_kill: AtomicBool::new(false),
+                kill_gate: Notify::new(),
             }
         }
 
@@ -1077,6 +1087,19 @@ mod tests {
 
         fn start_count(&self) -> usize {
             self.start_count.load(Ordering::SeqCst)
+        }
+
+        fn kill_count(&self) -> usize {
+            self.kill_count.load(Ordering::SeqCst)
+        }
+
+        fn set_block_kill(&self, block: bool) {
+            self.block_kill.store(block, Ordering::SeqCst);
+        }
+
+        fn unblock_kill(&self) {
+            self.block_kill.store(false, Ordering::SeqCst);
+            self.kill_gate.notify_waiters();
         }
     }
 
@@ -1103,6 +1126,10 @@ mod tests {
         }
 
         async fn kill(&self, _handle: &ProcessHandle) -> anyhow::Result<()> {
+            self.kill_count.fetch_add(1, Ordering::SeqCst);
+            if self.block_kill.load(Ordering::SeqCst) {
+                self.kill_gate.notified().await;
+            }
             Ok(())
         }
 
@@ -1259,13 +1286,17 @@ mod tests {
         Arc::new(StateFile::new(&path).await.unwrap())
     }
 
-    async fn create_test_manager() -> (Arc<MockProcessDriver>, FunctionContainerManager) {
+    async fn create_test_manager_with_rx() -> (
+        Arc<MockProcessDriver>,
+        FunctionContainerManager,
+        tokio::sync::mpsc::Receiver<CommandResponse>,
+    ) {
         let driver = Arc::new(MockProcessDriver::new());
         let resolver = Arc::new(DefaultImageResolver::new(None));
         let secrets = Arc::new(crate::secrets::NoopSecretsProvider::new());
         let metrics = create_test_metrics();
         let state_file = create_test_state_file().await;
-        let (container_state_tx, _container_state_rx) =
+        let (container_state_tx, container_state_rx) =
             tokio::sync::mpsc::channel::<CommandResponse>(32);
         let manager = FunctionContainerManager::new(
             driver.clone(),
@@ -1277,6 +1308,11 @@ mod tests {
             container_state_tx,
             None,
         );
+        (driver, manager, container_state_rx)
+    }
+
+    async fn create_test_manager() -> (Arc<MockProcessDriver>, FunctionContainerManager) {
+        let (driver, manager, _container_state_rx) = create_test_manager_with_rx().await;
         (driver, manager)
     }
 
@@ -1753,5 +1789,122 @@ mod tests {
             matches!(result, SandboxLookupResult::NotFound),
             "Unknown sandbox_id should return NotFound"
         );
+    }
+
+    #[tokio::test]
+    async fn test_dead_running_container_waits_for_kill_before_reporting_terminated() {
+        let (driver, manager, mut container_state_rx) = create_test_manager_with_rx().await;
+        let manager = Arc::new(manager);
+
+        driver.set_alive(false);
+        driver.set_block_kill(true);
+
+        {
+            let mut containers = manager.containers.write().await;
+            containers.insert(
+                "fe-dead-running".to_string(),
+                ManagedContainer {
+                    description: create_test_fe_description("fe-dead-running"),
+                    executor_id: "test-executor".to_string(),
+                    state: ContainerState::Running {
+                        handle: create_mock_handle("dead-running-handle"),
+                        daemon_client: create_mock_daemon_client(),
+                    },
+                    created_at: Instant::now(),
+                    started_at: Some(Instant::now() - Duration::from_secs(1)),
+                    sandbox_claimed_at: Some(Instant::now() - Duration::from_secs(1)),
+                },
+            );
+        }
+
+        let check_manager = manager.clone();
+        let check_task = tokio::spawn(async move {
+            check_manager.check_all_containers().await;
+        });
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert!(
+            matches!(container_state_rx.try_recv(), Err(TryRecvError::Empty)),
+            "ContainerTerminated was sent before cleanup completed"
+        );
+        assert_eq!(
+            driver.kill_count(),
+            1,
+            "dead running container must be cleaned up before termination is reported"
+        );
+
+        driver.unblock_kill();
+        check_task.await.unwrap();
+
+        let response = container_state_rx
+            .try_recv()
+            .expect("ContainerTerminated should be sent after cleanup");
+        match response.response {
+            Some(proto_api::executor_api_pb::command_response::Response::ContainerTerminated(
+                terminated,
+            )) => {
+                assert_eq!(terminated.container_id, "fe-dead-running");
+            }
+            other => panic!("expected ContainerTerminated, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_dead_stopping_container_waits_for_kill_before_reporting_terminated() {
+        let (driver, manager, mut container_state_rx) = create_test_manager_with_rx().await;
+        let manager = Arc::new(manager);
+
+        driver.set_alive(false);
+        driver.set_block_kill(true);
+
+        {
+            let mut containers = manager.containers.write().await;
+            containers.insert(
+                "fe-dead-stopping".to_string(),
+                ManagedContainer {
+                    description: create_test_fe_description("fe-dead-stopping"),
+                    executor_id: "test-executor".to_string(),
+                    state: ContainerState::Stopping {
+                        handle: create_mock_handle("dead-stopping-handle"),
+                        daemon_client: None,
+                        reason: ContainerTerminationReason::FunctionCancelled,
+                    },
+                    created_at: Instant::now(),
+                    started_at: Some(Instant::now() - Duration::from_secs(1)),
+                    sandbox_claimed_at: Some(Instant::now() - Duration::from_secs(1)),
+                },
+            );
+        }
+
+        let check_manager = manager.clone();
+        let check_task = tokio::spawn(async move {
+            check_manager.check_all_containers().await;
+        });
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert!(
+            matches!(container_state_rx.try_recv(), Err(TryRecvError::Empty)),
+            "ContainerTerminated was sent before cleanup completed"
+        );
+        assert_eq!(
+            driver.kill_count(),
+            1,
+            "dead stopping container must be cleaned up before termination is reported"
+        );
+
+        driver.unblock_kill();
+        check_task.await.unwrap();
+
+        let response = container_state_rx
+            .try_recv()
+            .expect("ContainerTerminated should be sent after cleanup");
+        match response.response {
+            Some(proto_api::executor_api_pb::command_response::Response::ContainerTerminated(
+                terminated,
+            )) => {
+                assert_eq!(terminated.container_id, "fe-dead-stopping");
+            }
+            other => panic!("expected ContainerTerminated, got {other:?}"),
+        }
     }
 }

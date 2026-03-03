@@ -39,7 +39,7 @@ impl FunctionContainerManager {
     }
 
     /// Check all running containers to see if they're still alive.
-    async fn check_all_containers(&self) {
+    pub(super) async fn check_all_containers(&self) {
         let mut containers = self.containers.write().await;
         let ids: Vec<String> = containers.keys().cloned().collect();
 
@@ -81,7 +81,24 @@ impl FunctionContainerManager {
         span: &tracing::Span,
     ) {
         if let Ok(false) = self.driver.alive(handle).await {
-            tracing::info!(parent: span, ?reason, "Container stopped");
+            // Even if the process is already dead, run driver cleanup so VM
+            // network/LV resources are released before reporting termination.
+            if let Err(e) = network_rules::remove_rules(&handle.id, &handle.container_ip) {
+                tracing::warn!(
+                    parent: span,
+                    error = ?e,
+                    "Failed to remove network rules"
+                );
+            }
+            if let Err(e) = self.driver.kill(handle).await {
+                tracing::warn!(
+                    parent: span,
+                    error = ?e,
+                    "Failed to cleanup stopped container"
+                );
+            }
+
+            tracing::info!(parent: span, ?reason, "Container stopped and cleaned up");
             if container
                 .transition_to_terminated(reason)
                 .inspect_err(
@@ -165,6 +182,20 @@ impl FunctionContainerManager {
                     reason = ?reason,
                     "Container is no longer alive"
                 );
+                if let Err(e) = network_rules::remove_rules(&handle.id, &handle.container_ip) {
+                    tracing::warn!(
+                        parent: span,
+                        error = ?e,
+                        "Failed to remove network rules"
+                    );
+                }
+                if let Err(e) = self.driver.kill(handle).await {
+                    tracing::warn!(
+                        parent: span,
+                        error = ?e,
+                        "Failed to cleanup dead container"
+                    );
+                }
                 if container
                     .transition_to_terminated(reason)
                     .inspect_err(
