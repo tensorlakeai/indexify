@@ -5,11 +5,7 @@ use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
 
 use super::{
-    BlobStorageRegistry,
-    ExecutorId,
-    IndexifyState,
-    RequestPayload,
-    StateMachineUpdateRequest,
+    BlobStorageRegistry, ExecutorId, IndexifyState, RequestPayload, StateMachineUpdateRequest,
     executor_api_pb,
 };
 use crate::{data_model::FunctionCallId, proto_convert::to_internal_compute_op};
@@ -117,6 +113,9 @@ impl FunctionCallResultRouter {
         parent_allocation_id: String,
         original_function_call_id: String,
         executor_id: ExecutorId,
+        namespace: &str,
+        application: &str,
+        request_id: &str,
     ) -> Result<RegistrationOutcome> {
         let existing = {
             let pending = self.pending.read().await;
@@ -140,8 +139,8 @@ impl FunctionCallResultRouter {
 
         match existing {
             Some(existing_route)
-                if existing_route.parent_allocation_id == parent_allocation_id &&
-                    existing_route.executor_id == executor_id =>
+                if existing_route.parent_allocation_id == parent_allocation_id
+                    && existing_route.executor_id == executor_id =>
             {
                 self.pending
                     .write()
@@ -149,6 +148,53 @@ impl FunctionCallResultRouter {
                     .entry(function_call_id)
                     .or_insert(existing_route);
                 Ok(RegistrationOutcome::Unchanged)
+            }
+            Some(existing_route)
+                if existing_route.original_function_call_id != function_call_id =>
+            {
+                // Tail-call route ownership has already been rebound by
+                // try_route_result() to a parent allocation that is waiting
+                // on this downstream function_call_id. Do not allow a
+                // subsequently ingested child CallFunction log to clobber that
+                // live parent route.
+                let existing_parent_alive = self
+                    .is_allocation_alive_for_request(
+                        namespace,
+                        application,
+                        request_id,
+                        &existing_route.parent_allocation_id,
+                    )
+                    .await?;
+                if existing_parent_alive {
+                    self.pending
+                        .write()
+                        .await
+                        .entry(function_call_id)
+                        .or_insert(existing_route);
+                    return Ok(RegistrationOutcome::Unchanged);
+                }
+
+                // Existing tail-call owner is stale/dead. Rebind to the new
+                // parent allocation attempt while preserving the original
+                // function_call_id expected by the parent FE watcher.
+                let preserved_original = existing_route.original_function_call_id;
+                self.indexify_state
+                    .upsert_function_call_route(
+                        &function_call_id,
+                        &parent_allocation_id,
+                        &preserved_original,
+                        &executor_id,
+                    )
+                    .await?;
+                self.pending.write().await.insert(
+                    function_call_id,
+                    PendingFunctionCall {
+                        parent_allocation_id,
+                        original_function_call_id: preserved_original,
+                        executor_id,
+                    },
+                );
+                Ok(RegistrationOutcome::Replaced)
             }
             Some(_) => {
                 self.indexify_state
@@ -181,6 +227,23 @@ impl FunctionCallResultRouter {
                 Ok(RegistrationOutcome::Inserted)
             }
         }
+    }
+
+    async fn is_allocation_alive_for_request(
+        &self,
+        namespace: &str,
+        application: &str,
+        request_id: &str,
+        allocation_id: &str,
+    ) -> Result<bool> {
+        let key = crate::data_model::Allocation::key_from(
+            namespace,
+            application,
+            request_id,
+            allocation_id,
+        );
+        let allocation = self.indexify_state.reader().get_allocation(&key).await?;
+        Ok(matches!(allocation, Some(a) if !a.is_terminal()))
     }
 
     pub async fn purge_executor(&self, executor_id: &ExecutorId) -> Result<usize> {
@@ -240,6 +303,24 @@ pub(super) async fn handle_log_entry(
 
     match &log_entry.entry {
         Some(executor_api_pb::allocation_log_entry::Entry::CallFunction(call)) => {
+            // Extract namespace/application/request_id from the proto message.
+            // Required by both routing registration and state-machine updates.
+            let namespace = call
+                .namespace
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("CallFunction missing namespace"))?
+                .clone();
+            let application = call
+                .application
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("CallFunction missing application"))?
+                .clone();
+            let request_id = call
+                .request_id
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("CallFunction missing request_id"))?
+                .clone();
+
             // Register in router so results get pushed back to this executor.
             // We register each individual function call ID from the updates,
             // not just the root_function_call_id. When a CallFunction contains
@@ -248,9 +329,9 @@ pub(super) async fn handle_log_entry(
             // must match on those individual IDs to route results back.
             if let Some(ref updates) = call.updates {
                 for update in &updates.updates {
-                    if let Some(ref op) = update.op &&
-                        let executor_api_pb::execution_plan_update::Op::FunctionCall(fc) = op &&
-                        let Some(ref individual_fc_id) = fc.id
+                    if let Some(ref op) = update.op
+                        && let executor_api_pb::execution_plan_update::Op::FunctionCall(fc) = op
+                        && let Some(ref individual_fc_id) = fc.id
                     {
                         match router
                             .register_from_parent(
@@ -258,6 +339,9 @@ pub(super) async fn handle_log_entry(
                                 allocation_id.clone(),
                                 individual_fc_id.clone(),
                                 executor_id.clone(),
+                                &namespace,
+                                &application,
+                                &request_id,
                             )
                             .await?
                         {
@@ -283,8 +367,8 @@ pub(super) async fn handle_log_entry(
                                     executor_id = executor_id.get(),
                                     allocation_id = %allocation_id,
                                     function_call_id = %individual_fc_id,
-                                    "heartbeat: function call already registered for same \
-                                     parent chain, keeping existing route"
+                                    "heartbeat: function call already registered, keeping \
+                                     existing route"
                                 );
                             }
                         }
@@ -292,22 +376,6 @@ pub(super) async fn handle_log_entry(
                 }
             }
 
-            // Extract namespace/application/request_id from the proto message
-            let namespace = call
-                .namespace
-                .as_ref()
-                .ok_or_else(|| anyhow::anyhow!("CallFunction missing namespace"))?
-                .clone();
-            let application = call
-                .application
-                .as_ref()
-                .ok_or_else(|| anyhow::anyhow!("CallFunction missing application"))?
-                .clone();
-            let request_id = call
-                .request_id
-                .as_ref()
-                .ok_or_else(|| anyhow::anyhow!("CallFunction missing request_id"))?
-                .clone();
             let source_function_call_id = call
                 .source_function_call_id
                 .as_ref()
@@ -407,6 +475,23 @@ pub(super) async fn try_route_result(
     };
 
     if let Some(pending) = pending {
+        if !is_parent_allocation_alive(
+            indexify_state,
+            &pending.parent_allocation_id,
+            completed.function.as_ref(),
+            completed.request_id.as_deref(),
+        )
+        .await?
+        {
+            info!(
+                function_call_id = %function_call_id,
+                parent_allocation_id = %pending.parent_allocation_id,
+                executor_id = pending.executor_id.get(),
+                "try_route_result: parent allocation not alive; dropping routed result and route"
+            );
+            return Ok(());
+        }
+
         match &completed.return_value {
             Some(executor_api_pb::allocation_completed::ReturnValue::Value(dp)) => {
                 debug!(
@@ -603,6 +688,23 @@ pub(super) async fn try_route_failure(
     };
 
     if let Some(pending) = pending {
+        if !is_parent_allocation_alive(
+            indexify_state,
+            &pending.parent_allocation_id,
+            failed.function.as_ref(),
+            failed.request_id.as_deref(),
+        )
+        .await?
+        {
+            info!(
+                function_call_id = %function_call_id,
+                parent_allocation_id = %pending.parent_allocation_id,
+                executor_id = pending.executor_id.get(),
+                "try_route_failure: parent allocation not alive; dropping routed failure and route"
+            );
+            return Ok(());
+        }
+
         let log_entry = executor_api_pb::AllocationLogEntry {
             allocation_id: pending.parent_allocation_id.clone(),
             clock: 0,
@@ -713,10 +815,87 @@ async fn push_result_to_executor(
     Ok(())
 }
 
+async fn is_parent_allocation_alive(
+    indexify_state: &Arc<IndexifyState>,
+    parent_allocation_id: &str,
+    function: Option<&executor_api_pb::FunctionRef>,
+    request_id: Option<&str>,
+) -> Result<bool> {
+    let Some(function) = function else {
+        return Ok(false);
+    };
+    let Some(namespace) = function.namespace.as_deref() else {
+        return Ok(false);
+    };
+    let Some(application) = function.application_name.as_deref() else {
+        return Ok(false);
+    };
+    let Some(request_id) = request_id else {
+        return Ok(false);
+    };
+
+    let parent_key = crate::data_model::Allocation::key_from(
+        namespace,
+        application,
+        request_id,
+        parent_allocation_id,
+    );
+    let parent = indexify_state.reader().get_allocation(&parent_key).await?;
+
+    Ok(matches!(parent, Some(allocation) if !allocation.is_terminal()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state_store::test_state_store::TestStateStore;
+    use crate::{
+        data_model::{AllocationBuilder, AllocationTarget, ContainerId, FunctionCallId},
+        state_store::{
+            requests::{
+                RequestPayload, SchedulerUpdatePayload, SchedulerUpdateRequest,
+                StateMachineUpdateRequest,
+            },
+            test_state_store::TestStateStore,
+        },
+    };
+
+    async fn insert_allocation(
+        store: &TestStateStore,
+        executor: &ExecutorId,
+        namespace: &str,
+        application: &str,
+        request_id: &str,
+        function_call_id: &str,
+        outcome: crate::data_model::FunctionRunOutcome,
+    ) -> String {
+        let allocation = AllocationBuilder::default()
+            .target(AllocationTarget::new(
+                executor.clone(),
+                ContainerId::new(format!("container-{function_call_id}")),
+            ))
+            .function_call_id(FunctionCallId::from(function_call_id.to_string()))
+            .namespace(namespace.to_string())
+            .application(application.to_string())
+            .application_version("v1".to_string())
+            .function("fn".to_string())
+            .request_id(request_id.to_string())
+            .outcome(outcome)
+            .input_args(vec![])
+            .call_metadata(bytes::Bytes::new())
+            .build()
+            .unwrap();
+        let allocation_id = allocation.id.to_string();
+        let mut update = SchedulerUpdateRequest::default();
+        update.new_allocations.push(allocation);
+        store
+            .indexify_state
+            .write(StateMachineUpdateRequest {
+                payload: RequestPayload::SchedulerUpdate(SchedulerUpdatePayload::new(update)),
+            })
+            .await
+            .unwrap();
+        allocation_id
+    }
 
     #[tokio::test]
     async fn test_register_from_parent_replaces_stale_entry_on_reschedule() {
@@ -731,6 +910,9 @@ mod tests {
                 "alloc-a".to_string(),
                 "fc-1".to_string(),
                 executor_a,
+                "ns",
+                "app",
+                "req-1",
             )
             .await
             .unwrap();
@@ -742,6 +924,9 @@ mod tests {
                 "alloc-b".to_string(),
                 "fc-1".to_string(),
                 executor_b.clone(),
+                "ns",
+                "app",
+                "req-1",
             )
             .await
             .unwrap();
@@ -781,6 +966,9 @@ mod tests {
                 "alloc-a".to_string(),
                 "fc-1".to_string(),
                 executor,
+                "ns",
+                "app",
+                "req-1",
             )
             .await
             .unwrap();
@@ -792,6 +980,132 @@ mod tests {
             .unwrap()
             .expect("entry should exist");
         assert_eq!(entry.parent_allocation_id, "alloc-a");
+        assert_eq!(entry.original_function_call_id, "root-fc");
+    }
+
+    #[tokio::test]
+    async fn test_register_from_parent_does_not_clobber_live_tail_call_route() {
+        let store = TestStateStore::new().await.unwrap();
+        let router = FunctionCallResultRouter::new(store.indexify_state.clone());
+        let executor = ExecutorId::new("executor-a".to_string());
+        let namespace = "ns";
+        let application = "app";
+        let request_id = "req-1";
+
+        let parent_allocation_id = insert_allocation(
+            &store,
+            &executor,
+            namespace,
+            application,
+            request_id,
+            "parent-fc",
+            crate::data_model::FunctionRunOutcome::Unknown,
+        )
+        .await;
+        let child_allocation_id = insert_allocation(
+            &store,
+            &executor,
+            namespace,
+            application,
+            request_id,
+            "child-fc",
+            crate::data_model::FunctionRunOutcome::Unknown,
+        )
+        .await;
+
+        router
+            .register(
+                "downstream-fc".to_string(),
+                parent_allocation_id.clone(),
+                "root-fc".to_string(),
+                executor.clone(),
+            )
+            .await
+            .unwrap();
+
+        let outcome = router
+            .register_from_parent(
+                "downstream-fc".to_string(),
+                child_allocation_id,
+                "downstream-fc".to_string(),
+                executor,
+                namespace,
+                application,
+                request_id,
+            )
+            .await
+            .unwrap();
+        assert_eq!(outcome, RegistrationOutcome::Unchanged);
+
+        let entry = router
+            .take("downstream-fc")
+            .await
+            .unwrap()
+            .expect("entry should exist");
+        assert_eq!(entry.parent_allocation_id, parent_allocation_id);
+        assert_eq!(entry.original_function_call_id, "root-fc");
+    }
+
+    #[tokio::test]
+    async fn test_register_from_parent_rebinds_stale_tail_call_owner_preserving_original() {
+        let store = TestStateStore::new().await.unwrap();
+        let router = FunctionCallResultRouter::new(store.indexify_state.clone());
+        let executor = ExecutorId::new("executor-a".to_string());
+        let namespace = "ns";
+        let application = "app";
+        let request_id = "req-1";
+
+        let stale_parent_allocation_id = insert_allocation(
+            &store,
+            &executor,
+            namespace,
+            application,
+            request_id,
+            "stale-parent-fc",
+            crate::data_model::FunctionRunOutcome::Success,
+        )
+        .await;
+        let replacement_parent_allocation_id = insert_allocation(
+            &store,
+            &executor,
+            namespace,
+            application,
+            request_id,
+            "replacement-parent-fc",
+            crate::data_model::FunctionRunOutcome::Unknown,
+        )
+        .await;
+
+        router
+            .register(
+                "downstream-fc".to_string(),
+                stale_parent_allocation_id,
+                "root-fc".to_string(),
+                executor.clone(),
+            )
+            .await
+            .unwrap();
+
+        let outcome = router
+            .register_from_parent(
+                "downstream-fc".to_string(),
+                replacement_parent_allocation_id.clone(),
+                "downstream-fc".to_string(),
+                executor,
+                namespace,
+                application,
+                request_id,
+            )
+            .await
+            .unwrap();
+        assert_eq!(outcome, RegistrationOutcome::Replaced);
+
+        let entry = router
+            .take("downstream-fc")
+            .await
+            .unwrap()
+            .expect("entry should exist");
+        assert_eq!(entry.parent_allocation_id, replacement_parent_allocation_id);
         assert_eq!(entry.original_function_call_id, "root-fc");
     }
 
@@ -868,5 +1182,133 @@ mod tests {
 
         let none = router.take("fc-1").await.unwrap();
         assert!(none.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_try_route_result_drops_when_parent_allocation_not_alive_and_clears_route() {
+        let store = TestStateStore::new().await.unwrap();
+        let router = Arc::new(FunctionCallResultRouter::new(store.indexify_state.clone()));
+        let executor = ExecutorId::new("executor-a".to_string());
+        let function_call_id = "fc-drop-parent-missing";
+
+        store
+            .indexify_state
+            .register_executor_connection(&executor)
+            .await;
+
+        router
+            .register(
+                function_call_id.to_string(),
+                "parent-missing".to_string(),
+                function_call_id.to_string(),
+                executor.clone(),
+            )
+            .await
+            .unwrap();
+
+        let completed = executor_api_pb::AllocationCompleted {
+            allocation_id: "child-alloc-1".to_string(),
+            function: Some(executor_api_pb::FunctionRef {
+                namespace: Some("ns".to_string()),
+                application_name: Some("app".to_string()),
+                function_name: Some("child-fn".to_string()),
+                application_version: Some("v1".to_string()),
+            }),
+            function_call_id: Some(function_call_id.to_string()),
+            request_id: Some("req-1".to_string()),
+            return_value: None,
+            execution_duration_ms: None,
+        };
+
+        try_route_result(&router, function_call_id, &completed, &store.indexify_state)
+            .await
+            .unwrap();
+
+        let conn = {
+            let connections = store.indexify_state.executor_connections.read().await;
+            connections.get(&executor).cloned().unwrap()
+        };
+        assert!(
+            conn.clone_results().await.is_empty(),
+            "parent-missing route should be dropped without enqueuing a result"
+        );
+        assert!(
+            router.take(function_call_id).await.unwrap().is_none(),
+            "route should be removed after dropping due to missing parent allocation"
+        );
+        assert!(
+            store
+                .indexify_state
+                .get_function_call_route(function_call_id)
+                .await
+                .unwrap()
+                .is_none(),
+            "persisted route should also be cleared"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_try_route_failure_drops_when_parent_allocation_not_alive_and_clears_route() {
+        let store = TestStateStore::new().await.unwrap();
+        let router = Arc::new(FunctionCallResultRouter::new(store.indexify_state.clone()));
+        let executor = ExecutorId::new("executor-a".to_string());
+        let function_call_id = "fc-drop-parent-missing-failure";
+
+        store
+            .indexify_state
+            .register_executor_connection(&executor)
+            .await;
+
+        router
+            .register(
+                function_call_id.to_string(),
+                "parent-missing".to_string(),
+                function_call_id.to_string(),
+                executor.clone(),
+            )
+            .await
+            .unwrap();
+
+        let failed = executor_api_pb::AllocationFailed {
+            allocation_id: "child-alloc-2".to_string(),
+            function: Some(executor_api_pb::FunctionRef {
+                namespace: Some("ns".to_string()),
+                application_name: Some("app".to_string()),
+                function_name: Some("child-fn".to_string()),
+                application_version: Some("v1".to_string()),
+            }),
+            function_call_id: Some(function_call_id.to_string()),
+            request_id: Some("req-1".to_string()),
+            reason: executor_api_pb::AllocationFailureReason::FunctionError.into(),
+            execution_duration_ms: None,
+            request_error: None,
+            container_id: None,
+        };
+
+        try_route_failure(&router, function_call_id, &failed, &store.indexify_state)
+            .await
+            .unwrap();
+
+        let conn = {
+            let connections = store.indexify_state.executor_connections.read().await;
+            connections.get(&executor).cloned().unwrap()
+        };
+        assert!(
+            conn.clone_results().await.is_empty(),
+            "parent-missing route should be dropped without enqueuing a failure"
+        );
+        assert!(
+            router.take(function_call_id).await.unwrap().is_none(),
+            "route should be removed after dropping due to missing parent allocation"
+        );
+        assert!(
+            store
+                .indexify_state
+                .get_function_call_route(function_call_id)
+                .await
+                .unwrap()
+                .is_none(),
+            "persisted route should also be cleared"
+        );
     }
 }
