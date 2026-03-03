@@ -38,6 +38,7 @@ use crate::{
     executors::{EXECUTOR_TIMEOUT, STARTUP_EXECUTOR_TIMEOUT},
     service::Service,
     state_store::{
+        IndexifyState,
         driver::rocksdb::RocksDBConfig,
         executor_connection::MAX_POLL_RESPONSE_BYTES,
         requests::{
@@ -181,6 +182,39 @@ async fn heartbeat_full_state(api: &ExecutorAPIService, executor_id: &str) -> Re
     )
     .await?;
     Ok(())
+}
+
+async fn seed_allocation(
+    indexify_state: &Arc<IndexifyState>,
+    executor_id: &str,
+    container_id: &str,
+    function_call_id: &str,
+    function_name: &str,
+) -> Result<String> {
+    let allocation = data_model::AllocationBuilder::default()
+        .target(data_model::AllocationTarget::new(
+            data_model::ExecutorId::from(executor_id),
+            data_model::ContainerId::new(container_id.to_string()),
+        ))
+        .function_call_id(data_model::FunctionCallId::from(function_call_id))
+        .namespace("ns".to_string())
+        .application("app".to_string())
+        .application_version("v1".to_string())
+        .function(function_name.to_string())
+        .request_id("req-1".to_string())
+        .outcome(data_model::FunctionRunOutcome::Unknown)
+        .input_args(vec![])
+        .call_metadata(bytes::Bytes::new())
+        .build()?;
+    let allocation_id = allocation.id.to_string();
+    let mut update = SchedulerUpdateRequest::default();
+    update.new_allocations.push(allocation);
+    indexify_state
+        .write(StateMachineUpdateRequest {
+            payload: RequestPayload::SchedulerUpdate(SchedulerUpdatePayload::new(update)),
+        })
+        .await?;
+    Ok(allocation_id)
 }
 
 #[tokio::test]
@@ -339,6 +373,14 @@ async fn test_routed_result_dropped_when_parent_connection_missing() -> Result<(
     let child_fc = "child-fc-connection-gap";
 
     heartbeat_full_state(&api, executor_id).await?;
+    let parent_allocation_id = seed_allocation(
+        &test_service.service.indexify_state,
+        executor_id,
+        "parent-container-connection-gap",
+        "parent-fc-connection-gap",
+        "parent-fn",
+    )
+    .await?;
 
     ExecutorApi::heartbeat(
         &api,
@@ -349,7 +391,7 @@ async fn test_routed_result_dropped_when_parent_connection_missing() -> Result<(
             command_responses: vec![],
             allocation_outcomes: vec![],
             allocation_log_entries: vec![make_call_function_log_entry(
-                "parent-alloc-connection-gap",
+                &parent_allocation_id,
                 child_fc,
             )],
         }),
@@ -367,31 +409,14 @@ async fn test_routed_result_dropped_when_parent_connection_missing() -> Result<(
     );
 
     // Seed child allocation so completion ingestion succeeds.
-    let child_allocation = data_model::AllocationBuilder::default()
-        .target(data_model::AllocationTarget::new(
-            data_model::ExecutorId::from(executor_id),
-            data_model::ContainerId::new("child-container-connection-gap".to_string()),
-        ))
-        .function_call_id(data_model::FunctionCallId::from(child_fc))
-        .namespace("ns".to_string())
-        .application("app".to_string())
-        .application_version("v1".to_string())
-        .function("child-fn".to_string())
-        .request_id("req-1".to_string())
-        .outcome(data_model::FunctionRunOutcome::Unknown)
-        .input_args(vec![])
-        .call_metadata(bytes::Bytes::new())
-        .build()?;
-    let child_allocation_id = child_allocation.id.to_string();
-    let mut update = SchedulerUpdateRequest::default();
-    update.new_allocations.push(child_allocation);
-    test_service
-        .service
-        .indexify_state
-        .write(StateMachineUpdateRequest {
-            payload: RequestPayload::SchedulerUpdate(SchedulerUpdatePayload::new(update)),
-        })
-        .await?;
+    let child_allocation_id = seed_allocation(
+        &test_service.service.indexify_state,
+        executor_id,
+        "child-container-connection-gap",
+        child_fc,
+        "child-fn",
+    )
+    .await?;
 
     // Simulate a transient parent connection loss exactly when child outcome
     // arrives.
@@ -452,6 +477,14 @@ async fn test_malformed_updates_routing_does_not_fail_heartbeat() -> Result<()> 
     let child_fc = "child-fc-malformed-updates-route";
 
     heartbeat_full_state(&api, executor_id).await?;
+    let parent_allocation_id = seed_allocation(
+        &test_service.service.indexify_state,
+        executor_id,
+        "parent-container-malformed-updates",
+        "parent-fc-malformed-updates",
+        "parent-fn",
+    )
+    .await?;
     ExecutorApi::heartbeat(
         &api,
         Request::new(HeartbeatRequest {
@@ -461,38 +494,21 @@ async fn test_malformed_updates_routing_does_not_fail_heartbeat() -> Result<()> 
             command_responses: vec![],
             allocation_outcomes: vec![],
             allocation_log_entries: vec![make_call_function_log_entry(
-                "parent-alloc-malformed-updates",
+                &parent_allocation_id,
                 child_fc,
             )],
         }),
     )
     .await?;
 
-    let child_allocation = data_model::AllocationBuilder::default()
-        .target(data_model::AllocationTarget::new(
-            data_model::ExecutorId::from(executor_id),
-            data_model::ContainerId::new("child-container-malformed-updates".to_string()),
-        ))
-        .function_call_id(data_model::FunctionCallId::from(child_fc))
-        .namespace("ns".to_string())
-        .application("app".to_string())
-        .application_version("v1".to_string())
-        .function("child-fn".to_string())
-        .request_id("req-1".to_string())
-        .outcome(data_model::FunctionRunOutcome::Unknown)
-        .input_args(vec![])
-        .call_metadata(bytes::Bytes::new())
-        .build()?;
-    let child_allocation_id = child_allocation.id.to_string();
-    let mut update = SchedulerUpdateRequest::default();
-    update.new_allocations.push(child_allocation);
-    test_service
-        .service
-        .indexify_state
-        .write(StateMachineUpdateRequest {
-            payload: RequestPayload::SchedulerUpdate(SchedulerUpdatePayload::new(update)),
-        })
-        .await?;
+    let child_allocation_id = seed_allocation(
+        &test_service.service.indexify_state,
+        executor_id,
+        "child-container-malformed-updates",
+        child_fc,
+        "child-fn",
+    )
+    .await?;
 
     let heartbeat = ExecutorApi::heartbeat(
         &api,
@@ -629,6 +645,14 @@ async fn test_router_recreation_still_routes_results_from_persisted_routes() -> 
     let child_fc = "child-fc-router-restart-sim";
 
     heartbeat_full_state(&api1, executor_id).await?;
+    let parent_allocation_id = seed_allocation(
+        &test_service.service.indexify_state,
+        executor_id,
+        "parent-container-restart-sim",
+        "parent-fc-restart-sim",
+        "parent-fn",
+    )
+    .await?;
     ExecutorApi::heartbeat(
         &api1,
         Request::new(HeartbeatRequest {
@@ -638,7 +662,7 @@ async fn test_router_recreation_still_routes_results_from_persisted_routes() -> 
             command_responses: vec![],
             allocation_outcomes: vec![],
             allocation_log_entries: vec![make_call_function_log_entry(
-                "parent-alloc-restart-sim",
+                &parent_allocation_id,
                 child_fc,
             )],
         }),
@@ -656,31 +680,14 @@ async fn test_router_recreation_still_routes_results_from_persisted_routes() -> 
     );
 
     // Seed child allocation so completion ingestion succeeds.
-    let child_allocation = data_model::AllocationBuilder::default()
-        .target(data_model::AllocationTarget::new(
-            data_model::ExecutorId::from(executor_id),
-            data_model::ContainerId::new("child-container".to_string()),
-        ))
-        .function_call_id(data_model::FunctionCallId::from(child_fc))
-        .namespace("ns".to_string())
-        .application("app".to_string())
-        .application_version("v1".to_string())
-        .function("child-fn".to_string())
-        .request_id("req-1".to_string())
-        .outcome(data_model::FunctionRunOutcome::Unknown)
-        .input_args(vec![])
-        .call_metadata(bytes::Bytes::new())
-        .build()?;
-    let child_allocation_id = child_allocation.id.to_string();
-    let mut update = SchedulerUpdateRequest::default();
-    update.new_allocations.push(child_allocation);
-    test_service
-        .service
-        .indexify_state
-        .write(StateMachineUpdateRequest {
-            payload: RequestPayload::SchedulerUpdate(SchedulerUpdatePayload::new(update)),
-        })
-        .await?;
+    let child_allocation_id = seed_allocation(
+        &test_service.service.indexify_state,
+        executor_id,
+        "child-container-restart-sim",
+        child_fc,
+        "child-fn",
+    )
+    .await?;
 
     // Recreate the API service/router over the same IndexifyState to simulate
     // control-plane process restart with persistent routes intact.
@@ -769,6 +776,14 @@ async fn test_service_restart_still_routes_results_from_persisted_routes() -> Re
     );
 
     heartbeat_full_state(&api1, executor_id).await?;
+    let parent_allocation_id = seed_allocation(
+        &service1.indexify_state,
+        executor_id,
+        "parent-container-restart-real",
+        "parent-fc-restart-real",
+        "parent-fn",
+    )
+    .await?;
     ExecutorApi::heartbeat(
         &api1,
         Request::new(HeartbeatRequest {
@@ -778,7 +793,7 @@ async fn test_service_restart_still_routes_results_from_persisted_routes() -> Re
             command_responses: vec![],
             allocation_outcomes: vec![],
             allocation_log_entries: vec![make_call_function_log_entry(
-                "parent-alloc-restart-real",
+                &parent_allocation_id,
                 child_fc,
             )],
         }),
@@ -795,30 +810,14 @@ async fn test_service_restart_still_routes_results_from_persisted_routes() -> Re
     );
 
     // Seed child allocation so completion ingestion succeeds.
-    let child_allocation = data_model::AllocationBuilder::default()
-        .target(data_model::AllocationTarget::new(
-            data_model::ExecutorId::from(executor_id),
-            data_model::ContainerId::new("child-container-restart-real".to_string()),
-        ))
-        .function_call_id(data_model::FunctionCallId::from(child_fc))
-        .namespace("ns".to_string())
-        .application("app".to_string())
-        .application_version("v1".to_string())
-        .function("child-fn".to_string())
-        .request_id("req-1".to_string())
-        .outcome(data_model::FunctionRunOutcome::Unknown)
-        .input_args(vec![])
-        .call_metadata(bytes::Bytes::new())
-        .build()?;
-    let child_allocation_id = child_allocation.id.to_string();
-    let mut update = SchedulerUpdateRequest::default();
-    update.new_allocations.push(child_allocation);
-    service1
-        .indexify_state
-        .write(StateMachineUpdateRequest {
-            payload: RequestPayload::SchedulerUpdate(SchedulerUpdatePayload::new(update)),
-        })
-        .await?;
+    let child_allocation_id = seed_allocation(
+        &service1.indexify_state,
+        executor_id,
+        "child-container-restart-real",
+        child_fc,
+        "child-fn",
+    )
+    .await?;
 
     drop(api1);
     drop(service1);
