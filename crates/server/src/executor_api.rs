@@ -1637,6 +1637,100 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_scheduler_update_emits_remove_before_add_for_replacement() {
+        let test_service = TestService::new().await.unwrap();
+        let executor_id = crate::data_model::ExecutorId::from("executor-remove-before-add");
+
+        let old_container = crate::data_model::ContainerBuilder::default()
+            .id(crate::data_model::ContainerId::new(
+                "container-old-remove-first".to_string(),
+            ))
+            .namespace("ns".to_string())
+            .application_name("app".to_string())
+            .function_name("fn-old".to_string())
+            .version("v1".to_string())
+            .state(crate::data_model::ContainerState::Running)
+            .resources(crate::data_model::ContainerResources {
+                cpu_ms_per_sec: 1000,
+                memory_mb: 512,
+                ephemeral_disk_mb: 1024,
+                gpu: None,
+            })
+            .max_concurrency(1)
+            .container_type(crate::data_model::ContainerType::Function)
+            .build()
+            .unwrap();
+        let new_container = crate::data_model::ContainerBuilder::default()
+            .id(crate::data_model::ContainerId::new(
+                "container-new-add-second".to_string(),
+            ))
+            .namespace("ns".to_string())
+            .application_name("app".to_string())
+            .function_name("fn-new".to_string())
+            .version("v1".to_string())
+            .state(crate::data_model::ContainerState::Pending)
+            .resources(crate::data_model::ContainerResources {
+                cpu_ms_per_sec: 1000,
+                memory_mb: 512,
+                ephemeral_disk_mb: 1024,
+                gpu: None,
+            })
+            .max_concurrency(1)
+            .container_type(crate::data_model::ContainerType::Function)
+            .build()
+            .unwrap();
+
+        let old_meta = crate::data_model::ContainerServerMetadata::new(
+            executor_id.clone(),
+            old_container.clone(),
+            crate::data_model::ContainerState::Terminated {
+                reason: crate::data_model::ContainerTerminationReason::FunctionCancelled,
+            },
+        );
+        let new_meta = crate::data_model::ContainerServerMetadata::new(
+            executor_id.clone(),
+            new_container.clone(),
+            crate::data_model::ContainerState::Pending,
+        );
+
+        let mut update = crate::state_store::requests::SchedulerUpdateRequest::default();
+        update
+            .containers
+            .insert(old_container.id.clone(), Box::new(old_meta));
+        update
+            .containers
+            .insert(new_container.id.clone(), Box::new(new_meta));
+
+        let indexes_guard = test_service.service.indexify_state.app_state.load();
+        test_service
+            .service
+            .executor_manager
+            .rebuild_scheduler_command_intents(&mut update, &indexes_guard.indexes);
+
+        assert_eq!(
+            update.scheduler_command_intents.len(),
+            2,
+            "expected one RemoveContainer and one AddContainer intent"
+        );
+        assert!(
+            matches!(
+                update.scheduler_command_intents[0].command.command,
+                Some(executor_api_pb::command::Command::RemoveContainer(_))
+            ),
+            "expected first command to be RemoveContainer, got {:?}",
+            update.scheduler_command_intents[0].command
+        );
+        assert!(
+            matches!(
+                update.scheduler_command_intents[1].command.command,
+                Some(executor_api_pb::command::Command::AddContainer(_))
+            ),
+            "expected second command to be AddContainer, got {:?}",
+            update.scheduler_command_intents[1].command
+        );
+    }
+
+    #[tokio::test]
     async fn test_scheduler_update_emits_update_for_claimed_warm_sandbox() {
         let test_service = TestService::new().await.unwrap();
         let api = super::ExecutorAPIService::new(

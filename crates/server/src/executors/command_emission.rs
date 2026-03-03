@@ -15,6 +15,38 @@ use crate::{
 };
 
 impl ExecutorManager {
+    fn container_command_priority(
+        container_id: &data_model::ContainerId,
+        container_meta: &data_model::ContainerServerMetadata,
+        updated_sandbox_container_ids: &HashSet<data_model::ContainerId>,
+    ) -> u8 {
+        if matches!(
+            container_meta.desired_state,
+            data_model::ContainerState::Terminated { .. }
+        ) {
+            // Emit removals first so resource teardown happens before creates.
+            return 0;
+        }
+
+        if container_meta.container_type == data_model::ContainerType::Sandbox &&
+            updated_sandbox_container_ids.contains(container_id)
+        {
+            // Metadata-only warm-claim updates should happen after removals but
+            // before adds.
+            return 1;
+        }
+
+        if matches!(
+            container_meta.function_container.state,
+            data_model::ContainerState::Pending
+        ) {
+            return 2;
+        }
+
+        // No command emitted.
+        3
+    }
+
     fn commands_from_full_snapshot(
         &self,
         snapshot: super::ExecutorStateSnapshot,
@@ -191,8 +223,26 @@ impl ExecutorManager {
             .values()
             .filter_map(|sandbox| sandbox.container_id.clone())
             .collect();
+        let mut ordered_containers: Vec<_> = update.containers.iter().collect();
+        ordered_containers.sort_by(
+            |(container_id_a, container_meta_a), (container_id_b, container_meta_b)| {
+                let priority_a = Self::container_command_priority(
+                    container_id_a,
+                    container_meta_a,
+                    &updated_sandbox_container_ids,
+                );
+                let priority_b = Self::container_command_priority(
+                    container_id_b,
+                    container_meta_b,
+                    &updated_sandbox_container_ids,
+                );
+                priority_a
+                    .cmp(&priority_b)
+                    .then_with(|| container_id_a.get().cmp(container_id_b.get()))
+            },
+        );
 
-        for (container_id, container_meta) in &update.containers {
+        for (container_id, container_meta) in ordered_containers {
             let command = if matches!(
                 container_meta.desired_state,
                 data_model::ContainerState::Terminated { .. }
