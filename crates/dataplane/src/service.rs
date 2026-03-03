@@ -9,10 +9,7 @@ use std::{
 
 use anyhow::{Context, Result};
 use proto_api::executor_api_pb::{
-    AllocationLogEntry,
-    ExecutorStatus,
-    HostResources,
-    executor_api_client::ExecutorApiClient,
+    AllocationLogEntry, ExecutorStatus, HostResources, executor_api_client::ExecutorApiClient,
 };
 use tokio::{
     sync::{Mutex, Notify, mpsc, watch},
@@ -987,8 +984,8 @@ impl ServiceRuntime {
                             );
                             break;
                         }
-                        let applied = self.handle_command(command).await;
-                        if !applied {
+                        let should_advance_ack = self.handle_command(command).await;
+                        if !should_advance_ack {
                             tracing::warn!(
                                 seq,
                                 "poll_commands: command not applied, retaining ack cursor for retry"
@@ -1079,9 +1076,11 @@ impl ServiceRuntime {
                         } else {
                             tracing::warn!(
                                 seq,
-                                "poll_allocation_results: missing entry payload, retaining ack cursor for retry"
+                                "poll_allocation_results: missing entry payload, dropping malformed result and advancing ack"
                             );
-                            break;
+                            self.last_applied_result_seq.store(seq, Ordering::SeqCst);
+                            next_seq = next_seq.saturating_add(1);
+                            continue;
                         }
                         self.last_applied_result_seq.store(seq, Ordering::SeqCst);
                         next_seq = next_seq.saturating_add(1);
@@ -1145,12 +1144,19 @@ impl ServiceRuntime {
     }
 
     /// Handle a single Command from the poll commands loop.
+    ///
+    /// Returns whether the command ack cursor should advance:
+    /// - `true`: command applied or permanently invalid (drop it).
+    /// - `false`: transient failure; retain cursor and retry.
     async fn handle_command(&self, command: proto_api::executor_api_pb::Command) -> bool {
         let seq = command.seq;
 
         let Some(cmd) = command.command else {
-            tracing::warn!(seq, "Received command with no payload, skipping");
-            return false;
+            tracing::warn!(
+                seq,
+                "Received command with no payload, dropping and advancing ack"
+            );
+            return true;
         };
 
         use proto_api::executor_api_pb::command::Command as Cmd;
@@ -1167,9 +1173,9 @@ impl ServiceRuntime {
                             sandbox_id = %container.sandbox_metadata.as_ref().and_then(|m| m.sandbox_id.as_deref()).unwrap_or(""),
                             pool_id = %container.pool_id.as_deref().unwrap_or(""),
                             error = %e,
-                            "Skipping invalid AddContainer command"
+                            "Skipping invalid AddContainer command and advancing ack"
                         );
-                        false
+                        true
                     } else {
                         tracing::info!(
                             seq,
@@ -1187,8 +1193,11 @@ impl ServiceRuntime {
                             .await
                     }
                 } else {
-                    tracing::warn!(seq, "AddContainer missing container payload");
-                    false
+                    tracing::warn!(
+                        seq,
+                        "AddContainer missing container payload; dropping and advancing ack"
+                    );
+                    true
                 }
             }
             Cmd::RemoveContainer(remove) => {
@@ -1213,9 +1222,9 @@ impl ServiceRuntime {
                             namespace = %allocation.function.as_ref().and_then(|f| f.namespace.as_deref()).unwrap_or(""),
                             "fn" = %allocation.function.as_ref().and_then(|f| f.function_name.as_deref()).unwrap_or(""),
                             error = %e,
-                            "Skipping invalid RunAllocation command"
+                            "Skipping invalid RunAllocation command and advancing ack"
                         );
-                        false
+                        true
                     } else if let Some(fe_id) = allocation.container_id.clone() {
                         tracing::info!(
                             seq,
@@ -1239,14 +1248,24 @@ impl ServiceRuntime {
                             "fn" = %allocation.function.as_ref().and_then(|f| f.function_name.as_deref()).unwrap_or(""),
                             "RunAllocation missing container_id"
                         );
-                        false
+                        true
                     }
                 } else {
-                    tracing::warn!(seq, "RunAllocation missing allocation payload");
-                    false
+                    tracing::warn!(
+                        seq,
+                        "RunAllocation missing allocation payload; dropping and advancing ack"
+                    );
+                    true
                 }
             }
             Cmd::KillAllocation(kill) => {
+                if kill.allocation_id.is_empty() {
+                    tracing::warn!(
+                        seq,
+                        "KillAllocation missing allocation_id; dropping and advancing ack"
+                    );
+                    return true;
+                }
                 tracing::info!(
                     seq,
                     allocation_id = %kill.allocation_id,
