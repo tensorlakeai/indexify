@@ -18,8 +18,8 @@ fn call_function_target_labels(call: &executor_api_pb::FunctionCallRequest) -> (
     if let Some(updates) = call.updates.as_ref() {
         for update in &updates.updates {
             if let Some(executor_api_pb::execution_plan_update::Op::FunctionCall(fc)) =
-                update.op.as_ref() &&
-                let Some(target) = fc.target.as_ref()
+                update.op.as_ref()
+                && let Some(target) = fc.target.as_ref()
             {
                 return (
                     target.function_name.as_deref().unwrap_or(""),
@@ -77,9 +77,9 @@ impl ExecutorAPIService {
         allocation_log_entries: Vec<executor_api_pb::AllocationLogEntry>,
     ) -> Result<(), Status> {
         if !executor_known {
-            let has_reports = !command_responses.is_empty() ||
-                !allocation_outcomes.is_empty() ||
-                !allocation_log_entries.is_empty();
+            let has_reports = !command_responses.is_empty()
+                || !allocation_outcomes.is_empty()
+                || !allocation_log_entries.is_empty();
             if has_reports {
                 warn!(
                     executor_id = executor_id.get(),
@@ -113,11 +113,18 @@ impl ExecutorAPIService {
         }
 
         failed_items = failed_items.saturating_add(
-            self.process_allocation_outcomes(executor_id, allocation_outcomes)
+            self.process_allocation_log_entries(executor_id, allocation_log_entries)
                 .await?,
         );
+        // Process log entries before outcomes.
+        //
+        // CallFunction log entries register result-routing ownership and
+        // enqueue downstream graph updates. If outcomes are ingested first,
+        // same-heartbeat completions can be dropped as unroutable and newly
+        // created child runs can miss the only capacity-change trigger in the
+        // batch.
         failed_items = failed_items.saturating_add(
-            self.process_allocation_log_entries(executor_id, allocation_log_entries)
+            self.process_allocation_outcomes(executor_id, allocation_outcomes)
                 .await?,
         );
 
@@ -156,9 +163,9 @@ impl ExecutorAPIService {
                     .await
                     {
                         Ok(AllocationIngestDisposition::Applied) => {
-                            if let Some(completed) = &completed_for_routing &&
-                                let Some(fc_id) = completed.function_call_id.as_deref() &&
-                                let Err(e) = try_route_result(
+                            if let Some(completed) = &completed_for_routing
+                                && let Some(fc_id) = completed.function_call_id.as_deref()
+                                && let Err(e) = try_route_result(
                                     &self.function_call_result_router,
                                     fc_id,
                                     completed,
@@ -253,9 +260,9 @@ impl ExecutorAPIService {
                     .await
                     {
                         Ok(AllocationIngestDisposition::Applied) => {
-                            if let Some(failed) = &failed_for_routing &&
-                                let Some(fc_id) = failed.function_call_id.as_deref() &&
-                                let Err(e) = try_route_failure(
+                            if let Some(failed) = &failed_for_routing
+                                && let Some(fc_id) = failed.function_call_id.as_deref()
+                                && let Err(e) = try_route_failure(
                                     &self.function_call_result_router,
                                     fc_id,
                                     failed,

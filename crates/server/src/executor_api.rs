@@ -14,9 +14,7 @@ mod result_routing;
 
 use polling::{long_poll_commands, long_poll_results};
 pub use report_processing::{
-    AllocationIngestDisposition,
-    process_allocation_completed,
-    process_allocation_failed,
+    AllocationIngestDisposition, process_allocation_completed, process_allocation_failed,
     process_command_responses,
 };
 pub use result_routing::FunctionCallResultRouter;
@@ -83,10 +81,10 @@ static MALFORMED_FULL_STATE_CONTAINERS_COUNTER: std::sync::LazyLock<Counter<u64>
 
 pub(super) fn is_malformed_payload_error(error: &anyhow::Error) -> bool {
     let message = error.to_string().to_ascii_lowercase();
-    message.contains("missing ") ||
-        message.contains(" is empty") ||
-        message.contains("invalid") ||
-        message.contains("malformed")
+    message.contains("missing ")
+        || message.contains(" is empty")
+        || message.contains("invalid")
+        || message.contains("malformed")
 }
 
 impl ExecutorAPIService {
@@ -279,8 +277,8 @@ impl ExecutorApi for ExecutorAPIService {
         let mut send_state = !executor_known;
         if executor_known && !send_state {
             let connections = self.indexify_state.executor_connections.read().await;
-            if let Some(conn) = connections.get(&executor_id) &&
-                conn.take_full_state_request()
+            if let Some(conn) = connections.get(&executor_id)
+                && conn.take_full_state_request()
             {
                 info!(
                     executor_id = executor_id.get(),
@@ -357,14 +355,9 @@ mod tests {
     use std::{sync::Arc, time::Duration};
 
     use executor_api_pb::{
-        ContainerDescription,
-        ContainerResources,
-        ContainerState,
-        ContainerStatus,
-        ContainerTerminationReason as TerminationReasonPb,
-        ContainerType as ContainerTypePb,
-        FunctionRef,
-        SandboxMetadata,
+        ContainerDescription, ContainerResources, ContainerState, ContainerStatus,
+        ContainerTerminationReason as TerminationReasonPb, ContainerType as ContainerTypePb,
+        FunctionRef, SandboxMetadata,
     };
     use proto_api::executor_api_pb;
     use tonic::Request;
@@ -1463,6 +1456,127 @@ mod tests {
             1,
             "valid log entry should still register a route after a no-op outcome"
         );
+    }
+
+    #[tokio::test]
+    async fn test_same_heartbeat_log_entry_then_outcome_routes_result() {
+        let test_service = TestService::new().await.unwrap();
+        let api = super::ExecutorAPIService::new(
+            test_service.service.indexify_state.clone(),
+            test_service.service.executor_manager.clone(),
+            test_service.service.blob_storage_registry.clone(),
+        );
+
+        let executor_id = crate::data_model::ExecutorId::from("executor-same-heartbeat-route");
+        let child_fc_id = "child-fc-same-heartbeat-route";
+
+        api.handle_full_state(
+            &executor_id,
+            executor_api_pb::DataplaneStateFullSync::default(),
+        )
+        .await
+        .unwrap();
+
+        let parent_allocation = data_model::AllocationBuilder::default()
+            .target(data_model::AllocationTarget::new(
+                executor_id.clone(),
+                data_model::ContainerId::new("parent-container-same-hb".to_string()),
+            ))
+            .function_call_id(data_model::FunctionCallId::from("parent-fc-same-hb"))
+            .namespace("ns".to_string())
+            .application("app".to_string())
+            .application_version("v1".to_string())
+            .function("parent-fn".to_string())
+            .request_id("req-1".to_string())
+            .outcome(data_model::FunctionRunOutcome::Unknown)
+            .input_args(vec![])
+            .call_metadata(bytes::Bytes::new())
+            .build()
+            .expect("parent allocation should build");
+        let parent_allocation_id = parent_allocation.id.to_string();
+
+        let child_allocation = data_model::AllocationBuilder::default()
+            .target(data_model::AllocationTarget::new(
+                executor_id.clone(),
+                data_model::ContainerId::new("child-container-same-hb".to_string()),
+            ))
+            .function_call_id(data_model::FunctionCallId::from(child_fc_id))
+            .namespace("ns".to_string())
+            .application("app".to_string())
+            .application_version("v1".to_string())
+            .function("child-fn".to_string())
+            .request_id("req-1".to_string())
+            .outcome(data_model::FunctionRunOutcome::Unknown)
+            .input_args(vec![])
+            .call_metadata(bytes::Bytes::new())
+            .build()
+            .expect("child allocation should build");
+        let child_allocation_id = child_allocation.id.to_string();
+
+        let mut update = crate::state_store::requests::SchedulerUpdateRequest::default();
+        update.new_allocations.push(parent_allocation);
+        update.new_allocations.push(child_allocation);
+        test_service
+            .service
+            .indexify_state
+            .write(crate::state_store::requests::StateMachineUpdateRequest {
+                payload: crate::state_store::requests::RequestPayload::SchedulerUpdate(
+                    crate::state_store::requests::SchedulerUpdatePayload::new(update),
+                ),
+            })
+            .await
+            .unwrap();
+
+        // Route registration and child completion in one heartbeat batch.
+        ExecutorApi::heartbeat(
+            &api,
+            Request::new(executor_api_pb::HeartbeatRequest {
+                executor_id: Some(executor_id.get().to_string()),
+                status: Some(executor_api_pb::ExecutorStatus::Running.into()),
+                full_state: None,
+                command_responses: vec![],
+                allocation_outcomes: vec![make_completed_outcome(
+                    child_fc_id,
+                    &child_allocation_id,
+                )],
+                allocation_log_entries: vec![make_call_function_log_entry(
+                    &parent_allocation_id,
+                    child_fc_id,
+                )],
+            }),
+        )
+        .await
+        .expect("same-heartbeat log/outcome batch should route result");
+
+        assert_eq!(
+            api.function_call_result_router.pending_len().await,
+            0,
+            "route should be consumed when outcome is in the same heartbeat batch"
+        );
+
+        let routed_results = {
+            let connections = test_service
+                .service
+                .indexify_state
+                .executor_connections
+                .read()
+                .await;
+            let conn = connections
+                .get(&executor_id)
+                .expect("executor connection should exist");
+            conn.clone_results().await
+        };
+
+        assert_eq!(
+            routed_results.len(),
+            1,
+            "parent executor should receive one routed result"
+        );
+        let routed = routed_results[0]
+            .entry
+            .as_ref()
+            .expect("sequenced result should include log entry");
+        assert_eq!(routed.allocation_id, parent_allocation_id);
     }
 
     #[tokio::test]
