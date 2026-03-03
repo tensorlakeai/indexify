@@ -518,7 +518,7 @@ async fn test_malformed_updates_routing_does_not_fail_heartbeat() -> Result<()> 
 }
 
 #[tokio::test]
-async fn test_full_state_rejects_malformed_container_entries() -> Result<()> {
+async fn test_full_state_ignores_malformed_container_entries() -> Result<()> {
     let test_service = TestService::new().await?;
     let api = ExecutorAPIService::new(
         test_service.service.indexify_state.clone(),
@@ -551,8 +551,8 @@ async fn test_full_state_rejects_malformed_container_entries() -> Result<()> {
     .await;
 
     assert!(
-        heartbeat.is_err(),
-        "heartbeat with malformed full_state container list should fail"
+        heartbeat.is_ok(),
+        "heartbeat with mixed valid/malformed full_state entries should succeed"
     );
 
     Ok(())
