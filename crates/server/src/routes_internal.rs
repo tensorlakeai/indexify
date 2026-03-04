@@ -155,6 +155,10 @@ pub fn configure_internal_routes(route_state: RouteState) -> Router {
             get(get_sandbox_by_id).with_state(route_state.clone()),
         )
         .route(
+            "/internal/v1/sandboxes/{sandbox_id}",
+            get(get_sandbox_by_id_global).with_state(route_state.clone()),
+        )
+        .route(
             "/internal/pending_resources",
             get(get_pending_resources).with_state(route_state.clone()),
         )
@@ -659,8 +663,11 @@ pub async fn create_or_update_application_with_metadata(
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SandboxLookupResponse {
     pub id: String,
+    pub namespace: String,
     pub status: String,
     pub dataplane_api_address: Option<String>,
+    #[serde(default, alias = "allow_unauthenticated_proxy_access")]
+    pub allow_unauthenticated_access: bool,
 }
 
 /// Look up a sandbox by namespace and ID, returning its status and dataplane
@@ -718,7 +725,77 @@ async fn get_sandbox_by_id(
 
     Ok(Json(SandboxLookupResponse {
         id: sandbox_id,
+        namespace,
         status: status.to_string(),
         dataplane_api_address,
+        allow_unauthenticated_access: sandbox.allow_unauthenticated_access,
+    }))
+}
+
+async fn get_sandbox_by_id_global(
+    State(state): State<RouteState>,
+    Path(sandbox_id): Path<String>,
+) -> Result<Json<SandboxLookupResponse>, IndexifyAPIError> {
+    let app = state.indexify_state.app_state.load();
+
+    let (namespace, container_id, allow_unauthenticated_access) = {
+        let matching_keys = app
+            .indexes
+            .sandboxes_by_id
+            .get(&sandbox_id)
+            .ok_or_else(|| IndexifyAPIError::not_found("Sandbox not found"))?;
+
+        if matching_keys.len() > 1 {
+            return Err(IndexifyAPIError::conflict(
+                "Found multiple sandboxes with the same sandbox_id across namespaces",
+            ));
+        }
+
+        let sandbox_key = matching_keys
+            .iter()
+            .next()
+            .ok_or_else(|| IndexifyAPIError::not_found("Sandbox not found"))?;
+        let sandbox = app
+            .indexes
+            .sandboxes
+            .get(sandbox_key)
+            .ok_or_else(|| IndexifyAPIError::not_found("Sandbox not found"))?;
+
+        let container_id = sandbox
+            .container_id
+            .clone()
+            .ok_or_else(|| IndexifyAPIError::not_found("Sandbox has no container assigned"))?;
+        (
+            sandbox.namespace.clone(),
+            container_id,
+            sandbox.allow_unauthenticated_access,
+        )
+    };
+
+    let container_meta = app
+        .scheduler
+        .function_containers
+        .get(&container_id)
+        .ok_or_else(|| IndexifyAPIError::not_found("Container not found"))?;
+
+    let status = match &container_meta.function_container.state {
+        crate::data_model::ContainerState::Pending => "Pending",
+        crate::data_model::ContainerState::Running => "Running",
+        crate::data_model::ContainerState::Terminated { .. } => "Terminated",
+        crate::data_model::ContainerState::Unknown => "Unknown",
+    };
+
+    let dataplane_api_address = app
+        .scheduler
+        .executors
+        .get(&container_meta.executor_id)
+        .and_then(|executor| executor.proxy_address.clone());
+
+    Ok(Json(SandboxLookupResponse {
+        id: sandbox_id,
+        namespace,
+        status: status.to_string(),
+        dataplane_api_address,
+        allow_unauthenticated_access,
     }))
 }

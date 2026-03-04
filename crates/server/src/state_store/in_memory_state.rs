@@ -285,6 +285,9 @@ pub struct InMemoryState {
     // Sandboxes - SandboxKey -> Sandbox
     pub sandboxes: imbl::OrdMap<SandboxKey, Box<Sandbox>>,
 
+    // Reverse index: sandbox_id -> Set<SandboxKey>
+    pub sandboxes_by_id: imbl::HashMap<String, imbl::HashSet<SandboxKey>>,
+
     // Reverse index: ContainerId -> SandboxKey
     pub sandbox_by_container: imbl::HashMap<ContainerId, SandboxKey>,
 
@@ -496,6 +499,7 @@ impl InMemoryState {
             .collect();
 
         let mut sandboxes = imbl::OrdMap::new();
+        let mut sandboxes_by_id = imbl::HashMap::new();
         let mut sandbox_by_container = imbl::HashMap::new();
         let mut sandboxes_by_executor = imbl::HashMap::new();
         let mut pending_sandboxes = imbl::OrdSet::new();
@@ -527,6 +531,10 @@ impl InMemoryState {
                     .or_insert_with(imbl::HashSet::new)
                     .insert(sandbox_key.clone());
             }
+            sandboxes_by_id
+                .entry(sandbox.id.get().to_string())
+                .or_insert_with(imbl::HashSet::new)
+                .insert(sandbox_key.clone());
             sandboxes.insert(sandbox_key, sandbox);
         }
 
@@ -547,6 +555,7 @@ impl InMemoryState {
             allocations_by_executor,
             executor_catalog,
             sandboxes,
+            sandboxes_by_id,
             sandbox_by_container,
             sandboxes_by_executor,
             pending_sandboxes,
@@ -747,16 +756,26 @@ impl InMemoryState {
 
         for (sandbox_key, sandbox) in &req.updated_sandboxes {
             let was_pending = self.pending_sandboxes.contains(sandbox_key);
-            let (old_container_id, old_executor_id) = self
+            let (old_sandbox_id, old_container_id, old_executor_id) = self
                 .sandboxes
                 .get(sandbox_key)
-                .map(|s| (s.container_id.clone(), s.executor_id.clone()))
-                .unwrap_or((None, None));
+                .map(|s| {
+                    (
+                        Some(s.id.get().to_string()),
+                        s.container_id.clone(),
+                        s.executor_id.clone(),
+                    )
+                })
+                .unwrap_or((None, None, None));
 
             match sandbox.status {
                 SandboxStatus::Pending { ref reason } => {
                     self.sandboxes
                         .insert(sandbox_key.clone(), Box::new(sandbox.clone()));
+                    self.sandboxes_by_id
+                        .entry(sandbox.id.get().to_string())
+                        .or_default()
+                        .insert(sandbox_key.clone());
 
                     let awaiting_alloc =
                         !matches!(reason, SandboxPendingReason::WaitingForContainer);
@@ -782,6 +801,10 @@ impl InMemoryState {
                 SandboxStatus::Running => {
                     self.sandboxes
                         .insert(sandbox_key.clone(), Box::new(sandbox.clone()));
+                    self.sandboxes_by_id
+                        .entry(sandbox.id.get().to_string())
+                        .or_default()
+                        .insert(sandbox_key.clone());
 
                     if was_pending {
                         self.remove_pending_sandbox(sandbox_key);
@@ -801,6 +824,10 @@ impl InMemoryState {
                 SandboxStatus::Snapshotting { .. } => {
                     self.sandboxes
                         .insert(sandbox_key.clone(), Box::new(sandbox.clone()));
+                    self.sandboxes_by_id
+                        .entry(sandbox.id.get().to_string())
+                        .or_default()
+                        .insert(sandbox_key.clone());
                 }
                 SandboxStatus::Terminated => {
                     if was_pending {
@@ -815,6 +842,14 @@ impl InMemoryState {
                         sandboxes.remove(sandbox_key);
                         if sandboxes.is_empty() {
                             self.sandboxes_by_executor.remove(&executor_id);
+                        }
+                    }
+                    if let Some(old_sandbox_id) = old_sandbox_id &&
+                        let Some(sandboxes) = self.sandboxes_by_id.get_mut(&old_sandbox_id)
+                    {
+                        sandboxes.remove(sandbox_key);
+                        if sandboxes.is_empty() {
+                            self.sandboxes_by_id.remove(&old_sandbox_id);
                         }
                     }
                     self.sandboxes.remove(sandbox_key);
@@ -1074,6 +1109,10 @@ impl InMemoryState {
                 let sandbox_key = SandboxKey::from(&req.sandbox);
                 self.sandboxes
                     .insert(sandbox_key.clone(), Box::new(req.sandbox.clone()));
+                self.sandboxes_by_id
+                    .entry(req.sandbox.id.get().to_string())
+                    .or_default()
+                    .insert(sandbox_key.clone());
                 if req.sandbox.status.is_pending() {
                     self.add_pending_sandbox(
                         sandbox_key,
@@ -1122,12 +1161,14 @@ impl InMemoryState {
                     // Extract data we need before taking &mut self
                     let sandbox_info = self.sandboxes.get(&sandbox_key).map(|sandbox| {
                         (
+                            sandbox.id.get().to_string(),
                             sandbox.status.is_pending(),
                             sandbox.container_id.clone(),
                             sandbox.executor_id.clone(),
                         )
                     });
-                    if let Some((was_pending, container_id, executor_id)) = sandbox_info {
+                    if let Some((sandbox_id, was_pending, container_id, executor_id)) = sandbox_info
+                    {
                         if was_pending {
                             self.remove_pending_sandbox(&sandbox_key);
                         }
@@ -1138,6 +1179,12 @@ impl InMemoryState {
                             let Some(set) = self.sandboxes_by_executor.get_mut(executor_id)
                         {
                             set.remove(&sandbox_key);
+                        }
+                        if let Some(sandboxes) = self.sandboxes_by_id.get_mut(&sandbox_id) {
+                            sandboxes.remove(&sandbox_key);
+                            if sandboxes.is_empty() {
+                                self.sandboxes_by_id.remove(&sandbox_id);
+                            }
                         }
                         self.sandboxes.remove(&sandbox_key);
                     }
@@ -1358,6 +1405,7 @@ mod test_helpers {
                 function_runs: imbl::OrdMap::new(),
                 unallocated_function_runs: imbl::OrdSet::new(),
                 sandboxes: imbl::OrdMap::new(),
+                sandboxes_by_id: imbl::HashMap::new(),
                 sandbox_by_container: imbl::HashMap::new(),
                 sandboxes_by_executor: imbl::HashMap::new(),
                 pending_sandboxes: imbl::OrdSet::new(),
