@@ -73,7 +73,10 @@ mod tests {
             })
             .await?;
 
-        // Step 4: Run constraint validation which should disable the graph
+        // Step 4: Process enqueued payloads so the app appears in ArcSwap
+        test_srv.process_all_state_changes().await?;
+
+        // Step 4b: Run constraint validation which should disable the graph
         test_srv
             .service
             .application_processor
@@ -82,9 +85,10 @@ mod tests {
         test_srv.process_all_state_changes().await?;
 
         // Step 5: Verify that the compute graph has been disabled
-        let in_memory = indexify_state.in_memory_state.read().await;
+        let in_memory = indexify_state.app_state.load();
         let key = crate::data_model::Application::key_from(TEST_NAMESPACE, "graph_unsatisfiable");
         let stored_app = in_memory
+            .indexes
             .applications
             .get(&key)
             .expect("compute graph not found in state");
@@ -96,7 +100,7 @@ mod tests {
             _ => panic!("Compute graph should be disabled due to unsatisfiable constraints"),
         }
 
-        // Release the read guard before further updates
+        // Release the guard before further updates
         drop(in_memory);
 
         // Step 6: Build a compute graph whose functions require foo==bar (satisfiable)
@@ -133,7 +137,10 @@ mod tests {
             })
             .await?;
 
-        // Step 8: Run constraint validation again which should keep the graph active
+        // Step 8: Process enqueued payloads so the app appears in ArcSwap
+        test_srv.process_all_state_changes().await?;
+
+        // Step 8b: Run constraint validation again which should keep the graph active
         test_srv
             .service
             .application_processor
@@ -142,9 +149,10 @@ mod tests {
         test_srv.process_all_state_changes().await?;
 
         // Step 9: Verify that the compute graph remains active
-        let in_memory = indexify_state.in_memory_state.read().await;
+        let in_memory = indexify_state.app_state.load();
         let sat_key = crate::data_model::Application::key_from(TEST_NAMESPACE, "graph_satisfiable");
         let sat_stored_graph = in_memory
+            .indexes
             .applications
             .get(&sat_key)
             .expect("satisfiable compute graph not found in state");
@@ -256,6 +264,9 @@ mod tests {
                 .await?;
         }
 
+        // Process enqueued payloads so the apps appear in ArcSwap
+        test_srv.process_all_state_changes().await?;
+
         // Run constraint validation which should disable the unsatisfiable graphs
         test_srv
             .service
@@ -265,12 +276,13 @@ mod tests {
         test_srv.process_all_state_changes().await?;
 
         // Verify states of graphs after validation
-        let in_memory = indexify_state.in_memory_state.read().await;
+        let in_memory = indexify_state.app_state.load();
 
         // Active graphs
         let key_valid_no =
             crate::data_model::Application::key_from(TEST_NAMESPACE, "graph_valid_no_constraints");
         match &in_memory
+            .indexes
             .applications
             .get(&key_valid_no)
             .expect("graph not found")
@@ -283,6 +295,7 @@ mod tests {
         let key_valid_constraints =
             crate::data_model::Application::key_from(TEST_NAMESPACE, "graph_valid_constraints");
         match &in_memory
+            .indexes
             .applications
             .get(&key_valid_constraints)
             .expect("graph not found")
@@ -296,6 +309,7 @@ mod tests {
         let key_invalid_baz =
             crate::data_model::Application::key_from(TEST_NAMESPACE, "graph_invalid_baz");
         match &in_memory
+            .indexes
             .applications
             .get(&key_invalid_baz)
             .expect("graph not found")
@@ -308,6 +322,7 @@ mod tests {
         let key_invalid_qux =
             crate::data_model::Application::key_from(TEST_NAMESPACE, "graph_invalid_qux");
         match &in_memory
+            .indexes
             .applications
             .get(&key_invalid_qux)
             .expect("graph not found")
@@ -449,6 +464,9 @@ mod tests {
                 .await?;
         }
 
+        // Process enqueued payloads so the apps appear in ArcSwap
+        test_srv.process_all_state_changes().await?;
+
         // Validate constraints
         test_srv
             .service
@@ -458,11 +476,12 @@ mod tests {
         test_srv.process_all_state_changes().await?;
 
         // Verify expected states
-        let in_memory = indexify_state.in_memory_state.read().await;
+        let in_memory = indexify_state.app_state.load();
 
         let assert_state = |name: &str, expect_active: bool| {
             let key = crate::data_model::Application::key_from(TEST_NAMESPACE, name);
             let application = in_memory
+                .indexes
                 .applications
                 .get(&key)
                 .expect("application not found");

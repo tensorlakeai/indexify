@@ -364,7 +364,7 @@ async fn test_add_creates_container_with_daemon() {
     let resolver = Arc::new(TestImageResolver);
     let state_file = create_test_state_file().await;
     let (container_state_tx, _container_state_rx) =
-        tokio::sync::mpsc::unbounded_channel::<CommandResponse>();
+        tokio::sync::mpsc::channel::<CommandResponse>(32);
     let manager = FunctionContainerManager::new(
         driver.clone(),
         resolver,
@@ -440,7 +440,7 @@ async fn test_remove_deletes_container() {
     let resolver = Arc::new(TestImageResolver);
     let state_file = create_test_state_file().await;
     let (container_state_tx, _container_state_rx) =
-        tokio::sync::mpsc::unbounded_channel::<CommandResponse>();
+        tokio::sync::mpsc::channel::<CommandResponse>(32);
     let manager = FunctionContainerManager::new(
         driver.clone(),
         resolver,
@@ -504,7 +504,7 @@ async fn test_health_check_detects_container_death() {
     let resolver = Arc::new(TestImageResolver);
     let state_file = create_test_state_file().await;
     let (container_state_tx, _container_state_rx) =
-        tokio::sync::mpsc::unbounded_channel::<CommandResponse>();
+        tokio::sync::mpsc::channel::<CommandResponse>(32);
     let manager = FunctionContainerManager::new(
         driver.clone(),
         resolver,
@@ -595,7 +595,7 @@ async fn test_multiple_containers_lifecycle() {
     let resolver = Arc::new(TestImageResolver);
     let state_file = create_test_state_file().await;
     let (container_state_tx, _container_state_rx) =
-        tokio::sync::mpsc::unbounded_channel::<CommandResponse>();
+        tokio::sync::mpsc::channel::<CommandResponse>(32);
     let manager = FunctionContainerManager::new(
         driver.clone(),
         resolver,
@@ -665,7 +665,7 @@ async fn test_add_or_update_idempotent() {
     let resolver = Arc::new(TestImageResolver);
     let state_file = create_test_state_file().await;
     let (container_state_tx, _container_state_rx) =
-        tokio::sync::mpsc::unbounded_channel::<CommandResponse>();
+        tokio::sync::mpsc::channel::<CommandResponse>(32);
     let manager = FunctionContainerManager::new(
         driver.clone(),
         resolver,

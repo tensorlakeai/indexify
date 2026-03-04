@@ -24,17 +24,17 @@ pub struct FESpawnConfig {
     pub secrets_provider: Arc<dyn SecretsProvider>,
     /// Channel for command responses (ContainerStarted/ContainerTerminated,
     /// AllocationScheduled acks).
-    pub result_tx: mpsc::UnboundedSender<CommandResponse>,
+    pub result_tx: mpsc::Sender<CommandResponse>,
     /// Channel for container lifecycle events
     /// (ContainerTerminated/ContainerStarted).
-    pub container_state_tx: mpsc::UnboundedSender<CommandResponse>,
+    pub container_state_tx: mpsc::Sender<CommandResponse>,
     /// Channel for allocation outcomes (AllocationCompleted/AllocationFailed),
     /// sent via the unary report_allocation_activities RPC for guaranteed
     /// delivery.
     pub outcome_tx: mpsc::UnboundedSender<AllocationOutcome>,
     /// Channel for allocation log entries (CallFunction),
     /// sent via the heartbeat's allocation_log_entries field.
-    pub activity_tx: mpsc::UnboundedSender<AllocationLogEntry>,
+    pub activity_tx: mpsc::Sender<AllocationLogEntry>,
     pub server_channel: Channel,
     pub blob_store: Arc<BlobStore>,
     pub code_cache: Arc<CodeCache>,

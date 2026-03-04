@@ -3,6 +3,7 @@ use std::{
     collections::{HashMap, HashSet},
     sync::{
         Arc,
+        RwLock as StdRwLock,
         atomic::{AtomicU64, Ordering},
     },
     time::Duration,
@@ -10,6 +11,7 @@ use std::{
 };
 
 use anyhow::Result;
+use opentelemetry::metrics::{Counter, Gauge, Histogram};
 use priority_queue::PriorityQueue;
 use tokio::{
     sync::{Mutex, RwLock, watch},
@@ -33,16 +35,20 @@ use crate::{
         StateChangeBuilder,
         StateChangeId,
     },
-    executor_api::executor_api_pb::{
-        self,
-        Allocation,
-        ContainerDescription,
-        ContainerType as ContainerTypePb,
-        DataPayloadEncoding,
-        FunctionRef,
-        SandboxMetadata,
+    executor_api::{
+        FunctionCallResultRouter,
+        executor_api_pb::{
+            self,
+            Allocation,
+            ContainerDescription,
+            ContainerType as ContainerTypePb,
+            DataPayloadEncoding,
+            FunctionRef,
+            SandboxMetadata,
+        },
     },
     http_objects::{self, ExecutorAllocations, ExecutorsAllocationsResponse, FnExecutor},
+    metrics::low_latency_boundaries,
     pb_helpers::*,
     state_store::{
         IndexifyState,
@@ -52,12 +58,23 @@ use crate::{
     utils::{dynamic_sleep::DynamicSleepFuture, get_epoch_time_in_ms},
 };
 
+mod command_emission;
+
+/// A snapshot that needs to be sent to the executor as a SnapshotContainer
+/// command.
+pub struct PendingSnapshot {
+    pub container_id: String,
+    pub snapshot_id: String,
+    pub upload_uri: String,
+}
+
 /// Snapshot of executor state returned by `get_executor_state`.
 /// Contains the containers, allocations, and clock that describe what the
 /// server wants the dataplane to converge to.
 pub struct ExecutorStateSnapshot {
     pub containers: Vec<ContainerDescription>,
     pub allocations: Vec<Allocation>,
+    pub pending_snapshots: Vec<PendingSnapshot>,
     #[allow(dead_code)]
     pub clock: Option<u64>,
 }
@@ -92,27 +109,22 @@ fn far_future() -> Instant {
 }
 
 /// ExecutorRuntimeData stores runtime state for an executor that is not
-/// persisted in the state machine but is needed for efficient operation
+/// persisted in the state machine but is needed for efficient operation.
+/// Acts as a presence marker (checked via `runtime_data.contains_key()`)
+/// and tracks the executor's clock for delta processing.
 #[derive(Debug, Clone)]
 pub(crate) struct ExecutorRuntimeData {
-    /// Hash of the executor's overall state (used for heartbeat optimization)
-    pub last_state_hash: String,
-    /// Clock value when the state was last updated
     pub last_executor_clock: u64,
 }
 
 impl ExecutorRuntimeData {
-    /// Create a new ExecutorRuntimeData
-    pub fn new(state_hash: String, clock: u64) -> Self {
+    pub fn new(clock: u64) -> Self {
         Self {
-            last_state_hash: state_hash,
             last_executor_clock: clock,
         }
     }
 
-    /// Update the overall state hash and clock
-    pub fn update_state(&mut self, hash: String, clock: u64) {
-        self.last_state_hash = hash;
+    pub fn update_clock(&mut self, clock: u64) {
         self.last_executor_clock = clock;
     }
 }
@@ -124,6 +136,12 @@ pub struct ExecutorManager {
     indexify_state: Arc<IndexifyState>,
     runtime_data: RwLock<HashMap<ExecutorId, ExecutorRuntimeData>>,
     blob_store_registry: Arc<BlobStorageRegistry>,
+    function_call_result_router: StdRwLock<Option<Arc<FunctionCallResultRouter>>>,
+    scheduler_command_intent_backlog: Gauge<u64>,
+    scheduler_command_intent_drain_latency: Histogram<f64>,
+    scheduler_command_intent_drained_total: Counter<u64>,
+    #[cfg(test)]
+    inject_deregister_write_failure: std::sync::atomic::AtomicBool,
 }
 
 impl ExecutorManager {
@@ -131,6 +149,22 @@ impl ExecutorManager {
         indexify_state: Arc<IndexifyState>,
         blob_store_registry: Arc<BlobStorageRegistry>,
     ) -> Arc<Self> {
+        let meter = opentelemetry::global::meter("executor_manager_metrics");
+        let scheduler_command_intent_backlog = meter
+            .u64_gauge("indexify.executor_manager.scheduler_command_intent_backlog")
+            .with_description("Current number of persisted scheduler command intents")
+            .build();
+        let scheduler_command_intent_drain_latency = meter
+            .f64_histogram("indexify.executor_manager.scheduler_command_intent_drain_latency")
+            .with_unit("s")
+            .with_boundaries(low_latency_boundaries())
+            .with_description("Latency of draining persisted scheduler command intents")
+            .build();
+        let scheduler_command_intent_drained_total = meter
+            .u64_counter("indexify.executor_manager.scheduler_command_intent_drained_total")
+            .with_description("Total scheduler command intents drained from persistence")
+            .build();
+
         let (heartbeat_future, heartbeat_sender) = DynamicSleepFuture::new(
             far_future(),
             // Chunk duration for the heartbeat future is set to 2 seconds before the timeout
@@ -148,6 +182,12 @@ impl ExecutorManager {
             heartbeat_deadline_updater: heartbeat_sender,
             heartbeat_future,
             blob_store_registry,
+            function_call_result_router: StdRwLock::new(None),
+            scheduler_command_intent_backlog,
+            scheduler_command_intent_drain_latency,
+            scheduler_command_intent_drained_total,
+            #[cfg(test)]
+            inject_deregister_write_failure: std::sync::atomic::AtomicBool::new(false),
         };
 
         let em = Arc::new(em);
@@ -155,6 +195,12 @@ impl ExecutorManager {
         em.clone().schedule_clean_lapsed_executors();
 
         em
+    }
+
+    #[cfg(test)]
+    fn set_inject_deregister_write_failure_for_test(&self, enabled: bool) {
+        self.inject_deregister_write_failure
+            .store(enabled, Ordering::SeqCst);
     }
 
     pub fn schedule_clean_lapsed_executors(self: Arc<Self>) {
@@ -167,19 +213,20 @@ impl ExecutorManager {
             // single set and call deregister_lapsed_executor on each, which will
             // handle sandbox termination through the DeregisterExecutor event.
             let missing_executor_ids: HashSet<ExecutorId> = {
-                let container_scheduler = indexify_state.container_scheduler.read().await;
-                let indexes = indexify_state.in_memory_state.read().await;
+                let state = indexify_state.app_state.load();
 
                 // Find executors with allocations that haven't registered
-                let executors_with_allocations: HashSet<_> = indexes
+                let executors_with_allocations: HashSet<_> = state
+                    .indexes
                     .allocations_by_executor
                     .keys()
-                    .filter(|id| !container_scheduler.executors.contains_key(&**id))
+                    .filter(|id| !state.scheduler.executors.contains_key(&**id))
                     .cloned()
                     .collect();
 
                 // Find executors with running sandboxes that haven't registered
-                let executors_with_sandboxes: HashSet<_> = indexes
+                let executors_with_sandboxes: HashSet<_> = state
+                    .indexes
                     .sandboxes
                     .iter()
                     .filter_map(|(_, sandbox)| {
@@ -187,7 +234,7 @@ impl ExecutorManager {
                             return None;
                         }
                         let executor_id = sandbox.executor_id.as_ref()?;
-                        if container_scheduler.executors.contains_key(executor_id) {
+                        if state.scheduler.executors.contains_key(executor_id) {
                             return None;
                         }
                         Some(executor_id.clone())
@@ -250,11 +297,10 @@ impl ExecutorManager {
     pub async fn register_executor(&self, metadata: ExecutorMetadata) -> Result<()> {
         let mut runtime_data_write = self.runtime_data.write().await;
         let is_new = !runtime_data_write.contains_key(&metadata.id);
-        let state_hash = metadata.state_hash.clone();
         runtime_data_write
             .entry(metadata.id.clone())
-            .and_modify(|data| data.update_state(state_hash.clone(), metadata.clock))
-            .or_insert_with(|| ExecutorRuntimeData::new(state_hash, metadata.clock));
+            .and_modify(|data| data.update_clock(metadata.clock))
+            .or_insert_with(|| ExecutorRuntimeData::new(metadata.clock));
         if is_new {
             info!(executor_id = metadata.id.get(), "Executor registered");
         } else {
@@ -264,6 +310,13 @@ impl ExecutorManager {
             );
         }
         Ok(())
+    }
+
+    pub fn set_function_call_result_router(&self, router: Arc<FunctionCallResultRouter>) {
+        *self
+            .function_call_result_router
+            .write()
+            .expect("function_call_result_router lock poisoned") = Some(router);
     }
 
     /// Wait for the an executor heartbeat deadline to lapse.
@@ -337,20 +390,91 @@ impl ExecutorManager {
             info!(count = lapsed_executors.len(), "Found lapsed executors");
         }
 
-        // 3. Deregister each lapsed executor without holding the lock
+        // 3. Deregister each lapsed executor without holding the lock.
+        // If deregistration fails (for example, persistent-store write error),
+        // requeue for retry so we do not lose heartbeat tracking.
         for executor_id in lapsed_executors {
-            self.deregister_lapsed_executor(executor_id).await?;
+            if let Err(err) = self.deregister_lapsed_executor(executor_id.clone()).await {
+                error!(
+                    executor_id = executor_id.get(),
+                    error = ?err,
+                    "failed to deregister lapsed executor; requeueing for retry"
+                );
+                let next_deadline = {
+                    let mut queue = self.heartbeat_deadline_queue.lock().await;
+                    queue.push(
+                        executor_id.clone(),
+                        ReverseInstant(Instant::now() + Duration::from_secs(1)),
+                    );
+                    queue
+                        .peek()
+                        .map(|(_, deadline)| deadline.0)
+                        .unwrap_or_else(far_future)
+                };
+                if let Err(update_err) = self.heartbeat_deadline_updater.send(next_deadline) {
+                    error!(
+                        executor_id = executor_id.get(),
+                        error = ?update_err,
+                        "failed to update heartbeat deadline after requeue"
+                    );
+                }
+            }
         }
 
         Ok(())
     }
 
-    async fn deregister_lapsed_executor(&self, executor_id: ExecutorId) -> Result<()> {
+    async fn deregister_executor_internal(
+        &self,
+        executor_id: ExecutorId,
+        reason: &str,
+    ) -> Result<()> {
         info!(
             executor_id = executor_id.get(),
-            "Deregistering lapsed executor (heartbeat timeout)"
+            reason, "Deregistering executor"
         );
-        self.runtime_data.write().await.remove(&executor_id);
+
+        let was_registered = self.runtime_data.read().await.contains_key(&executor_id);
+
+        if was_registered {
+            // Persist deregistration first. If this fails, keep runtime and
+            // heartbeat tracking intact so lapsed cleanup can retry.
+            #[cfg(test)]
+            if self.inject_deregister_write_failure.load(Ordering::SeqCst) {
+                return Err(anyhow::anyhow!("injected deregister write failure"));
+            }
+            let last_state_change_id = self.indexify_state.state_change_id_seq.clone();
+            let state_changes = tombstone_executor(&last_state_change_id, &executor_id)?;
+            let sm_req = StateMachineUpdateRequest {
+                payload: RequestPayload::DeregisterExecutor(DeregisterExecutorRequest {
+                    executor_id: executor_id.clone(),
+                    state_changes,
+                }),
+            };
+            self.indexify_state.write(sm_req).await?;
+        } else {
+            info!(
+                executor_id = executor_id.get(),
+                reason, "executor already deregistered; skipping tombstone write"
+            );
+        }
+
+        // Remove from heartbeat queue if present and refresh the next deadline.
+        let next_deadline = {
+            let mut queue = self.heartbeat_deadline_queue.lock().await;
+            queue.remove(&executor_id);
+            queue
+                .peek()
+                .map(|(_, deadline)| deadline.0)
+                .unwrap_or_else(far_future)
+        };
+        if let Err(err) = self.heartbeat_deadline_updater.send(next_deadline) {
+            error!("Failed to update heartbeat deadline: {:?}", err);
+        }
+
+        if was_registered {
+            self.runtime_data.write().await.remove(&executor_id);
+        }
 
         // Drop the ExecutorConnection — this drops the event sender, which
         // causes any active command_stream_loop to exit via recv() → None.
@@ -358,16 +482,47 @@ impl ExecutorManager {
             .deregister_executor_connection(&executor_id)
             .await;
 
-        let last_state_change_id = self.indexify_state.state_change_id_seq.clone();
-        let state_changes = tombstone_executor(&last_state_change_id, &executor_id)?;
-        let sm_req = StateMachineUpdateRequest {
-            payload: RequestPayload::DeregisterExecutor(DeregisterExecutorRequest {
-                executor_id,
-                state_changes,
-            }),
-        };
-        self.indexify_state.write(sm_req).await?;
+        // Purge stale function-call routing entries for this executor across
+        // all deregistration paths (STOPPED, heartbeat timeout, startup reap).
+        let router = self
+            .function_call_result_router
+            .read()
+            .expect("function_call_result_router lock poisoned")
+            .clone();
+        if let Some(router) = router {
+            match router.purge_executor(&executor_id).await {
+                Ok(purged) if purged > 0 => {
+                    info!(
+                        executor_id = executor_id.get(),
+                        purged_entries = purged,
+                        "purged stale function call router entries for deregistered executor"
+                    );
+                }
+                Ok(_) => {}
+                Err(err) => {
+                    error!(
+                        executor_id = executor_id.get(),
+                        error = ?err,
+                        "failed to purge stale function call router entries"
+                    );
+                }
+            }
+        }
+        self.indexify_state
+            .clear_executor_result_seq(&executor_id)
+            .await;
         Ok(())
+    }
+
+    async fn deregister_lapsed_executor(&self, executor_id: ExecutorId) -> Result<()> {
+        self.deregister_executor_internal(executor_id, "heartbeat timeout")
+            .await
+    }
+
+    /// Immediately deregister an executor (best effort), used by explicit
+    /// dataplane shutdown signals.
+    pub async fn deregister_executor(&self, executor_id: ExecutorId, reason: &str) -> Result<()> {
+        self.deregister_executor_internal(executor_id, reason).await
     }
 
     /// Get read access to executor runtime data (for v2 heartbeat hash
@@ -382,9 +537,8 @@ impl ExecutorManager {
         &self,
         executor_id: &ExecutorId,
     ) -> Option<in_memory_state::DesiredExecutorState> {
-        let indexes = self.indexify_state.in_memory_state.read().await;
-        let container_scheduler = self.indexify_state.container_scheduler.read().await;
-        if let Some(executor) = container_scheduler.executors.get(executor_id) {
+        let state = self.indexify_state.app_state.load();
+        if let Some(executor) = state.scheduler.executors.get(executor_id) {
             if executor.tombstoned {
                 return None;
             }
@@ -392,7 +546,7 @@ impl ExecutorManager {
             return None;
         }
 
-        let Some(executor_server_metadata) = container_scheduler.executor_states.get(executor_id)
+        let Some(executor_server_metadata) = state.scheduler.executor_states.get(executor_id)
         else {
             info!(
                 executor_id = executor_id.get(),
@@ -412,7 +566,7 @@ impl ExecutorManager {
 
         let mut active_function_containers = Vec::new();
         for container_id in fc_ids {
-            let Some(fc) = container_scheduler.function_containers.get(&container_id) else {
+            let Some(fc) = state.scheduler.function_containers.get(&container_id) else {
                 error!(
                     executor_id = executor_id.get(),
                     container_id = container_id.get(),
@@ -444,7 +598,8 @@ impl ExecutorManager {
         for fe_meta in active_function_containers {
             let fe = &fe_meta.function_container;
 
-            let cg_version = indexes
+            let cg_version = state
+                .indexes
                 .application_versions
                 .get(&ApplicationVersion::key_from(
                     &fe.namespace,
@@ -499,7 +654,8 @@ impl ExecutorManager {
 
             function_executors.push(Box::new(desired_fc));
 
-            let allocations = indexes
+            let allocations = state
+                .indexes
                 .allocations_by_executor
                 .get(executor_id)
                 .and_then(|allocations| allocations.get(&fe_meta.function_container.id.clone()))
@@ -513,10 +669,38 @@ impl ExecutorManager {
             task_allocations.insert(fe_meta.function_container.id.clone(), allocations);
         }
 
+        // Collect pending snapshots from the same ArcSwap guard so
+        // containers and snapshots are consistent with each other.
+        let mut pending_snapshots = Vec::new();
+        for (_, sandbox) in state.indexes.sandboxes.iter() {
+            if let SandboxStatus::Snapshotting { ref snapshot_id } = sandbox.status {
+                let Some(ref sb_executor_id) = sandbox.executor_id else {
+                    continue;
+                };
+                if sb_executor_id != executor_id {
+                    continue;
+                }
+                let Some(ref container_id) = sandbox.container_id else {
+                    continue;
+                };
+                let snap_key = data_model::SnapshotKey::new(&sandbox.namespace, snapshot_id.get());
+                if let Some(snapshot) = state.indexes.snapshots.get(&snap_key) &&
+                    let Some(ref upload_uri) = snapshot.upload_uri
+                {
+                    pending_snapshots.push(PendingSnapshot {
+                        container_id: container_id.get().to_string(),
+                        snapshot_id: snapshot_id.get().to_string(),
+                        upload_uri: upload_uri.clone(),
+                    });
+                }
+            }
+        }
+
         Some(in_memory_state::DesiredExecutorState {
             containers: function_executors,
             function_run_allocations: task_allocations,
-            clock: indexes.clock,
+            pending_snapshots,
+            clock: state.indexes.clock,
         })
     }
 
@@ -696,7 +880,132 @@ impl ExecutorManager {
         Some(ExecutorStateSnapshot {
             containers: containers_pb,
             allocations: allocations_pb,
+            pending_snapshots: desired_executor_state.pending_snapshots,
             clock: Some(desired_executor_state.clock),
+        })
+    }
+
+    fn build_container_description_from_meta(
+        &self,
+        indexes: &crate::state_store::in_memory_state::InMemoryState,
+        meta: &data_model::ContainerServerMetadata,
+    ) -> Option<ContainerDescription> {
+        let fe = &meta.function_container;
+        let cg_version = indexes
+            .application_versions
+            .get(&ApplicationVersion::key_from(
+                &fe.namespace,
+                &fe.application_name,
+                &fe.version,
+            ))
+            .cloned();
+        let cg_node = cg_version
+            .as_ref()
+            .and_then(|version| version.functions.get(&fe.function_name).cloned());
+
+        let code_payload_pb = cg_version.and_then(|cg_version| {
+            cg_version.code.map(|code| {
+                let blob_store_url_schema = self
+                    .blob_store_registry
+                    .get_blob_store(&fe.namespace)
+                    .get_url_scheme();
+                let blob_store_url = self
+                    .blob_store_registry
+                    .get_blob_store(&fe.namespace)
+                    .get_url();
+                executor_api_pb::DataPayload {
+                    id: Some(code.id.clone()),
+                    uri: Some(blob_store_path_to_url(
+                        &code.path,
+                        &blob_store_url_schema,
+                        &blob_store_url,
+                    )),
+                    size: Some(code.size),
+                    sha256_hash: Some(code.sha256_hash.clone()),
+                    encoding: Some(DataPayloadEncoding::BinaryZip.into()),
+                    encoding_version: Some(0),
+                    offset: Some(0),
+                    metadata_size: Some(0),
+                    source_function_call_id: None,
+                    content_type: Some("application/zip".to_string()),
+                }
+            })
+        });
+
+        let fe_type_pb = match fe.container_type {
+            data_model::ContainerType::Function => ContainerTypePb::Function,
+            data_model::ContainerType::Sandbox => ContainerTypePb::Sandbox,
+        };
+
+        let network_policy_pb = fe
+            .network_policy
+            .as_ref()
+            .map(crate::executor_api::network_policy_to_pb);
+        let sandbox_metadata = if fe.container_type == data_model::ContainerType::Sandbox {
+            Some(SandboxMetadata {
+                image: fe.image.clone(),
+                timeout_secs: if fe.timeout_secs > 0 {
+                    Some(fe.timeout_secs)
+                } else {
+                    None
+                },
+                entrypoint: fe.entrypoint.clone(),
+                network_policy: network_policy_pb,
+                sandbox_id: fe.sandbox_id.as_ref().map(|s| s.get().to_string()),
+                snapshot_uri: fe.snapshot_uri.clone(),
+            })
+        } else {
+            None
+        };
+
+        let resources_pb = match fe.resources.clone().try_into() {
+            Ok(resources) => Some(resources),
+            Err(err) => {
+                error!(
+                    executor_id = meta.executor_id.get(),
+                    container_id = fe.id.get(),
+                    error = %err,
+                    "failed to convert container resources"
+                );
+                return None;
+            }
+        };
+
+        Some(ContainerDescription {
+            id: Some(fe.id.get().to_string()),
+            function: Some(FunctionRef {
+                namespace: Some(fe.namespace.clone()),
+                application_name: Some(fe.application_name.clone()),
+                function_name: Some(fe.function_name.clone()),
+                application_version: Some(fe.version.to_string()),
+            }),
+            secret_names: cg_node
+                .as_ref()
+                .and_then(|node| node.secret_names.clone())
+                .unwrap_or_default(),
+            initialization_timeout_ms: Some(
+                cg_node
+                    .as_ref()
+                    .map(|node| node.initialization_timeout.0)
+                    .unwrap_or_else(|| {
+                        fe.timeout_secs
+                            .saturating_mul(1000)
+                            .try_into()
+                            .unwrap_or(u32::MAX)
+                    }),
+            ),
+            application: code_payload_pb,
+            allocation_timeout_ms: Some(cg_node.map(|node| node.timeout.0).unwrap_or_else(|| {
+                fe.timeout_secs
+                    .saturating_mul(1000)
+                    .try_into()
+                    .unwrap_or(u32::MAX)
+            })),
+            resources: resources_pb,
+            max_concurrency: Some(fe.max_concurrency),
+            sandbox_metadata,
+            container_type: Some(fe_type_pb.into()),
+            pool_id: fe.pool_id.as_ref().map(|p| p.get().to_string()),
         })
     }
 
@@ -704,9 +1013,9 @@ impl ExecutorManager {
         let mut executors = vec![];
         for executor in self
             .indexify_state
-            .container_scheduler
-            .read()
-            .await
+            .app_state
+            .load()
+            .scheduler
             .executors
             .values()
         {
@@ -716,10 +1025,9 @@ impl ExecutorManager {
     }
 
     pub async fn api_list_allocations(&self) -> ExecutorsAllocationsResponse {
-        let state = self.indexify_state.in_memory_state.read().await;
-        let container_sched = self.indexify_state.container_scheduler.read().await;
-        let allocations_by_executor = &state.allocations_by_executor;
-        let function_executors_by_executor = &container_sched.executor_states;
+        let app = self.indexify_state.app_state.load();
+        let allocations_by_executor = &app.indexes.allocations_by_executor;
+        let function_executors_by_executor = &app.scheduler.executor_states;
 
         let executors = function_executors_by_executor
             .iter()
@@ -745,7 +1053,7 @@ impl ExecutorManager {
                         .unwrap_or_default();
 
                     let Some(function_container_server_meta) =
-                        container_sched.function_containers.get(container_id)
+                        app.scheduler.function_containers.get(container_id)
                     else {
                         continue;
                     };
@@ -918,12 +1226,7 @@ mod tests {
             test_srv.process_all_state_changes().await?;
 
             // Ensure that no executor has been removed
-            let executors = indexify_state
-                .container_scheduler
-                .read()
-                .await
-                .executors
-                .clone();
+            let executors = indexify_state.app_state.load().scheduler.executors.clone();
             assert_eq!(
                 3,
                 executors.len(),
@@ -943,12 +1246,7 @@ mod tests {
             test_srv.process_all_state_changes().await?;
 
             // Ensure that no executor has been removed
-            let executors = indexify_state
-                .container_scheduler
-                .read()
-                .await
-                .executors
-                .clone();
+            let executors = indexify_state.app_state.load().scheduler.executors.clone();
             assert_eq!(
                 3,
                 executors.len(),
@@ -965,17 +1263,18 @@ mod tests {
             executor_manager.process_lapsed_executors().await?;
             test_srv.process_all_state_changes().await?;
 
-            let cs = indexify_state.container_scheduler.read().await;
+            let cs = indexify_state.app_state.load();
             // Executor metadata is preserved (tombstoned) so resources remain
             // visible for adoption when the executor reconnects.
             assert_eq!(
                 3,
-                cs.executors.len(),
+                cs.scheduler.executors.len(),
                 "Expected 3 executors (1 tombstoned), but found: {:?}",
-                cs.executors
+                cs.scheduler.executors
             );
             assert!(
-                cs.executors
+                cs.scheduler
+                    .executors
                     .get(&ExecutorId::new("test-executor-3".to_string()))
                     .unwrap()
                     .tombstoned,
@@ -984,7 +1283,8 @@ mod tests {
             // Server metadata should be removed — scheduler has no
             // containers or resource claims for this executor.
             assert!(
-                !cs.executor_states
+                !cs.scheduler
+                    .executor_states
                     .contains_key(&ExecutorId::new("test-executor-3".to_string())),
                 "executor-3 server metadata should be removed"
             );
@@ -1005,22 +1305,92 @@ mod tests {
 
         // All executors tombstoned, server metadata removed
         {
-            let cs = indexify_state.container_scheduler.read().await;
+            let cs = indexify_state.app_state.load();
             assert_eq!(
                 3,
-                cs.executors.len(),
+                cs.scheduler.executors.len(),
                 "Expected 3 tombstoned executors, but found: {:?}",
-                cs.executors
+                cs.scheduler.executors
             );
             assert!(
-                cs.executors.values().all(|e| e.tombstoned),
+                cs.scheduler.executors.values().all(|e| e.tombstoned),
                 "All executors should be tombstoned"
             );
             assert!(
-                cs.executor_states.is_empty(),
+                cs.scheduler.executor_states.is_empty(),
                 "All executor server metadata should be removed"
             );
         }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_lapsed_executor_requeued_when_deregister_persist_fails() -> Result<()> {
+        time::pause();
+        let test_srv = testing::TestService::new().await?;
+        let executor_manager = test_srv.service.executor_manager.clone();
+        let executor_id = ExecutorId::new("test-executor-requeue-on-failure".to_string());
+
+        let executor = ExecutorMetadataBuilder::default()
+            .id(executor_id.clone())
+            .executor_version("1.0".to_string())
+            .function_allowlist(None)
+            .addr("".to_string())
+            .labels(Default::default())
+            .containers(Default::default())
+            .host_resources(Default::default())
+            .state(Default::default())
+            .tombstoned(false)
+            .state_hash("state_hash".to_string())
+            .clock(0)
+            .build()
+            .unwrap();
+
+        sync_executor_state(&test_srv, executor).await?;
+
+        // Lapse the executor and force deregister persistence to fail.
+        time::advance(EXECUTOR_TIMEOUT + Duration::from_secs(1)).await;
+        executor_manager.wait_executor_heartbeat_deadline().await;
+        executor_manager.set_inject_deregister_write_failure_for_test(true);
+
+        executor_manager.process_lapsed_executors().await?;
+
+        // Failed deregister must keep heartbeat/runtime tracking intact and
+        // schedule a retry.
+        assert!(
+            executor_manager
+                .runtime_data
+                .read()
+                .await
+                .contains_key(&executor_id),
+            "runtime data should remain when deregister persistence fails"
+        );
+        assert!(
+            executor_manager
+                .heartbeat_deadline_queue
+                .lock()
+                .await
+                .get_priority(&executor_id)
+                .is_some(),
+            "failed deregister should requeue executor heartbeat deadline"
+        );
+
+        // Allow retry to succeed and confirm cleanup completes.
+        executor_manager.set_inject_deregister_write_failure_for_test(false);
+        time::advance(Duration::from_secs(2)).await;
+        executor_manager.wait_executor_heartbeat_deadline().await;
+        executor_manager.process_lapsed_executors().await?;
+        test_srv.process_all_state_changes().await?;
+
+        assert!(
+            !executor_manager
+                .runtime_data
+                .read()
+                .await
+                .contains_key(&executor_id),
+            "runtime data should be removed after successful retry"
+        );
 
         Ok(())
     }

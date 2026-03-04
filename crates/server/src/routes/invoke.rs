@@ -295,7 +295,11 @@ pub async fn invoke_application_with_object_v1(
         .get_application(&namespace, &application_name)
         .await
         .map_err(|e| IndexifyAPIError::internal_error(anyhow!("failed to get application: {e}")))?
-        .ok_or(IndexifyAPIError::not_found("application not found"))?;
+        .ok_or(
+            IndexifyAPIError::not_found("application not found")
+                .with_label("namespace", namespace.clone())
+                .with_label("application", application_name.clone()),
+        )?;
 
     if let ApplicationState::Disabled { reason } = &application.state {
         return Result::Err(IndexifyAPIError::conflict(reason));
@@ -323,11 +327,12 @@ pub async fn invoke_application_with_object_v1(
     );
     let app_version = state
         .indexify_state
-        .in_memory_state
-        .read()
+        .reader()
+        .get_application_version(&namespace, &application.name, &application.version)
         .await
-        .application_version(&namespace, &application.name, &application.version)
-        .cloned()
+        .map_err(|e| {
+            IndexifyAPIError::internal_error(anyhow!("failed to get application version: {e}"))
+        })?
         .ok_or(IndexifyAPIError::not_found(
             "compute graph version not found",
         ))?;

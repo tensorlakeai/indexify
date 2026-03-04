@@ -338,7 +338,7 @@ pub(super) async fn handle_container_startup_result(
     containers_ref: Arc<RwLock<ContainerStore>>,
     metrics: Arc<DataplaneMetrics>,
     state_file: Arc<StateFile>,
-    container_state_tx: mpsc::UnboundedSender<CommandResponse>,
+    container_state_tx: mpsc::Sender<CommandResponse>,
 ) {
     let mut containers = containers_ref.write().await;
     let Some(container) = containers.get_mut(&id) else {

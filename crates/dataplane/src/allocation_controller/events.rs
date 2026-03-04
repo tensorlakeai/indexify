@@ -31,6 +31,8 @@ pub enum ACCommand {
         /// (fe_id, allocation, command_seq) tuples to route.
         new_allocations: Vec<(String, ServerAllocation, u64)>,
     },
+    /// Cancel a specific allocation by ID.
+    KillAllocation { allocation_id: String },
     /// Recover containers from the state file on startup.
     /// Returns the set of recovered handle IDs via the oneshot channel.
     Recover {

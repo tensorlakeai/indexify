@@ -117,10 +117,8 @@ impl Service {
 
         let application_processor = Arc::new(ApplicationProcessor::new(
             indexify_state.clone(),
+            executor_manager.clone(),
             config.queue_size,
-            std::time::Duration::from_secs(config.cluster_vacuum_interval_secs),
-            std::time::Duration::from_secs(config.cluster_vacuum_max_idle_age_secs),
-            std::time::Duration::from_secs(config.snapshot_timeout_secs),
         ));
         application_processor.validate_app_constraints().await?;
 
@@ -281,8 +279,9 @@ impl Service {
                     )
                     .build_v1()
                     .unwrap();
-                // 4GB max message size for large execution plans
-                const MAX_MESSAGE_SIZE: usize = 4 * 1024 * 1024 * 1024;
+                // Keep envelope bounds tight; heartbeat/report payloads are
+                // fragmented and poll responses are capped server-side.
+                const MAX_MESSAGE_SIZE: usize = 32 * 1024 * 1024;
 
                 Server::builder()
                     .layer(instance_trace)

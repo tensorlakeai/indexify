@@ -44,7 +44,7 @@ mod tests {
     ///
     /// This creates the pool via CreateContainerPoolRequest, which:
     /// 1. Persists the pool to storage
-    /// 2. Updates container_scheduler.function_pools or sandbox_pools
+    /// 2. Updates scheduler.function_pools or sandbox_pools
     /// 3. Generates a CreateContainerPool state change event
     ///
     /// After calling this, you must call `process_all_state_changes()` to
@@ -75,13 +75,8 @@ mod tests {
             function: fn_name.to_string(),
             version: version.to_string(),
         };
-        let container_scheduler = test_srv
-            .service
-            .indexify_state
-            .container_scheduler
-            .read()
-            .await;
-        container_scheduler.count_active_idle_containers(&function_uri)
+        let app = test_srv.service.indexify_state.app_state.load();
+        app.scheduler.count_active_idle_containers(&function_uri)
     }
 
     /// Helper to get the count of containers for a container pool
@@ -89,13 +84,8 @@ mod tests {
         test_srv: &TestService,
         pool_key: &ContainerPoolKey,
     ) -> (u32, u32) {
-        let container_scheduler = test_srv
-            .service
-            .indexify_state
-            .container_scheduler
-            .read()
-            .await;
-        container_scheduler.count_pool_containers(pool_key)
+        let app = test_srv.service.indexify_state.app_state.load();
+        app.scheduler.count_pool_containers(pool_key)
     }
 
     /// Helper to create an application with buffer_containers configured
@@ -486,8 +476,9 @@ mod tests {
 
         // Verify warm containers exist and they have pool_id but no sandbox_id
         {
-            let container_scheduler = indexify_state.container_scheduler.read().await;
-            let warm_container = container_scheduler
+            let app = indexify_state.app_state.load();
+            let warm_container = app
+                .scheduler
                 .function_containers
                 .iter()
                 .find(|(_, meta)| {
@@ -542,8 +533,9 @@ mod tests {
 
         // Verify the container now has sandbox_id set (the key invariant!)
         {
-            let container_scheduler = indexify_state.container_scheduler.read().await;
-            let claimed_container = container_scheduler
+            let app = indexify_state.app_state.load();
+            let claimed_container = app
+                .scheduler
                 .function_containers
                 .iter()
                 .find(|(_, meta)| meta.function_container.sandbox_id.as_ref() == Some(&sandbox_id))

@@ -81,7 +81,14 @@ impl AllocationController {
                 );
                 // Ack the command so the server knows it was received.
                 let ack = proto_convert::make_allocation_scheduled_response(&alloc_id, command_seq);
-                let _ = self.config.result_tx.send(ack);
+                if let Err(err) = self.config.result_tx.try_send(ack) {
+                    warn!(
+                        allocation_id = %alloc_id,
+                        container_id = %fe_id,
+                        error = ?err,
+                        "result_tx unavailable while sending allocation ack"
+                    );
+                }
 
                 let failure_reason = self
                     .containers
@@ -102,14 +109,15 @@ impl AllocationController {
                 );
                 // Send failure via outcome channel — no blobs to clean up.
                 proto_convert::record_outcome_metrics(&outcome, &self.config.metrics.counters);
-                if self.config.outcome_tx.send(outcome).is_err() {
+                if let Err(err) = self.config.outcome_tx.send(outcome) {
                     tracing::warn!(
                         allocation_id = %alloc_id,
                         container_id = %fe_id,
                         namespace = %lctx.namespace,
                         app = %lctx.app,
                         "fn" = %lctx.fn_name,
-                        "outcome_tx channel closed, allocation outcome lost"
+                        error = ?err,
+                        "outcome_tx unavailable, allocation outcome not queued"
                     );
                 }
                 let managed = ManagedAllocation {
@@ -124,7 +132,14 @@ impl AllocationController {
 
             // Send AllocationScheduled ack back on the command response channel
             let ack = proto_convert::make_allocation_scheduled_response(&alloc_id, command_seq);
-            let _ = self.config.result_tx.send(ack);
+            if let Err(err) = self.config.result_tx.try_send(ack) {
+                warn!(
+                    allocation_id = %alloc_id,
+                    container_id = %fe_id,
+                    error = ?err,
+                    "result_tx unavailable while sending allocation ack"
+                );
+            }
 
             let cancel_token = self.cancel_token.child_token();
 
@@ -779,11 +794,12 @@ impl AllocationController {
         // Record metrics and send result via outcome channel (guaranteed delivery)
         let outcome = proto_convert::allocation_result_to_outcome(&result, terminated_container_id);
         proto_convert::record_outcome_metrics(&outcome, &self.config.metrics.counters);
-        if self.config.outcome_tx.send(outcome).is_err() {
+        if let Err(err) = self.config.outcome_tx.send(outcome) {
             tracing::warn!(
                 allocation_id = %allocation_id,
                 container_id = %alloc.fe_id,
-                "outcome_tx channel closed, allocation outcome lost"
+                error = ?err,
+                "outcome_tx unavailable, allocation outcome not queued"
             );
         }
 
@@ -893,6 +909,87 @@ impl AllocationController {
         );
     }
 
+    /// Cancel a specific allocation.
+    ///
+    /// Running allocations are cancelled cooperatively by signalling their
+    /// token and letting the runner produce the terminal event.
+    /// Preparing/Waiting allocations are transitioned to finalization
+    /// immediately.
+    pub(super) fn cancel_allocation(&mut self, allocation_id: &str) {
+        let Some(alloc) = self.allocations.get_mut(allocation_id) else {
+            info!(
+                allocation_id,
+                "KillAllocation ignored: allocation not found"
+            );
+            return;
+        };
+
+        let fe_id = alloc.fe_id.clone();
+        let lctx = AllocLogCtx::from_allocation(&alloc.allocation);
+
+        match &alloc.state {
+            AllocationState::Done | AllocationState::Finalizing { .. } => {
+                info!(
+                    allocation_id,
+                    request_id = %lctx.request_id,
+                    namespace = %lctx.namespace,
+                    app = %lctx.app,
+                    "fn" = %lctx.fn_name,
+                    state = %alloc.state,
+                    "KillAllocation ignored: allocation already terminal"
+                );
+                return;
+            }
+            AllocationState::Running { cancel_token, .. } => {
+                cancel_token.cancel();
+                info!(
+                    allocation_id,
+                    request_id = %lctx.request_id,
+                    namespace = %lctx.namespace,
+                    app = %lctx.app,
+                    "fn" = %lctx.fn_name,
+                    container_id = %fe_id,
+                    "KillAllocation requested for running allocation"
+                );
+                return;
+            }
+            AllocationState::Preparing { cancel_token } => {
+                cancel_token.cancel();
+            }
+            AllocationState::WaitingForContainer | AllocationState::WaitingForSlot => {
+                self.config
+                    .metrics
+                    .up_down_counters
+                    .runnable_allocations
+                    .add(-1, &[]);
+                if let Some(queue) = self.waiting_queue.get_mut(&fe_id) {
+                    queue.retain(|id| id != allocation_id);
+                }
+            }
+        }
+
+        let ctx = if let Some((_, finalization_ctx)) = self.prepared_data.remove(allocation_id) {
+            finalization_ctx
+        } else {
+            FinalizationContext::default()
+        };
+
+        let result = proto_convert::make_failure_result(
+            &alloc.allocation,
+            AllocationFailureReason::AllocationCancelled,
+        );
+        self.start_finalization(allocation_id, result, ctx, None);
+        info!(
+            allocation_id,
+            request_id = %lctx.request_id,
+            namespace = %lctx.namespace,
+            app = %lctx.app,
+            "fn" = %lctx.fn_name,
+            container_id = %fe_id,
+            "KillAllocation transitioned allocation to finalization"
+        );
+    }
+
     /// Shut down all containers and allocations.
     pub(super) async fn shutdown_all(&mut self) {
         info!("Shutting down all containers and allocations");
@@ -992,11 +1089,12 @@ impl AllocationController {
                 let container_id = terminated_container_id.or_else(|| Some(alloc.fe_id.clone()));
                 let outcome = proto_convert::allocation_result_to_outcome(&result, container_id);
                 proto_convert::record_outcome_metrics(&outcome, &self.config.metrics.counters);
-                if self.config.outcome_tx.send(outcome).is_err() {
+                if let Err(err) = self.config.outcome_tx.send(outcome) {
                     tracing::warn!(
                         allocation_id = %alloc_id,
                         container_id = %alloc.fe_id,
-                        "outcome_tx channel closed, allocation outcome lost"
+                        error = ?err,
+                        "outcome_tx unavailable, allocation outcome not queued"
                     );
                 }
             }

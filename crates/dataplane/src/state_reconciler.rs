@@ -32,12 +32,15 @@
 //!   reconnection would incorrectly stop containers that haven't been
 //!   re-announced yet.
 
-use std::{collections::HashSet, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use proto_api::executor_api_pb::{Allocation, ContainerDescription, ContainerState, ContainerType};
 use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::{
     allocation_controller::{AllocationController, AllocationControllerHandle, events::ACCommand},
@@ -45,6 +48,12 @@ use crate::{
     function_container_manager::FunctionContainerManager,
     function_executor::controller::FESpawnConfig,
 };
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ContainerOwner {
+    Function,
+    Sandbox,
+}
 
 /// Routes desired state to the AllocationController and sandbox containers.
 ///
@@ -57,6 +66,9 @@ pub struct StateReconciler {
     /// Notify for state changes (added/removed FEs) to trigger immediate
     /// heartbeats.
     state_change_notify: Arc<Notify>,
+    /// Authoritative command-order routing for container ownership by id.
+    /// Updated from Add/Remove commands (intent), not runtime state snapshots.
+    container_owners: HashMap<String, ContainerOwner>,
 }
 
 impl StateReconciler {
@@ -77,6 +89,7 @@ impl StateReconciler {
             allocation_controller: ac_handle,
             container_manager,
             state_change_notify,
+            container_owners: HashMap::new(),
         }
     }
 
@@ -87,50 +100,100 @@ impl StateReconciler {
     /// - **Sandbox** FEs → `FunctionContainerManager` delta methods
     ///   (`add_or_update_container` / `remove_container_by_id`)
     ///
-    /// Removal IDs are applied to both paths: forwarded to the
-    /// AllocationController and to `FunctionContainerManager`.
+    /// Removal IDs are routed to exactly one path:
+    /// - sandbox manager if the ID is known there
+    /// - AllocationController if the ID is known there
+    /// - otherwise treated as already removed (ack and continue)
     pub async fn reconcile_containers(
         &mut self,
         added_or_updated: Vec<ContainerDescription>,
         removed_container_ids: Vec<String>,
-    ) {
+    ) -> bool {
         let mut function_fes = Vec::new();
 
         for fe in added_or_updated {
             match fe.container_type() {
-                ContainerType::Function => function_fes.push(fe),
+                ContainerType::Function => {
+                    if let Some(id) = fe.id.clone() {
+                        self.container_owners.insert(id, ContainerOwner::Function);
+                    }
+                    function_fes.push(fe);
+                }
                 ContainerType::Sandbox | ContainerType::Unknown => {
+                    if let Some(id) = fe.id.clone() {
+                        self.container_owners.insert(id, ContainerOwner::Sandbox);
+                    }
                     self.container_manager.add_or_update_container(fe).await;
                 }
             }
         }
 
-        // Apply removals to both paths. We don't know the type of removed IDs
-        // upfront, so try both — the AllocationController ignores IDs it
-        // doesn't know about, and FunctionContainerManager ignores unknown IDs.
-        for id in &removed_container_ids {
-            self.container_manager.remove_container_by_id(id).await;
+        let mut function_removed_ids = Vec::new();
+        let mut sandbox_removed_count = 0usize;
+        let mut unknown_removed_count = 0usize;
+
+        for id in removed_container_ids {
+            match self.container_owners.remove(&id) {
+                Some(ContainerOwner::Sandbox) => {
+                    self.container_manager.remove_container_by_id(&id).await;
+                    sandbox_removed_count = sandbox_removed_count.saturating_add(1);
+                }
+                Some(ContainerOwner::Function) => {
+                    function_removed_ids.push(id);
+                }
+                None => {
+                    unknown_removed_count = unknown_removed_count.saturating_add(1);
+                    info!(
+                        container_id = %id,
+                        "RemoveContainer for unknown container; treating as already removed"
+                    );
+                }
+            }
         }
 
         let function_fe_count = function_fes.len();
-        let removed_count = removed_container_ids.len();
-        let changed = function_fe_count > 0 || removed_count > 0;
+        let function_removed_count = function_removed_ids.len();
+        let changed = function_fe_count > 0 || function_removed_count > 0;
 
-        let _ = self
+        if !changed {
+            if sandbox_removed_count > 0 || unknown_removed_count > 0 {
+                info!(
+                    sandbox_removed_count,
+                    unknown_removed_count,
+                    "Handled container removals without AllocationController update"
+                );
+            }
+            return true;
+        }
+
+        if let Err(err) = self
             .allocation_controller
             .command_tx
             .send(ACCommand::Reconcile {
                 added_or_updated_fes: function_fes,
-                removed_fe_ids: removed_container_ids,
+                removed_fe_ids: function_removed_ids,
                 new_allocations: vec![],
-            });
-
-        if changed {
-            info!(
+            })
+        {
+            warn!(
+                error = %err,
                 function_fe_count,
-                removed_count, "Sent container Reconcile to AllocationController"
+                function_removed_count,
+                sandbox_removed_count,
+                unknown_removed_count,
+                "Failed to send container Reconcile to AllocationController"
             );
+            return false;
         }
+
+        info!(
+            function_fe_count,
+            function_removed_count,
+            sandbox_removed_count,
+            unknown_removed_count,
+            "Sent container Reconcile to AllocationController"
+        );
+        true
     }
 
     /// Apply a targeted description update to an existing container.
@@ -142,31 +205,67 @@ impl StateReconciler {
     pub async fn update_container_description(
         &mut self,
         update: proto_api::executor_api_pb::UpdateContainerDescription,
-    ) {
+    ) -> bool {
         self.container_manager
             .update_container_description(update)
             .await;
+        true
     }
 
     /// Reconcile allocation stream update: route allocations.
     ///
     /// Each allocation tuple is `(fe_id, allocation, command_seq)`.
-    pub async fn reconcile_allocations(&mut self, allocations: Vec<(String, Allocation, u64)>) {
-        if !allocations.is_empty() {
-            let allocation_count = allocations.len();
-            let _ = self
-                .allocation_controller
-                .command_tx
-                .send(ACCommand::Reconcile {
-                    added_or_updated_fes: vec![],
-                    removed_fe_ids: vec![],
-                    new_allocations: allocations,
-                });
-            info!(
-                allocation_count,
-                "Sent allocation Reconcile to AllocationController"
-            );
+    pub async fn reconcile_allocations(
+        &mut self,
+        allocations: Vec<(String, Allocation, u64)>,
+    ) -> bool {
+        if allocations.is_empty() {
+            return true;
         }
+
+        let allocation_count = allocations.len();
+        if let Err(err) = self
+            .allocation_controller
+            .command_tx
+            .send(ACCommand::Reconcile {
+                added_or_updated_fes: vec![],
+                removed_fe_ids: vec![],
+                new_allocations: allocations,
+            })
+        {
+            warn!(
+                error = %err,
+                allocation_count,
+                "Failed to send allocation Reconcile to AllocationController"
+            );
+            return false;
+        }
+
+        info!(
+            allocation_count,
+            "Sent allocation Reconcile to AllocationController"
+        );
+        true
+    }
+
+    /// Forward a targeted allocation cancellation to the AllocationController.
+    pub async fn kill_allocation(&mut self, allocation_id: String) -> bool {
+        if allocation_id.is_empty() {
+            warn!("Ignoring KillAllocation with empty allocation_id");
+            return false;
+        }
+        if let Err(err) = self
+            .allocation_controller
+            .command_tx
+            .send(ACCommand::KillAllocation { allocation_id })
+        {
+            warn!(
+                error = %err,
+                "Failed to send KillAllocation to AllocationController"
+            );
+            return false;
+        }
+        true
     }
 
     /// Snapshot a container's filesystem.
@@ -209,13 +308,32 @@ impl StateReconciler {
     ///
     /// Sends a Recover command to the AllocationController and waits for
     /// it to process. Returns the set of recovered handle IDs.
-    pub async fn recover_ac_containers(&self) -> HashSet<String> {
+    pub async fn recover_ac_containers(&mut self) -> HashSet<String> {
         let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
         let _ = self
             .allocation_controller
             .command_tx
             .send(ACCommand::Recover { reply: reply_tx });
-        reply_rx.await.unwrap_or_default()
+        let recovered = reply_rx.await.unwrap_or_default();
+        for id in &recovered {
+            self.container_owners
+                .insert(id.clone(), ContainerOwner::Function);
+        }
+
+        // Seed sandbox ownership from current manager state on startup.
+        for state in self.container_manager.get_states().await {
+            if let Some(id) = state
+                .description
+                .as_ref()
+                .and_then(|desc| desc.id.as_deref())
+            {
+                self.container_owners
+                    .entry(id.to_string())
+                    .or_insert(ContainerOwner::Sandbox);
+            }
+        }
+
+        recovered
     }
 
     /// Clean up orphaned containers from all execution paths.

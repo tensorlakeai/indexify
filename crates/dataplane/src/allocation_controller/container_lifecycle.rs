@@ -201,6 +201,7 @@ impl AllocationController {
     fn create_container(&mut self, description: ContainerDescription) {
         let fe_id = description.id.clone().unwrap_or_default();
         let max_concurrency = description.max_concurrency.unwrap_or(1);
+        let create_start = Instant::now();
 
         // Allocate GPUs synchronously (no race — single-threaded)
         let gpu_count = description
@@ -216,18 +217,53 @@ impl AllocationController {
             match self.config.gpu_allocator.allocate(gpu_count) {
                 Ok(uuids) => uuids,
                 Err(e) => {
-                    warn!(
+                    error!(
                         container_id = %fe_id,
                         namespace = %create_ctx.namespace,
                         app = %create_ctx.app,
                         "fn" = %create_ctx.fn_name,
+                        version = %create_ctx.version,
                         sandbox_id = %create_ctx.sandbox_id,
                         pool_id = %create_ctx.pool_id,
                         gpu_count = gpu_count,
                         error = %e,
-                        "GPU allocation failed"
+                        "GPU allocation failed; failing container startup with internal error"
                     );
-                    Vec::new()
+
+                    self.config
+                        .metrics
+                        .counters
+                        .function_executor_creates
+                        .add(1, &[]);
+                    self.config
+                        .metrics
+                        .counters
+                        .function_executor_create_errors
+                        .add(1, &[]);
+                    self.config
+                        .metrics
+                        .histograms
+                        .function_executor_create_latency_seconds
+                        .record(create_start.elapsed().as_secs_f64(), &[]);
+
+                    let reason = ContainerTerminationReason::StartupFailedInternalError;
+                    let managed = ManagedFE {
+                        description: description.clone(),
+                        state: ContainerState::Terminated { reason },
+                        max_concurrency,
+                        allocated_gpu_uuids: Vec::new(),
+                        created_at: Instant::now(),
+                    };
+                    self.containers.insert(fe_id.clone(), managed);
+
+                    let failure_reason =
+                        crate::function_executor::proto_convert::termination_to_failure_reason(
+                            reason,
+                        );
+                    self.fail_allocations_for_fe(&fe_id, failure_reason);
+                    self.send_container_terminated(&fe_id, reason);
+                    self.broadcast_state();
+                    return;
                 }
             }
         } else {
@@ -495,7 +531,13 @@ impl AllocationController {
                     crate::function_executor::proto_convert::make_container_started_response(
                         &fe_id,
                     );
-                let _ = self.config.container_state_tx.send(response);
+                if let Err(err) = self.config.container_state_tx.try_send(response) {
+                    warn!(
+                        container_id = %fe_id,
+                        error = ?err,
+                        "container_state_tx unavailable while sending ContainerStarted"
+                    );
+                }
 
                 // Unblock WaitingForContainer allocations
                 self.try_schedule();
@@ -655,7 +697,13 @@ impl AllocationController {
             container_id,
             reason,
         );
-        let _ = self.config.container_state_tx.send(response);
+        if let Err(err) = self.config.container_state_tx.try_send(response) {
+            warn!(
+                container_id = %container_id,
+                error = ?err,
+                "container_state_tx unavailable while sending ContainerTerminated"
+            );
+        }
     }
 }
 

@@ -492,34 +492,44 @@ mod tests {
             "Executor with non-terminated containers should NOT be ready for teardown"
         );
 
-        // --- Phase 2: advance time, run vacuum → container terminated → ready ---
+        // --- Phase 2: run reaper → container terminated → ready ---
 
-        // Advance time past the vacuum idle threshold
-        let max_idle_age = std::time::Duration::from_secs(300);
-        tokio::time::advance(std::time::Duration::from_secs(600)).await;
-
-        // Run periodic vacuum on the container scheduler
-        let scheduler_update = {
-            let container_scheduler = indexify_state.container_scheduler.read().await.clone();
-            let mut guard = container_scheduler.write().await;
-            guard.periodic_vacuum(max_idle_age).unwrap()
+        // Reap idle containers (eager — no age threshold)
+        let (scheduler_update, current) = {
+            let current = indexify_state.app_state.load_full();
+            let mut guard = (*current).clone();
+            let update = guard
+                .scheduler
+                .reap_idle_containers(std::time::Duration::ZERO);
+            (update, current)
         };
 
         assert!(
             !scheduler_update.containers.is_empty(),
-            "vacuum should have terminated the idle container"
+            "reaper should have terminated the idle container"
         );
 
-        // Persist the vacuum update (mirrors handle_cluster_vacuum)
+        // Persist the vacuum update (mirrors handle_cluster_vacuum):
+        // write_scheduler_output() for RocksDB, then publish to ArcSwap.
         indexify_state
-            .write(StateMachineUpdateRequest {
+            .write_scheduler_output(StateMachineUpdateRequest {
                 payload: RequestPayload::SchedulerUpdate(SchedulerUpdatePayload {
-                    update: Box::new(scheduler_update),
-                    processed_state_changes: vec![],
+                    update: Box::new(scheduler_update.clone()),
                 }),
             })
             .await
             .unwrap();
+
+        // Publish updated state to ArcSwap.
+        {
+            let mut next = (*current).clone();
+            let clock = next.indexes.clock;
+            next.indexes
+                .apply_scheduler_update(clock, &scheduler_update, "test_vacuum")
+                .unwrap();
+            next.scheduler.apply_container_update(&scheduler_update);
+            indexify_state.app_state.store(std::sync::Arc::new(next));
+        }
 
         // Re-query: executor should now be ready for teardown
         let route_state = RouteState {

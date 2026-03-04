@@ -13,6 +13,21 @@ use crate::{daemon_client::DaemonClient, driver::ProcessHandle, network_rules};
 
 const HEALTH_CHECK_INTERVAL: Duration = Duration::from_secs(5);
 
+enum HealthCheck {
+    Running {
+        id: String,
+        handle: ProcessHandle,
+        daemon_client: DaemonClient,
+        span: tracing::Span,
+    },
+    Stopping {
+        id: String,
+        handle: ProcessHandle,
+        reason: ContainerTerminationReason,
+        span: tracing::Span,
+    },
+}
+
 impl FunctionContainerManager {
     /// Run the health check loop. Call this from a spawned task.
     pub async fn run_health_checks(&self, cancel_token: CancellationToken) {
@@ -39,33 +54,55 @@ impl FunctionContainerManager {
     }
 
     /// Check all running containers to see if they're still alive.
-    async fn check_all_containers(&self) {
-        let mut containers = self.containers.write().await;
-        let ids: Vec<String> = containers.keys().cloned().collect();
+    pub(super) async fn check_all_containers(&self) {
+        let checks = {
+            let containers = self.containers.read().await;
+            containers
+                .iter()
+                .filter_map(|(id, container)| {
+                    let span = container.info().tracing_span();
+                    match &container.state {
+                        ContainerState::Running {
+                            handle,
+                            daemon_client,
+                        } => Some(HealthCheck::Running {
+                            id: id.clone(),
+                            handle: handle.clone(),
+                            daemon_client: daemon_client.clone(),
+                            span,
+                        }),
+                        ContainerState::Stopping { handle, reason, .. } => {
+                            Some(HealthCheck::Stopping {
+                                id: id.clone(),
+                                handle: handle.clone(),
+                                reason: *reason,
+                                span,
+                            })
+                        }
+                        _ => None,
+                    }
+                })
+                .collect::<Vec<_>>()
+        };
 
-        for id in ids {
-            let Some(container) = containers.get_mut(&id) else {
-                continue;
-            };
-
-            let check_data = match &container.state {
-                ContainerState::Running {
+        for check in checks {
+            match check {
+                HealthCheck::Running {
+                    id,
                     handle,
                     daemon_client,
-                } => Some((handle.clone(), Some(daemon_client.clone()), None)),
-                ContainerState::Stopping { handle, reason, .. } => {
-                    Some((handle.clone(), None, Some(*reason)))
-                }
-                _ => None,
-            };
-
-            if let Some((handle, daemon_client, stopping_reason)) = check_data {
-                let span = container.info().tracing_span();
-                if let Some(reason) = stopping_reason {
-                    self.check_stopping_container(container, &handle, reason, &span)
+                    span,
+                } => {
+                    self.check_running_container(&id, &handle, daemon_client, &span)
                         .await;
-                } else {
-                    self.check_running_container(container, &handle, daemon_client, &span)
+                }
+                HealthCheck::Stopping {
+                    id,
+                    handle,
+                    reason,
+                    span,
+                } => {
+                    self.check_stopping_container(&id, &handle, reason, &span)
                         .await;
                 }
             }
@@ -75,32 +112,41 @@ impl FunctionContainerManager {
     /// Check if a stopping container has died yet and transition to Terminated.
     async fn check_stopping_container(
         &self,
-        container: &mut super::types::ManagedContainer,
+        id: &str,
         handle: &ProcessHandle,
         reason: ContainerTerminationReason,
         span: &tracing::Span,
     ) {
         if let Ok(false) = self.driver.alive(handle).await {
-            tracing::info!(parent: span, ?reason, "Container stopped");
-            if container
-                .transition_to_terminated(reason)
-                .inspect_err(
-                    |error| tracing::warn!(parent: span, ?error, "Invalid state transition"),
-                )
-                .is_ok()
-            {
-                let id = container.description.id.as_deref().unwrap_or("");
-                Self::send_container_terminated(&self.container_state_tx, id, reason);
+            // Even if the process is already dead, run driver cleanup so VM
+            // network/LV resources are released before reporting termination.
+            if let Err(e) = network_rules::remove_rules(&handle.id, &handle.container_ip) {
+                tracing::warn!(
+                    parent: span,
+                    error = ?e,
+                    "Failed to remove network rules"
+                );
             }
+            if let Err(e) = self.driver.kill(handle).await {
+                tracing::warn!(
+                    parent: span,
+                    error = ?e,
+                    "Failed to cleanup stopped container"
+                );
+            }
+
+            tracing::info!(parent: span, ?reason, "Container stopped and cleaned up");
+            self.transition_stopping_to_terminated(id, handle, reason, span)
+                .await;
         }
     }
 
     /// Check a running container's liveness and daemon health.
     async fn check_running_container(
         &self,
-        container: &mut super::types::ManagedContainer,
+        id: &str,
         handle: &ProcessHandle,
-        daemon_client: Option<DaemonClient>,
+        mut daemon_client: DaemonClient,
         span: &tracing::Span,
     ) {
         match self.driver.alive(handle).await {
@@ -109,50 +155,37 @@ impl FunctionContainerManager {
                 // Note: We check daemon health, not individual process status.
                 // User-started processes (via HTTP API) may complete independently
                 // without affecting the container's lifecycle.
-                if let Some(mut client) = daemon_client {
-                    let health_start = Instant::now();
-                    let health_result = client.health().await;
-                    self.metrics
-                        .histograms
-                        .sandbox_health_check_latency_seconds
-                        .record(health_start.elapsed().as_secs_f64(), &[]);
-                    match health_result {
-                        Ok(healthy) if !healthy => {
-                            self.metrics
-                                .counters
-                                .sandbox_failed_health_checks
-                                .add(1, &[]);
-                            tracing::info!(
-                                parent: span,
-                                "Daemon is unhealthy, terminating container"
-                            );
-                            let _ = network_rules::remove_rules(&handle.id, &handle.container_ip);
-                            let _ = self.driver.kill(handle).await;
-                            let reason = ContainerTerminationReason::Unhealthy;
-                            if container.transition_to_terminated(reason)
-                                .inspect_err(|error| tracing::warn!(parent: span, ?error, "Invalid state transition"))
-                                .is_ok() {
-                                let id = container.description.id.as_deref().unwrap_or("");
-                                Self::send_container_terminated(
-                                    &self.container_state_tx,
-                                    id,
-                                    reason,
-                                );
-                            }
-                        }
-                        Err(e) => {
-                            self.metrics
-                                .counters
-                                .sandbox_failed_health_checks
-                                .add(1, &[]);
-                            tracing::warn!(
-                                parent: span,
-                                error = ?e,
-                                "Failed to check daemon health"
-                            );
-                        }
-                        _ => {} // healthy
+                let health_start = Instant::now();
+                let health_result = daemon_client.health().await;
+                self.metrics
+                    .histograms
+                    .sandbox_health_check_latency_seconds
+                    .record(health_start.elapsed().as_secs_f64(), &[]);
+                match health_result {
+                    Ok(healthy) if !healthy => {
+                        self.metrics
+                            .counters
+                            .sandbox_failed_health_checks
+                            .add(1, &[]);
+                        tracing::info!(parent: span, "Daemon is unhealthy, terminating container");
+                        let _ = network_rules::remove_rules(&handle.id, &handle.container_ip);
+                        let _ = self.driver.kill(handle).await;
+                        let reason = ContainerTerminationReason::Unhealthy;
+                        self.transition_running_to_terminated(id, handle, reason, span)
+                            .await;
                     }
+                    Err(e) => {
+                        self.metrics
+                            .counters
+                            .sandbox_failed_health_checks
+                            .add(1, &[]);
+                        tracing::warn!(
+                            parent: span,
+                            error = ?e,
+                            "Failed to check daemon health"
+                        );
+                    }
+                    _ => {} // healthy
                 }
             }
             Ok(false) => {
@@ -165,16 +198,22 @@ impl FunctionContainerManager {
                     reason = ?reason,
                     "Container is no longer alive"
                 );
-                if container
-                    .transition_to_terminated(reason)
-                    .inspect_err(
-                        |error| tracing::warn!(parent: span, ?error, "Invalid state transition"),
-                    )
-                    .is_ok()
-                {
-                    let id = container.description.id.as_deref().unwrap_or("");
-                    Self::send_container_terminated(&self.container_state_tx, id, reason);
+                if let Err(e) = network_rules::remove_rules(&handle.id, &handle.container_ip) {
+                    tracing::warn!(
+                        parent: span,
+                        error = ?e,
+                        "Failed to remove network rules"
+                    );
                 }
+                if let Err(e) = self.driver.kill(handle).await {
+                    tracing::warn!(
+                        parent: span,
+                        error = ?e,
+                        "Failed to cleanup dead container"
+                    );
+                }
+                self.transition_running_to_terminated(id, handle, reason, span)
+                    .await;
             }
             Err(e) => {
                 tracing::warn!(
@@ -183,6 +222,61 @@ impl FunctionContainerManager {
                     "Failed to check container status"
                 );
             }
+        }
+    }
+
+    async fn transition_stopping_to_terminated(
+        &self,
+        id: &str,
+        expected_handle: &ProcessHandle,
+        expected_reason: ContainerTerminationReason,
+        span: &tracing::Span,
+    ) {
+        let mut containers = self.containers.write().await;
+        let Some(container) = containers.get_mut(id) else {
+            return;
+        };
+        let is_expected_state = matches!(
+            &container.state,
+            ContainerState::Stopping { handle, reason, .. }
+                if handle.id == expected_handle.id && *reason == expected_reason
+        );
+        if !is_expected_state {
+            return;
+        }
+        if container
+            .transition_to_terminated(expected_reason)
+            .inspect_err(|error| tracing::warn!(parent: span, ?error, "Invalid state transition"))
+            .is_ok()
+        {
+            Self::send_container_terminated(&self.container_state_tx, id, expected_reason);
+        }
+    }
+
+    async fn transition_running_to_terminated(
+        &self,
+        id: &str,
+        expected_handle: &ProcessHandle,
+        reason: ContainerTerminationReason,
+        span: &tracing::Span,
+    ) {
+        let mut containers = self.containers.write().await;
+        let Some(container) = containers.get_mut(id) else {
+            return;
+        };
+        let is_expected_state = matches!(
+            &container.state,
+            ContainerState::Running { handle, .. } if handle.id == expected_handle.id
+        );
+        if !is_expected_state {
+            return;
+        }
+        if container
+            .transition_to_terminated(reason)
+            .inspect_err(|error| tracing::warn!(parent: span, ?error, "Invalid state transition"))
+            .is_ok()
+        {
+            Self::send_container_terminated(&self.container_state_tx, id, reason);
         }
     }
 

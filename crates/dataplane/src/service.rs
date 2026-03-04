@@ -45,6 +45,10 @@ use crate::{
 };
 
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
+const MAX_GRPC_DECODE_MESSAGE_SIZE: usize = 32 * 1024 * 1024;
+const STATE_REPORT_CHANNEL_CAPACITY: usize = 8192;
+/// Sentinel for "no malformed sequence seen yet".
+const UNSET_MALFORMED_SEQ: u64 = u64::MAX;
 
 /// Explicit connection state for the dataplane's relationship with the server.
 ///
@@ -155,10 +159,11 @@ impl Service {
             "Process drivers configured"
         );
 
-        let (result_tx, result_rx) = mpsc::unbounded_channel(); // CommandResponse (acks + container events)
-        let (container_state_tx, container_state_rx) = mpsc::unbounded_channel(); // CommandResponse (ContainerTerminated)
-        let (activity_tx, activity_rx) = mpsc::unbounded_channel::<AllocationLogEntry>(); // AllocationLogEntry (CallFunction)
-        let (outcome_tx, outcome_rx) = mpsc::unbounded_channel(); // AllocationOutcome (Completed/Failed, guaranteed delivery)
+        let (result_tx, result_rx) = mpsc::channel(STATE_REPORT_CHANNEL_CAPACITY); // CommandResponse (acks + container events)
+        let (container_state_tx, container_state_rx) = mpsc::channel(STATE_REPORT_CHANNEL_CAPACITY); // CommandResponse (ContainerTerminated)
+        let (activity_tx, activity_rx) =
+            mpsc::channel::<AllocationLogEntry>(STATE_REPORT_CHANNEL_CAPACITY); // AllocationLogEntry (CallFunction)
+        let (outcome_tx, outcome_rx) = mpsc::unbounded_channel(); // AllocationOutcome (Completed/Failed)
 
         // Ensure the state directory exists
         std::fs::create_dir_all(&config.state_dir).context("Failed to create state directory")?;
@@ -332,12 +337,10 @@ impl Service {
         }
 
         // Recover containers from previous run (AC function path)
-        let ac_known_handles = self
-            .state_reconciler
-            .lock()
-            .await
-            .recover_ac_containers()
-            .await;
+        let ac_known_handles = {
+            let mut reconciler = self.state_reconciler.lock().await;
+            reconciler.recover_ac_containers().await
+        };
         if !ac_known_handles.is_empty() {
             tracing::info!(
                 recovered = ac_known_handles.len(),
@@ -378,6 +381,8 @@ impl Service {
             monitoring_state: self.monitoring_state.clone(),
             last_applied_command_seq: Arc::new(AtomicU64::new(0)),
             last_applied_result_seq: Arc::new(AtomicU64::new(0)),
+            last_malformed_command_seq: Arc::new(AtomicU64::new(UNSET_MALFORMED_SEQ)),
+            last_malformed_result_seq: Arc::new(AtomicU64::new(UNSET_MALFORMED_SEQ)),
             allocation_result_dispatcher: self.allocation_result_dispatcher.clone(),
         });
 
@@ -462,6 +467,10 @@ impl Service {
         // Always cancel all tasks and clean up, regardless of which branch triggered.
         cancel_token.cancel();
 
+        // Best-effort explicit shutdown signal so the server can deregister
+        // this executor immediately instead of waiting for heartbeat timeout.
+        runtime.send_stopped_heartbeat().await;
+
         // Graceful shutdown with force-exit fallback.
         // After cancel_token fires, background tasks may still hold the
         // state_reconciler lock while winding down.  A second Ctrl+C or a
@@ -539,6 +548,10 @@ struct ServiceRuntime {
     /// Highest result seq successfully applied (used by poll_allocation_results
     /// ack).
     last_applied_result_seq: Arc<AtomicU64>,
+    /// Last malformed command sequence observed in poll_commands.
+    last_malformed_command_seq: Arc<AtomicU64>,
+    /// Last malformed result sequence observed in poll_allocation_results.
+    last_malformed_result_seq: Arc<AtomicU64>,
     /// Dispatcher for routing allocation results to allocation runners.
     allocation_result_dispatcher: Arc<AllocationResultDispatcher>,
 }
@@ -561,15 +574,113 @@ impl ServiceRuntime {
         }
     }
 
+    /// Record malformed command metrics and detect repeated malformed sequence
+    /// numbers.
+    fn record_malformed_command(&self, seq: u64, command_type: &str, reason: &str) -> bool {
+        self.metrics
+            .counters
+            .record_poll_command_malformed(command_type, reason);
+        let prev = self.last_malformed_command_seq.swap(seq, Ordering::SeqCst);
+        if prev != UNSET_MALFORMED_SEQ && prev == seq {
+            self.metrics
+                .counters
+                .record_poll_command_malformed_repeated_seq(command_type, reason);
+            return true;
+        }
+        false
+    }
+
+    /// Record malformed result metrics and detect repeated malformed sequence
+    /// numbers.
+    fn record_malformed_result(&self, seq: u64, command_type: &str, reason: &str) -> bool {
+        self.metrics
+            .counters
+            .record_poll_result_malformed(command_type, reason);
+        let prev = self.last_malformed_result_seq.swap(seq, Ordering::SeqCst);
+        if prev != UNSET_MALFORMED_SEQ && prev == seq {
+            self.metrics
+                .counters
+                .record_poll_result_malformed_repeated_seq(command_type, reason);
+            return true;
+        }
+        false
+    }
+
+    /// Best-effort shutdown heartbeat with `status=STOPPED`.
+    ///
+    /// This allows the server to promptly deregister the executor and
+    /// reschedule in-flight work on other executors without waiting for the
+    /// heartbeat timeout window.
+    async fn send_stopped_heartbeat(&self) {
+        let mut client = self.make_client();
+        let req = proto_api::executor_api_pb::HeartbeatRequest {
+            executor_id: Some(self.identity.executor_id.clone()),
+            status: Some(ExecutorStatus::Stopped.into()),
+            full_state: None,
+            command_responses: vec![],
+            allocation_outcomes: vec![],
+            allocation_log_entries: vec![],
+        };
+
+        let result = tokio::time::timeout(Duration::from_secs(3), client.heartbeat(req)).await;
+        match result {
+            Ok(Ok(_)) => {
+                tracing::info!(
+                    executor_id = %self.identity.executor_id,
+                    "Sent shutdown heartbeat (status=STOPPED)"
+                );
+            }
+            Ok(Err(e)) => {
+                tracing::warn!(
+                    executor_id = %self.identity.executor_id,
+                    error = ?e,
+                    "Failed to send shutdown heartbeat"
+                );
+            }
+            Err(_) => {
+                tracing::warn!(
+                    executor_id = %self.identity.executor_id,
+                    "Timed out sending shutdown heartbeat"
+                );
+            }
+        }
+    }
+
+    fn make_client(&self) -> ExecutorApiClient<Channel> {
+        ExecutorApiClient::new(self.channel.clone())
+            .max_decoding_message_size(MAX_GRPC_DECODE_MESSAGE_SIZE)
+    }
+
     /// Wait for the connection state to become `Ready`. Returns `true` if
-    /// ready, `false` if the channel closed (should exit the loop).
-    async fn wait_for_ready(&self, loop_name: &str) -> bool {
-        let mut state_rx = self.connection_state.subscribe();
-        if state_rx
-            .wait_for(|s| *s == ConnectionState::Ready)
-            .await
-            .is_err()
-        {
+    /// ready, `false` if the loop should exit.
+    async fn wait_for_ready(
+        &self,
+        state_rx: &mut watch::Receiver<ConnectionState>,
+        loop_name: &str,
+    ) -> bool {
+        if *state_rx.borrow() == ConnectionState::Ready {
+            return true;
+        }
+
+        tracing::info!(
+            executor_id = %self.identity.executor_id,
+            loop_name,
+            state = ?*state_rx.borrow(),
+            "Connection not ready, pausing poll loop"
+        );
+        let wait_result = tokio::select! {
+            _ = self.cancel_token.cancelled() => {
+                tracing::info!(
+                    executor_id = %self.identity.executor_id,
+                    loop_name,
+                    "Poll loop cancelled while waiting for ready state"
+                );
+                return false;
+            }
+            result = state_rx.wait_for(|s| *s == ConnectionState::Ready) => result,
+        };
+
+        if wait_result.is_err() {
             tracing::info!(
                 executor_id = %self.identity.executor_id,
                 loop_name,
@@ -577,10 +688,11 @@ impl ServiceRuntime {
             );
             return false;
         }
+
         tracing::info!(
             executor_id = %self.identity.executor_id,
             loop_name,
-            "Connection ready, starting poll loop"
+            "Connection ready, resuming poll loop"
         );
         true
     }
@@ -607,7 +719,7 @@ impl ServiceRuntime {
     }
 
     async fn run_heartbeat_loop(&self) {
-        let mut client = ExecutorApiClient::new(self.channel.clone());
+        let mut client = self.make_client();
         let mut retry_interval = HEARTBEAT_MIN_RETRY_INTERVAL;
         let mut send_full_state = false; // First heartbeat has no state; server asks for it
 
@@ -622,7 +734,11 @@ impl ServiceRuntime {
             // additional heartbeats until all buffers are drained.
             let report_start = std::time::Instant::now();
 
-            // Build full_state payload if the server requested it
+            let full_state_for_registration =
+                send_full_state && *self.connection_state.borrow() == ConnectionState::Registering;
+
+            // Build full_state payload only when the server requests
+            // re-registration.
             let full_state = if send_full_state {
                 tracing::info!("Sending full state in heartbeat");
                 let reconciler_guard = self.state_reconciler.lock().await;
@@ -680,9 +796,16 @@ impl ServiceRuntime {
                     .record(request_size as f64 / (1024.0 * 1024.0), &[]);
 
                 if is_first_fragment {
-                    // Store reported state for monitoring endpoint
-                    *self.monitoring_state.last_reported_state.lock().await =
-                        Some(format!("{:#?}", heartbeat_req));
+                    // Keep monitoring payload compact to avoid large heap allocations.
+                    *self.monitoring_state.last_reported_state.lock().await = Some(format!(
+                        "executor_id={} full_state={} command_responses={} allocation_outcomes={} allocation_log_entries={} size_bytes={}",
+                        self.identity.executor_id,
+                        heartbeat_req.full_state.is_some(),
+                        heartbeat_req.command_responses.len(),
+                        heartbeat_req.allocation_outcomes.len(),
+                        heartbeat_req.allocation_log_entries.len(),
+                        request_size,
+                    ));
                 }
 
                 let rpc_result = tokio::select! {
@@ -701,13 +824,16 @@ impl ServiceRuntime {
                         // Any successful RPC means the server is reachable.
                         self.monitoring_state.ready.store(true, Ordering::SeqCst);
 
-                        // Reset seq counters whenever we sent full_state. The
-                        // server creates a fresh ExecutorConnection with new
-                        // command/result buffers on re-registration, so old
-                        // acked_seq values would incorrectly drain new data.
-                        if is_first_fragment && full_state.is_some() {
+                        // Reset seq counters only for re-registration full-state
+                        // syncs (server-driven).
+                        if is_first_fragment && full_state.is_some() && full_state_for_registration
+                        {
                             self.last_applied_command_seq.store(0, Ordering::SeqCst);
                             self.last_applied_result_seq.store(0, Ordering::SeqCst);
+                            self.last_malformed_command_seq
+                                .store(UNSET_MALFORMED_SEQ, Ordering::SeqCst);
+                            self.last_malformed_result_seq
+                                .store(UNSET_MALFORMED_SEQ, Ordering::SeqCst);
                         }
 
                         // Check send_state BEFORE draining buffers. When the
@@ -840,15 +966,12 @@ impl ServiceRuntime {
     // ---------------------------------------------------------------
 
     async fn run_poll_commands_loop(&self) {
-        if !self.wait_for_ready("poll_commands").await {
-            return;
-        }
-        let mut client = ExecutorApiClient::new(self.channel.clone());
+        let mut state_rx = self.connection_state.subscribe();
+        let mut client = self.make_client();
         let mut retry_interval = Duration::from_secs(1);
 
         loop {
-            if self.cancel_token.is_cancelled() {
-                tracing::info!("Poll commands loop cancelled");
+            if !self.wait_for_ready(&mut state_rx, "poll_commands").await {
                 return;
             }
 
@@ -860,21 +983,50 @@ impl ServiceRuntime {
 
             let rpc_result = tokio::select! {
                 _ = self.cancel_token.cancelled() => return,
+                changed = state_rx.changed() => {
+                    if changed.is_err() {
+                        tracing::info!(
+                            executor_id = %self.identity.executor_id,
+                            "poll_commands: connection state watch closed"
+                        );
+                        return;
+                    }
+                    continue;
+                }
                 result = client.poll_commands(request) => result,
             };
 
             match rpc_result {
                 Ok(response) => {
                     retry_interval = Duration::from_secs(1);
+                    let mut next_seq = self
+                        .last_applied_command_seq
+                        .load(Ordering::SeqCst)
+                        .saturating_add(1);
                     for command in response.into_inner().commands {
                         let seq = command.seq;
                         // Skip commands already processed (re-delivery after lost ack)
-                        if seq <= self.last_applied_command_seq.load(Ordering::SeqCst) {
+                        if seq < next_seq {
                             continue;
                         }
-                        self.handle_command(command).await;
-                        self.last_applied_command_seq
-                            .fetch_max(seq, Ordering::SeqCst);
+                        if seq > next_seq {
+                            tracing::warn!(
+                                expected_seq = next_seq,
+                                observed_seq = seq,
+                                "poll_commands: encountered sequence gap; deferring ack advancement"
+                            );
+                            break;
+                        }
+                        let should_advance_ack = self.handle_command(command).await;
+                        if !should_advance_ack {
+                            tracing::warn!(
+                                seq,
+                                "poll_commands: command not applied, retaining ack cursor for retry"
+                            );
+                            break;
+                        }
+                        self.last_applied_command_seq.store(seq, Ordering::SeqCst);
+                        next_seq = next_seq.saturating_add(1);
                     }
                 }
                 Err(e) => {
@@ -894,15 +1046,12 @@ impl ServiceRuntime {
     // ---------------------------------------------------------------
 
     async fn run_poll_results_loop(&self) {
-        if !self.wait_for_ready("poll_results").await {
-            return;
-        }
-        let mut client = ExecutorApiClient::new(self.channel.clone());
+        let mut state_rx = self.connection_state.subscribe();
+        let mut client = self.make_client();
         let mut retry_interval = Duration::from_secs(1);
 
         loop {
-            if self.cancel_token.is_cancelled() {
-                tracing::info!("Poll results loop cancelled");
+            if !self.wait_for_ready(&mut state_rx, "poll_results").await {
                 return;
             }
 
@@ -914,23 +1063,72 @@ impl ServiceRuntime {
 
             let rpc_result = tokio::select! {
                 _ = self.cancel_token.cancelled() => return,
+                changed = state_rx.changed() => {
+                    if changed.is_err() {
+                        tracing::info!(
+                            executor_id = %self.identity.executor_id,
+                            "poll_allocation_results: connection state watch closed"
+                        );
+                        return;
+                    }
+                    continue;
+                }
                 result = client.poll_allocation_results(request) => result,
             };
 
             match rpc_result {
                 Ok(response) => {
                     retry_interval = Duration::from_secs(1);
+                    let mut next_seq = self
+                        .last_applied_result_seq
+                        .load(Ordering::SeqCst)
+                        .saturating_add(1);
                     for result in response.into_inner().results {
                         let seq = result.seq;
                         // Skip results already processed (re-delivery after lost ack)
-                        if seq <= self.last_applied_result_seq.load(Ordering::SeqCst) {
+                        if seq < next_seq {
                             continue;
                         }
-                        if let Some(entry) = result.entry {
-                            self.dispatch_function_call_result(entry);
+                        if seq > next_seq {
+                            tracing::warn!(
+                                expected_seq = next_seq,
+                                observed_seq = seq,
+                                "poll_allocation_results: encountered sequence gap; deferring ack advancement"
+                            );
+                            break;
                         }
-                        self.last_applied_result_seq
-                            .fetch_max(seq, Ordering::SeqCst);
+                        if let Some(entry) = result.entry {
+                            let dispatched = self.dispatch_function_call_result(entry).await;
+                            if !dispatched {
+                                tracing::warn!(
+                                    seq,
+                                    "poll_allocation_results: result dispatch failed, dropping result and continuing"
+                                );
+                            }
+                        } else {
+                            let reason = "missing_entry_payload";
+                            let repeated_seq =
+                                self.record_malformed_result(seq, "allocation_result", reason);
+                            tracing::error!(
+                                executor_id = %self.identity.executor_id,
+                                seq,
+                                command_type = "allocation_result",
+                                reason,
+                                repeated_seq,
+                                allocation_id = "",
+                                request_id = "",
+                                namespace = "",
+                                app = "",
+                                version = "",
+                                "fn" = "",
+                                "poll_allocation_results: missing entry payload, dropping malformed result and advancing ack"
+                            );
+                            self.last_applied_result_seq.store(seq, Ordering::SeqCst);
+                            next_seq = next_seq.saturating_add(1);
+                            continue;
+                        }
+                        self.last_applied_result_seq.store(seq, Ordering::SeqCst);
+                        next_seq = next_seq.saturating_add(1);
                     }
                 }
                 Err(e) => {
@@ -947,29 +1145,77 @@ impl ServiceRuntime {
 
     /// Dispatch a function call result from the poll results loop to the
     /// allocation runner handling the target allocation.
-    fn dispatch_function_call_result(
+    async fn dispatch_function_call_result(
         &self,
         log_entry: proto_api::executor_api_pb::AllocationLogEntry,
-    ) {
+    ) -> bool {
+        // Extract lightweight debug context before moving the protobuf into
+        // dispatch(), avoiding a full AllocationLogEntry clone on this hot path.
+        let (namespace, request_id, function_call_id) = match &log_entry.entry {
+            Some(proto_api::executor_api_pb::allocation_log_entry::Entry::FunctionCallResult(
+                r,
+            )) => (
+                r.namespace.clone().unwrap_or_else(|| "?".to_string()),
+                r.request_id.clone().unwrap_or_else(|| "?".to_string()),
+                r.function_call_id
+                    .clone()
+                    .unwrap_or_else(|| "?".to_string()),
+            ),
+            Some(proto_api::executor_api_pb::allocation_log_entry::Entry::CallFunction(r)) => (
+                r.namespace.clone().unwrap_or_else(|| "?".to_string()),
+                r.request_id.clone().unwrap_or_else(|| "?".to_string()),
+                r.source_function_call_id
+                    .clone()
+                    .unwrap_or_else(|| "?".to_string()),
+            ),
+            None => ("?".to_string(), "?".to_string(), "?".to_string()),
+        };
+
         let allocation_id = log_entry.allocation_id.clone();
-        let dispatcher = self.allocation_result_dispatcher.clone();
-        tokio::spawn(async move {
-            if !dispatcher.dispatch(&allocation_id, log_entry).await {
-                tracing::warn!(
-                    allocation_id = %allocation_id,
-                    "No allocation runner for result dispatch"
-                );
-            }
-        });
+        let dispatched = self
+            .allocation_result_dispatcher
+            .dispatch(&allocation_id, log_entry)
+            .await;
+        if !dispatched {
+            tracing::warn!(
+                allocation_id = %allocation_id,
+                namespace = %namespace,
+                request_id = %request_id,
+                function_call_id = %function_call_id,
+                "No allocation runner for result dispatch"
+            );
+        }
+        dispatched
     }
 
     /// Handle a single Command from the poll commands loop.
-    async fn handle_command(&self, command: proto_api::executor_api_pb::Command) {
+    ///
+    /// Returns whether the command ack cursor should advance:
+    /// - `true`: command applied or permanently invalid (drop it).
+    /// - `false`: transient failure; retain cursor and retry.
+    async fn handle_command(&self, command: proto_api::executor_api_pb::Command) -> bool {
         let seq = command.seq;
 
         let Some(cmd) = command.command else {
-            tracing::warn!(seq, "Received command with no payload, skipping");
-            return;
+            let reason = "missing_command_payload";
+            let command_type = "Unknown";
+            let repeated_seq = self.record_malformed_command(seq, command_type, reason);
+            tracing::error!(
+                executor_id = %self.identity.executor_id,
+                seq,
+                command_type,
+                reason,
+                repeated_seq,
+                allocation_id = "",
+                request_id = "",
+                container_id = "",
+                namespace = "",
+                app = "",
+                version = "",
+                "fn" = "",
+                "Received command with no payload, dropping and advancing ack"
+            );
+            return true;
         };
 
         use proto_api::executor_api_pb::command::Command as Cmd;
@@ -977,17 +1223,28 @@ impl ServiceRuntime {
             Cmd::AddContainer(add) => {
                 if let Some(container) = add.container {
                     if let Err(e) = validation::validate_fe_description(&container) {
-                        tracing::warn!(
+                        let reason = "invalid_add_container";
+                        let command_type = "AddContainer";
+                        let repeated_seq = self.record_malformed_command(seq, command_type, reason);
+                        tracing::error!(
+                            executor_id = %self.identity.executor_id,
                             seq,
+                            command_type,
+                            reason,
+                            repeated_seq,
+                            allocation_id = "",
+                            request_id = "",
                             container_id = %container.id.as_deref().unwrap_or(""),
                             namespace = %container.function.as_ref().and_then(|f| f.namespace.as_deref()).unwrap_or(""),
                             app = %container.function.as_ref().and_then(|f| f.application_name.as_deref()).unwrap_or(""),
+                            version = %container.function.as_ref().and_then(|f| f.application_version.as_deref()).unwrap_or(""),
                             "fn" = %container.function.as_ref().and_then(|f| f.function_name.as_deref()).unwrap_or(""),
                             sandbox_id = %container.sandbox_metadata.as_ref().and_then(|m| m.sandbox_id.as_deref()).unwrap_or(""),
                             pool_id = %container.pool_id.as_deref().unwrap_or(""),
                             error = %e,
-                            "Skipping invalid AddContainer command"
+                            "Skipping invalid AddContainer command and advancing ack"
                         );
+                        true
                     } else {
                         tracing::info!(
                             seq,
@@ -1002,8 +1259,28 @@ impl ServiceRuntime {
                         let mut reconciler = self.state_reconciler.lock().await;
                         reconciler
                             .reconcile_containers(vec![container], vec![])
-                            .await;
+                            .await
                     }
+                } else {
+                    let reason = "missing_container_payload";
+                    let command_type = "AddContainer";
+                    let repeated_seq = self.record_malformed_command(seq, command_type, reason);
+                    tracing::error!(
+                        executor_id = %self.identity.executor_id,
+                        seq,
+                        command_type,
+                        reason,
+                        repeated_seq,
+                        allocation_id = "",
+                        request_id = "",
+                        container_id = "",
+                        namespace = "",
+                        app = "",
+                        version = "",
+                        "fn" = "",
+                        "AddContainer missing container payload; dropping and advancing ack"
+                    );
+                    true
                 }
             }
             Cmd::RemoveContainer(remove) => {
@@ -1015,21 +1292,31 @@ impl ServiceRuntime {
                 let mut reconciler = self.state_reconciler.lock().await;
                 reconciler
                     .reconcile_containers(vec![], vec![remove.container_id])
-                    .await;
+                    .await
             }
             Cmd::RunAllocation(run) => {
                 if let Some(allocation) = run.allocation {
                     if let Err(e) = validation::validate_allocation(&allocation) {
-                        tracing::warn!(
+                        let reason = "invalid_run_allocation";
+                        let command_type = "RunAllocation";
+                        let repeated_seq = self.record_malformed_command(seq, command_type, reason);
+                        tracing::error!(
+                            executor_id = %self.identity.executor_id,
                             seq,
+                            command_type,
+                            reason,
+                            repeated_seq,
                             allocation_id = %allocation.allocation_id.as_deref().unwrap_or(""),
                             request_id = %allocation.request_id.as_deref().unwrap_or(""),
                             container_id = %allocation.container_id.as_deref().unwrap_or(""),
                             namespace = %allocation.function.as_ref().and_then(|f| f.namespace.as_deref()).unwrap_or(""),
+                            app = %allocation.function.as_ref().and_then(|f| f.application_name.as_deref()).unwrap_or(""),
+                            version = %allocation.function.as_ref().and_then(|f| f.application_version.as_deref()).unwrap_or(""),
                             "fn" = %allocation.function.as_ref().and_then(|f| f.function_name.as_deref()).unwrap_or(""),
                             error = %e,
-                            "Skipping invalid RunAllocation command"
+                            "Skipping invalid RunAllocation command and advancing ack"
                         );
+                        true
                     } else if let Some(fe_id) = allocation.container_id.clone() {
                         tracing::info!(
                             seq,
@@ -1043,25 +1330,79 @@ impl ServiceRuntime {
                         let mut reconciler = self.state_reconciler.lock().await;
                         reconciler
                             .reconcile_allocations(vec![(fe_id, allocation, seq)])
-                            .await;
+                            .await
                     } else {
-                        tracing::warn!(
+                        let reason = "missing_container_id";
+                        let command_type = "RunAllocation";
+                        let repeated_seq = self.record_malformed_command(seq, command_type, reason);
+                        tracing::error!(
+                            executor_id = %self.identity.executor_id,
                             seq,
+                            command_type,
+                            reason,
+                            repeated_seq,
                             allocation_id = %allocation.allocation_id.as_deref().unwrap_or(""),
                             request_id = %allocation.request_id.as_deref().unwrap_or(""),
+                            container_id = "",
                             namespace = %allocation.function.as_ref().and_then(|f| f.namespace.as_deref()).unwrap_or(""),
+                            app = %allocation.function.as_ref().and_then(|f| f.application_name.as_deref()).unwrap_or(""),
+                            version = %allocation.function.as_ref().and_then(|f| f.application_version.as_deref()).unwrap_or(""),
                             "fn" = %allocation.function.as_ref().and_then(|f| f.function_name.as_deref()).unwrap_or(""),
                             "RunAllocation missing container_id"
                         );
+                        true
                     }
+                } else {
+                    let reason = "missing_allocation_payload";
+                    let command_type = "RunAllocation";
+                    let repeated_seq = self.record_malformed_command(seq, command_type, reason);
+                    tracing::error!(
+                        executor_id = %self.identity.executor_id,
+                        seq,
+                        command_type,
+                        reason,
+                        repeated_seq,
+                        allocation_id = "",
+                        request_id = "",
+                        container_id = "",
+                        namespace = "",
+                        app = "",
+                        version = "",
+                        "fn" = "",
+                        "RunAllocation missing allocation payload; dropping and advancing ack"
+                    );
+                    true
                 }
             }
             Cmd::KillAllocation(kill) => {
-                tracing::warn!(
+                if kill.allocation_id.is_empty() {
+                    let reason = "missing_allocation_id";
+                    let command_type = "KillAllocation";
+                    let repeated_seq = self.record_malformed_command(seq, command_type, reason);
+                    tracing::error!(
+                        executor_id = %self.identity.executor_id,
+                        seq,
+                        command_type,
+                        reason,
+                        repeated_seq,
+                        allocation_id = "",
+                        request_id = "",
+                        container_id = "",
+                        namespace = "",
+                        app = "",
+                        version = "",
+                        "fn" = "",
+                        "KillAllocation missing allocation_id; dropping and advancing ack"
+                    );
+                    return true;
+                }
+                tracing::info!(
                     seq,
                     allocation_id = %kill.allocation_id,
-                    "KillAllocation command received (not yet implemented)"
+                    "KillAllocation command"
                 );
+                let mut reconciler = self.state_reconciler.lock().await;
+                reconciler.kill_allocation(kill.allocation_id).await
             }
             // DeliverResult was removed from Command — function call results
             // are now delivered via the AllocationEvent log.
@@ -1073,7 +1414,7 @@ impl ServiceRuntime {
                     "UpdateContainerDescription command"
                 );
                 let mut reconciler = self.state_reconciler.lock().await;
-                reconciler.update_container_description(update).await;
+                reconciler.update_container_description(update).await
             }
             Cmd::SnapshotContainer(snapshot) => {
                 tracing::info!(
@@ -1095,6 +1436,7 @@ impl ServiceRuntime {
                         )
                         .await;
                 });
+                true
             }
         }
     }

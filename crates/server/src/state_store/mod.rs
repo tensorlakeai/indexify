@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     fs,
     path::PathBuf,
     sync::{
@@ -9,35 +9,28 @@ use std::{
 };
 
 use anyhow::{Result, anyhow};
+use arc_swap::ArcSwap;
 use in_memory_state::InMemoryState;
 use opentelemetry::KeyValue;
+use prost::Message;
 use request_events::{PersistedRequestStateChangeEvent, RequestStateChangeEvent};
 use requests::{RequestPayload, StateMachineUpdateRequest};
 use rocksdb::{ColumnFamilyDescriptor, Options};
+use serde::{Deserialize, Serialize};
 use state_machine::IndexifyObjectsColumns;
 use strum::IntoEnumIterator;
-use tokio::sync::{Notify, RwLock, mpsc, watch};
+use tokio::sync::{RwLock, watch};
 use tracing::{debug, error, info, span};
 
 use crate::{
     config::ExecutorCatalogEntry,
-    data_model::{
-        Allocation,
-        ContainerId,
-        ContainerPoolKey,
-        ContainerState,
-        ExecutorId,
-        SandboxKey,
-        SandboxStatus,
-        SnapshotStatus,
-        StateChange,
-        StateMachineMetadata,
-    },
+    data_model::{ExecutorId, SandboxKey, SandboxStatus, SnapshotStatus, StateMachineMetadata},
     executor_api::executor_api_pb,
     metrics::{StateStoreMetrics, Timer},
-    processor::container_scheduler::{ContainerScheduler, ContainerSchedulerGauges},
+    processor::container_scheduler::ContainerScheduler,
     state_store::{
         driver::{
+            Reader,
             Transaction,
             Writer,
             rocksdb::{RocksDBConfig, RocksDBDriver},
@@ -62,167 +55,8 @@ impl ExecutorCatalog {
     }
 }
 
-/// Typed event pushed onto per-executor channels from `write()`.
-/// Consumers convert to proto commands — O(1) per event instead of
-/// O(total-state) per notification.
-#[derive(Debug, Clone)]
-pub enum ExecutorEvent {
-    /// New allocation assigned to this executor. Carries full data so
-    /// the consumer only needs blob store for URL conversion.
-    AllocationCreated(Box<Allocation>),
-
-    /// New container added. Consumer looks up ContainerServerMetadata
-    /// + ApplicationVersion from state for proto conversion.
-    ContainerAdded(ContainerId),
-
-    /// Container should be removed.
-    ContainerRemoved(ContainerId),
-
-    /// Pre-existing container's description changed (e.g. sandbox_id set
-    /// on warm-pool claim). Consumer builds an UpdateContainerDescription
-    /// command with only the changed fields.
-    ContainerDescriptionChanged(ContainerId),
-
-    /// Snapshot a container's filesystem.
-    SnapshotContainer {
-        container_id: ContainerId,
-        snapshot_id: String,
-        upload_uri: String,
-    },
-
-    /// Fallback: consumer does full state recompute via
-    /// get_executor_state() + CommandEmitter.
-    /// Used for bulk ops (DeleteApplication, DeleteContainerPool)
-    /// and edge cases.
-    FullSync,
-}
-
-/// Server-side connection state for a single executor.
-/// Created on registration, destroyed on deregistration.
-///
-/// Consolidates the event channel, command emitter, and buffered
-/// commands/results for long-poll delivery into one place.
-pub struct ExecutorConnection {
-    /// Sender half — used by state_store to push events.
-    event_tx: mpsc::UnboundedSender<ExecutorEvent>,
-    /// Receiver half — consumed by the background command generator task.
-    /// Events buffer here when no task is consuming.
-    pub event_rx: Arc<tokio::sync::Mutex<mpsc::UnboundedReceiver<ExecutorEvent>>>,
-    /// Command emitter — persists across reconnections.
-    /// Fresh emitter (has_synced=false) on first registration.
-    pub emitter: Arc<tokio::sync::Mutex<CommandEmitter>>,
-
-    /// Buffered commands for poll_commands delivery.
-    pending_commands: Arc<tokio::sync::Mutex<Vec<executor_api_pb::Command>>>,
-    /// Wakes a held poll_commands request when new commands arrive.
-    commands_notify: Arc<Notify>,
-
-    /// Buffered results for poll_allocation_results delivery.
-    pending_results: Arc<tokio::sync::Mutex<Vec<executor_api_pb::SequencedAllocationResult>>>,
-    /// Monotonic counter for result sequence numbers.
-    next_result_seq: Arc<AtomicU64>,
-    /// Wakes a held poll_allocation_results request when new results arrive.
-    results_notify: Arc<Notify>,
-
-    /// Background task that consumes events and produces commands.
-    /// Spawned externally (in executor_api.rs) because it needs
-    /// executor_manager and blob_storage_registry.
-    pub command_generator_handle: Option<tokio::task::JoinHandle<()>>,
-}
-
-impl ExecutorConnection {
-    /// Create a new connection (executor just registered).
-    pub fn new() -> Self {
-        let (tx, rx) = mpsc::unbounded_channel();
-        Self {
-            event_tx: tx,
-            event_rx: Arc::new(tokio::sync::Mutex::new(rx)),
-            emitter: Arc::new(tokio::sync::Mutex::new(CommandEmitter::new())),
-            pending_commands: Arc::new(tokio::sync::Mutex::new(Vec::new())),
-            commands_notify: Arc::new(Notify::new()),
-            pending_results: Arc::new(tokio::sync::Mutex::new(Vec::new())),
-            next_result_seq: Arc::new(AtomicU64::new(1)),
-            results_notify: Arc::new(Notify::new()),
-            command_generator_handle: None,
-        }
-    }
-
-    /// Append commands to the pending buffer and wake any waiting poll.
-    pub async fn push_commands(&self, cmds: Vec<executor_api_pb::Command>) {
-        if cmds.is_empty() {
-            return;
-        }
-        let mut buf = self.pending_commands.lock().await;
-        buf.extend(cmds);
-        self.commands_notify.notify_one();
-    }
-
-    /// Clone all pending commands (does NOT remove them).
-    pub async fn clone_commands(&self) -> Vec<executor_api_pb::Command> {
-        self.pending_commands.lock().await.clone()
-    }
-
-    /// Remove commands with seq <= `acked_seq`.
-    pub async fn drain_commands_up_to(&self, acked_seq: u64) {
-        let mut buf = self.pending_commands.lock().await;
-        buf.retain(|cmd| cmd.seq > acked_seq);
-    }
-
-    /// Buffer a new allocation log entry as a sequenced result and wake any
-    /// waiting poll.
-    pub async fn push_result(&self, entry: executor_api_pb::AllocationLogEntry) {
-        let seq = self.next_result_seq.fetch_add(1, atomic::Ordering::Relaxed);
-        let result = executor_api_pb::SequencedAllocationResult {
-            seq,
-            entry: Some(entry),
-        };
-        let mut buf = self.pending_results.lock().await;
-        buf.push(result);
-        self.results_notify.notify_one();
-    }
-
-    /// Clone all pending results (does NOT remove them).
-    pub async fn clone_results(&self) -> Vec<executor_api_pb::SequencedAllocationResult> {
-        self.pending_results.lock().await.clone()
-    }
-
-    /// Remove results with seq <= `acked_seq`.
-    pub async fn drain_results_up_to(&self, acked_seq: u64) {
-        let mut buf = self.pending_results.lock().await;
-        buf.retain(|r| r.seq > acked_seq);
-    }
-
-    /// Get a clone of the commands notify handle (for long-poll waiters).
-    pub fn commands_notify(&self) -> Arc<Notify> {
-        self.commands_notify.clone()
-    }
-
-    /// Get a clone of the results notify handle (for long-poll waiters).
-    pub fn results_notify(&self) -> Arc<Notify> {
-        self.results_notify.clone()
-    }
-
-    /// Reset the emitter to fresh state (has_synced=false, empty tracking
-    /// sets). Called on re-registration so the next command generation cycle
-    /// does a full sync with accurate state instead of using stale tracking
-    /// data.
-    pub async fn reset_emitter(&self) {
-        let mut emitter = self.emitter.lock().await;
-        *emitter = CommandEmitter::new();
-    }
-
-    /// Send an event. Buffers if no task is consuming.
-    pub fn send_event(
-        &self,
-        event: ExecutorEvent,
-    ) -> Result<(), mpsc::error::SendError<ExecutorEvent>> {
-        self.event_tx.send(event)
-    }
-}
-
-/// Use forward declaration to avoid circular dependency with executor_api
-/// module. The actual CommandEmitter is defined in executor_api.rs.
-pub use crate::executor_api::CommandEmitter;
+pub mod executor_connection;
+pub use executor_connection::ExecutorConnection;
 
 pub mod driver;
 pub mod in_memory_metrics;
@@ -241,41 +75,43 @@ pub mod state_machine;
 #[cfg(test)]
 pub mod test_state_store;
 
-#[derive(Debug)]
-pub struct ExecutorState {
-    pub new_state_channel: watch::Sender<()>,
+/// Combined snapshot of in-memory indexes and container scheduler.
+/// One `ArcSwap<AppState>` replaces the two independent ArcSwaps so readers
+/// always get a consistent pair (no race window between loads).
+#[derive(Clone)]
+pub struct AppState {
+    pub indexes: in_memory_state::InMemoryState,
+    pub scheduler: ContainerScheduler,
 }
 
-impl ExecutorState {
-    pub fn new() -> Self {
-        let (new_state_channel, _) = watch::channel(());
-        Self { new_state_channel }
-    }
-
-    pub fn notify(&mut self) {
-        if let Err(err) = self.new_state_channel.send(()) {
-            debug!(
-                "failed to notify executor state change, ignoring: {:?}",
-                err
-            );
-        }
-    }
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PersistedFunctionCallRoute {
+    pub parent_allocation_id: String,
+    pub original_function_call_id: String,
+    pub executor_id: ExecutorId,
 }
 
-impl Default for ExecutorState {
-    fn default() -> Self {
-        Self::new()
-    }
+#[derive(Debug, Clone)]
+pub struct SchedulerCommandIntent {
+    pub executor_id: ExecutorId,
+    pub command: executor_api_pb::Command,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+struct PersistedSchedulerCommandIntent {
+    pub executor_id: ExecutorId,
+    pub command: Vec<u8>,
 }
 
 pub struct IndexifyState {
     pub db: Arc<RocksDBDriver>,
-    pub executor_states: RwLock<HashMap<ExecutorId, ExecutorState>>,
     pub db_version: u64,
 
     pub state_change_id_seq: Arc<AtomicU64>,
     pub usage_event_id_seq: Arc<AtomicU64>,
     pub request_event_id_seq: Arc<AtomicU64>,
+    /// Monotonic counter for payload queue sequence IDs.
+    pub payload_seq: AtomicU64,
 
     pub change_events_tx: watch::Sender<()>,
     pub change_events_rx: watch::Receiver<()>,
@@ -283,16 +119,23 @@ pub struct IndexifyState {
     pub usage_events_rx: watch::Receiver<()>,
 
     pub metrics: Arc<StateStoreMetrics>,
-    pub in_memory_state: Arc<RwLock<in_memory_state::InMemoryState>>,
-    pub container_scheduler: Arc<RwLock<ContainerScheduler>>,
-    /// Per-executor connection state for event-driven command generation.
-    /// `write()` pushes typed events; a background task consumes them and
-    /// buffers commands/results for long-poll delivery.
+    pub app_state: Arc<ArcSwap<AppState>>,
+    /// Serializes writers to app_state.
+    /// ArcSwap provides lock-free reads but concurrent fork-mutate-publish
+    /// cycles need serialization to prevent lost updates.
+    pub write_mutex: tokio::sync::Mutex<()>,
+    /// Per-executor long-poll connection state and command/result outboxes.
     pub executor_connections: RwLock<HashMap<ExecutorId, ExecutorConnection>>,
+    /// Next allocation-result sequence number to use per executor, preserved
+    /// across connection recreation to avoid ack/seq skew.
+    pub executor_next_result_seq: RwLock<HashMap<ExecutorId, u64>>,
+    /// Monotonic sequence for scheduler command intent records.
+    pub scheduler_command_intent_seq: AtomicU64,
+    /// In-memory backlog count for persisted scheduler command intents.
+    pub scheduler_command_intent_backlog_count: AtomicU64,
     pub request_event_buffers: RequestEventBuffers,
     // Observable gauges - must be kept alive for callbacks to fire
     _in_memory_store_gauges: InMemoryStoreGauges,
-    _container_scheduler_gauges: ContainerSchedulerGauges,
 }
 
 pub(crate) fn open_database<I>(
@@ -320,14 +163,20 @@ where
 }
 
 struct PersistentWriteResult {
-    current_state_id: u64,
     should_notify_usage_reporter: bool,
-    new_state_changes: Vec<StateChange>,
+    /// Whether a payload was enqueued to the PayloadQueue for the scheduler.
+    payload_enqueued: bool,
     /// Request state change events to broadcast to SSE and file dump workers.
     request_state_changes: Vec<RequestStateChangeEvent>,
 }
 
 impl IndexifyState {
+    const EXECUTOR_CMD_ACK_PREFIX: &'static str = "ack|";
+    const EXECUTOR_CMD_NEXT_PREFIX: &'static str = "next|";
+    const EXECUTOR_CMD_PREFIX: &'static str = "cmd|";
+    const FUNCTION_CALL_ROUTE_PREFIX: &'static str = "route|";
+    const SCHEDULER_COMMAND_INTENT_PREFIX: &'static str = "intent|";
+
     pub async fn new(
         path: PathBuf,
         config: RocksDBConfig,
@@ -359,7 +208,6 @@ impl IndexifyState {
 
         let (change_events_tx, change_events_rx) = watch::channel(());
         let (usage_events_tx, usage_events_rx) = watch::channel(());
-
         let state_reader = scanner::StateReader::new(db.clone(), state_store_metrics.clone());
 
         let in_memory_state = InMemoryState::new(
@@ -369,12 +217,47 @@ impl IndexifyState {
         )
         .await?;
 
-        let container_scheduler = Arc::new(RwLock::new(
-            ContainerScheduler::new(in_memory_state.clock, &state_reader).await?,
-        ));
-        let container_scheduler_gauges = ContainerSchedulerGauges::new(container_scheduler.clone());
-        let indexes = Arc::new(RwLock::new(in_memory_state));
-        let in_memory_store_gauges = InMemoryStoreGauges::new(indexes.clone());
+        let mut container_scheduler = ContainerScheduler::new(&state_reader).await?;
+
+        // Load persisted executor metadata into the container scheduler so
+        // it can schedule work immediately on restart without waiting for
+        // executors to re-register.
+        let persisted_executors = state_reader.list_executors().await?;
+        for executor in &persisted_executors {
+            container_scheduler.upsert_executor(executor);
+        }
+        if !persisted_executors.is_empty() {
+            info!(
+                num_executors = persisted_executors.len(),
+                "loaded persisted executors into container scheduler"
+            );
+        }
+
+        // Determine the starting payload_seq from any existing payloads in
+        // the queue (crash recovery: pick up after the last enqueued seq).
+        let pending_payloads = state_reader.read_pending_payloads().await?;
+        let initial_payload_seq = pending_payloads.last().map(|(seq, _)| seq + 1).unwrap_or(0);
+        if !pending_payloads.is_empty() {
+            info!(
+                num_pending = pending_payloads.len(),
+                initial_payload_seq, "found pending payloads in queue at startup"
+            );
+        }
+        let (initial_scheduler_command_intent_seq, pending_scheduler_command_intents) =
+            Self::read_scheduler_command_intent_startup_state(&db).await?;
+        if pending_scheduler_command_intents > 0 {
+            info!(
+                pending_scheduler_command_intents,
+                initial_scheduler_command_intent_seq,
+                "found pending scheduler command intents at startup"
+            );
+        }
+
+        let app_state = Arc::new(ArcSwap::from_pointee(AppState {
+            indexes: in_memory_state,
+            scheduler: container_scheduler,
+        }));
+        let in_memory_store_gauges = InMemoryStoreGauges::new(app_state.clone());
 
         let s = Arc::new(Self {
             db,
@@ -382,18 +265,22 @@ impl IndexifyState {
             state_change_id_seq: Arc::new(AtomicU64::new(sm_meta.last_change_idx)),
             usage_event_id_seq: Arc::new(AtomicU64::new(sm_meta.last_usage_idx)),
             request_event_id_seq: Arc::new(AtomicU64::new(sm_meta.last_request_event_idx)),
-            executor_states: RwLock::new(HashMap::new()),
+            payload_seq: AtomicU64::new(initial_payload_seq),
+            scheduler_command_intent_seq: AtomicU64::new(initial_scheduler_command_intent_seq),
+            scheduler_command_intent_backlog_count: AtomicU64::new(
+                pending_scheduler_command_intents as u64,
+            ),
             metrics: state_store_metrics,
             change_events_tx,
             change_events_rx,
-            in_memory_state: indexes,
-            container_scheduler,
+            app_state,
             usage_events_tx,
             usage_events_rx,
             executor_connections: RwLock::new(HashMap::new()),
+            executor_next_result_seq: RwLock::new(HashMap::new()),
             request_event_buffers,
+            write_mutex: tokio::sync::Mutex::new(()),
             _in_memory_store_gauges: in_memory_store_gauges,
-            _container_scheduler_gauges: container_scheduler_gauges,
         });
 
         info!(
@@ -427,170 +314,17 @@ impl IndexifyState {
         let timer_kv = &[KeyValue::new("request", request.payload.to_string())];
         let _timer = Timer::start_with_labels(&self.metrics.state_write, timer_kv);
 
+        // Serialize writers — prevents concurrent fork-mutate-publish races.
+        let _write_guard = self.write_mutex.lock().await;
+
         let write_result = self
             .write_in_persistent_store(&mut request, timer_kv)
             .await?;
 
-        let mut changed_executors = {
-            let _timer = Timer::start_with_labels(&self.metrics.state_write_in_memory, timer_kv);
-            self.in_memory_state
-                .write()
-                .await
-                .update_state(
-                    write_result.current_state_id,
-                    &request.payload,
-                    "state_store",
-                )
-                .map_err(|e| anyhow!("error updating in memory state: {e:?}"))?
-        };
-        // Snapshot pre-existing containers before updating the scheduler,
-        // so we can distinguish new containers from updates in event emission.
-        let pre_existing_containers: HashSet<ContainerId> =
-            if let RequestPayload::SchedulerUpdate(payload) = &request.payload {
-                let cs = self.container_scheduler.read().await;
-                payload
-                    .update
-                    .containers
-                    .keys()
-                    .filter(|id| cs.function_containers.contains_key(id))
-                    .cloned()
-                    .collect()
-            } else {
-                HashSet::new()
-            };
-
-        {
-            let _timer =
-                Timer::start_with_labels(&self.metrics.state_write_container_scheduler, timer_kv);
-            self.container_scheduler
-                .write()
-                .await
-                .update(&request.payload)
-                .map_err(|e| anyhow!("error updating container scheduler: {e:?}"))?;
-        }
-
-        // --- Event-driven emission + legacy watch notification ---
-        let connections = self.executor_connections.read().await;
-
-        if let RequestPayload::SchedulerUpdate(payload) = &request.payload {
-            // Container events FIRST (before allocations, so consumer sees
-            // AddContainer before RunAllocation for the same container)
-            for (container_id, meta) in &payload.update.containers {
-                if matches!(meta.desired_state, ContainerState::Terminated { .. }) {
-                    Self::send_event(
-                        &connections,
-                        &meta.executor_id,
-                        ExecutorEvent::ContainerRemoved(container_id.clone()),
-                    );
-                } else if !pre_existing_containers.contains(container_id) {
-                    Self::send_event(
-                        &connections,
-                        &meta.executor_id,
-                        ExecutorEvent::ContainerAdded(container_id.clone()),
-                    );
-                } else {
-                    // Pre-existing, non-terminated container included in this
-                    // update → its description may have changed (e.g. sandbox_id
-                    // set on warm-pool claim).
-                    Self::send_event(
-                        &connections,
-                        &meta.executor_id,
-                        ExecutorEvent::ContainerDescriptionChanged(container_id.clone()),
-                    );
-                }
-            }
-
-            // Allocation events
-            for allocation in &payload.update.new_allocations {
-                Self::send_event(
-                    &connections,
-                    &allocation.target.executor_id,
-                    ExecutorEvent::AllocationCreated(Box::new(allocation.clone())),
-                );
-            }
-
-            for executor_id in payload.update.updated_executor_states.keys() {
-                changed_executors.insert(executor_id.clone());
-            }
-
-            // Notify executors that have containers with updated state so they
-            // receive a fresh desired_state push.  Without this, changes like
-            // container terminations (e.g. sandbox deletion) would go unnoticed
-            // until the next heartbeat reconciliation.
-            for container_meta in payload.update.containers.values() {
-                changed_executors.insert(container_meta.executor_id.clone());
-            }
-        }
-        // When a snapshot is requested, send a SnapshotContainer event to the
-        // executor hosting the sandbox's container.
-        if let RequestPayload::SnapshotSandbox(req) = &request.payload {
-            let in_memory = self.in_memory_state.read().await;
-            let sandbox_key =
-                SandboxKey::new(&req.snapshot.namespace, req.snapshot.sandbox_id.get());
-            if let Some(sandbox) = in_memory.sandboxes.get(&sandbox_key) &&
-                let (Some(container_id), Some(executor_id)) =
-                    (&sandbox.container_id, &sandbox.executor_id)
-            {
-                let upload_uri = req.upload_uri.clone();
-                Self::send_event(
-                    &connections,
-                    executor_id,
-                    ExecutorEvent::SnapshotContainer {
-                        container_id: container_id.clone(),
-                        snapshot_id: req.snapshot.id.get().to_string(),
-                        upload_uri,
-                    },
-                );
-                changed_executors.insert(executor_id.clone());
-            }
-        }
-
-        // Notify executors when a container pool is deleted so they terminate
-        // containers immediately rather than waiting for the next poll cycle.
-        if let RequestPayload::DeleteContainerPool((delete_req, _)) = &request.payload {
-            let pool_key = ContainerPoolKey::new(&delete_req.namespace, &delete_req.pool_id);
-            let container_scheduler = self.container_scheduler.read().await;
-            for (_, meta) in container_scheduler.function_containers.iter() {
-                if meta.function_container.belongs_to_pool(&pool_key) {
-                    changed_executors.insert(meta.executor_id.clone());
-                    Self::send_event(&connections, &meta.executor_id, ExecutorEvent::FullSync);
-                }
-            }
-        }
-        // Notify executors when an application is deleted so they terminate
-        // containers immediately rather than waiting for the stream to reconnect.
-        if let RequestPayload::DeleteApplicationRequest((delete_req, _)) = &request.payload {
-            let container_scheduler = self.container_scheduler.read().await;
-            for (_, meta) in container_scheduler.function_containers.iter() {
-                if meta.function_container.namespace == delete_req.namespace &&
-                    meta.function_container.application_name == delete_req.name
-                {
-                    changed_executors.insert(meta.executor_id.clone());
-                    Self::send_event(&connections, &meta.executor_id, ExecutorEvent::FullSync);
-                }
-            }
-        }
-        drop(connections);
-
-        // Notify the executors with state changes
-        {
-            let _timer =
-                Timer::start_with_labels(&self.metrics.state_write_executor_notify, timer_kv);
-            let mut executor_states = self.executor_states.write().await;
-            for executor_id in &changed_executors {
-                info!(
-                    executor_id = executor_id.get(),
-                    "notifying executor of state change"
-                );
-                if let Some(executor_state) = executor_states.get_mut(executor_id) {
-                    executor_state.notify();
-                }
-            }
-        }
-
         {
             let _timer = Timer::start_with_labels(&self.metrics.state_change_notify, timer_kv);
-            if !write_result.new_state_changes.is_empty() &&
+            // Wake the scheduler when a payload is enqueued.
+            if write_result.payload_enqueued &&
                 let Err(err) = self.change_events_tx.send(())
             {
                 error!(error = ?err, "failed to notify of state change event, ignoring");
@@ -615,6 +349,30 @@ impl IndexifyState {
         request: &mut StateMachineUpdateRequest,
         timer_kv: &[KeyValue],
     ) -> Result<PersistentWriteResult> {
+        self.write_in_persistent_store_inner(request, timer_kv, None, &[])
+            .await
+    }
+
+    async fn write_in_persistent_store_with_extra_intents(
+        &self,
+        request: &mut StateMachineUpdateRequest,
+        timer_kv: &[KeyValue],
+        scheduler_command_intents: &[SchedulerCommandIntent],
+    ) -> Result<PersistentWriteResult> {
+        self.write_in_persistent_store_inner(request, timer_kv, None, scheduler_command_intents)
+            .await
+    }
+
+    /// Core persistent write. When `dequeue_through_seq` is Some, processed
+    /// payloads up through that sequence are deleted in the same RocksDB
+    /// transaction — making the scheduler output + dequeue atomic.
+    async fn write_in_persistent_store_inner(
+        &self,
+        request: &mut StateMachineUpdateRequest,
+        timer_kv: &[KeyValue],
+        dequeue_through_seq: Option<u64>,
+        scheduler_command_intents: &[SchedulerCommandIntent],
+    ) -> Result<PersistentWriteResult> {
         let _timer =
             Timer::start_with_labels(&self.metrics.state_write_persistent_storage, timer_kv);
 
@@ -635,7 +393,6 @@ impl IndexifyState {
         let txn = self.db.transaction();
 
         let mut should_notify_usage_reporter = false;
-        let mut allocation_ingestion_events = Vec::new();
 
         match &request.payload {
             RequestPayload::InvokeApplication(invoke_application_request) => {
@@ -659,8 +416,6 @@ impl IndexifyState {
                 if scheduler_result.usage_recorded {
                     should_notify_usage_reporter = true;
                 }
-                state_machine::mark_state_changes_processed(&txn, &payload.processed_state_changes)
-                    .await?;
             }
             RequestPayload::CreateNameSpace(namespace_request) => {
                 state_machine::upsert_namespace(self.db.clone(), namespace_request, current_clock)
@@ -676,7 +431,7 @@ impl IndexifyState {
                 )
                 .await?;
             }
-            RequestPayload::DeleteApplicationRequest((request, processed_state_changes)) => {
+            RequestPayload::DeleteApplicationRequest(request) => {
                 state_machine::delete_application(
                     &txn,
                     &request.namespace,
@@ -684,60 +439,28 @@ impl IndexifyState {
                     current_clock,
                 )
                 .await?;
-                state_machine::mark_state_changes_processed(&txn, processed_state_changes).await?;
             }
-            RequestPayload::DeleteRequestRequest((request, processed_state_changes)) => {
+            RequestPayload::DeleteRequestRequest(request) => {
                 state_machine::delete_request(&txn, request, current_clock).await?;
-                state_machine::mark_state_changes_processed(&txn, processed_state_changes).await?;
             }
             RequestPayload::UpsertExecutor(request) => {
-                // Create state changes for allocation outputs. The actual allocation
-                // updates are handled by the application processor to remove contention
-                // from the ingestion path.
-                for allocation_output in &request.allocation_outputs {
-                    info!(
-                        request_id = %allocation_output.allocation.request_id,
-                        executor_id = %allocation_output.allocation.target.executor_id,
-                        app = %allocation_output.allocation.application,
-                        fn = %allocation_output.allocation.function,
-                        allocation_id = %allocation_output.allocation.id,
-                        allocation_outcome = ?allocation_output.allocation.outcome,
-                        "creating allocation ingestion state change",
-                    );
-                    let changes = state_changes::task_outputs_ingested(
-                        &self.state_change_id_seq,
-                        allocation_output,
-                    )?;
-                    allocation_ingestion_events.extend(changes);
-                }
-
-                if request.update_executor_state {
-                    self.executor_states
-                        .write()
-                        .await
-                        .entry(request.executor.id.clone())
-                        .or_default();
-                }
+                // Persist executor metadata to RocksDB so it survives restarts.
+                state_machine::upsert_executor(&txn, &request.executor).await?;
             }
             RequestPayload::DeregisterExecutor(request) => {
-                self.executor_states
-                    .write()
-                    .await
-                    .remove(&request.executor_id);
                 info!(
                     executor_id = request.executor_id.get(),
                     "marking executor as tombstoned"
                 );
             }
-            RequestPayload::ProcessStateChanges(state_changes) => {
-                state_machine::mark_state_changes_processed(&txn, state_changes).await?;
-            }
             RequestPayload::CreateSandbox(request) => {
                 state_machine::upsert_sandbox(&txn, &request.sandbox, current_clock).await?;
             }
             RequestPayload::SnapshotSandbox(request) => {
-                // 1) Persist the new Snapshot object
-                state_machine::upsert_snapshot(&txn, &request.snapshot).await?;
+                // 1) Persist the new Snapshot object with upload_uri
+                let mut snapshot = request.snapshot.clone();
+                snapshot.upload_uri = Some(request.upload_uri.clone());
+                state_machine::upsert_snapshot(&txn, &snapshot).await?;
 
                 // 2) Transition the sandbox to Snapshotting status
                 let reader = scanner::StateReader::new(self.db.clone(), self.metrics.clone());
@@ -758,13 +481,14 @@ impl IndexifyState {
             RequestPayload::CompleteSnapshot(request) => {
                 // Find the snapshot by ID. Try in-memory first, fall back to DB
                 // scan to handle cases where in-memory state is stale.
-                let in_memory = self.in_memory_state.read().await;
-                let snapshot_opt = in_memory
+                let state = self.app_state.load();
+                let snapshot_opt = state
+                    .indexes
                     .snapshots
                     .values()
                     .find(|s| s.id == request.snapshot_id)
                     .map(|s| (**s).clone());
-                drop(in_memory);
+                drop(state);
 
                 let snapshot_opt = match snapshot_opt {
                     Some(s) => Some(s),
@@ -784,14 +508,27 @@ impl IndexifyState {
                     snapshot.size_bytes = Some(request.size_bytes);
                     state_machine::upsert_snapshot(&txn, &snapshot).await?;
 
-                    // Terminate the sandbox
+                    // Terminate the sandbox. Try in-memory first, fall back to DB
+                    // since ArcSwap may not have the sandbox yet (enqueued payloads
+                    // are applied by the scheduler, not by write()).
                     let sb_key = SandboxKey::new(&snapshot.namespace, snapshot.sandbox_id.get());
-                    let in_memory = self.in_memory_state.read().await;
-                    if let Some(mut sandbox) = in_memory.sandboxes.get(&sb_key).cloned() {
+                    let state = self.app_state.load();
+                    let sandbox_opt = state.indexes.sandboxes.get(&sb_key).cloned();
+                    drop(state);
+                    let sandbox_opt = match sandbox_opt {
+                        Some(s) => Some(*s),
+                        None => {
+                            let reader =
+                                scanner::StateReader::new(self.db.clone(), self.metrics.clone());
+                            reader
+                                .get_sandbox(&snapshot.namespace, snapshot.sandbox_id.get())
+                                .await?
+                        }
+                    };
+                    if let Some(mut sandbox) = sandbox_opt {
                         sandbox.status = SandboxStatus::Terminated;
                         state_machine::upsert_sandbox(&txn, &sandbox, current_clock).await?;
                     }
-                    drop(in_memory);
                 } else {
                     error!(
                         snapshot_id = request.snapshot_id.get(),
@@ -802,13 +539,14 @@ impl IndexifyState {
             RequestPayload::FailSnapshot(request) => {
                 // Find the snapshot by ID. Try in-memory first, fall back to DB
                 // scan to handle cases where in-memory state is stale.
-                let in_memory = self.in_memory_state.read().await;
-                let snapshot_opt = in_memory
+                let state = self.app_state.load();
+                let snapshot_opt = state
+                    .indexes
                     .snapshots
                     .values()
                     .find(|s| s.id == request.snapshot_id)
                     .map(|s| (**s).clone());
-                drop(in_memory);
+                drop(state);
 
                 let snapshot_opt = match snapshot_opt {
                     Some(s) => Some(s),
@@ -828,14 +566,27 @@ impl IndexifyState {
                     };
                     state_machine::upsert_snapshot(&txn, &snapshot).await?;
 
-                    // Revert sandbox to Running
+                    // Mark sandbox as Terminated on snapshot failure.
+                    // Try in-memory first, fall back to DB since ArcSwap may not
+                    // have the sandbox yet.
                     let sb_key = SandboxKey::new(&snapshot.namespace, snapshot.sandbox_id.get());
-                    let in_memory = self.in_memory_state.read().await;
-                    if let Some(mut sandbox) = in_memory.sandboxes.get(&sb_key).cloned() {
-                        sandbox.status = SandboxStatus::Running;
+                    let state = self.app_state.load();
+                    let sandbox_opt = state.indexes.sandboxes.get(&sb_key).cloned();
+                    drop(state);
+                    let sandbox_opt = match sandbox_opt {
+                        Some(s) => Some(*s),
+                        None => {
+                            let reader =
+                                scanner::StateReader::new(self.db.clone(), self.metrics.clone());
+                            reader
+                                .get_sandbox(&snapshot.namespace, snapshot.sandbox_id.get())
+                                .await?
+                        }
+                    };
+                    if let Some(mut sandbox) = sandbox_opt {
+                        sandbox.status = SandboxStatus::Terminated;
                         state_machine::upsert_sandbox(&txn, &sandbox, current_clock).await?;
                     }
-                    drop(in_memory);
                 } else {
                     error!(
                         snapshot_id = request.snapshot_id.get(),
@@ -853,24 +604,29 @@ impl IndexifyState {
             RequestPayload::UpdateContainerPool(request) => {
                 state_machine::upsert_container_pool(&txn, &request.pool, current_clock).await?;
             }
-            RequestPayload::TombstoneContainerPool(_) => {}
-            RequestPayload::DeleteContainerPool((request, processed_state_changes)) => {
+            RequestPayload::TombstoneContainerPool(request) => {
+                // Mark pool as tombstoned in RocksDB so user-facing reads
+                // (which query RocksDB) treat it as deleted immediately.
+                // The scheduler later issues the actual RocksDB delete.
+                let reader = scanner::StateReader::new(self.db.clone(), self.metrics.clone());
+                if let Some(mut pool) = reader
+                    .get_sandbox_pool(&request.namespace, request.pool_id.get())
+                    .await?
+                {
+                    pool.tombstoned = true;
+                    state_machine::upsert_container_pool(&txn, &pool, current_clock).await?;
+                }
+            }
+            RequestPayload::DeleteContainerPool(request) => {
                 state_machine::delete_container_pool(
                     &txn,
                     &request.namespace,
                     request.pool_id.get(),
                 )
                 .await?;
-                state_machine::mark_state_changes_processed(&txn, processed_state_changes).await?;
             }
             _ => {} // Handle other request types as needed
         };
-
-        let mut new_state_changes = request.state_changes(&self.state_change_id_seq)?;
-        new_state_changes.extend(allocation_ingestion_events);
-        if !new_state_changes.is_empty() {
-            state_machine::save_state_changes(&txn, &new_state_changes, current_clock).await?;
-        }
 
         // Persist request state change events into the same transaction so they
         // become durable atomically with the state change that produced them.
@@ -886,6 +642,36 @@ impl IndexifyState {
             }
         }
 
+        // Enqueue the payload into the PayloadQueue so the scheduler can
+        // process it. Everything is enqueued EXCEPT scheduler-output payloads
+        // (which the scheduler writes via write_scheduler_output()).
+        let should_enqueue = !matches!(
+            &request.payload,
+            RequestPayload::SchedulerUpdate(_) |
+                RequestPayload::DeleteApplicationRequest(_) |
+                RequestPayload::DeleteRequestRequest(_) |
+                RequestPayload::DeleteContainerPool(_)
+        );
+        if should_enqueue {
+            let payload_seq = self.payload_seq.fetch_add(1, atomic::Ordering::Relaxed);
+            state_machine::enqueue_payload(&txn, payload_seq, &request.payload).await?;
+        }
+
+        let mut persisted_scheduler_command_intents = match &request.payload {
+            RequestPayload::SchedulerUpdate(payload) => {
+                self.persist_scheduler_command_intents(
+                    &txn,
+                    &payload.update.scheduler_command_intents,
+                )
+                .await?
+            }
+            _ => 0,
+        };
+        persisted_scheduler_command_intents = persisted_scheduler_command_intents.saturating_add(
+            self.persist_scheduler_command_intents(&txn, scheduler_command_intents)
+                .await?,
+        );
+
         let current_state_id = self.state_change_id_seq.load(atomic::Ordering::Relaxed);
         let current_usage_sequence_id = self.usage_event_id_seq.load(atomic::Ordering::Relaxed);
         let current_request_event_id = self.request_event_id_seq.load(atomic::Ordering::Relaxed);
@@ -899,11 +685,18 @@ impl IndexifyState {
             },
         )
         .await?;
+
+        // When dequeue_through_seq is provided, delete processed payloads in
+        // the same transaction so the scheduler output + dequeue are atomic.
+        if let Some(through_seq) = dequeue_through_seq {
+            state_machine::dequeue_payloads(&txn, through_seq).await?;
+        }
+
         txn.commit().await?;
+        self.increment_scheduler_command_intent_backlog(persisted_scheduler_command_intents);
 
         Ok(PersistentWriteResult {
-            current_state_id,
-            new_state_changes,
+            payload_enqueued: should_enqueue,
             should_notify_usage_reporter,
             request_state_changes,
         })
@@ -935,50 +728,658 @@ impl IndexifyState {
             .await
     }
 
-    /// Ensure an executor connection exists with a fresh emitter. Called
-    /// during registration (handle_v2_full_state) so events can be buffered
-    /// even before the command generator task starts.
-    ///
-    /// If a connection already exists (re-registration without prior
-    /// deregister), the emitter is reset to `has_synced = false` so the
-    /// next command generation cycle does a full sync with accurate
-    /// tracking state. The event channel and pending buffers are preserved
-    /// so buffered events are not lost.
-    pub async fn register_executor_connection(&self, executor_id: &ExecutorId) {
-        let mut connections = self.executor_connections.write().await;
-        match connections.entry(executor_id.clone()) {
-            std::collections::hash_map::Entry::Vacant(entry) => {
-                info!(
-                    executor_id = executor_id.get(),
-                    "created executor connection"
-                );
-                entry.insert(ExecutorConnection::new());
+    fn executor_cmd_prefix_key(executor_id: &ExecutorId) -> Vec<u8> {
+        format!("{}{}|", Self::EXECUTOR_CMD_PREFIX, executor_id.get()).into_bytes()
+    }
+
+    fn function_call_route_prefix_key() -> Vec<u8> {
+        Self::FUNCTION_CALL_ROUTE_PREFIX.as_bytes().to_vec()
+    }
+
+    fn scheduler_command_intent_prefix_key() -> Vec<u8> {
+        Self::SCHEDULER_COMMAND_INTENT_PREFIX.as_bytes().to_vec()
+    }
+
+    fn scheduler_command_intent_key(seq: u64) -> Vec<u8> {
+        format!("{}{:020}", Self::SCHEDULER_COMMAND_INTENT_PREFIX, seq).into_bytes()
+    }
+
+    fn parse_scheduler_command_intent_seq(key: &[u8]) -> Option<u64> {
+        let key = std::str::from_utf8(key).ok()?;
+        let seq = key.strip_prefix(Self::SCHEDULER_COMMAND_INTENT_PREFIX)?;
+        seq.parse::<u64>().ok()
+    }
+
+    async fn read_scheduler_command_intent_startup_state(
+        db: &RocksDBDriver,
+    ) -> Result<(u64, usize)> {
+        let prefix = Self::scheduler_command_intent_prefix_key();
+        let iter = db
+            .iter(
+                IndexifyObjectsColumns::SchedulerCommandIntents.as_ref(),
+                driver::IterOptions::default().starting_at(prefix.clone()),
+            )
+            .await;
+
+        let mut max_seq: Option<u64> = None;
+        let mut count = 0usize;
+        for item in iter {
+            let (key, _) = item?;
+            if !key.starts_with(prefix.as_slice()) {
+                break;
             }
-            std::collections::hash_map::Entry::Occupied(entry) => {
-                info!(
-                    executor_id = executor_id.get(),
-                    "re-registration: resetting emitter on existing executor connection"
-                );
-                entry.get().reset_emitter().await;
+            let Some(seq) = Self::parse_scheduler_command_intent_seq(&key) else {
+                continue;
+            };
+            max_seq = Some(max_seq.map_or(seq, |curr| curr.max(seq)));
+            count = count.saturating_add(1);
+        }
+
+        Ok((max_seq.map_or(0, |s| s.saturating_add(1)), count))
+    }
+
+    fn function_call_route_key(function_call_id: &str) -> Vec<u8> {
+        format!("{}{}", Self::FUNCTION_CALL_ROUTE_PREFIX, function_call_id).into_bytes()
+    }
+
+    fn executor_cmd_key(executor_id: &ExecutorId, seq: u64) -> Vec<u8> {
+        format!(
+            "{}{}|{:020}",
+            Self::EXECUTOR_CMD_PREFIX,
+            executor_id.get(),
+            seq
+        )
+        .into_bytes()
+    }
+
+    fn executor_cmd_ack_key(executor_id: &ExecutorId) -> Vec<u8> {
+        format!("{}{}", Self::EXECUTOR_CMD_ACK_PREFIX, executor_id.get()).into_bytes()
+    }
+
+    fn executor_cmd_next_key(executor_id: &ExecutorId) -> Vec<u8> {
+        format!("{}{}", Self::EXECUTOR_CMD_NEXT_PREFIX, executor_id.get()).into_bytes()
+    }
+
+    fn parse_executor_cmd_seq(key: &[u8]) -> Option<u64> {
+        let key = std::str::from_utf8(key).ok()?;
+        let (_, seq) = key.rsplit_once('|')?;
+        seq.parse::<u64>().ok()
+    }
+
+    async fn persist_scheduler_command_intents(
+        &self,
+        txn: &Transaction,
+        intents: &[SchedulerCommandIntent],
+    ) -> Result<usize> {
+        if intents.is_empty() {
+            return Ok(0);
+        }
+        for intent in intents {
+            let seq = self
+                .scheduler_command_intent_seq
+                .fetch_add(1, atomic::Ordering::Relaxed);
+            let key = Self::scheduler_command_intent_key(seq);
+            let persisted = PersistedSchedulerCommandIntent {
+                executor_id: intent.executor_id.clone(),
+                command: intent.command.encode_to_vec(),
+            };
+            let encoded = StateStoreEncoder::encode(&persisted)?;
+            txn.put(
+                IndexifyObjectsColumns::SchedulerCommandIntents.as_ref(),
+                key.as_slice(),
+                encoded.as_slice(),
+            )
+            .await?;
+        }
+        Ok(intents.len())
+    }
+
+    fn increment_scheduler_command_intent_backlog(&self, delta: usize) {
+        if delta == 0 {
+            return;
+        }
+        self.scheduler_command_intent_backlog_count
+            .fetch_add(delta as u64, atomic::Ordering::Relaxed);
+    }
+
+    fn decrement_scheduler_command_intent_backlog(&self, delta: usize) {
+        if delta == 0 {
+            return;
+        }
+        let delta = delta as u64;
+        let mut current = self
+            .scheduler_command_intent_backlog_count
+            .load(atomic::Ordering::Relaxed);
+        loop {
+            let next = current.saturating_sub(delta);
+            match self
+                .scheduler_command_intent_backlog_count
+                .compare_exchange_weak(
+                    current,
+                    next,
+                    atomic::Ordering::Relaxed,
+                    atomic::Ordering::Relaxed,
+                ) {
+                Ok(_) => break,
+                Err(observed) => current = observed,
             }
         }
     }
 
+    pub fn scheduler_command_intent_backlog_len(&self) -> u64 {
+        self.scheduler_command_intent_backlog_count
+            .load(atomic::Ordering::Relaxed)
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub async fn pending_scheduler_command_intents_count(&self) -> Result<usize> {
+        Ok(self.scheduler_command_intent_backlog_len() as usize)
+    }
+
+    /// Atomically move scheduler command intents into per-executor command
+    /// outboxes and return the enqueued commands grouped by executor.
+    pub async fn move_scheduler_command_intents_to_outbox(
+        &self,
+        max_items: usize,
+    ) -> Result<HashMap<ExecutorId, Vec<executor_api_pb::Command>>> {
+        if max_items == 0 {
+            return Ok(HashMap::new());
+        }
+
+        let prefix = Self::scheduler_command_intent_prefix_key();
+        let txn = self.db.transaction();
+        let iter = txn
+            .iter(
+                IndexifyObjectsColumns::SchedulerCommandIntents.as_ref(),
+                prefix.clone(),
+            )
+            .await;
+
+        let mut next_seq_by_executor: HashMap<ExecutorId, u64> = HashMap::new();
+        let mut enqueued: HashMap<ExecutorId, Vec<executor_api_pb::Command>> = HashMap::new();
+        let mut moved = 0usize;
+        for item in iter {
+            if moved >= max_items {
+                break;
+            }
+            let (key, value) = item?;
+            if !key.starts_with(prefix.as_slice()) {
+                break;
+            }
+
+            let persisted = StateStoreEncoder::decode::<PersistedSchedulerCommandIntent>(&value)?;
+            let mut command = executor_api_pb::Command::decode(persisted.command.as_slice())
+                .map_err(|e| anyhow!("failed to decode persisted scheduler command intent: {e}"))?;
+            let executor_id = persisted.executor_id;
+
+            let next_seq = if let Some(next_seq) = next_seq_by_executor.get_mut(&executor_id) {
+                next_seq
+            } else {
+                let next_key = Self::executor_cmd_next_key(&executor_id);
+                let next_seq = match txn
+                    .get(
+                        IndexifyObjectsColumns::ExecutorCommandOutbox.as_ref(),
+                        next_key.as_slice(),
+                    )
+                    .await?
+                {
+                    Some(bytes) => StateStoreEncoder::decode::<u64>(&bytes)?,
+                    None => 1,
+                };
+                next_seq_by_executor.insert(executor_id.clone(), next_seq);
+                next_seq_by_executor
+                    .get_mut(&executor_id)
+                    .expect("executor next seq should be inserted")
+            };
+
+            command.seq = *next_seq;
+            let cmd_key = Self::executor_cmd_key(&executor_id, command.seq);
+            txn.put(
+                IndexifyObjectsColumns::ExecutorCommandOutbox.as_ref(),
+                cmd_key.as_slice(),
+                &command.encode_to_vec(),
+            )
+            .await?;
+            *next_seq = (*next_seq).saturating_add(1);
+            enqueued.entry(executor_id).or_default().push(command);
+
+            txn.delete(
+                IndexifyObjectsColumns::SchedulerCommandIntents.as_ref(),
+                key.as_ref(),
+            )
+            .await?;
+            moved = moved.saturating_add(1);
+        }
+
+        for (executor_id, next_seq) in &next_seq_by_executor {
+            let next_key = Self::executor_cmd_next_key(executor_id);
+            let next_bytes = StateStoreEncoder::encode(next_seq)?;
+            txn.put(
+                IndexifyObjectsColumns::ExecutorCommandOutbox.as_ref(),
+                next_key.as_slice(),
+                next_bytes.as_slice(),
+            )
+            .await?;
+        }
+
+        txn.commit().await?;
+        self.decrement_scheduler_command_intent_backlog(moved);
+        Ok(enqueued)
+    }
+
+    async fn read_executor_cmd_ack(&self, executor_id: &ExecutorId) -> Result<u64> {
+        let key = Self::executor_cmd_ack_key(executor_id);
+        let Some(bytes) = self
+            .db
+            .get(
+                IndexifyObjectsColumns::ExecutorCommandOutbox.as_ref(),
+                key.as_slice(),
+            )
+            .await?
+        else {
+            return Ok(0);
+        };
+        StateStoreEncoder::decode::<u64>(&bytes)
+    }
+
+    async fn load_executor_pending_commands(
+        &self,
+        executor_id: &ExecutorId,
+    ) -> Result<(u64, Vec<executor_api_pb::Command>)> {
+        let acked = self.read_executor_cmd_ack(executor_id).await?;
+        let prefix = Self::executor_cmd_prefix_key(executor_id);
+        let mut commands = Vec::new();
+
+        let iter = self
+            .db
+            .iter(
+                IndexifyObjectsColumns::ExecutorCommandOutbox.as_ref(),
+                driver::IterOptions::default().starting_at(prefix.clone()),
+            )
+            .await;
+        for item in iter {
+            let (key, value) = item?;
+            if !key.starts_with(prefix.as_slice()) {
+                break;
+            }
+            let Some(seq) = Self::parse_executor_cmd_seq(&key) else {
+                continue;
+            };
+            if seq <= acked {
+                continue;
+            }
+            let cmd = executor_api_pb::Command::decode(value.as_ref())
+                .map_err(|e| anyhow!("failed to decode persisted command: {e}"))?;
+            commands.push(cmd);
+        }
+
+        Ok((acked, commands))
+    }
+
+    /// Persist commands in the executor outbox, assign durable sequence
+    /// numbers, and append to the in-memory long-poll buffer.
+    pub async fn enqueue_executor_commands(
+        &self,
+        executor_id: &ExecutorId,
+        mut commands: Vec<executor_api_pb::Command>,
+    ) -> Result<()> {
+        if commands.is_empty() {
+            return Ok(());
+        }
+
+        let txn = self.db.transaction();
+        let next_key = Self::executor_cmd_next_key(executor_id);
+        let mut next_seq = match txn
+            .get(
+                IndexifyObjectsColumns::ExecutorCommandOutbox.as_ref(),
+                next_key.as_slice(),
+            )
+            .await?
+        {
+            Some(bytes) => StateStoreEncoder::decode::<u64>(&bytes)?,
+            None => 1,
+        };
+        for cmd in &mut commands {
+            cmd.seq = next_seq;
+            let key = Self::executor_cmd_key(executor_id, next_seq);
+            txn.put(
+                IndexifyObjectsColumns::ExecutorCommandOutbox.as_ref(),
+                key.as_slice(),
+                &cmd.encode_to_vec(),
+            )
+            .await?;
+            next_seq = next_seq.saturating_add(1);
+        }
+
+        let next_bytes = StateStoreEncoder::encode(&next_seq)?;
+        txn.put(
+            IndexifyObjectsColumns::ExecutorCommandOutbox.as_ref(),
+            next_key.as_slice(),
+            next_bytes.as_slice(),
+        )
+        .await?;
+        txn.commit().await?;
+
+        let connections = self.executor_connections.read().await;
+        if let Some(conn) = connections.get(executor_id) {
+            conn.push_commands(commands).await?;
+        }
+        Ok(())
+    }
+
+    /// Persist command ack progression and prune acked outbox entries.
+    pub async fn ack_executor_commands(
+        &self,
+        executor_id: &ExecutorId,
+        acked_seq: u64,
+    ) -> Result<()> {
+        let prev_acked = self.read_executor_cmd_ack(executor_id).await?;
+        let effective_acked = acked_seq.max(prev_acked);
+
+        let txn = self.db.transaction();
+        let ack_key = Self::executor_cmd_ack_key(executor_id);
+        let ack_bytes = StateStoreEncoder::encode(&effective_acked)?;
+        txn.put(
+            IndexifyObjectsColumns::ExecutorCommandOutbox.as_ref(),
+            ack_key.as_slice(),
+            ack_bytes.as_slice(),
+        )
+        .await?;
+
+        let prefix = Self::executor_cmd_prefix_key(executor_id);
+        let iter = txn
+            .iter(
+                IndexifyObjectsColumns::ExecutorCommandOutbox.as_ref(),
+                prefix.clone(),
+            )
+            .await;
+        for kv in iter {
+            let (key, _) = kv?;
+            if !key.starts_with(prefix.as_slice()) {
+                break;
+            }
+            if let Some(seq) = Self::parse_executor_cmd_seq(&key) &&
+                seq <= effective_acked
+            {
+                txn.delete(
+                    IndexifyObjectsColumns::ExecutorCommandOutbox.as_ref(),
+                    key.as_ref(),
+                )
+                .await?;
+            }
+        }
+
+        txn.commit().await?;
+        Ok(())
+    }
+
+    /// Drop all persisted command outbox state for this executor and reset
+    /// cursor records.
+    pub async fn reset_executor_command_outbox(&self, executor_id: &ExecutorId) -> Result<()> {
+        let txn = self.db.transaction();
+        let prefix = Self::executor_cmd_prefix_key(executor_id);
+        let iter = txn
+            .iter(
+                IndexifyObjectsColumns::ExecutorCommandOutbox.as_ref(),
+                prefix.clone(),
+            )
+            .await;
+        for kv in iter {
+            let (key, _) = kv?;
+            if !key.starts_with(prefix.as_slice()) {
+                break;
+            }
+            txn.delete(
+                IndexifyObjectsColumns::ExecutorCommandOutbox.as_ref(),
+                key.as_ref(),
+            )
+            .await?;
+        }
+
+        let ack_key = Self::executor_cmd_ack_key(executor_id);
+        let next_key = Self::executor_cmd_next_key(executor_id);
+        let ack_bytes = StateStoreEncoder::encode(&0u64)?;
+        let next_bytes = StateStoreEncoder::encode(&1u64)?;
+        txn.put(
+            IndexifyObjectsColumns::ExecutorCommandOutbox.as_ref(),
+            ack_key.as_slice(),
+            ack_bytes.as_slice(),
+        )
+        .await?;
+        txn.put(
+            IndexifyObjectsColumns::ExecutorCommandOutbox.as_ref(),
+            next_key.as_slice(),
+            next_bytes.as_slice(),
+        )
+        .await?;
+        txn.commit().await?;
+        Ok(())
+    }
+
+    pub async fn upsert_function_call_route(
+        &self,
+        function_call_id: &str,
+        parent_allocation_id: &str,
+        original_function_call_id: &str,
+        executor_id: &ExecutorId,
+    ) -> Result<()> {
+        let key = Self::function_call_route_key(function_call_id);
+        let route = PersistedFunctionCallRoute {
+            parent_allocation_id: parent_allocation_id.to_string(),
+            original_function_call_id: original_function_call_id.to_string(),
+            executor_id: executor_id.clone(),
+        };
+        let encoded = StateStoreEncoder::encode(&route)?;
+        self.db
+            .put(
+                IndexifyObjectsColumns::FunctionCallResultRoutes.as_ref(),
+                key.as_slice(),
+                encoded.as_slice(),
+            )
+            .await?;
+        Ok(())
+    }
+
+    pub async fn get_function_call_route(
+        &self,
+        function_call_id: &str,
+    ) -> Result<Option<PersistedFunctionCallRoute>> {
+        let key = Self::function_call_route_key(function_call_id);
+        let value = self
+            .db
+            .get(
+                IndexifyObjectsColumns::FunctionCallResultRoutes.as_ref(),
+                key.as_slice(),
+            )
+            .await?;
+        match value {
+            Some(value) => Ok(Some(
+                StateStoreEncoder::decode::<PersistedFunctionCallRoute>(&value)?,
+            )),
+            None => Ok(None),
+        }
+    }
+
+    pub async fn take_function_call_route(
+        &self,
+        function_call_id: &str,
+    ) -> Result<Option<PersistedFunctionCallRoute>> {
+        let key = Self::function_call_route_key(function_call_id);
+        let txn = self.db.transaction();
+        let value = txn
+            .get(
+                IndexifyObjectsColumns::FunctionCallResultRoutes.as_ref(),
+                key.as_slice(),
+            )
+            .await?;
+        let Some(value) = value else {
+            return Ok(None);
+        };
+        let route = StateStoreEncoder::decode::<PersistedFunctionCallRoute>(&value)?;
+        txn.delete(
+            IndexifyObjectsColumns::FunctionCallResultRoutes.as_ref(),
+            key.as_slice(),
+        )
+        .await?;
+        txn.commit().await?;
+        Ok(Some(route))
+    }
+
+    pub async fn delete_function_call_route(&self, function_call_id: &str) -> Result<()> {
+        let key = Self::function_call_route_key(function_call_id);
+        let txn = self.db.transaction();
+        txn.delete(
+            IndexifyObjectsColumns::FunctionCallResultRoutes.as_ref(),
+            key.as_slice(),
+        )
+        .await?;
+        txn.commit().await?;
+        Ok(())
+    }
+
+    pub async fn purge_function_call_routes_for_executor(
+        &self,
+        executor_id: &ExecutorId,
+    ) -> Result<usize> {
+        let prefix = Self::function_call_route_prefix_key();
+        let txn = self.db.transaction();
+        let iter = txn
+            .iter(
+                IndexifyObjectsColumns::FunctionCallResultRoutes.as_ref(),
+                prefix.clone(),
+            )
+            .await;
+        let mut purged = 0usize;
+        for kv in iter {
+            let (key, value) = kv?;
+            if !key.starts_with(prefix.as_slice()) {
+                break;
+            }
+            let route = StateStoreEncoder::decode::<PersistedFunctionCallRoute>(&value)?;
+            if route.executor_id == *executor_id {
+                txn.delete(
+                    IndexifyObjectsColumns::FunctionCallResultRoutes.as_ref(),
+                    key.as_ref(),
+                )
+                .await?;
+                purged += 1;
+            }
+        }
+        txn.commit().await?;
+        Ok(purged)
+    }
+
+    async fn build_executor_connection(&self, executor_id: &ExecutorId) -> ExecutorConnection {
+        let (acked, pending_commands) = match self.load_executor_pending_commands(executor_id).await
+        {
+            Ok(v) => v,
+            Err(err) => {
+                error!(
+                    executor_id = executor_id.get(),
+                    error = ?err,
+                    "failed loading persisted command outbox; continuing with empty buffer"
+                );
+                (0, Vec::new())
+            }
+        };
+
+        let next_result_seq = self
+            .executor_next_result_seq
+            .read()
+            .await
+            .get(executor_id)
+            .copied()
+            .unwrap_or(1);
+
+        let conn = ExecutorConnection::new();
+        conn.restore_acked_command_seq(acked);
+        conn.restore_next_result_seq(next_result_seq);
+        conn.replace_commands(pending_commands).await;
+        conn
+    }
+
+    async fn ensure_executor_connection_internal(
+        &self,
+        executor_id: &ExecutorId,
+    ) -> (ExecutorConnection, bool) {
+        {
+            let connections = self.executor_connections.read().await;
+            if let Some(conn) = connections.get(executor_id) {
+                return (conn.clone(), false);
+            }
+        }
+
+        let conn = self.build_executor_connection(executor_id).await;
+        let mut connections = self.executor_connections.write().await;
+        if let Some(existing) = connections.get(executor_id) {
+            return (existing.clone(), false);
+        }
+        info!(
+            executor_id = executor_id.get(),
+            "created executor connection"
+        );
+        connections.insert(executor_id.clone(), conn.clone());
+        (conn, true)
+    }
+
+    /// Ensure an executor connection exists with a fresh command buffer.
+    /// Called during registration (handle_v2_full_state) so commands/results
+    /// can be buffered for long-poll delivery.
+    ///
+    /// If a connection already exists (re-registration without prior
+    /// deregister), command emission state and persisted outbox are reset so
+    /// the executor gets a clean full-sync command stream.
+    pub async fn register_executor_connection(&self, executor_id: &ExecutorId) {
+        let (conn, created) = self.ensure_executor_connection_internal(executor_id).await;
+
+        if created {
+            // Full-state registration starts a new result stream from seq=1.
+            conn.restore_next_result_seq(1);
+            self.executor_next_result_seq
+                .write()
+                .await
+                .insert(executor_id.clone(), 1);
+            return;
+        }
+
+        info!(
+            executor_id = executor_id.get(),
+            "re-registration: resetting command outbox and command buffers"
+        );
+        if let Err(err) = self.reset_executor_command_outbox(executor_id).await {
+            error!(
+                executor_id = executor_id.get(),
+                error = ?err,
+                "failed to reset persisted command outbox during re-registration"
+            );
+        }
+        conn.reset_for_full_sync().await;
+        self.executor_next_result_seq
+            .write()
+            .await
+            .insert(executor_id.clone(), 1);
+    }
+
     /// Remove the connection for an executor. Called on deregistration.
-    /// Drops the sender, which causes any active command generator task to
-    /// exit.
+    /// Wakes any held long-poll requests.
     pub async fn deregister_executor_connection(&self, executor_id: &ExecutorId) {
         let removed = self.executor_connections.write().await.remove(executor_id);
         if let Some(conn) = removed {
-            // Abort the background command generator task so it doesn't
-            // linger if it's blocked on emitter lock or I/O.
-            if let Some(handle) = conn.command_generator_handle {
-                handle.abort();
+            self.executor_next_result_seq
+                .write()
+                .await
+                .insert(executor_id.clone(), conn.next_result_seq().max(1));
+            if let Err(err) = self.reset_executor_command_outbox(executor_id).await {
+                error!(
+                    executor_id = executor_id.get(),
+                    error = ?err,
+                    "failed to reset persisted command outbox during deregistration"
+                );
             }
             // Wake any held long-poll requests so they return immediately
             // instead of blocking until the 5-minute timeout.
-            conn.commands_notify.notify_one();
-            conn.results_notify.notify_one();
+            conn.commands_notify().notify_one();
+            conn.results_notify().notify_one();
             info!(
                 executor_id = executor_id.get(),
                 "deregistered executor connection"
@@ -986,29 +1387,88 @@ impl IndexifyState {
         }
     }
 
-    /// Send an event to an executor's connection. Logs a warning if the
-    /// connection is missing or the channel is closed.
-    fn send_event(
-        connections: &HashMap<ExecutorId, ExecutorConnection>,
-        executor_id: &ExecutorId,
-        event: ExecutorEvent,
-    ) {
-        match connections.get(executor_id) {
-            Some(conn) => {
-                if conn.send_event(event).is_err() {
-                    info!(
-                        executor_id = executor_id.get(),
-                        "executor event dropped: channel closed"
-                    );
-                }
-            }
-            None => {
-                info!(
-                    executor_id = executor_id.get(),
-                    "executor event dropped: executor not registered"
-                );
-            }
+    pub async fn clear_executor_result_seq(&self, executor_id: &ExecutorId) {
+        self.executor_next_result_seq
+            .write()
+            .await
+            .remove(executor_id);
+    }
+
+    /// Persist a scheduler-generated write (allocations, updated requests,
+    /// etc.), without enqueuing a payload or updating the ArcSwap. Any
+    /// command intents already attached to the SchedulerUpdate payload are
+    /// persisted in the same RocksDB transaction.
+    pub async fn write_scheduler_output(
+        &self,
+        mut request: StateMachineUpdateRequest,
+    ) -> Result<()> {
+        let timer_kv = &[KeyValue::new("request", request.payload.to_string())];
+        let _write_guard = self.write_mutex.lock().await;
+
+        let write_result = self
+            .write_in_persistent_store(&mut request, timer_kv)
+            .await?;
+
+        if write_result.should_notify_usage_reporter {
+            let _ = self.usage_events_tx.send(());
         }
+        self.request_event_buffers
+            .push_events(write_result.request_state_changes)
+            .await;
+        Ok(())
+    }
+
+    /// Persist a non-scheduler payload together with scheduler command
+    /// intents emitted as a side effect (for example, delete paths that
+    /// produce RemoveContainer commands).
+    pub async fn write_with_scheduler_command_intents(
+        &self,
+        mut request: StateMachineUpdateRequest,
+        scheduler_command_intents: &[SchedulerCommandIntent],
+    ) -> Result<()> {
+        let timer_kv = &[KeyValue::new("request", request.payload.to_string())];
+        let _write_guard = self.write_mutex.lock().await;
+
+        let write_result = self
+            .write_in_persistent_store_with_extra_intents(
+                &mut request,
+                timer_kv,
+                scheduler_command_intents,
+            )
+            .await?;
+
+        if write_result.should_notify_usage_reporter {
+            let _ = self.usage_events_tx.send(());
+        }
+        self.request_event_buffers
+            .push_events(write_result.request_state_changes)
+            .await;
+        Ok(())
+    }
+
+    /// Persist scheduler output and dequeue processed payloads in a single
+    /// RocksDB transaction. Any intents attached to the SchedulerUpdate are
+    /// persisted in the same commit. This keeps scheduler output, intent-log
+    /// appends, and dequeue atomic.
+    pub async fn write_scheduler_output_and_dequeue(
+        &self,
+        mut request: StateMachineUpdateRequest,
+        dequeue_through_seq: u64,
+    ) -> Result<()> {
+        let timer_kv = &[KeyValue::new("request", request.payload.to_string())];
+        let _write_guard = self.write_mutex.lock().await;
+
+        let write_result = self
+            .write_in_persistent_store_inner(&mut request, timer_kv, Some(dequeue_through_seq), &[])
+            .await?;
+
+        if write_result.should_notify_usage_reporter {
+            let _ = self.usage_events_tx.send(());
+        }
+        self.request_event_buffers
+            .push_events(write_result.request_state_changes)
+            .await;
+        Ok(())
     }
 }
 
@@ -1068,23 +1528,19 @@ pub async fn write_sm_meta(txn: &Transaction, sm_meta: &StateMachineMetadata) ->
 
 #[cfg(test)]
 mod tests {
-    use requests::{CreateOrUpdateApplicationRequest, InvokeApplicationRequest, NamespaceRequest};
+    use requests::{
+        CreateOrUpdateApplicationRequest,
+        NamespaceRequest,
+        SchedulerUpdatePayload,
+        SchedulerUpdateRequest,
+    };
     use test_state_store::TestStateStore;
 
     use super::*;
     use crate::data_model::{
         Application,
-        InputArgs,
         Namespace,
-        RequestCtxBuilder,
-        StateChangeId,
-        test_objects::tests::{
-            TEST_EXECUTOR_ID,
-            TEST_NAMESPACE,
-            mock_application,
-            mock_data_payload,
-            mock_function_call,
-        },
+        test_objects::tests::{TEST_EXECUTOR_ID, TEST_NAMESPACE, mock_application},
     };
 
     #[tokio::test]
@@ -1166,84 +1622,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_order_state_changes() -> Result<()> {
-        let indexify_state = TestStateStore::new().await?.indexify_state;
-        let tx = indexify_state.db.transaction();
-        let function_run = tests::mock_application()
-            .to_version()
-            .unwrap()
-            .create_function_run(
-                &mock_function_call(),
-                vec![InputArgs {
-                    function_call_id: None,
-                    data_payload: mock_data_payload(),
-                }],
-                "foo1",
-            )?;
-
-        let ctx = RequestCtxBuilder::default()
-            .namespace("namespace1".to_string())
-            .application_name("cg1".to_string())
-            .request_id("foo1".to_string())
-            .function_calls(HashMap::from([(
-                function_run.id.clone(),
-                mock_function_call(),
-            )]))
-            .function_runs(HashMap::from([(
-                function_run.id.clone(),
-                function_run.clone(),
-            )]))
-            .application_version("1".to_string())
-            .build()?;
-        let state_change_1 = state_changes::invoke_application(
-            &indexify_state.state_change_id_seq,
-            &InvokeApplicationRequest {
-                namespace: "namespace".to_string(),
-                application_name: "graph_A".to_string(),
-                ctx: ctx.clone(),
-            },
-        )
-        .unwrap();
-        state_machine::save_state_changes(&tx, &state_change_1, 0).await?;
-        tx.commit().await?;
-
-        let tx = indexify_state.db.transaction();
-        let state_change_2 = state_changes::upsert_executor(
-            &indexify_state.state_change_id_seq,
-            &TEST_EXECUTOR_ID.into(),
-        )
-        .unwrap();
-        state_machine::save_state_changes(&tx, &state_change_2, 0).await?;
-        tx.commit().await?;
-
-        let tx = indexify_state.db.transaction();
-        let state_change_3 = state_changes::invoke_application(
-            &indexify_state.state_change_id_seq,
-            &InvokeApplicationRequest {
-                namespace: "namespace".to_string(),
-                application_name: "graph_A".to_string(),
-                ctx: ctx.clone(),
-            },
-        )
-        .unwrap();
-        state_machine::save_state_changes(&tx, &state_change_3, 0).await?;
-        tx.commit().await?;
-
-        let state_changes = indexify_state
-            .reader()
-            .unprocessed_state_changes(&None, &None)
-            .await?;
-        assert_eq!(state_changes.changes.len(), 3);
-        // global state_change_2
-        assert_eq!(state_changes.changes[0].id, StateChangeId::new(1));
-        // state_change_1
-        assert_eq!(state_changes.changes[1].id, StateChangeId::new(0));
-        // state_change_3
-        assert_eq!(state_changes.changes[2].id, StateChangeId::new(2));
-        Ok(())
-    }
-
-    #[tokio::test]
     async fn test_load_database_with_column_families() -> Result<()> {
         // IMPORTANT:
         // These columns families match the ones defined in the production state store.
@@ -1282,6 +1660,11 @@ mod tests {
             "FunctionRuns",
             "FunctionCalls",
             "Snapshots",
+            "Executors",
+            "PayloadQueue",
+            "ExecutorCommandOutbox",
+            "FunctionCallResultRoutes",
+            "SchedulerCommandIntents",
         ];
 
         let columns_iter = columns
@@ -1360,264 +1743,6 @@ mod tests {
             .await
     }
 
-    // --- Event emission tests ---
-
-    use crate::data_model::{
-        AllocationBuilder,
-        AllocationTarget,
-        Container,
-        ContainerBuilder,
-        ContainerResources,
-        ContainerServerMetadata,
-        FunctionCallId,
-        FunctionRunOutcome,
-    };
-
-    fn test_allocation(executor_id: &ExecutorId) -> crate::data_model::Allocation {
-        AllocationBuilder::default()
-            .target(AllocationTarget::new(
-                executor_id.clone(),
-                ContainerId::new("c1".to_string()),
-            ))
-            .function_call_id(FunctionCallId("fc-1".to_string()))
-            .namespace("ns".to_string())
-            .application("app".to_string())
-            .application_version("v1".to_string())
-            .function("fn1".to_string())
-            .request_id("req-1".to_string())
-            .outcome(FunctionRunOutcome::Unknown)
-            .input_args(vec![])
-            .call_metadata(bytes::Bytes::new())
-            .build()
-            .unwrap()
-    }
-
-    fn test_container(container_id: &str) -> Container {
-        ContainerBuilder::default()
-            .id(ContainerId::new(container_id.to_string()))
-            .namespace("ns".to_string())
-            .application_name("app".to_string())
-            .function_name("fn1".to_string())
-            .version("v1".to_string())
-            .state(ContainerState::Running)
-            .resources(ContainerResources {
-                cpu_ms_per_sec: 100,
-                memory_mb: 256,
-                ephemeral_disk_mb: 1024,
-                gpu: None,
-            })
-            .max_concurrency(1)
-            .build()
-            .unwrap()
-    }
-
-    /// Helper: get the event_rx from a registered executor connection.
-    async fn get_event_rx(
-        state: &IndexifyState,
-        executor_id: &ExecutorId,
-    ) -> Arc<tokio::sync::Mutex<mpsc::UnboundedReceiver<ExecutorEvent>>> {
-        state
-            .executor_connections
-            .read()
-            .await
-            .get(executor_id)
-            .expect("executor connection should exist")
-            .event_rx
-            .clone()
-    }
-
-    /// Helper: get the emitter from a registered executor connection.
-    async fn get_emitter(
-        state: &IndexifyState,
-        executor_id: &ExecutorId,
-    ) -> Arc<tokio::sync::Mutex<CommandEmitter>> {
-        state
-            .executor_connections
-            .read()
-            .await
-            .get(executor_id)
-            .expect("executor connection should exist")
-            .emitter
-            .clone()
-    }
-
-    #[tokio::test]
-    async fn test_event_emission_allocation_created() -> Result<()> {
-        let state = TestStateStore::new().await?.indexify_state;
-        let executor_id = ExecutorId::new(TEST_EXECUTOR_ID.to_string());
-
-        // Register executor connection
-        state.register_executor_connection(&executor_id).await;
-        let event_rx = get_event_rx(&state, &executor_id).await;
-
-        // Write a SchedulerUpdate with a new allocation
-        let allocation = test_allocation(&executor_id);
-        let mut update = requests::SchedulerUpdateRequest::default();
-        update.new_allocations.push(allocation.clone());
-
-        state
-            .write(StateMachineUpdateRequest {
-                payload: RequestPayload::SchedulerUpdate(requests::SchedulerUpdatePayload::new(
-                    update,
-                )),
-            })
-            .await?;
-
-        // Verify AllocationCreated event
-        let event = event_rx.lock().await.try_recv().unwrap();
-        assert!(
-            matches!(&event, ExecutorEvent::AllocationCreated(a) if a.id == allocation.id),
-            "expected AllocationCreated, got {event:?}"
-        );
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_event_emission_container_added_and_removed() -> Result<()> {
-        let state = TestStateStore::new().await?.indexify_state;
-        let executor_id = ExecutorId::new(TEST_EXECUTOR_ID.to_string());
-        state.register_executor_connection(&executor_id).await;
-        let event_rx = get_event_rx(&state, &executor_id).await;
-
-        // New container -> ContainerAdded
-        let container = test_container("c1");
-        let container_meta = ContainerServerMetadata::new(
-            executor_id.clone(),
-            container.clone(),
-            ContainerState::Running,
-        );
-        let mut update = requests::SchedulerUpdateRequest::default();
-        update
-            .containers
-            .insert(ContainerId::new("c1".to_string()), Box::new(container_meta));
-
-        state
-            .write(StateMachineUpdateRequest {
-                payload: RequestPayload::SchedulerUpdate(requests::SchedulerUpdatePayload::new(
-                    update,
-                )),
-            })
-            .await?;
-
-        let event = event_rx.lock().await.try_recv().unwrap();
-        assert!(
-            matches!(&event, ExecutorEvent::ContainerAdded(id) if id.get() == "c1"),
-            "expected ContainerAdded, got {event:?}"
-        );
-
-        // Terminated container -> ContainerRemoved
-        let container2 = test_container("c2");
-        let container_meta2 = ContainerServerMetadata::new(
-            executor_id.clone(),
-            container2,
-            ContainerState::Terminated {
-                reason: crate::data_model::ContainerTerminationReason::Unknown,
-            },
-        );
-        let mut update2 = requests::SchedulerUpdateRequest::default();
-        update2.containers.insert(
-            ContainerId::new("c2".to_string()),
-            Box::new(container_meta2),
-        );
-
-        state
-            .write(StateMachineUpdateRequest {
-                payload: RequestPayload::SchedulerUpdate(requests::SchedulerUpdatePayload::new(
-                    update2,
-                )),
-            })
-            .await?;
-
-        let event = event_rx.lock().await.try_recv().unwrap();
-        assert!(
-            matches!(&event, ExecutorEvent::ContainerRemoved(id) if id.get() == "c2"),
-            "expected ContainerRemoved, got {event:?}"
-        );
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_event_emission_full_sync_on_delete_app() -> Result<()> {
-        let state = TestStateStore::new().await?.indexify_state;
-        let executor_id = ExecutorId::new(TEST_EXECUTOR_ID.to_string());
-        state.register_executor_connection(&executor_id).await;
-        let event_rx = get_event_rx(&state, &executor_id).await;
-
-        // First create an application and a container so the executor shows up
-        // in the container_scheduler during DeleteApplication.
-        let app = mock_application();
-        _write_to_test_state_store(&state, app).await?;
-
-        // Container must match the application's namespace/name for the
-        // DeleteApplication handler to find it.
-        let mut container = test_container("c1");
-        container.namespace = TEST_NAMESPACE.to_string();
-        container.application_name = "graph_A".to_string();
-        let container_meta =
-            ContainerServerMetadata::new(executor_id.clone(), container, ContainerState::Running);
-        let mut update = requests::SchedulerUpdateRequest::default();
-        update
-            .containers
-            .insert(ContainerId::new("c1".to_string()), Box::new(container_meta));
-        state
-            .write(StateMachineUpdateRequest {
-                payload: RequestPayload::SchedulerUpdate(requests::SchedulerUpdatePayload::new(
-                    update,
-                )),
-            })
-            .await?;
-
-        // Drain the ContainerAdded event
-        let _ = event_rx.lock().await.try_recv();
-
-        // Delete the application
-        state
-            .write(StateMachineUpdateRequest {
-                payload: RequestPayload::DeleteApplicationRequest((
-                    requests::DeleteApplicationRequest {
-                        namespace: TEST_NAMESPACE.to_string(),
-                        name: "graph_A".to_string(),
-                    },
-                    vec![],
-                )),
-            })
-            .await?;
-
-        // Should receive FullSync
-        let event = event_rx.lock().await.try_recv().unwrap();
-        assert!(
-            matches!(&event, ExecutorEvent::FullSync),
-            "expected FullSync, got {event:?}"
-        );
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_event_no_emission_when_no_connection() -> Result<()> {
-        // Events are silently dropped when no connection is registered.
-        let state = TestStateStore::new().await?.indexify_state;
-        let executor_id = ExecutorId::new(TEST_EXECUTOR_ID.to_string());
-
-        // No connection registered — should not panic or error.
-        let allocation = test_allocation(&executor_id);
-        let mut update = requests::SchedulerUpdateRequest::default();
-        update.new_allocations.push(allocation);
-
-        state
-            .write(StateMachineUpdateRequest {
-                payload: RequestPayload::SchedulerUpdate(requests::SchedulerUpdatePayload::new(
-                    update,
-                )),
-            })
-            .await?;
-
-        // Success — no panic, no error.
-        Ok(())
-    }
-
     #[tokio::test]
     async fn test_executor_connection_register_deregister() -> Result<()> {
         let state = TestStateStore::new().await?.indexify_state;
@@ -1645,60 +1770,203 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_emitter_starts_unsynced() -> Result<()> {
+    async fn test_re_registration_resets_command_outbox_and_cursors() -> Result<()> {
         let state = TestStateStore::new().await?.indexify_state;
         let executor_id = ExecutorId::new(TEST_EXECUTOR_ID.to_string());
 
         state.register_executor_connection(&executor_id).await;
+        state
+            .enqueue_executor_commands(
+                &executor_id,
+                vec![
+                    executor_api_pb::Command {
+                        seq: 0,
+                        command: None,
+                    },
+                    executor_api_pb::Command {
+                        seq: 0,
+                        command: None,
+                    },
+                ],
+            )
+            .await?;
+        state.ack_executor_commands(&executor_id, 1).await?;
 
-        let emitter = get_emitter(&state, &executor_id).await;
+        // Re-register (simulates server asking for full state again)
+        state.register_executor_connection(&executor_id).await;
+
+        // Pending commands must be cleared and durable cursors reset.
         {
-            let emitter = emitter.lock().await;
+            let connections = state.executor_connections.read().await;
+            let conn = connections
+                .get(&executor_id)
+                .expect("executor connection should exist");
             assert!(
-                !emitter.has_synced,
-                "fresh emitter should have has_synced=false"
+                conn.clone_commands().await.is_empty(),
+                "pending commands should be cleared after re-registration"
             );
         }
+        assert_eq!(
+            state.read_executor_cmd_ack(&executor_id).await?,
+            0,
+            "acked command cursor should reset on re-registration"
+        );
+        let (acked, pending) = state.load_executor_pending_commands(&executor_id).await?;
+        assert_eq!(acked, 0, "restored ack cursor should be reset");
+        assert!(
+            pending.is_empty(),
+            "no persisted pending commands should remain after reset"
+        );
+        state
+            .enqueue_executor_commands(
+                &executor_id,
+                vec![executor_api_pb::Command {
+                    seq: 0,
+                    command: None,
+                }],
+            )
+            .await?;
+        let (_, pending_after_enqueue) = state.load_executor_pending_commands(&executor_id).await?;
+        assert_eq!(
+            pending_after_enqueue
+                .first()
+                .map(|command| command.seq)
+                .unwrap_or_default(),
+            1,
+            "next command sequence should reset on re-registration"
+        );
 
         Ok(())
     }
 
     #[tokio::test]
-    async fn test_re_registration_resets_emitter() -> Result<()> {
-        let state = TestStateStore::new().await?.indexify_state;
+    async fn test_executor_command_outbox_persists_across_restart() -> Result<()> {
+        let temp_dir = tempfile::tempdir()?;
+        let db_path = temp_dir.path().join("state");
         let executor_id = ExecutorId::new(TEST_EXECUTOR_ID.to_string());
 
-        state.register_executor_connection(&executor_id).await;
-        let emitter = get_emitter(&state, &executor_id).await;
-
-        // Simulate a synced emitter with tracking state
         {
-            let mut emitter = emitter.lock().await;
-            emitter.has_synced = true;
-            emitter.track_allocation("alloc-1".to_string());
-            emitter.track_container("container-1".to_string(), Default::default());
+            let state = IndexifyState::new(
+                db_path.clone(),
+                RocksDBConfig::default(),
+                ExecutorCatalog::default(),
+                RequestEventBuffers::default(),
+            )
+            .await?;
+
+            state.register_executor_connection(&executor_id).await;
+            state
+                .enqueue_executor_commands(
+                    &executor_id,
+                    vec![
+                        executor_api_pb::Command {
+                            seq: 0,
+                            command: None,
+                        },
+                        executor_api_pb::Command {
+                            seq: 0,
+                            command: None,
+                        },
+                        executor_api_pb::Command {
+                            seq: 0,
+                            command: None,
+                        },
+                    ],
+                )
+                .await?;
+            state.ack_executor_commands(&executor_id, 2).await?;
         }
 
-        // Re-register (simulates server asking for full state again)
+        {
+            let state = IndexifyState::new(
+                db_path,
+                RocksDBConfig::default(),
+                ExecutorCatalog::default(),
+                RequestEventBuffers::default(),
+            )
+            .await?;
+            state.register_executor_connection(&executor_id).await;
+            let connections = state.executor_connections.read().await;
+            let conn = connections
+                .get(&executor_id)
+                .expect("executor connection should exist");
+            let commands = conn.clone_commands().await;
+            assert_eq!(commands.len(), 1, "only unacked commands should restore");
+            assert_eq!(commands[0].seq, 3, "restored command seq should be stable");
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn test_outbox_sequences_stay_monotonic_with_concurrent_enqueue_and_intent_move()
+    -> Result<()> {
+        let state = TestStateStore::new().await?.indexify_state;
+        let executor_id = ExecutorId::new(TEST_EXECUTOR_ID.to_string());
         state.register_executor_connection(&executor_id).await;
 
-        // Emitter should be reset: has_synced=false, empty tracking
-        let emitter2 = get_emitter(&state, &executor_id).await;
-        {
-            let emitter = emitter2.lock().await;
-            assert!(
-                !emitter.has_synced,
-                "emitter should be reset to has_synced=false after re-registration"
-            );
-            assert!(
-                emitter.known_allocations.is_empty(),
-                "emitter allocations should be cleared after re-registration"
-            );
-            assert!(
-                emitter.known_containers.is_empty(),
-                "emitter containers should be cleared after re-registration"
-            );
-        }
+        let scheduler_intents: Vec<SchedulerCommandIntent> = (0..100)
+            .map(|_| SchedulerCommandIntent {
+                executor_id: executor_id.clone(),
+                command: executor_api_pb::Command {
+                    seq: 0,
+                    command: None,
+                },
+            })
+            .collect();
+        let mut update = SchedulerUpdateRequest::default();
+        update
+            .scheduler_command_intents
+            .extend(scheduler_intents.clone());
+        state
+            .write_scheduler_output(StateMachineUpdateRequest {
+                payload: RequestPayload::SchedulerUpdate(SchedulerUpdatePayload::new(update)),
+            })
+            .await?;
+
+        let state_for_move = state.clone();
+        let state_for_enqueue = state.clone();
+        let executor_for_enqueue = executor_id.clone();
+
+        let move_task = tokio::spawn(async move {
+            state_for_move
+                .move_scheduler_command_intents_to_outbox(10_000)
+                .await
+        });
+        let enqueue_task = tokio::spawn(async move {
+            for _ in 0..100 {
+                state_for_enqueue
+                    .enqueue_executor_commands(
+                        &executor_for_enqueue,
+                        vec![executor_api_pb::Command {
+                            seq: 0,
+                            command: None,
+                        }],
+                    )
+                    .await?;
+            }
+            Ok::<(), anyhow::Error>(())
+        });
+
+        move_task.await??;
+        enqueue_task.await??;
+
+        let (acked, pending) = state.load_executor_pending_commands(&executor_id).await?;
+        assert_eq!(acked, 0);
+        assert_eq!(pending.len(), 200);
+
+        let mut seqs: Vec<u64> = pending.into_iter().map(|cmd| cmd.seq).collect();
+        seqs.sort_unstable();
+        let expected: Vec<u64> = (1..=200u64).collect();
+        assert_eq!(
+            seqs, expected,
+            "command sequence numbers must remain contiguous under concurrent writers"
+        );
+        assert_eq!(
+            state.pending_scheduler_command_intents_count().await?,
+            0,
+            "all persisted intents should be moved to outbox"
+        );
 
         Ok(())
     }

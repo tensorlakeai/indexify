@@ -561,7 +561,7 @@ impl super::InnerTransaction for RocksDBTransaction {
         };
         let cf = self.db.column_family(cf);
 
-        tx.iterator_cf(cf, IteratorMode::Start)
+        tx.iterator_cf(cf, IteratorMode::From(prefix.as_ref(), Direction::Forward))
             .map(|item| item.map_err(Error::into_generic))
             .take_while(move |item| {
                 let Ok((key, _)) = item else {

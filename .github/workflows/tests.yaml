@@ -91,8 +91,8 @@ jobs:
       - name: Build and lint indexify
         run: cd indexify && make build && make check
 
-  acceptance_tests_dataplane:
-    name: Run Acceptance Tests (Dataplane)
+  acceptance_tests_dataplane_cli:
+    name: Run Acceptance Tests (Dataplane CLI)
     needs: [build_server]
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -132,13 +132,174 @@ jobs:
           cache: 'poetry'
       - name: Build tensorlake
         run: cd tensorlake && make build
-      - name: Run Indexify Dataplane tests
+      - name: Run Dataplane CLI tests
         run: |
           chmod u+x ./indexify-dataplane
           export DATAPLANE_BIN=$(pwd)/indexify-dataplane
           export PATH=$(cd tensorlake && poetry env info --path)/bin:$PATH
           cd indexify/tests
-          bash run_tests_dataplane.sh
+          bash run_tests_phase_dataplane_cli.sh
+      - name: Dump dataplane logs
+        if: always()
+        run: |
+          echo "=== Dataplane logs ==="
+          cat /tmp/indexify-dataplane.log 2>/dev/null || echo "(no dataplane log file)"
+      - name: Terminate processes
+        if: always()
+        run: |
+          pkill -SIGTERM -F /tmp/indexify-server.pid || true
+          pkill -f indexify-dataplane || true
+          pkill -f function-executor || true
+      - name: Wait for processes termination
+        if: always()
+        run: |
+          for i in $(seq 1 10); do
+            if ! pgrep -f 'indexify-server|indexify-dataplane|function-executor' >/dev/null 2>&1; then
+              break
+            fi
+            echo "Waiting for processes to exit..."
+            sleep 1
+          done
+      - name: Validate that all processes terminated
+        if: always()
+        run: |
+          if pgrep -f indexify; then
+            echo "Error: Some Indexify processes are still running."
+            ps aux | grep indexify
+            exit 1
+          fi
+
+  acceptance_tests_executor_features:
+    name: Run Acceptance Tests (Executor + Features)
+    needs: [build_server]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: true
+      - name: Download indexify-server
+        uses: actions/download-artifact@v7
+        with:
+          name: indexify-server
+      - name: Download indexify-dataplane
+        uses: actions/download-artifact@v7
+        with:
+          name: indexify-dataplane
+      - name: Start Background Indexify Server
+        uses: JarvusInnovations/background-action@v1
+        with:
+          run: |
+            chmod u+x ./indexify-server
+            DATAPLANE_FUNCTIONS_ENABLED=true RUST_LOG=info ./indexify-server &
+            echo $! > /tmp/indexify-server.pid &
+          wait-on: |
+            tcp:localhost:8900
+          tail: true
+          wait-for: 30s
+          log-output: true
+          log-output-if: true
+      - name: Install poetry
+        run: pipx install --force 'poetry==2.0.0'
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.10'
+          cache: 'poetry'
+      - name: Build tensorlake
+        run: cd tensorlake && make build
+      - name: Run Executor + Features tests
+        run: |
+          chmod u+x ./indexify-dataplane
+          export DATAPLANE_BIN=$(pwd)/indexify-dataplane
+          export PATH=$(cd tensorlake && poetry env info --path)/bin:$PATH
+          cd indexify/tests
+          bash run_tests_phase_executor_features.sh
+      - name: Dump dataplane logs
+        if: always()
+        run: |
+          echo "=== Dataplane logs ==="
+          cat /tmp/indexify-dataplane.log 2>/dev/null || echo "(no dataplane log file)"
+      - name: Terminate processes
+        if: always()
+        run: |
+          pkill -SIGTERM -F /tmp/indexify-server.pid || true
+          pkill -f indexify-dataplane || true
+          pkill -f function-executor || true
+      - name: Wait for processes termination
+        if: always()
+        run: |
+          for i in $(seq 1 10); do
+            if ! pgrep -f 'indexify-server|indexify-dataplane|function-executor' >/dev/null 2>&1; then
+              break
+            fi
+            echo "Waiting for processes to exit..."
+            sleep 1
+          done
+      - name: Validate that all processes terminated
+        if: always()
+        run: |
+          if pgrep -f indexify; then
+            echo "Error: Some Indexify processes are still running."
+            ps aux | grep indexify
+            exit 1
+          fi
+
+  acceptance_tests_tensorlake_sdk:
+    name: Run Acceptance Tests (Tensorlake SDK)
+    needs: [build_server]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: true
+      - name: Download indexify-server
+        uses: actions/download-artifact@v7
+        with:
+          name: indexify-server
+      - name: Download indexify-dataplane
+        uses: actions/download-artifact@v7
+        with:
+          name: indexify-dataplane
+      - name: Start Background Indexify Server
+        uses: JarvusInnovations/background-action@v1
+        with:
+          run: |
+            chmod u+x ./indexify-server
+            DATAPLANE_FUNCTIONS_ENABLED=true RUST_LOG=info ./indexify-server &
+            echo $! > /tmp/indexify-server.pid &
+          wait-on: |
+            tcp:localhost:8900
+          tail: true
+          wait-for: 30s
+          log-output: true
+          log-output-if: true
+      - name: Install poetry
+        run: pipx install --force 'poetry==2.0.0'
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.10'
+          cache: 'poetry'
+      - name: Build tensorlake
+        run: cd tensorlake && make build
+      - name: Run Tensorlake SDK tests
+        run: |
+          chmod u+x ./indexify-dataplane
+          export DATAPLANE_BIN=$(pwd)/indexify-dataplane
+          export PATH=$(cd tensorlake && poetry env info --path)/bin:$PATH
+          cd indexify/tests
+          bash run_tests_phase_tensorlake_sdk.sh
+      - name: Dump dataplane logs
+        if: always()
+        run: |
+          echo "=== Dataplane logs ==="
+          cat /tmp/indexify-dataplane.log 2>/dev/null || echo "(no dataplane log file)"
       - name: Terminate processes
         if: always()
         run: |

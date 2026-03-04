@@ -52,7 +52,7 @@ pub struct AllocationContext {
     pub driver: Arc<dyn crate::driver::ProcessDriver>,
     pub process_handle: crate::driver::ProcessHandle,
     pub executor_id: String,
-    pub stream_tx: mpsc::UnboundedSender<AllocationLogEntry>,
+    pub stream_tx: mpsc::Sender<AllocationLogEntry>,
     pub allocation_result_dispatcher: Arc<AllocationResultDispatcher>,
 }
 

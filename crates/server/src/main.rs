@@ -20,6 +20,7 @@ mod proto_convert;
 mod routes;
 mod routes_internal;
 mod routes_v1;
+mod scheduler;
 mod service;
 mod state_store;
 mod tracing;
@@ -35,6 +36,8 @@ mod integration_test_blocking_calls;
 mod integration_test_buffer;
 #[cfg(test)]
 mod integration_test_executor_catalog;
+#[cfg(test)]
+mod integration_test_executor_resilience;
 #[cfg(test)]
 mod integration_test_http_routes;
 #[cfg(test)]

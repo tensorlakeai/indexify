@@ -14,18 +14,18 @@ authors = ["Tensorlake Inc. <support@tensorlake.ai>"]
 license = "Apache-2.0"
 
 [workspace.dependencies]
-tokio = { version = "1.49.0", features = ["full"] }
+tokio = { version = "1.50.0", features = ["full"] }
 tokio-stream = { version = "0.1.18", features = ["sync"] }
 tokio-util = { version = "0.7.18", features = ["rt"] }
 async-broadcast = "0.7"
 async-stream = "0.3.6"
 async-trait = "0.1.89"
 futures = "0.3.32"
-pin-project = "1.1.10"
+pin-project = "1.1.11"
 serde = { version = "1.0.228", features = ["derive"] }
 serde-inline-default = "1.0.1"
 serde_json = "1.0.149"
-serde-saphyr = "0.0.20"
+serde-saphyr = "0.0.21"
 postcard = { version = "1", features = ["alloc"] }
 axum = { version = "0.8.8", features = ["multipart", "macros", "tokio", "ws"] }
 axum-server = "0.8.0"
@@ -62,23 +62,24 @@ nanoid = "0.4.0"
 uuid = { version = "1.21.0", features = ["v4"] }
 bytes = { version = "1.11.1", features = ["serde"] }
 priority-queue = "2.6.0"
-imbl = "7.0.0"
+arc-swap = "1.7.1"
+imbl = { version = "7.0.0", features = ["serde"] }
 rand = "0.10.0"
 rayon = "1.10.0"
 url = "2.5.8"
-chrono = { version = "0.4.43", features = ["serde"] }
+chrono = { version = "0.4.44", features = ["serde"] }
 strum = { version = "0.28.0", features = ["derive"] }
 derive_builder = "0.20.2"
 rust-embed = { version = "8.11.0", features = ["mime-guess"] }
 omniqueue = { git = "https://github.com/tensorlakeai/omniqueue-rs", branch = "main", features = ["sqs"], default-features = false }
 proto-api = { path = "crates/proto-api" }
 indexify-blob-store = { path = "crates/blob-store" }
-tempfile = "3.24.0"
+tempfile = "3.26.0"
 mock_instant = "0.6.0"
 criterion = { version = "0.8.2", features = ["html_reports"] }
 vergen = { version = "9.1.0", features = ["build", "cargo", "rustc", "si"] }
-libc = "0.2.180"
-nix = { version = "0.31.1", features = ["signal", "process", "fs", "user", "ioctl"] }
+libc = "0.2.182"
+nix = { version = "0.31.2", features = ["signal", "process", "fs", "user", "ioctl"] }
 bollard = "0.20.1"
 futures-util = "0.3.32"
 lazy_static = "1.5"
@@ -86,7 +87,7 @@ tower = "0.5"
 hyper-util = { version = "0.1.20", features = ["tokio", "client-legacy"] }
 http-body-util = "0.1"
 hostname = "0.4"
-sysinfo = "0.38.2"
+sysinfo = "0.38.3"
 pingora = { git = "https://github.com/cloudflare/pingora", rev = "ad449bf373a696116f60c89f1e7d62c00f7cb09a" }
 pingora-core = { git = "https://github.com/cloudflare/pingora", rev = "ad449bf373a696116f60c89f1e7d62c00f7cb09a" }
 pingora-proxy = { git = "https://github.com/cloudflare/pingora", rev = "ad449bf373a696116f60c89f1e7d62c00f7cb09a" }

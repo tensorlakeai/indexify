@@ -160,6 +160,9 @@ impl AllocationController {
                             self.add_allocations(new_allocations);
                             self.try_schedule();
                         }
+                        ACCommand::KillAllocation { allocation_id } => {
+                            self.cancel_allocation(&allocation_id);
+                        }
                         ACCommand::Recover { reply } => {
                             info!("AllocationController recovery requested");
                             let recovered_handles = self.recover_containers().await;
@@ -469,7 +472,13 @@ impl AllocationController {
         // Notify the server so it can update container state
         let response =
             crate::function_executor::proto_convert::make_container_started_response(&fe_id);
-        let _ = self.config.container_state_tx.send(response);
+        if let Err(err) = self.config.container_state_tx.try_send(response) {
+            warn!(
+                container_id = %fe_id,
+                error = ?err,
+                "container_state_tx unavailable while sending recovered ContainerStarted"
+            );
+        }
 
         self.config
             .metrics
@@ -622,11 +631,12 @@ impl AllocationController {
                     Some(fe_id.to_string()),
                 );
                 proto_convert::record_outcome_metrics(&outcome, &self.config.metrics.counters);
-                if self.config.outcome_tx.send(outcome).is_err() {
+                if let Err(err) = self.config.outcome_tx.send(outcome) {
                     tracing::warn!(
                         allocation_id = %alloc_id,
                         container_id = %fe_id,
-                        "outcome_tx channel closed, allocation outcome lost"
+                        error = ?err,
+                        "outcome_tx unavailable, allocation outcome not queued"
                     );
                 }
                 alloc.state = AllocationState::Done;
