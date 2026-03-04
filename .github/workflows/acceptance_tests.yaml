@@ -68,11 +68,11 @@ jobs:
         with:
           submodules: true
       - name: Download indexify-server
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: indexify-server
       - name: Download indexify-dataplane
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: indexify-dataplane
       - name: Start Background Indexify Server
@@ -146,11 +146,11 @@ jobs:
         with:
           submodules: true
       - name: Download indexify-server
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: indexify-server
       - name: Download indexify-dataplane
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: indexify-dataplane
       - name: Start Background Indexify Server
@@ -224,11 +224,11 @@ jobs:
         with:
           submodules: true
       - name: Download indexify-server
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: indexify-server
       - name: Download indexify-dataplane
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: indexify-dataplane
       - name: Start Background Indexify Server
@@ -302,11 +302,11 @@ jobs:
         with:
           submodules: true
       - name: Download indexify-server
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: indexify-server
       - name: Download indexify-dataplane
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: indexify-dataplane
       - name: Start Background Indexify Server
@@ -377,11 +377,11 @@ jobs:
         with:
           submodules: true
       - name: Download indexify-server
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: indexify-server
       - name: Download indexify-dataplane
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: indexify-dataplane
       - name: Install gVisor
@@ -475,11 +475,11 @@ jobs:
         with:
           submodules: true
       - name: Download indexify-server
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: indexify-server
       - name: Download indexify-dataplane
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: indexify-dataplane
       - name: Install gVisor
@@ -581,11 +581,11 @@ jobs:
           nvidia-smi --version
           nvidia-smi
       - name: Download indexify-server
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: indexify-server
       - name: Download indexify-dataplane
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: indexify-dataplane
       - name: Install gVisor
@@ -713,11 +713,11 @@ jobs:
         with:
           submodules: true
       - name: Download indexify-server
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: indexify-server
       - name: Download indexify-dataplane
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: indexify-dataplane
       - name: Start Background Indexify Server
