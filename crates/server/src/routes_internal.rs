@@ -25,6 +25,7 @@ use crate::{
         ContainerState,
         ExecutorId,
         SandboxKey,
+        SandboxStatus,
     },
     http_objects::{
         Allocation,
@@ -75,6 +76,7 @@ use crate::{
             healthz_handler,
             get_pending_resources,
             get_sandbox_by_id,
+            get_sandbox_by_id_global,
         ),
         components(
             schemas(
@@ -670,6 +672,15 @@ pub struct SandboxLookupResponse {
     pub allow_unauthenticated_access: bool,
 }
 
+fn sandbox_status_to_str(status: &SandboxStatus) -> &'static str {
+    match status {
+        SandboxStatus::Pending { .. } => "Pending",
+        SandboxStatus::Running => "Running",
+        SandboxStatus::Snapshotting { .. } => "Snapshotting",
+        SandboxStatus::Terminated => "Terminated",
+    }
+}
+
 /// Look up a sandbox by namespace and ID, returning its status and dataplane
 /// address
 #[utoipa::path(
@@ -682,7 +693,7 @@ pub struct SandboxLookupResponse {
     ),
     responses(
         (status = 200, description = "Sandbox found", body = SandboxLookupResponse),
-        (status = 404, description = "Sandbox or container not found"),
+        (status = 404, description = "Sandbox not found"),
         (status = INTERNAL_SERVER_ERROR, description = "Internal Server Error"),
     ),
 )]
@@ -699,29 +710,17 @@ async fn get_sandbox_by_id(
         .get(&sandbox_key)
         .ok_or_else(|| IndexifyAPIError::not_found("Sandbox not found"))?;
 
-    let container_id = sandbox
+    let status = sandbox_status_to_str(&sandbox.status);
+    let dataplane_api_address = sandbox
         .container_id
         .as_ref()
-        .ok_or_else(|| IndexifyAPIError::not_found("Sandbox has no container assigned"))?;
-
-    let container_meta = app
-        .scheduler
-        .function_containers
-        .get(container_id)
-        .ok_or_else(|| IndexifyAPIError::not_found("Container not found"))?;
-
-    let status = match &container_meta.function_container.state {
-        crate::data_model::ContainerState::Pending => "Pending",
-        crate::data_model::ContainerState::Running => "Running",
-        crate::data_model::ContainerState::Terminated { .. } => "Terminated",
-        crate::data_model::ContainerState::Unknown => "Unknown",
-    };
-
-    let dataplane_api_address = app
-        .scheduler
-        .executors
-        .get(&container_meta.executor_id)
-        .and_then(|executor| executor.proxy_address.clone());
+        .and_then(|container_id| app.scheduler.function_containers.get(container_id))
+        .and_then(|container_meta| {
+            app.scheduler
+                .executors
+                .get(&container_meta.executor_id)
+                .and_then(|executor| executor.proxy_address.clone())
+        });
 
     Ok(Json(SandboxLookupResponse {
         id: sandbox_id,
@@ -732,13 +731,27 @@ async fn get_sandbox_by_id(
     }))
 }
 
+#[utoipa::path(
+    get,
+    path = "/internal/v1/sandboxes/{sandbox_id}",
+    tag = "operations",
+    params(
+        ("sandbox_id" = String, Path, description = "ID of the sandbox"),
+    ),
+    responses(
+        (status = 200, description = "Sandbox found", body = SandboxLookupResponse),
+        (status = 404, description = "Sandbox not found"),
+        (status = 409, description = "Multiple sandboxes found with same ID"),
+        (status = INTERNAL_SERVER_ERROR, description = "Internal Server Error"),
+    ),
+)]
 async fn get_sandbox_by_id_global(
     State(state): State<RouteState>,
     Path(sandbox_id): Path<String>,
 ) -> Result<Json<SandboxLookupResponse>, IndexifyAPIError> {
     let app = state.indexify_state.app_state.load();
 
-    let (namespace, container_id, allow_unauthenticated_access) = {
+    let (namespace, status, container_id, allow_unauthenticated_access) = {
         let matching_keys = app
             .indexes
             .sandboxes_by_id
@@ -760,36 +773,23 @@ async fn get_sandbox_by_id_global(
             .sandboxes
             .get(sandbox_key)
             .ok_or_else(|| IndexifyAPIError::not_found("Sandbox not found"))?;
-
-        let container_id = sandbox
-            .container_id
-            .clone()
-            .ok_or_else(|| IndexifyAPIError::not_found("Sandbox has no container assigned"))?;
         (
             sandbox.namespace.clone(),
-            container_id,
+            sandbox_status_to_str(&sandbox.status),
+            sandbox.container_id.clone(),
             sandbox.allow_unauthenticated_access,
         )
     };
 
-    let container_meta = app
-        .scheduler
-        .function_containers
-        .get(&container_id)
-        .ok_or_else(|| IndexifyAPIError::not_found("Container not found"))?;
-
-    let status = match &container_meta.function_container.state {
-        crate::data_model::ContainerState::Pending => "Pending",
-        crate::data_model::ContainerState::Running => "Running",
-        crate::data_model::ContainerState::Terminated { .. } => "Terminated",
-        crate::data_model::ContainerState::Unknown => "Unknown",
-    };
-
-    let dataplane_api_address = app
-        .scheduler
-        .executors
-        .get(&container_meta.executor_id)
-        .and_then(|executor| executor.proxy_address.clone());
+    let dataplane_api_address = container_id
+        .as_ref()
+        .and_then(|container_id| app.scheduler.function_containers.get(container_id))
+        .and_then(|container_meta| {
+            app.scheduler
+                .executors
+                .get(&container_meta.executor_id)
+                .and_then(|executor| executor.proxy_address.clone())
+        });
 
     Ok(Json(SandboxLookupResponse {
         id: sandbox_id,
