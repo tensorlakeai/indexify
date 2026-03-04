@@ -20,7 +20,7 @@ use super::{ExitStatus, ProcessConfig, ProcessDriver, ProcessHandle, ProcessType
 use crate::daemon_binary;
 
 const FE_DYNAMIC_LISTEN_ADDR: &str = "127.0.0.1:0";
-const FE_DYNAMIC_DISCOVERY_TIMEOUT: Duration = Duration::from_secs(3);
+const FE_DYNAMIC_DISCOVERY_TIMEOUT: Duration = Duration::from_secs(1);
 const FE_ANNOUNCE_POLL_INTERVAL: Duration = Duration::from_millis(25);
 const FE_LEGACY_START_RETRIES: usize = 4;
 const FE_EARLY_EXIT_GRACE: Duration = Duration::from_millis(250);
@@ -145,11 +145,29 @@ fn parse_socket_inode(link_target: &Path) -> Option<u64> {
 fn socket_inodes_for_pid(pid: u32) -> Result<HashSet<u64>> {
     let fd_dir = format!("/proc/{pid}/fd");
     let mut inodes = HashSet::new();
-    for entry in std::fs::read_dir(&fd_dir)
-        .with_context(|| format!("Failed to read process FD directory {fd_dir}"))?
-    {
-        let entry = entry?;
-        let link_target = std::fs::read_link(entry.path())?;
+
+    let dir_iter = match std::fs::read_dir(&fd_dir) {
+        Ok(iter) => iter,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(inodes),
+        Err(e) => {
+            return Err(e).with_context(|| format!("Failed to read process FD directory {fd_dir}"));
+        }
+    };
+
+    for entry in dir_iter {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(e) => return Err(e).context("Failed to read process FD entry"),
+        };
+
+        let link_target = match std::fs::read_link(entry.path()) {
+            Ok(link_target) => link_target,
+            // FD sets can churn while the process is bootstrapping.
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(e) => return Err(e).context("Failed to read process FD link"),
+        };
+
         if let Some(inode) = parse_socket_inode(&link_target) {
             inodes.insert(inode);
         }
@@ -157,11 +175,11 @@ fn socket_inodes_for_pid(pid: u32) -> Result<HashSet<u64>> {
     Ok(inodes)
 }
 
-fn parse_listening_port(inodes: &HashSet<u64>) -> Result<Option<u16>> {
-    // /proc/net/tcp fields:
+fn parse_listening_port_from_table(path: &str, inodes: &HashSet<u64>) -> Result<Option<u16>> {
+    // /proc/net/tcp* fields:
     // sl  local_address rem_address st ... uid timeout inode ...
-    let contents = std::fs::read_to_string("/proc/net/tcp")
-        .context("Failed to read /proc/net/tcp for dynamic FE port discovery")?;
+    let contents = std::fs::read_to_string(path)
+        .with_context(|| format!("Failed to read {path} for dynamic FE port discovery"))?;
     for line in contents.lines().skip(1) {
         let fields: Vec<&str> = line.split_whitespace().collect();
         if fields.len() < 10 {
@@ -188,16 +206,23 @@ fn parse_listening_port(inodes: &HashSet<u64>) -> Result<Option<u16>> {
             continue;
         };
 
-        // 127.0.0.1 in /proc/net/tcp little-endian hex.
-        if ip_hex != "0100007F" {
-            continue;
-        }
-
-        if let Ok(port) = u16::from_str_radix(port_hex, 16) {
+        let _ = ip_hex;
+        if let Ok(port) = u16::from_str_radix(port_hex, 16)
+            && port != 0
+        {
             return Ok(Some(port));
         }
     }
     Ok(None)
+}
+
+fn parse_listening_port(inodes: &HashSet<u64>) -> Result<Option<u16>> {
+    // Prefer IPv4 so `127.0.0.1:<port>` stays valid for tonic connect.
+    if let Some(port) = parse_listening_port_from_table("/proc/net/tcp", inodes)? {
+        return Ok(Some(port));
+    }
+    // Fall back to IPv6 listeners (typically dual-stack).
+    parse_listening_port_from_table("/proc/net/tcp6", inodes)
 }
 
 async fn wait_for_dynamic_address(child: &mut Child, timeout: Duration) -> Result<String> {
