@@ -178,11 +178,14 @@ impl SandboxInfo {
             timeout_secs: sandbox.timeout_secs,
             sandbox_url,
             pool_id: sandbox.pool_id.as_ref().map(|p| p.get().to_string()),
-            network_policy: sandbox.network_policy.as_ref().map(|p| NetworkAccessControl {
-                allow_internet_access: p.allow_internet_access,
-                allow_out: p.allow_out.clone(),
-                deny_out: p.deny_out.clone(),
-            }),
+            network_policy: sandbox
+                .network_policy
+                .as_ref()
+                .map(|p| NetworkAccessControl {
+                    allow_internet_access: p.allow_internet_access,
+                    allow_out: p.allow_out.clone(),
+                    deny_out: p.deny_out.clone(),
+                }),
         }
     }
 }
