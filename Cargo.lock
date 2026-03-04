@@ -2712,7 +2712,7 @@ dependencies = [
  "opentelemetry-proto",
  "opentelemetry-stdout",
  "opentelemetry_sdk",
- "otlp-logs-exporter",
+ "otel-logs-sdk",
  "pin-project",
  "postcard",
  "priority-queue",
@@ -3388,12 +3388,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "otlp-logs-exporter"
+name = "otel-logs-sdk"
 version = "0.1.0"
-source = "git+https://github.com/tensorlakeai/otlp-logs-exporter#5ab2570b0177c46adb83c3ca1aea56b0d6f49705"
 dependencies = [
  "chrono",
  "http 1.4.0",
+ "opentelemetry",
  "opentelemetry-proto",
  "opentelemetry_sdk",
  "thiserror 2.0.18",
