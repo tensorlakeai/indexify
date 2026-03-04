@@ -677,25 +677,23 @@ fn derive_sandbox_status_and_address(
     sandbox: &crate::data_model::Sandbox,
 ) -> (String, Option<String>) {
     match &sandbox.container_id {
-        Some(container_id) => {
-            match app.scheduler.function_containers.get(container_id) {
-                Some(meta) => {
-                    let status = match &meta.function_container.state {
-                        ContainerState::Pending => "Pending",
-                        ContainerState::Running => "Running",
-                        ContainerState::Terminated { .. } => "Terminated",
-                        ContainerState::Unknown => "Unknown",
-                    };
-                    let addr = app
-                        .scheduler
-                        .executors
-                        .get(&meta.executor_id)
-                        .and_then(|e| e.proxy_address.clone());
-                    (status.to_string(), addr)
-                }
-                None => (sandbox.status.to_string(), None),
+        Some(container_id) => match app.scheduler.function_containers.get(container_id) {
+            Some(meta) => {
+                let status = match &meta.function_container.state {
+                    ContainerState::Pending => "Pending",
+                    ContainerState::Running => "Running",
+                    ContainerState::Terminated { .. } => "Terminated",
+                    ContainerState::Unknown => "Unknown",
+                };
+                let addr = app
+                    .scheduler
+                    .executors
+                    .get(&meta.executor_id)
+                    .and_then(|e| e.proxy_address.clone());
+                (status.to_string(), addr)
             }
-        }
+            None => (sandbox.status.to_string(), None),
+        },
         None => (sandbox.status.to_string(), None),
     }
 }

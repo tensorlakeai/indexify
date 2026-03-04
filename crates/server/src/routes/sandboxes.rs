@@ -76,8 +76,9 @@ pub struct CreateSandboxRequest {
     /// overridden.
     #[serde(default)]
     pub snapshot_id: Option<String>,
-    /// Path prefixes that allow unauthenticated proxy access (e.g. "/api/public").
-    /// Prefix-matched by the sandbox proxy. Empty means all access requires auth.
+    /// Path prefixes that allow unauthenticated proxy access (e.g.
+    /// "/api/public"). Prefix-matched by the sandbox proxy. Empty means all
+    /// access requires auth.
     #[serde(default)]
     pub unauthenticated_routes: Vec<String>,
 }
