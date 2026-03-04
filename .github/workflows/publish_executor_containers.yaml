@@ -21,7 +21,7 @@ on:
 jobs:
   build-and-push-docker-images:
     name: Build and Push example Executor Docker images
-    runs-on: ubuntu-latest-xlarge
+    runs-on: namespace-profile-indexify-builder
     steps:
       - uses: actions/checkout@v6
         with:
