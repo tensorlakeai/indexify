@@ -1827,6 +1827,12 @@ mod tests {
             matches!(container_state_rx.try_recv(), Err(TryRecvError::Empty)),
             "ContainerTerminated was sent before cleanup completed"
         );
+        tokio::time::timeout(
+            Duration::from_millis(50),
+            manager.has_container("fe-dead-running"),
+        )
+        .await
+        .expect("health check should not block container store reads while kill is pending");
         assert_eq!(
             driver.kill_count(),
             1,
@@ -1886,6 +1892,12 @@ mod tests {
             matches!(container_state_rx.try_recv(), Err(TryRecvError::Empty)),
             "ContainerTerminated was sent before cleanup completed"
         );
+        tokio::time::timeout(
+            Duration::from_millis(50),
+            manager.has_container("fe-dead-stopping"),
+        )
+        .await
+        .expect("health check should not block container store reads while kill is pending");
         assert_eq!(
             driver.kill_count(),
             1,

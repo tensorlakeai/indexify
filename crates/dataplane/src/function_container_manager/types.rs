@@ -322,10 +322,6 @@ impl ContainerStore {
         removed
     }
 
-    pub fn keys(&self) -> impl Iterator<Item = &String> {
-        self.map.keys()
-    }
-
     pub fn iter(&self) -> impl Iterator<Item = (&String, &ManagedContainer)> {
         self.map.iter()
     }
