@@ -15,7 +15,7 @@ env:
 jobs:
   build-linux-amd64-package:
     name: Build x86_64 Linux Binary
-    runs-on: ubuntu-latest-xlarge
+    runs-on: namespace-profile-indexify-builder
     steps:
       - uses: actions/checkout@v6
         with:
@@ -40,7 +40,7 @@ jobs:
 
   build-linux-arm64-package:
     name: Build Aarch64 Linux Binary
-    runs-on: ubuntu-latest-xlarge
+    runs-on: namespace-profile-indexify-builder
     steps:
       - uses: actions/checkout@v6
         with:
