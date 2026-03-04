@@ -2,7 +2,7 @@ use std::{slice, sync::Arc, time::Duration};
 
 use anyhow::Result;
 use opentelemetry::metrics::{Counter, Histogram};
-use otlp_logs_exporter::{OtlpLogsExporter, runtime::Tokio};
+use otel_logs_sdk::OtlpLogsExporter;
 use tokio::sync::{mpsc, watch};
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::{error, info, instrument, warn};
@@ -59,7 +59,7 @@ impl RequestStateChangeProcessor {
     #[instrument(skip_all)]
     pub async fn start(
         &self,
-        cloud_events_exporter: Option<OtlpLogsExporter<Tokio>>,
+        cloud_events_exporter: Option<OtlpLogsExporter>,
         local_request_events_log: Option<(
             mpsc::UnboundedReceiver<RequestStateChangeEvent>,
             String,
@@ -137,7 +137,7 @@ impl RequestStateChangeProcessor {
 /// pending page before going back to sleep. An unconditional drain on startup
 /// recovers events that were persisted in a previous run.
 async fn http_drain_worker(
-    mut exporter: OtlpLogsExporter<Tokio>,
+    mut exporter: OtlpLogsExporter,
     state: Arc<IndexifyState>,
     blob_storage: Arc<BlobStorageRegistry>,
     mut notify_rx: watch::Receiver<()>,
@@ -181,7 +181,7 @@ async fn http_drain_worker(
 /// is empty. On export failure the same page is retried after a backoff; on a
 /// DB read error the loop pauses before retrying.
 async fn drain_all(
-    exporter: &mut OtlpLogsExporter<Tokio>,
+    exporter: &mut OtlpLogsExporter,
     state: &Arc<IndexifyState>,
     blob_storage: &Arc<BlobStorageRegistry>,
     cursor: &mut Option<Vec<u8>>,
@@ -277,7 +277,7 @@ async fn local_request_events_log_worker(
 /// - Bug 4 (build error blocks queue): skips unserializable events so they
 ///   cannot permanently prevent later events from being exported.
 async fn process_batch(
-    exporter: &mut OtlpLogsExporter<Tokio>,
+    exporter: &mut OtlpLogsExporter,
     state: &Arc<IndexifyState>,
     blob_storage: &Arc<BlobStorageRegistry>,
     cursor: &mut Option<Vec<u8>>,

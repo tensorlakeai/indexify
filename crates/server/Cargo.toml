@@ -46,7 +46,7 @@ opentelemetry-stdout.workspace = true
 axum-tracing-opentelemetry.workspace = true
 json-subscriber.workspace = true
 console-subscriber = { workspace = true, optional = true }
-otlp-logs-exporter.workspace = true
+otel-logs-sdk.workspace = true
 utoipa.workspace = true
 utoipa-swagger-ui.workspace = true
 indexify-blob-store.workspace = true

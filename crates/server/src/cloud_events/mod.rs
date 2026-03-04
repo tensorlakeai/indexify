@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use anyhow::Context;
 use chrono::Utc;
-use otlp_logs_exporter::opentelemetry_proto::tonic::{
+use otel_logs_sdk::opentelemetry_proto::tonic::{
     collector::logs::v1::ExportLogsServiceRequest,
     common::v1::{
         AnyValue,
