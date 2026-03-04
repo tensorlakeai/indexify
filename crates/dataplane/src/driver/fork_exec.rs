@@ -175,6 +175,16 @@ fn socket_inodes_for_pid(pid: u32) -> Result<HashSet<u64>> {
     Ok(inodes)
 }
 
+fn filter_new_socket_inodes(
+    current_socket_inodes: HashSet<u64>,
+    inherited_socket_inodes: &HashSet<u64>,
+) -> HashSet<u64> {
+    current_socket_inodes
+        .into_iter()
+        .filter(|inode| !inherited_socket_inodes.contains(inode))
+        .collect()
+}
+
 fn parse_listening_port_from_table(path: &str, inodes: &HashSet<u64>) -> Result<Option<u16>> {
     // /proc/net/tcp* fields:
     // sl  local_address rem_address st ... uid timeout inode ...
@@ -207,8 +217,8 @@ fn parse_listening_port_from_table(path: &str, inodes: &HashSet<u64>) -> Result<
         };
 
         let _ = ip_hex;
-        if let Ok(port) = u16::from_str_radix(port_hex, 16)
-            && port != 0
+        if let Ok(port) = u16::from_str_radix(port_hex, 16) &&
+            port != 0
         {
             return Ok(Some(port));
         }
@@ -225,16 +235,21 @@ fn parse_listening_port(inodes: &HashSet<u64>) -> Result<Option<u16>> {
     parse_listening_port_from_table("/proc/net/tcp6", inodes)
 }
 
-async fn wait_for_dynamic_address(child: &mut Child, timeout: Duration) -> Result<String> {
+async fn wait_for_dynamic_address(
+    child: &mut Child,
+    timeout: Duration,
+    inherited_socket_inodes: &HashSet<u64>,
+) -> Result<String> {
     let pid = child
         .id()
         .ok_or_else(|| anyhow!("Failed to get function executor PID for port discovery"))?;
 
     let deadline = Instant::now() + timeout;
     loop {
-        let socket_inodes = socket_inodes_for_pid(pid)?;
-        if !socket_inodes.is_empty()
-            && let Some(port) = parse_listening_port(&socket_inodes)?
+        let socket_inodes =
+            filter_new_socket_inodes(socket_inodes_for_pid(pid)?, inherited_socket_inodes);
+        if !socket_inodes.is_empty() &&
+            let Some(port) = parse_listening_port(&socket_inodes)?
         {
             return Ok(format!("127.0.0.1:{port}"));
         }
@@ -276,6 +291,17 @@ fn handle_from_child(
 
 impl ForkExecDriver {
     async fn start_function_process(&self, config: ProcessConfig) -> Result<ProcessHandle> {
+        let inherited_socket_inodes = match socket_inodes_for_pid(std::process::id()) {
+            Ok(inodes) => inodes,
+            Err(err) => {
+                warn!(
+                    error = ?err,
+                    "Failed to snapshot parent socket inodes; dynamic FE discovery may match inherited sockets"
+                );
+                HashSet::new()
+            }
+        };
+
         info!(
             command = %config.command,
             address = FE_DYNAMIC_LISTEN_ADDR,
@@ -289,8 +315,12 @@ impl ForkExecDriver {
             .spawn()
             .with_context(|| format!("Failed to spawn process: {:?}", config.command))?;
 
-        let dynamic_result =
-            wait_for_dynamic_address(&mut dynamic_child, FE_DYNAMIC_DISCOVERY_TIMEOUT).await;
+        let dynamic_result = wait_for_dynamic_address(
+            &mut dynamic_child,
+            FE_DYNAMIC_DISCOVERY_TIMEOUT,
+            &inherited_socket_inodes,
+        )
+        .await;
 
         match dynamic_result {
             Ok(daemon_addr) => {
@@ -656,5 +686,16 @@ mod tests {
 
         // Unknown handle should return false (not alive)
         assert!(!driver.alive(&handle).await.unwrap());
+    }
+
+    #[test]
+    fn test_filter_new_socket_inodes_excludes_inherited() {
+        let current_socket_inodes: HashSet<u64> = [11_u64, 12, 13].into_iter().collect();
+        let inherited_socket_inodes: HashSet<u64> = [10_u64, 12].into_iter().collect();
+
+        let filtered = filter_new_socket_inodes(current_socket_inodes, &inherited_socket_inodes);
+        let expected: HashSet<u64> = [11_u64, 13].into_iter().collect();
+
+        assert_eq!(filtered, expected);
     }
 }
