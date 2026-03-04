@@ -2841,6 +2841,11 @@ pub struct Sandbox {
     #[builder(default)]
     #[serde(default)]
     pub snapshot_id: Option<SnapshotId>,
+    /// Path prefixes that allow unauthenticated proxy access.
+    /// Empty means all access requires auth.
+    #[builder(default)]
+    #[serde(default)]
+    pub unauthenticated_routes: Vec<String>,
 }
 
 impl SandboxBuilder {

@@ -76,6 +76,10 @@ pub struct CreateSandboxRequest {
     /// overridden.
     #[serde(default)]
     pub snapshot_id: Option<String>,
+    /// Path prefixes that allow unauthenticated proxy access (e.g. "/api/public").
+    /// Prefix-matched by the sandbox proxy. Empty means all access requires auth.
+    #[serde(default)]
+    pub unauthenticated_routes: Vec<String>,
 }
 
 /// Response after creating a sandbox
@@ -111,6 +115,10 @@ pub struct SandboxInfo {
     /// Network access control policy for this sandbox, if set.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub network_policy: Option<NetworkAccessControl>,
+    /// Path prefixes that allow unauthenticated proxy access.
+    /// Omitted when empty.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub unauthenticated_routes: Vec<String>,
 }
 
 /// Default sandbox-proxy port (for production with nip.io).
@@ -186,6 +194,7 @@ impl SandboxInfo {
                     allow_out: p.allow_out.clone(),
                     deny_out: p.deny_out.clone(),
                 }),
+            unauthenticated_routes: sandbox.unauthenticated_routes.clone(),
         }
     }
 }
@@ -318,6 +327,7 @@ pub async fn create_sandbox(
             allow_out: n.allow_out,
             deny_out: n.deny_out,
         }))
+        .unauthenticated_routes(request.unauthenticated_routes)
         .build()
         .map_err(|e| IndexifyAPIError::internal_error_str(&e.to_string()))?;
 

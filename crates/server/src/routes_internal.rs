@@ -75,6 +75,7 @@ use crate::{
             healthz_handler,
             get_pending_resources,
             get_sandbox_by_id,
+            get_sandbox_global,
         ),
         components(
             schemas(
@@ -153,6 +154,10 @@ pub fn configure_internal_routes(route_state: RouteState) -> Router {
         .route(
             "/internal/v1/namespaces/{namespace}/sandboxes/{sandbox_id}",
             get(get_sandbox_by_id).with_state(route_state.clone()),
+        )
+        .route(
+            "/internal/v1/sandboxes/{sandbox_id}",
+            get(get_sandbox_global).with_state(route_state.clone()),
         )
         .route(
             "/internal/pending_resources",
@@ -661,6 +666,38 @@ pub struct SandboxLookupResponse {
     pub id: String,
     pub status: String,
     pub dataplane_api_address: Option<String>,
+    /// Path prefixes allowing unauthenticated proxy access.
+    /// Empty when none are configured.
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub unauthenticated_routes: Vec<String>,
+}
+
+fn derive_sandbox_status_and_address(
+    app: &crate::state_store::AppState,
+    sandbox: &crate::data_model::Sandbox,
+) -> (String, Option<String>) {
+    match &sandbox.container_id {
+        Some(container_id) => {
+            match app.scheduler.function_containers.get(container_id) {
+                Some(meta) => {
+                    let status = match &meta.function_container.state {
+                        ContainerState::Pending => "Pending",
+                        ContainerState::Running => "Running",
+                        ContainerState::Terminated { .. } => "Terminated",
+                        ContainerState::Unknown => "Unknown",
+                    };
+                    let addr = app
+                        .scheduler
+                        .executors
+                        .get(&meta.executor_id)
+                        .and_then(|e| e.proxy_address.clone());
+                    (status.to_string(), addr)
+                }
+                None => (sandbox.status.to_string(), None),
+            }
+        }
+        None => (sandbox.status.to_string(), None),
+    }
 }
 
 /// Look up a sandbox by namespace and ID, returning its status and dataplane
@@ -675,7 +712,7 @@ pub struct SandboxLookupResponse {
     ),
     responses(
         (status = 200, description = "Sandbox found", body = SandboxLookupResponse),
-        (status = 404, description = "Sandbox or container not found"),
+        (status = 404, description = "Sandbox not found"),
         (status = INTERNAL_SERVER_ERROR, description = "Internal Server Error"),
     ),
 )]
@@ -692,33 +729,50 @@ async fn get_sandbox_by_id(
         .get(&sandbox_key)
         .ok_or_else(|| IndexifyAPIError::not_found("Sandbox not found"))?;
 
-    let container_id = sandbox
-        .container_id
-        .as_ref()
-        .ok_or_else(|| IndexifyAPIError::not_found("Sandbox has no container assigned"))?;
-
-    let container_meta = app
-        .scheduler
-        .function_containers
-        .get(container_id)
-        .ok_or_else(|| IndexifyAPIError::not_found("Container not found"))?;
-
-    let status = match &container_meta.function_container.state {
-        crate::data_model::ContainerState::Pending => "Pending",
-        crate::data_model::ContainerState::Running => "Running",
-        crate::data_model::ContainerState::Terminated { .. } => "Terminated",
-        crate::data_model::ContainerState::Unknown => "Unknown",
-    };
-
-    let dataplane_api_address = app
-        .scheduler
-        .executors
-        .get(&container_meta.executor_id)
-        .and_then(|executor| executor.proxy_address.clone());
+    let (status, dataplane_api_address) = derive_sandbox_status_and_address(&app, &sandbox);
 
     Ok(Json(SandboxLookupResponse {
         id: sandbox_id,
-        status: status.to_string(),
+        status,
         dataplane_api_address,
+        unauthenticated_routes: sandbox.unauthenticated_routes.clone(),
+    }))
+}
+
+/// Look up a sandbox by ID across all namespaces
+#[utoipa::path(
+    get,
+    path = "/internal/v1/sandboxes/{sandbox_id}",
+    tag = "operations",
+    params(
+        ("sandbox_id" = String, Path, description = "ID of the sandbox"),
+    ),
+    responses(
+        (status = 200, description = "Sandbox found", body = SandboxLookupResponse),
+        (status = 404, description = "Sandbox not found"),
+        (status = INTERNAL_SERVER_ERROR, description = "Internal Server Error"),
+    ),
+)]
+async fn get_sandbox_global(
+    State(state): State<RouteState>,
+    Path(sandbox_id): Path<String>,
+) -> Result<Json<SandboxLookupResponse>, IndexifyAPIError> {
+    let app = state.indexify_state.app_state.load();
+
+    // Sandbox IDs are globally unique — find the first match across all namespaces.
+    let sandbox = app
+        .indexes
+        .sandboxes
+        .values()
+        .find(|s| s.id.get() == sandbox_id)
+        .ok_or_else(|| IndexifyAPIError::not_found("Sandbox not found"))?;
+
+    let (status, dataplane_api_address) = derive_sandbox_status_and_address(&app, sandbox);
+
+    Ok(Json(SandboxLookupResponse {
+        id: sandbox_id,
+        status,
+        dataplane_api_address,
+        unauthenticated_routes: sandbox.unauthenticated_routes.clone(),
     }))
 }
