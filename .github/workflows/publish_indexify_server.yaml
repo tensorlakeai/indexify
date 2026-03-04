@@ -101,5 +101,5 @@ jobs:
             tensorlake/indexify-server:latest
             tensorlake/indexify-server:${{ needs.extract-version.outputs.version }}
           provenance: false
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           outputs: type=image,push=true,image-manifest=true,oci-mediatypes=true
