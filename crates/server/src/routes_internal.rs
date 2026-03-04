@@ -674,10 +674,10 @@ pub struct SandboxLookupResponse {
 
 fn sandbox_status_to_str(status: &SandboxStatus) -> &'static str {
     match status {
-        SandboxStatus::Pending { .. } => "Pending",
-        SandboxStatus::Running => "Running",
-        SandboxStatus::Snapshotting { .. } => "Snapshotting",
-        SandboxStatus::Terminated => "Terminated",
+        SandboxStatus::Pending { .. } => "pending",
+        SandboxStatus::Running => "running",
+        SandboxStatus::Snapshotting { .. } => "snapshotting",
+        SandboxStatus::Terminated => "terminated",
     }
 }
 
