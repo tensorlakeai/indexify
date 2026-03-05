@@ -956,17 +956,6 @@ pub struct PendingResourcesResponse {
     pub sandbox_pool_deficits: ResourceProfileHistogram,
 }
 
-impl From<crate::state_store::in_memory_state::PendingResources> for PendingResourcesResponse {
-    fn from(pending: crate::state_store::in_memory_state::PendingResources) -> Self {
-        Self {
-            function_runs: pending.function_runs.into(),
-            sandboxes: pending.sandboxes.into(),
-            function_pool_deficits: pending.function_pool_deficits.into(),
-            sandbox_pool_deficits: pending.sandbox_pool_deficits.into(),
-        }
-    }
-}
-
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ApplicationVersion {
     pub name: String,

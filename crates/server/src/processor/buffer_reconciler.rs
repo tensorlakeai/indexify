@@ -4,7 +4,13 @@ use anyhow::Result;
 use tracing::{debug, info, warn};
 
 use crate::{
-    data_model::{ApplicationState, ContainerPool, ContainerPoolKey, ContainerState},
+    data_model::{
+        ApplicationState,
+        ContainerPool,
+        ContainerPoolId,
+        ContainerPoolKey,
+        ContainerState,
+    },
     processor::container_scheduler::ContainerScheduler,
     scheduler::placement::FeasibilityCache,
     state_store::{
@@ -549,4 +555,87 @@ impl BufferReconciler {
             version: parts[2].to_string(),
         })
     }
+}
+
+/// Compute histograms of pending function runs and sandboxes whose pools
+/// are already at `max_containers`. Used by the pending_resources API to
+/// derive executor-scalable demand without persisting blocked counts in
+/// the state update pipeline.
+pub(crate) fn compute_blocked_by_pool_max(
+    indexes: &InMemoryState,
+    scheduler: &ContainerScheduler,
+) -> (ResourceProfileHistogram, ResourceProfileHistogram) {
+    let mut fn_blocked = ResourceProfileHistogram::default();
+    let mut sb_blocked = ResourceProfileHistogram::default();
+
+    // Function pools at max_containers
+    let mut fn_pools_at_max: HashSet<ContainerPoolKey> = HashSet::new();
+    for (pool_key, pool) in &scheduler.function_pools {
+        let max = pool.max_containers.unwrap_or(u32::MAX);
+        if max == u32::MAX {
+            continue;
+        }
+        // Parse pool ID to get function URI for O(1) container count lookup
+        let id = pool.id.get();
+        let parts: Vec<&str> = id.splitn(3, '|').collect();
+        if parts.len() != 3 {
+            continue;
+        }
+        let fn_uri = crate::data_model::FunctionURI {
+            namespace: pool.namespace.clone(),
+            application: parts[0].to_string(),
+            function: parts[1].to_string(),
+            version: parts[2].to_string(),
+        };
+        let total = scheduler.total_containers_for_function(&fn_uri);
+        if total >= max {
+            fn_pools_at_max.insert(pool_key.clone());
+        }
+    }
+
+    // Count unallocated function runs in at-max pools
+    if !fn_pools_at_max.is_empty() {
+        for fr_key in indexes.unallocated_function_runs.iter() {
+            if let Some(fr) = indexes.function_runs.get(fr_key) {
+                let pool_id = ContainerPoolId::for_function(&fr.application, &fr.name, &fr.version);
+                let pool_key = ContainerPoolKey::new(&fr.namespace, &pool_id);
+                if fn_pools_at_max.contains(&pool_key) &&
+                    let Some(function) = indexes.get_function(fr)
+                {
+                    fn_blocked.increment(ResourceProfile::from_function(&function));
+                }
+            }
+        }
+    }
+
+    // Sandbox pools at max_containers
+    let mut sb_pools_at_max: HashSet<ContainerPoolKey> = HashSet::new();
+    for (pool_key, pool) in &scheduler.sandbox_pools {
+        let max = pool.max_containers.unwrap_or(u32::MAX);
+        if max == u32::MAX {
+            continue;
+        }
+        let total = scheduler.pool_container_count(pool_key);
+        if total >= max {
+            sb_pools_at_max.insert(pool_key.clone());
+        }
+    }
+
+    // Count pending sandboxes in at-max pools
+    if !sb_pools_at_max.is_empty() {
+        for sb_key in indexes.pending_sandboxes.iter() {
+            if let Some(sandbox) = indexes.sandboxes.get(sb_key) &&
+                let Some(pool_id) = &sandbox.pool_id
+            {
+                let pool_key = ContainerPoolKey::new(&sandbox.namespace, pool_id);
+                if sb_pools_at_max.contains(&pool_key) {
+                    sb_blocked.increment(ResourceProfile::from_container_resources(
+                        &sandbox.resources,
+                    ));
+                }
+            }
+        }
+    }
+
+    (fn_blocked, sb_blocked)
 }
