@@ -126,6 +126,27 @@ struct AllocationRunner {
 }
 
 impl AllocationRunner {
+    async fn try_delete_allocation(&mut self) {
+        const DELETE_ALLOCATION_TIMEOUT: Duration = Duration::from_secs(2);
+        match tokio::time::timeout(
+            DELETE_ALLOCATION_TIMEOUT,
+            self.client.delete_allocation(&self.allocation_id),
+        )
+        .await
+        {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => {
+                warn!(error = ?e, "Failed to delete allocation from FE");
+            }
+            Err(_) => {
+                warn!(
+                    timeout_secs = DELETE_ALLOCATION_TIMEOUT.as_secs(),
+                    "Timed out deleting allocation from FE"
+                );
+            }
+        }
+    }
+
     fn new(
         client: FunctionExecutorGrpcClient,
         allocation: ServerAllocation,
@@ -161,23 +182,45 @@ impl AllocationRunner {
     /// Delete allocation from FE and return a failure outcome, taking
     /// accumulated blob handles.
     ///
-    /// When `likely_fe_crash` is true, skips the `delete_allocation` gRPC call
-    /// (the FE is dead) and checks the process exit status to determine the
-    /// accurate termination reason (OOM vs crash). This makes the allocation
-    /// runner the single source of truth for both the failure reason and the
-    /// termination reason, eliminating races with the health checker.
+    /// When `suspected_fe_crash` is true, first confirms whether the FE really
+    /// crashed. If crash is not confirmed, performs best-effort cleanup with
+    /// `delete_allocation` and reports this as a regular allocation failure
+    /// instead of container crash.
     async fn fail_with_cleanup(
         &mut self,
         reason: proto_api::executor_api_pb::AllocationFailureReason,
         error_message: impl Into<String>,
-        likely_fe_crash: bool,
+        suspected_fe_crash: bool,
     ) -> AllocationOutcome {
         let error_message = error_message.into();
-        let (reason, termination_reason, exit_status) = if likely_fe_crash {
-            self.determine_crash_reason(reason).await
+        let (reason, termination_reason, exit_status, likely_fe_crash) = if suspected_fe_crash {
+            let (reason, termination_reason, exit_status) =
+                self.determine_crash_reason(reason).await;
+            let confirmed_fe_crash = termination_reason.is_some();
+            if confirmed_fe_crash {
+                warn!(
+                    allocation_id = %self.allocation_id,
+                    container_id = %self.ctx.process_handle.id,
+                    request_id = %self.allocation.request_id.as_deref().unwrap_or(""),
+                    termination_reason = ?termination_reason,
+                    exit_status = ?exit_status,
+                    "Suspected FE crash confirmed by liveness/exit-status evidence"
+                );
+            } else {
+                warn!(
+                    allocation_id = %self.allocation_id,
+                    container_id = %self.ctx.process_handle.id,
+                    request_id = %self.allocation.request_id.as_deref().unwrap_or(""),
+                    "Suspected FE crash not confirmed; treating as allocation failure and attempting cleanup"
+                );
+            }
+            if !confirmed_fe_crash {
+                self.try_delete_allocation().await;
+            }
+            (reason, termination_reason, exit_status, confirmed_fe_crash)
         } else {
-            let _ = self.client.delete_allocation(&self.allocation_id).await;
-            (reason, None, None)
+            self.try_delete_allocation().await;
+            (reason, None, None, false)
         };
         AllocationOutcome::Failed {
             reason,
@@ -188,8 +231,8 @@ impl AllocationRunner {
         }
     }
 
-    /// Check the process exit status to determine accurate failure and
-    /// termination reasons for a crashed FE.
+    /// Check process liveness and exit status to determine whether FE crash is
+    /// confirmed and, if so, classify the termination reason.
     async fn determine_crash_reason(
         &self,
         default_reason: proto_api::executor_api_pb::AllocationFailureReason,
@@ -198,6 +241,7 @@ impl AllocationRunner {
         Option<proto_api::executor_api_pb::ContainerTerminationReason>,
         Option<crate::driver::ExitStatus>,
     ) {
+        let alive = self.ctx.driver.alive(&self.ctx.process_handle).await.ok();
         let exit_status = self
             .ctx
             .driver
@@ -209,21 +253,49 @@ impl AllocationRunner {
             allocation_id = %self.allocation_id,
             container_id = %self.ctx.process_handle.id,
             request_id = %self.allocation.request_id.as_deref().unwrap_or(""),
+            alive = ?alive,
             exit_status = ?exit_status,
             "Determined FE crash reason from process exit status"
         );
         if exit_status.as_ref().is_some_and(|s| s.oom_killed) {
+            warn!(
+                allocation_id = %self.allocation_id,
+                container_id = %self.ctx.process_handle.id,
+                request_id = %self.allocation.request_id.as_deref().unwrap_or(""),
+                alive = ?alive,
+                exit_status = ?exit_status,
+                "Crash reason classification: OOM"
+            );
             (
                 proto_api::executor_api_pb::AllocationFailureReason::Oom,
                 Some(proto_api::executor_api_pb::ContainerTerminationReason::Oom),
                 exit_status,
             )
-        } else {
+        } else if alive == Some(false) || exit_status.is_some() {
+            warn!(
+                allocation_id = %self.allocation_id,
+                container_id = %self.ctx.process_handle.id,
+                request_id = %self.allocation.request_id.as_deref().unwrap_or(""),
+                alive = ?alive,
+                exit_status = ?exit_status,
+                "Crash reason classification: process crash"
+            );
             (
                 default_reason,
                 Some(proto_api::executor_api_pb::ContainerTerminationReason::ProcessCrash),
                 exit_status,
             )
+        } else {
+            // No evidence of process death. Treat as regular allocation failure.
+            info!(
+                allocation_id = %self.allocation_id,
+                container_id = %self.ctx.process_handle.id,
+                request_id = %self.allocation.request_id.as_deref().unwrap_or(""),
+                alive = ?alive,
+                exit_status = ?exit_status,
+                "Crash reason classification: not confirmed"
+            );
+            (default_reason, None, exit_status)
         }
     }
 
@@ -302,11 +374,12 @@ impl AllocationRunner {
                     proto_api::executor_api_pb::AllocationFailureReason::InternalError,
                 )
                 .await;
+            let confirmed_fe_crash = termination_reason.is_some();
             return AllocationOutcome::Failed {
                 reason,
                 error_message: append_exit_status_context(e.to_string(), exit_status.as_ref()),
                 output_blob_handles: Vec::new(),
-                likely_fe_crash: true,
+                likely_fe_crash: confirmed_fe_crash,
                 termination_reason,
             };
         }
@@ -340,6 +413,8 @@ impl AllocationRunner {
         // - Sets `final_result` and breaks (allocation completed on FE), or
         // - Sets `error_outcome` and breaks (failure/cancel/timeout).
         let mut deadline = Instant::now() + self.timeout;
+        let mut stream_retry_attempts = 0u32;
+        const MAX_STREAM_RETRY_ATTEMPTS: u32 = 3;
         let mut final_result: Option<function_executor_pb::AllocationResult> = None;
         let mut error_outcome: Option<AllocationOutcome> = None;
 
@@ -385,6 +460,7 @@ impl AllocationRunner {
                 message = tokio::time::timeout(remaining, stream.message()) => {
                     match message {
                         Ok(Ok(Some(state))) => {
+                            stream_retry_attempts = 0;
                             if state.progress.is_some() {
                                 deadline = Instant::now() + self.timeout;
                             }
@@ -427,13 +503,40 @@ impl AllocationRunner {
                             break;
                         }
                         Ok(Err(e)) => {
+                            if e.code() == tonic::Code::Unknown &&
+                                stream_retry_attempts < MAX_STREAM_RETRY_ATTEMPTS
+                            {
+                                stream_retry_attempts += 1;
+                                warn!(
+                                    code = ?e.code(),
+                                    error = ?e,
+                                    stream_retry_attempt = stream_retry_attempts,
+                                    max_stream_retry_attempts = MAX_STREAM_RETRY_ATTEMPTS,
+                                    "Allocation state stream returned transport error; retrying stream"
+                                );
+                                match self.client.watch_allocation_state(&self.allocation_id).await {
+                                    Ok(new_stream) => {
+                                        stream = new_stream;
+                                        // Reset deadline — this retry is progress.
+                                        deadline = Instant::now() + self.timeout;
+                                        continue;
+                                    }
+                                    Err(reopen_err) => {
+                                        error!(
+                                            error = ?reopen_err,
+                                            "Failed to reopen allocation state stream after transport error"
+                                        );
+                                    }
+                                }
+                            }
+
                             // Only flag as likely FE crash for status codes that suggest
                             // the FE process itself is unhealthy. Transient network
                             // issues (deadline exceeded, cancelled, etc.) should not
                             // kill a potentially healthy FE.
                             let likely_fe_crash = matches!(
                                 e.code(),
-                                tonic::Code::Unavailable | tonic::Code::Internal | tonic::Code::Unknown
+                                tonic::Code::Unavailable | tonic::Code::Internal
                             );
                             error!(
                                 error = ?e,
@@ -482,9 +585,7 @@ impl AllocationRunner {
         if let Some(fe_result) = final_result {
             let execution_duration_ms = start_time.elapsed().as_millis() as u64;
 
-            if let Err(e) = self.client.delete_allocation(&self.allocation_id).await {
-                warn!(error = ?e, "Failed to delete allocation from FE");
-            }
+            self.try_delete_allocation().await;
 
             let server_result = convert_fe_result_to_server(
                 &self.allocation,
