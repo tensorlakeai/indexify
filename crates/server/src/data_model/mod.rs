@@ -3173,6 +3173,12 @@ pub struct ContainerPool {
     #[serde(default)]
     pub network_policy: Option<NetworkPolicy>,
 
+    /// Path prefixes that allow unauthenticated proxy access.
+    /// Inherited by sandboxes spawned from this pool.
+    #[builder(default)]
+    #[serde(default)]
+    pub unauthenticated_routes: Vec<String>,
+
     /// Secret names to inject
     #[builder(default)]
     #[serde(default)]

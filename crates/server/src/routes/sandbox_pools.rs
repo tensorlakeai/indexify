@@ -53,6 +53,10 @@ pub struct CreateSandboxPoolRequest {
     /// Number of warm containers to maintain
     #[serde(default)]
     pub warm_containers: Option<u32>,
+    /// Path prefixes that allow unauthenticated proxy access (e.g.
+    /// "/api/public"). Inherited by all sandboxes spawned from this pool.
+    #[serde(default)]
+    pub unauthenticated_routes: Vec<String>,
 }
 
 /// Request to update an existing sandbox pool
@@ -78,6 +82,10 @@ pub struct UpdateSandboxPoolRequest {
     /// Number of warm containers to maintain
     #[serde(default)]
     pub warm_containers: Option<u32>,
+    /// Path prefixes that allow unauthenticated proxy access.
+    /// Replaces the existing value on update.
+    #[serde(default)]
+    pub unauthenticated_routes: Vec<String>,
 }
 
 /// Response after creating a sandbox pool
@@ -109,6 +117,10 @@ pub struct SandboxPoolInfo {
     pub warm_containers: Option<u32>,
     pub timeout_secs: u64,
     pub created_at: u64,
+    /// Path prefixes that allow unauthenticated proxy access.
+    /// Omitted when empty.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub unauthenticated_routes: Vec<String>,
 }
 
 impl SandboxPoolInfo {
@@ -127,6 +139,7 @@ impl SandboxPoolInfo {
             warm_containers: pool.buffer_containers,
             timeout_secs: pool.timeout_secs,
             created_at: pool.created_at,
+            unauthenticated_routes: pool.unauthenticated_routes.clone(),
         }
     }
 }
@@ -167,6 +180,7 @@ fn build_pool(
     max_containers: Option<u32>,
     buffer_containers: Option<u32>,
     created_at: u64,
+    unauthenticated_routes: Vec<String>,
 ) -> Result<ContainerPool, IndexifyAPIError> {
     ContainerPoolBuilder::default()
         .id(pool_id)
@@ -190,6 +204,7 @@ fn build_pool(
         .max_containers(max_containers)
         .buffer_containers(buffer_containers)
         .created_at(created_at)
+        .unauthenticated_routes(unauthenticated_routes)
         .build()
         .map_err(|e| IndexifyAPIError::internal_error_str(&e.to_string()))
 }
@@ -225,6 +240,7 @@ pub async fn create_sandbox_pool(
         request.max_containers,
         request.warm_containers,
         0, // created_at will be set by state machine
+        request.unauthenticated_routes,
     )?;
 
     pool.validate()
@@ -371,6 +387,7 @@ pub async fn update_sandbox_pool(
         request.max_containers,
         request.warm_containers,
         created_at,
+        request.unauthenticated_routes,
     )?;
 
     pool.validate()
@@ -432,6 +449,7 @@ pub async fn create_pool_sandbox(
         .timeout_secs(pool.timeout_secs)
         .entrypoint(pool.entrypoint.clone())
         .network_policy(pool.network_policy.clone())
+        .unauthenticated_routes(pool.unauthenticated_routes.clone())
         .pool_id(Some(pool_id_obj))
         .build()
         .map_err(|e| IndexifyAPIError::internal_error_str(&e.to_string()))?;
