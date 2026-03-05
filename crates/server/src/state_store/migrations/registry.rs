@@ -15,6 +15,7 @@ use crate::state_store::migrations::{
     v18_fix_corrupt_request_finished_events::V18FixCorruptRequestFinishedEvents,
     v19_fix_snapshot_upload_uri_field::V19FixSnapshotUploadUriField,
     v20_fix_container_pool_tombstoned_field::V20FixContainerPoolTombstonedField,
+    v21_fix_sandbox_allow_unauthenticated_field::V21FixSandboxAllowUnauthenticatedField,
 };
 // Import all migration implementations
 
@@ -46,6 +47,7 @@ impl MigrationRegistry {
         registry.register(Box::new(V18FixCorruptRequestFinishedEvents));
         registry.register(Box::new(V19FixSnapshotUploadUriField));
         registry.register(Box::new(V20FixContainerPoolTombstonedField));
+        registry.register(Box::new(V21FixSandboxAllowUnauthenticatedField));
 
         // Sort and validate migrations
         registry.sort_and_validate()?;
