@@ -172,15 +172,16 @@ impl AllocationRunner {
         error_message: impl Into<String>,
         likely_fe_crash: bool,
     ) -> AllocationOutcome {
-        let (reason, termination_reason) = if likely_fe_crash {
+        let error_message = error_message.into();
+        let (reason, termination_reason, exit_status) = if likely_fe_crash {
             self.determine_crash_reason(reason).await
         } else {
             let _ = self.client.delete_allocation(&self.allocation_id).await;
-            (reason, None)
+            (reason, None, None)
         };
         AllocationOutcome::Failed {
             reason,
-            error_message: error_message.into(),
+            error_message: append_exit_status_context(error_message, exit_status.as_ref()),
             output_blob_handles: std::mem::take(&mut self.output_blob_handles),
             likely_fe_crash,
             termination_reason,
@@ -195,6 +196,7 @@ impl AllocationRunner {
     ) -> (
         proto_api::executor_api_pb::AllocationFailureReason,
         Option<proto_api::executor_api_pb::ContainerTerminationReason>,
+        Option<crate::driver::ExitStatus>,
     ) {
         let exit_status = self
             .ctx
@@ -203,15 +205,24 @@ impl AllocationRunner {
             .await
             .ok()
             .flatten();
+        warn!(
+            allocation_id = %self.allocation_id,
+            container_id = %self.ctx.process_handle.id,
+            request_id = %self.allocation.request_id.as_deref().unwrap_or(""),
+            exit_status = ?exit_status,
+            "Determined FE crash reason from process exit status"
+        );
         if exit_status.as_ref().is_some_and(|s| s.oom_killed) {
             (
                 proto_api::executor_api_pb::AllocationFailureReason::Oom,
                 Some(proto_api::executor_api_pb::ContainerTerminationReason::Oom),
+                exit_status,
             )
         } else {
             (
                 default_reason,
                 Some(proto_api::executor_api_pb::ContainerTerminationReason::ProcessCrash),
+                exit_status,
             )
         }
     }
@@ -286,14 +297,14 @@ impl AllocationRunner {
                 .allocation_result_dispatcher
                 .deregister(&self.allocation_id)
                 .await;
-            let (reason, termination_reason) = self
+            let (reason, termination_reason, exit_status) = self
                 .determine_crash_reason(
                     proto_api::executor_api_pb::AllocationFailureReason::InternalError,
                 )
                 .await;
             return AllocationOutcome::Failed {
                 reason,
-                error_message: e.to_string(),
+                error_message: append_exit_status_context(e.to_string(), exit_status.as_ref()),
                 output_blob_handles: Vec::new(),
                 likely_fe_crash: true,
                 termination_reason,
@@ -693,6 +704,19 @@ impl AllocationRunner {
                 &self.uri_prefix,
             )
             .await;
+    }
+}
+
+fn append_exit_status_context(
+    message: String,
+    exit_status: Option<&crate::driver::ExitStatus>,
+) -> String {
+    match exit_status {
+        Some(status) => format!(
+            "{message} (fe_exit_code={:?}, fe_oom_killed={})",
+            status.exit_code, status.oom_killed
+        ),
+        None => message,
     }
 }
 
