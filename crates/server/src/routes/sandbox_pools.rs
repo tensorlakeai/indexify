@@ -53,6 +53,14 @@ pub struct CreateSandboxPoolRequest {
     /// Number of warm containers to maintain
     #[serde(default)]
     pub warm_containers: Option<u32>,
+    /// Allow sandbox-proxy to route requests to sandboxes from this pool
+    /// without validating authentication credentials.
+    #[serde(default)]
+    pub allow_unauthenticated_access: bool,
+    /// Ports the sandbox-proxy is allowed to route traffic to for sandboxes
+    /// from this pool. When absent, only the default port (9501) is accessible.
+    #[serde(default)]
+    pub exposed_ports: Option<Vec<u16>>,
 }
 
 /// Request to update an existing sandbox pool
@@ -78,6 +86,14 @@ pub struct UpdateSandboxPoolRequest {
     /// Number of warm containers to maintain
     #[serde(default)]
     pub warm_containers: Option<u32>,
+    /// Allow sandbox-proxy to route requests to sandboxes from this pool
+    /// without validating authentication credentials.
+    #[serde(default)]
+    pub allow_unauthenticated_access: bool,
+    /// Ports the sandbox-proxy is allowed to route traffic to for sandboxes
+    /// from this pool. When absent, only the default port (9501) is accessible.
+    #[serde(default)]
+    pub exposed_ports: Option<Vec<u16>>,
 }
 
 /// Response after creating a sandbox pool
@@ -109,6 +125,13 @@ pub struct SandboxPoolInfo {
     pub warm_containers: Option<u32>,
     pub timeout_secs: u64,
     pub created_at: u64,
+    /// Whether sandboxes from this pool allow unauthenticated proxy access.
+    #[serde(default)]
+    pub allow_unauthenticated_access: bool,
+    /// Ports the sandbox-proxy is allowed to route traffic to for sandboxes
+    /// from this pool.
+    #[serde(default)]
+    pub exposed_ports: Option<Vec<u16>>,
 }
 
 impl SandboxPoolInfo {
@@ -127,6 +150,8 @@ impl SandboxPoolInfo {
             warm_containers: pool.buffer_containers,
             timeout_secs: pool.timeout_secs,
             created_at: pool.created_at,
+            allow_unauthenticated_access: pool.allow_unauthenticated_access,
+            exposed_ports: pool.exposed_ports.clone(),
         }
     }
 }
@@ -167,6 +192,8 @@ fn build_pool(
     max_containers: Option<u32>,
     buffer_containers: Option<u32>,
     created_at: u64,
+    allow_unauthenticated_access: bool,
+    exposed_ports: Option<Vec<u16>>,
 ) -> Result<ContainerPool, IndexifyAPIError> {
     ContainerPoolBuilder::default()
         .id(pool_id)
@@ -190,6 +217,8 @@ fn build_pool(
         .max_containers(max_containers)
         .buffer_containers(buffer_containers)
         .created_at(created_at)
+        .allow_unauthenticated_access(allow_unauthenticated_access)
+        .exposed_ports(exposed_ports)
         .build()
         .map_err(|e| IndexifyAPIError::internal_error_str(&e.to_string()))
 }
@@ -225,6 +254,8 @@ pub async fn create_sandbox_pool(
         request.max_containers,
         request.warm_containers,
         0, // created_at will be set by state machine
+        request.allow_unauthenticated_access,
+        request.exposed_ports,
     )?;
 
     pool.validate()
@@ -371,6 +402,8 @@ pub async fn update_sandbox_pool(
         request.max_containers,
         request.warm_containers,
         created_at,
+        request.allow_unauthenticated_access,
+        request.exposed_ports,
     )?;
 
     pool.validate()
@@ -432,6 +465,8 @@ pub async fn create_pool_sandbox(
         .timeout_secs(pool.timeout_secs)
         .entrypoint(pool.entrypoint.clone())
         .network_policy(pool.network_policy.clone())
+        .allow_unauthenticated_access(pool.allow_unauthenticated_access)
+        .exposed_ports(pool.exposed_ports.clone())
         .pool_id(Some(pool_id_obj))
         .build()
         .map_err(|e| IndexifyAPIError::internal_error_str(&e.to_string()))?;

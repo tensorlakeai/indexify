@@ -17,6 +17,7 @@ use crate::state_store::migrations::{
     v20_fix_container_pool_tombstoned_field::V20FixContainerPoolTombstonedField,
     v21_fix_sandbox_allow_unauthenticated_field::V21FixSandboxAllowUnauthenticatedField,
     v22_sandbox_exposed_ports::V22SandboxExposedPorts,
+    v23_container_pool_exposed_ports::V23ContainerPoolExposedPorts,
 };
 // Import all migration implementations
 
@@ -50,6 +51,7 @@ impl MigrationRegistry {
         registry.register(Box::new(V20FixContainerPoolTombstonedField));
         registry.register(Box::new(V21FixSandboxAllowUnauthenticatedField));
         registry.register(Box::new(V22SandboxExposedPorts));
+        registry.register(Box::new(V23ContainerPoolExposedPorts));
 
         // Sort and validate migrations
         registry.sort_and_validate()?;
