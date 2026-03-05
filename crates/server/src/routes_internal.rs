@@ -727,7 +727,7 @@ async fn get_sandbox_by_id(
         .get(&sandbox_key)
         .ok_or_else(|| IndexifyAPIError::not_found("Sandbox not found"))?;
 
-    let (status, dataplane_api_address) = derive_sandbox_status_and_address(&app, &sandbox);
+    let (status, dataplane_api_address) = derive_sandbox_status_and_address(&app, sandbox);
 
     Ok(Json(SandboxLookupResponse {
         id: sandbox_id,
