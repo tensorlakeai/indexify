@@ -809,7 +809,11 @@ async fn test_snapshot_lifecycle() {
     let blob_store = indexify_dataplane::blob_ops::BlobStore::new(metrics.clone());
     let snapshotter =
         indexify_dataplane::snapshotter::firecracker_snapshotter::FirecrackerSnapshotter::new(
-            state_dir, blob_store, metrics, lvm_config,
+            state_dir,
+            std::path::PathBuf::from(&snapshot_dir),
+            blob_store,
+            metrics,
+            lvm_config,
         );
 
     // Use short unique suffix to avoid LV name collisions from previous runs.

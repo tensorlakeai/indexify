@@ -221,6 +221,8 @@ impl Service {
                 ..
             } => {
                 let state_dir_path = config.firecracker_state_dir(&config.sandbox_driver);
+                let snapshot_local_dir =
+                    config.firecracker_snapshot_local_dir(&config.sandbox_driver);
                 let lvm_config = crate::driver::firecracker::dm_thin::LvmConfig {
                     volume_group: lvm_volume_group.clone(),
                     thin_pool: lvm_thin_pool.clone(),
@@ -229,6 +231,7 @@ impl Service {
                 Some(Arc::new(
                     crate::snapshotter::firecracker_snapshotter::FirecrackerSnapshotter::new(
                         PathBuf::from(state_dir_path),
+                        snapshot_local_dir,
                         (*blob_store).clone(),
                         metrics.clone(),
                         lvm_config,

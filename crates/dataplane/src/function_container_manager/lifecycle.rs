@@ -71,7 +71,20 @@ pub(super) async fn start_container_with_daemon(
                 sandbox_id = info.sandbox_id.unwrap_or(""),
                 pool_id = info.pool_id.unwrap_or(""),
             );
-            snapshotter.restore_snapshot(uri).instrument(span).await?
+            match snapshotter.restore_snapshot(uri).instrument(span).await {
+                Ok(result) => result,
+                Err(e) => {
+                    if let Err(cleanup_err) = snapshotter.cleanup_local(uri).await {
+                        tracing::warn!(
+                            container_id = %info.container_id,
+                            snapshot_uri = %uri,
+                            error = %cleanup_err,
+                            "Failed to cleanup snapshot artifacts after restore failure"
+                        );
+                    }
+                    return Err(e);
+                }
+            }
         };
 
         // For gVisor (runsc), the restore returns an empty image and a rootfs
@@ -215,7 +228,18 @@ pub(super) async fn start_container_with_daemon(
             sandbox_id = info.sandbox_id.unwrap_or(""),
             pool_id = info.pool_id.unwrap_or(""),
         );
-        driver.start(config).instrument(span).await?
+        let start_result = driver.start(config).instrument(span).await;
+        if let (Some(uri), Some(snapshotter)) = (snapshot_uri.as_ref(), snapshotter.as_ref()) &&
+            let Err(e) = snapshotter.cleanup_local(uri).await
+        {
+            tracing::warn!(
+                container_id = %info.container_id,
+                snapshot_uri = %uri,
+                error = %e,
+                "Failed to cleanup local snapshot artifacts after container start attempt"
+            );
+        }
+        start_result?
     };
 
     // Apply network firewall rules BEFORE daemon connection.

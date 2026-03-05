@@ -38,6 +38,7 @@ const COMPRESSED_CHUNK_SIZE: usize = 100 * 1024 * 1024;
 ///           (driver's create_snapshot_from_delta applies records into thin LV)
 pub struct FirecrackerSnapshotter {
     state_dir: PathBuf,
+    snapshot_local_dir: PathBuf,
     blob_store: BlobStore,
     _metrics: Arc<DataplaneMetrics>,
     lvm_config: dm_thin::LvmConfig,
@@ -46,16 +47,24 @@ pub struct FirecrackerSnapshotter {
 impl FirecrackerSnapshotter {
     pub fn new(
         state_dir: PathBuf,
+        snapshot_local_dir: PathBuf,
         blob_store: BlobStore,
         metrics: Arc<DataplaneMetrics>,
         lvm_config: dm_thin::LvmConfig,
     ) -> Self {
         Self {
             state_dir,
+            snapshot_local_dir,
             blob_store,
             _metrics: metrics,
             lvm_config,
         }
+    }
+
+    fn delta_path_for_uri(&self, snapshot_uri: &str) -> PathBuf {
+        let hash = hash_uri(snapshot_uri);
+        self.snapshot_local_dir
+            .join(format!("indexify-snapshot-{}.delta", hash))
     }
 }
 
@@ -182,12 +191,12 @@ impl Snapshotter for FirecrackerSnapshotter {
     }
 
     async fn restore_snapshot(&self, snapshot_uri: &str) -> Result<RestoreResult> {
-        let hash = hash_uri(snapshot_uri);
-        let delta_path = format!("/tmp/indexify-snapshot-{}.delta", hash);
+        let delta_path = self.delta_path_for_uri(snapshot_uri);
+        let delta_path_str = delta_path.to_string_lossy().to_string();
 
         info!(
             snapshot_uri = %snapshot_uri,
-            delta_path = %delta_path,
+            delta_path = %delta_path_str,
             "Starting Firecracker snapshot restore (delta)"
         );
 
@@ -197,7 +206,7 @@ impl Snapshotter for FirecrackerSnapshotter {
         let (tx, rx) = tokio::sync::mpsc::channel::<Bytes>(16);
 
         // Spawn blocking decompression task.
-        let delta_clone = delta_path.clone();
+        let delta_clone = delta_path_str.clone();
         let span = tracing::Span::current();
         let decompress_handle = tokio::task::spawn_blocking(move || {
             let _guard = span.enter();
@@ -241,15 +250,14 @@ impl Snapshotter for FirecrackerSnapshotter {
             .context("Snapshot restore task panicked")??;
 
         Ok(RestoreResult {
-            image: delta_path,
+            image: delta_path_str,
             rootfs_overlay: None,
         })
     }
 
     async fn cleanup_local(&self, snapshot_uri: &str) -> Result<()> {
-        let hash = hash_uri(snapshot_uri);
-        let delta_path = format!("/tmp/indexify-snapshot-{}.delta", hash);
-        if std::path::Path::new(&delta_path).exists() {
+        let delta_path = self.delta_path_for_uri(snapshot_uri);
+        if delta_path.exists() {
             let _ = std::fs::remove_file(&delta_path);
         }
         Ok(())
