@@ -2845,6 +2845,11 @@ pub struct Sandbox {
     #[builder(default)]
     #[serde(default)]
     pub snapshot_id: Option<SnapshotId>,
+    /// Ports the sandbox-proxy is allowed to route traffic to.
+    /// When `None`, only the default port (9501) is accessible.
+    #[builder(default)]
+    #[serde(default)]
+    pub exposed_ports: Option<Vec<u16>>,
 }
 
 impl SandboxBuilder {
