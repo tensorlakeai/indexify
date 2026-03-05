@@ -670,6 +670,9 @@ pub struct SandboxLookupResponse {
     pub dataplane_api_address: Option<String>,
     #[serde(default, alias = "allow_unauthenticated_proxy_access")]
     pub allow_unauthenticated_access: bool,
+    /// Ports the sandbox-proxy is allowed to route traffic to.
+    #[serde(default)]
+    pub exposed_ports: Option<Vec<u16>>,
 }
 
 fn sandbox_status_to_str(status: &SandboxStatus) -> &'static str {
@@ -728,6 +731,7 @@ async fn get_sandbox_by_id(
         status: status.to_string(),
         dataplane_api_address,
         allow_unauthenticated_access: sandbox.allow_unauthenticated_access,
+        exposed_ports: sandbox.exposed_ports.clone(),
     }))
 }
 
@@ -751,7 +755,7 @@ async fn get_sandbox_by_id_global(
 ) -> Result<Json<SandboxLookupResponse>, IndexifyAPIError> {
     let app = state.indexify_state.app_state.load();
 
-    let (namespace, status, container_id, allow_unauthenticated_access) = {
+    let (namespace, status, container_id, allow_unauthenticated_access, exposed_ports) = {
         let matching_keys = app
             .indexes
             .sandboxes_by_id
@@ -778,6 +782,7 @@ async fn get_sandbox_by_id_global(
             sandbox_status_to_str(&sandbox.status),
             sandbox.container_id.clone(),
             sandbox.allow_unauthenticated_access,
+            sandbox.exposed_ports.clone(),
         )
     };
 
@@ -797,5 +802,6 @@ async fn get_sandbox_by_id_global(
         status: status.to_string(),
         dataplane_api_address,
         allow_unauthenticated_access,
+        exposed_ports,
     }))
 }

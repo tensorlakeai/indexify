@@ -2845,6 +2845,11 @@ pub struct Sandbox {
     #[builder(default)]
     #[serde(default)]
     pub snapshot_id: Option<SnapshotId>,
+    /// Ports the sandbox-proxy is allowed to route traffic to.
+    /// When `None`, only the default port (9501) is accessible.
+    #[builder(default)]
+    #[serde(default)]
+    pub exposed_ports: Option<Vec<u16>>,
 }
 
 impl SandboxBuilder {
@@ -3214,6 +3219,17 @@ pub struct ContainerPool {
     #[builder(default)]
     #[serde(default)]
     updated_at_clock: Option<u64>,
+    /// Allow sandbox-proxy to route requests without credential validation
+    /// for sandboxes spawned from this pool.
+    #[builder(default)]
+    #[serde(default)]
+    pub allow_unauthenticated_access: bool,
+    /// Ports the sandbox-proxy is allowed to route traffic to for sandboxes
+    /// spawned from this pool. When `None`, only the default port (9501) is
+    /// accessible.
+    #[builder(default)]
+    #[serde(default)]
+    pub exposed_ports: Option<Vec<u16>>,
 }
 
 impl ContainerPoolBuilder {
