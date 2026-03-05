@@ -249,8 +249,7 @@ mod tests {
                             .get(IndexifyObjectsColumns::Sandboxes.as_ref(), &legacy_key)
                             .await?
                             .expect("legacy row should exist after migration");
-                        let repaired_legacy: Sandbox =
-                            StateStoreEncoder::decode(&repaired_legacy)?;
+                        let repaired_legacy: Sandbox = StateStoreEncoder::decode(&repaired_legacy)?;
                         assert_eq!(repaired_legacy.id.get(), "sandbox_legacy");
                         assert!(repaired_legacy.allow_unauthenticated_access);
                         assert!(repaired_legacy.exposed_ports.is_none());
@@ -264,10 +263,7 @@ mod tests {
                             .expect("current row should exist after migration");
                         let unchanged_current: Sandbox =
                             StateStoreEncoder::decode(&unchanged_current)?;
-                        assert_eq!(
-                            unchanged_current.exposed_ports,
-                            Some(vec![8080, 9501])
-                        );
+                        assert_eq!(unchanged_current.exposed_ports, Some(vec![8080, 9501]));
                         Ok(())
                     })
                 },
