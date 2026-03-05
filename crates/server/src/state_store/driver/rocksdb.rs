@@ -11,34 +11,20 @@ use bytes::Bytes;
 use futures::lock::Mutex;
 use opentelemetry::KeyValue;
 use rocksdb::{
-    ColumnFamily,
-    ColumnFamilyDescriptor,
-    DBCompactionStyle,
-    DBCompressionType,
-    Error as RocksDBError,
-    LogLevel,
-    Transaction,
-    TransactionDB,
-    TransactionDBOptions,
+    ColumnFamily, ColumnFamilyDescriptor, DBCompactionStyle, DBCompressionType,
+    Error as RocksDBError, LogLevel, Transaction, TransactionDB, TransactionDBOptions,
 };
 pub use rocksdb::{Direction, IteratorMode, Options as RocksDBOptions, ReadOptions};
 use serde::{Deserialize, Serialize};
 use serde_inline_default::serde_inline_default;
 use strum::IntoEnumIterator;
-use tracing::{error, warn};
+use tracing::{error, info, warn};
 
 use crate::{
     metrics::{Increment, StateStoreMetrics},
     state_store::{
         driver::{
-            Driver,
-            Error as DriverError,
-            IterOptions,
-            KVBytes,
-            Range,
-            RangeOptions,
-            Reader,
-            Writer,
+            Driver, Error as DriverError, IterOptions, KVBytes, Range, RangeOptions, Reader, Writer,
         },
         scanner::CursorDirection,
         state_machine::IndexifyObjectsColumns,
@@ -285,10 +271,12 @@ pub(crate) struct RocksDBDriver {
 
 impl RocksDBDriver {
     /// Open a new connection with a RocksDB database.
+    #[tracing::instrument(skip(metrics))]
     pub(crate) fn open(
         driver_options: Options,
         metrics: Arc<StateStoreMetrics>,
     ) -> Result<RocksDBDriver, Error> {
+        info!("Opening RocksDB connection");
         fs::create_dir_all(driver_options.path.clone())
             .map_err(|source| Error::CreateDirFailed { source })?;
 
@@ -427,7 +415,15 @@ impl Writer for RocksDBDriver {
         // Migrations run serially, so only one reference to the database should
         // be held at a time.
         // If that premise changes, we'll raise an error during migration.
-        let super::CreateOptions::RocksDB(opts) = opts;
+        let opts = match opts {
+            super::CreateOptions::RocksDB(opts) => opts,
+            _ => return Err(DriverError::RocksDBFailure {
+                source: Error::InvalidConfiguration {
+                    option: "CreateOptions".to_string(),
+                    message: "unsupported CreateOptions variant for RocksDB driver".to_string(),
+                },
+            }),
+        };
         let mut_db = Arc::get_mut(&mut self.db).ok_or(Error::MakeConnectionMutableFailed)?;
         mut_db.create_cf(cf, opts).map_err(Error::into_generic)
     }
@@ -667,7 +663,7 @@ impl super::InnerTransaction for RocksDBTransaction {
 
         let guard = self.tx.lock().await;
         let Some(tx) = guard.as_ref() else {
-            return vec![Err(DriverError::TransactionAlreadyCommitted)];
+            return Ok(vec![Err(DriverError::TransactionAlreadyCommitted)]);
         };
         let cf = self.db.column_family(cf);
 

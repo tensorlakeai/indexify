@@ -1,12 +1,12 @@
-version: '3.8'
-
+name: Indexify services
 services:
   foundationdb:
     image: foundationdb/foundationdb:7.4.5
     # Use the entrypoint that configures a single memory cluster
-    entrypoint: /var/fdb/scripts/fdb_single.bash
+    entrypoint: /var/fdb/scripts/start-fdb-cluster.sh
     volumes:
       - fdb_data:/var/lib/foundationdb/data
+      - ./start-fdb-cluster.sh:/var/fdb/scripts/start-fdb-cluster.sh
     ports:
       - 4500:4500/tcp
     environment:

@@ -222,7 +222,17 @@ impl IterOptions {
 
 /// It combines Writer + Reader to make implementing a driver more ergonomic.
 #[allow(dead_code)]
-pub trait Driver: Writer + Reader {}
+#[async_trait]
+pub trait Driver: Writer + Reader {
+    /// Verify the database connection is healthy.
+    ///
+    /// Implementations should perform a lightweight read to confirm the driver
+    /// can actually reach the database.  The default is a no-op for drivers
+    /// (e.g. RocksDB) where the connection is implicit.
+    async fn ping(&self) -> Result<(), Error> {
+        Ok(())
+    }
+}
 
 /// Multiple options to configure different database drivers.
 ///

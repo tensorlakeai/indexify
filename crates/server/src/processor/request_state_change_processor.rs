@@ -418,7 +418,22 @@ async fn remove_events_with_backoff(
     events: &[PersistedRequestStateChangeEvent],
 ) -> Result<()> {
     for attempt in 1..=MAX_REMOVE_ATTEMPTS {
-        let txn = state.db.transaction();
+        let txn = match state.db.transaction() {
+            Ok(txn) => txn,
+            Err(e) => {
+                error!(
+                    error = ?e,
+                    attempt,
+                    max_attempts = MAX_REMOVE_ATTEMPTS,
+                    "Error creating transaction, retrying..."
+                );
+                if attempt == MAX_REMOVE_ATTEMPTS {
+                    return Err(e.into());
+                }
+                tokio::time::sleep(Duration::from_secs(attempt as u64)).await;
+                continue;
+            }
+        };
 
         if let Err(e) = state_machine::remove_request_state_change_events(&txn, events).await {
             error!(

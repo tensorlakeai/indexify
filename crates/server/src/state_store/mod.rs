@@ -25,7 +25,7 @@ use crate::{
     metrics::{StateStoreMetrics, Timer},
     processor::container_scheduler::ContainerScheduler,
     state_store::{
-        driver::{Reader, Transaction, Writer},
+        driver::{Driver, Reader, Transaction, Writer},
         in_memory_metrics::InMemoryStoreGauges,
         serializer::{StateStoreEncode, StateStoreEncoder},
     },
@@ -178,6 +178,9 @@ impl IndexifyState {
 
         let state_store_metrics = Arc::new(StateStoreMetrics::new());
         let db = open_database(options, state_store_metrics.clone())?;
+        db.ping().await.map_err(|e| {
+            anyhow::anyhow!("database connection check failed: {e}")
+        })?;
 
         #[cfg(not(feature = "migrations"))]
         let sm_meta = read_sm_meta(&db).await?;
@@ -869,7 +872,7 @@ impl IndexifyState {
                 IndexifyObjectsColumns::SchedulerCommandIntents.as_ref(),
                 prefix.clone(),
             )
-            .await;
+            .await?;
 
         let mut next_seq_by_executor: HashMap<ExecutorId, u64> = HashMap::new();
         let mut enqueued: HashMap<ExecutorId, Vec<executor_api_pb::Command>> = HashMap::new();
@@ -1068,7 +1071,7 @@ impl IndexifyState {
                 IndexifyObjectsColumns::ExecutorCommandOutbox.as_ref(),
                 prefix.clone(),
             )
-            .await;
+            .await?;
         for kv in iter {
             let (key, _) = kv?;
             if !key.starts_with(prefix.as_slice()) {
@@ -1099,7 +1102,7 @@ impl IndexifyState {
                 IndexifyObjectsColumns::ExecutorCommandOutbox.as_ref(),
                 prefix.clone(),
             )
-            .await;
+            .await?;
         for kv in iter {
             let (key, _) = kv?;
             if !key.starts_with(prefix.as_slice()) {
@@ -1224,7 +1227,7 @@ impl IndexifyState {
                 IndexifyObjectsColumns::FunctionCallResultRoutes.as_ref(),
                 prefix.clone(),
             )
-            .await;
+            .await?;
         let mut purged = 0usize;
         for kv in iter {
             let (key, value) = kv?;

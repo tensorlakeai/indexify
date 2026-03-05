@@ -2,34 +2,20 @@ use std::sync::{Arc, LazyLock};
 
 use bytes::Bytes;
 use foundationdb::{
-    Database,
-    FdbError,
-    KeySelector,
-    RangeOption,
-    Transaction,
-    TransactionCommitError,
-    api::NetworkAutoStop,
-    options::DatabaseOption,
-    tuple::Subspace,
+    Database, FdbError, KeySelector, RangeOption, Transaction, TransactionCommitError,
+    api::NetworkAutoStop, options::DatabaseOption, tuple::Subspace,
 };
 use futures::lock::Mutex;
 use opentelemetry::KeyValue;
 use serde::{Deserialize, Serialize};
-use tracing::{debug, error};
+use tracing::{debug, error, info};
 
 use crate::{
     metrics::{Increment, StateStoreMetrics},
     state_store::{
         driver::{
-            Driver,
-            Error as DriverError,
-            InnerTransaction,
-            IterOptions,
-            KVBytes,
-            Range,
-            RangeOptions,
-            Reader,
-            Writer,
+            Driver, Error as DriverError, InnerTransaction, IterOptions, KVBytes, Range,
+            RangeOptions, Reader, Writer,
         },
         scanner::CursorDirection,
     },
@@ -70,7 +56,7 @@ impl FoundationDBDriver {
         options: Options,
         metrics: Arc<StateStoreMetrics>,
     ) -> Result<FoundationDBDriver, Error> {
-        debug!("Opening FoundationDB connection");
+        info!("Opening FoundationDB connection");
         // Initialize the FoundationDB Client API
         static NETWORK: LazyLock<Arc<foundationdb::api::NetworkAutoStop>> =
             LazyLock::new(|| Arc::new(unsafe { foundationdb::boot() }));
@@ -94,6 +80,9 @@ impl FoundationDBDriver {
                 .set_option(DatabaseOption::TransactionMaxRetryDelay(max_retry_delay))
                 .map_err(|source| Error::OpenDatabaseFailed { source })?;
         }
+        database
+            .set_option(DatabaseOption::TransactionSizeLimit(2 * 1024 * 1024))
+            .map_err(|source| Error::OpenDatabaseFailed { source })?;
 
         Ok(FoundationDBDriver {
             database,
@@ -120,6 +109,7 @@ impl Writer for FoundationDBDriver {
     async fn put(&self, cf: &str, key: &[u8], value: &[u8]) -> Result<(), DriverError> {
         let attrs = &[KeyValue::new("driver", "foundationdb")];
         let _inc = Increment::inc(&self.metrics.driver_writes, attrs);
+        debug!(size = value.len(), cf, "Settings values in the database");
 
         let tx = self.database.create_trx().unwrap();
         let subspace = Subspace::from_bytes(cf.as_bytes());
@@ -279,9 +269,12 @@ impl Reader for FoundationDBDriver {
 
         let range_result = tx.get_range(&range_option, 1000, false).await.unwrap();
 
-        let iter = range_result.into_iter().map(|kv| {
+        let iter = range_result.into_iter().map(move |kv| {
+            let key = subspace
+                .unpack::<Vec<u8>>(kv.key())
+                .unwrap_or_else(|_| kv.key().to_vec());
             Ok((
-                kv.key().to_vec().into_boxed_slice(),
+                key.into_boxed_slice(),
                 kv.value().to_vec().into_boxed_slice(),
             ))
         });
@@ -290,7 +283,20 @@ impl Reader for FoundationDBDriver {
     }
 }
 
-impl Driver for FoundationDBDriver {}
+#[async_trait::async_trait]
+impl Driver for FoundationDBDriver {
+    async fn ping(&self) -> Result<(), DriverError> {
+        let tx = self
+            .database
+            .create_trx()
+            .map_err(|source| Error::GenericFoundationDBFailure { source })?;
+        tx.get(b"\x00indexify/ping", false)
+            .await
+            .map_err(|source| Error::GenericFoundationDBFailure { source })?;
+        info!("FoundationDB connection verified");
+        Ok(())
+    }
+}
 
 #[allow(dead_code)]
 pub(crate) struct FoundationDBTransaction {
@@ -332,6 +338,7 @@ impl InnerTransaction for FoundationDBTransaction {
     async fn put(&self, cf: &str, key: &[u8], value: &[u8]) -> Result<(), DriverError> {
         let attrs = &[KeyValue::new("driver", "foundationdb")];
         let _inc = Increment::inc(&self.metrics.driver_writes, attrs);
+        debug!(size = value.len(), cf, "Settings values in the database");
 
         let subspace = Subspace::from_bytes(cf.as_bytes());
         let key = subspace.pack(&(key));
@@ -400,8 +407,11 @@ impl InnerTransaction for FoundationDBTransaction {
         let col = range_result
             .into_iter()
             .map(|kv| {
+                let key = subspace
+                    .unpack::<Vec<u8>>(kv.key())
+                    .unwrap_or_else(|_| kv.key().to_vec());
                 Ok((
-                    kv.key().to_vec().into_boxed_slice(),
+                    key.into_boxed_slice(),
                     kv.value().to_vec().into_boxed_slice(),
                 ))
             })

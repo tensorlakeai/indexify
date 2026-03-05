@@ -1,14 +1,16 @@
 use std::{path::PathBuf, sync::Arc};
 
 use anyhow::{Result, anyhow};
-use rocksdb::{ColumnFamilyDescriptor, DB, Options};
+use ::rocksdb::{ColumnFamilyDescriptor, DB, Options};
 use serde_json::Value;
 
 use crate::{
     data_model::StateMachineMetadata,
     metrics::StateStoreMetrics,
     state_store::{
-        driver::{Reader, Transaction, rocksdb},
+        self as state_store,
+        driver::{Reader, Transaction},
+        driver::rocksdb::{self as rocksdb, RocksDBConfig, RocksDBDriver},
         state_machine::IndexifyObjectsColumns,
     },
 };
@@ -223,7 +225,7 @@ impl MigrationContext {
 
 #[cfg(test)]
 mod tests {
-    use rocksdb::{ColumnFamilyDescriptor, TransactionDB, TransactionDBOptions};
+    use ::rocksdb::{ColumnFamilyDescriptor, MultiThreaded, TransactionDB, TransactionDBOptions};
     use serde_json::json;
     use tempfile::TempDir;
 
@@ -248,7 +250,7 @@ mod tests {
             .map(|name| ColumnFamilyDescriptor::new(name, Options::default()))
             .collect();
 
-        TransactionDB::<rocksdb::MultiThreaded>::open_cf_descriptors(
+        TransactionDB::<MultiThreaded>::open_cf_descriptors(
             &db_opts,
             &TransactionDBOptions::default(),
             &ctx.path,

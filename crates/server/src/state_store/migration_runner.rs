@@ -25,7 +25,7 @@ use crate::{
 /// path
 pub async fn run(path: &Path, config: RocksDBConfig) -> Result<StateMachineMetadata> {
     // Initialize prepare context
-    let prepare_ctx = PrepareContext::new(options.path.to_path_buf(), config);
+    let prepare_ctx = PrepareContext::new(path.to_path_buf(), config);
 
     // Initialize registry
     let registry = MigrationRegistry::new()?;

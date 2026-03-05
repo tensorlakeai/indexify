@@ -36,7 +36,7 @@ use crate::{
         SnapshotKey,
     },
     state_store::{
-        driver::{self, Transaction, Writer, rocksdb::RocksDBDriver},
+        driver::{self, Driver, Transaction, Writer},
         requests::{
             DeleteRequestRequest,
             InvokeApplicationRequest,
@@ -123,7 +123,7 @@ pub enum IndexifyObjectsColumns {
 }
 
 pub(crate) async fn upsert_namespace(
-    db: Arc<RocksDBDriver>,
+    db: Arc<dyn Driver>,
     req: &NamespaceRequest,
     clock: u64,
 ) -> Result<()> {
@@ -400,7 +400,7 @@ pub(crate) async fn delete_request(
         FunctionRun::key_prefix_for_request(&req.namespace, &req.application, &req.request_id);
     let mut payload_urls: HashSet<String> = HashSet::new();
     let fr_cf = IndexifyObjectsColumns::FunctionRuns.as_ref();
-    let fr_iter = txn.iter(fr_cf, fr_prefix.clone().into_bytes()).await;
+    let fr_iter = txn.iter(fr_cf, fr_prefix.clone().into_bytes()).await?;
     for kv in fr_iter {
         let (key, value) = kv?;
         if !key.starts_with(fr_prefix.as_bytes()) {
@@ -436,7 +436,7 @@ pub(crate) async fn delete_request(
     let fc_prefix =
         FunctionCall::key_prefix_for_request(&req.namespace, &req.application, &req.request_id);
     let fc_cf = IndexifyObjectsColumns::FunctionCalls.as_ref();
-    let fc_iter = txn.iter(fc_cf, fc_prefix.clone().into_bytes()).await;
+    let fc_iter = txn.iter(fc_cf, fc_prefix.clone().into_bytes()).await?;
     for kv in fc_iter {
         let (key, _) = kv?;
         if !key.starts_with(fc_prefix.as_bytes()) {
@@ -449,7 +449,7 @@ pub(crate) async fn delete_request(
         Allocation::key_prefix_from_request(&req.namespace, &req.application, &req.request_id);
     // delete all allocations for this request
     let cf = IndexifyObjectsColumns::Allocations.as_ref();
-    let iter = txn.iter(cf, allocation_prefix.into_bytes()).await;
+    let iter = txn.iter(cf, allocation_prefix.into_bytes()).await?;
 
     for kv in iter {
         let (key, value) = kv?;
@@ -498,7 +498,7 @@ async fn update_requests_for_application(
             IndexifyObjectsColumns::RequestCtx.as_ref(),
             cg_prefix.into_bytes(),
         )
-        .await;
+        .await?;
 
     for kv in iter {
         let (key, val) = kv?;
@@ -522,7 +522,7 @@ async fn update_requests_for_application(
                 &persisted.request_id,
             );
             let fr_cf = IndexifyObjectsColumns::FunctionRuns.as_ref();
-            let fr_iter = txn.iter(fr_cf, fr_prefix.clone().into_bytes()).await;
+            let fr_iter = txn.iter(fr_cf, fr_prefix.clone().into_bytes()).await?;
             for fr_kv in fr_iter {
                 let (fr_key, fr_val) = fr_kv?;
                 if !fr_key.starts_with(fr_prefix.as_bytes()) {
@@ -639,7 +639,7 @@ pub async fn delete_application(
 
     for iter in txn
         .iter(IndexifyObjectsColumns::RequestCtx.as_ref(), request_prefix)
-        .await
+        .await?
     {
         let (_key, value) = iter?;
         let value = StateStoreEncoder::decode::<PersistedRequestCtx>(&value)?;
@@ -661,7 +661,7 @@ pub async fn delete_application(
             IndexifyObjectsColumns::ApplicationVersions.as_ref(),
             app_version_prefix,
         )
-        .await
+        .await?
     {
         let (key, value) = iter?;
         let value = StateStoreEncoder::decode::<ApplicationVersion>(&value)?;
@@ -796,7 +796,7 @@ pub(crate) async fn delete_function_pools_by_prefix(
     key_prefix: &str,
 ) -> Result<()> {
     let cf = IndexifyObjectsColumns::FunctionPools.as_ref();
-    let iter = txn.iter(cf, key_prefix.as_bytes().to_vec()).await;
+    let iter = txn.iter(cf, key_prefix.as_bytes().to_vec()).await?;
 
     for kv in iter {
         let (key, _) = kv?;
@@ -1025,7 +1025,7 @@ pub(crate) async fn enqueue_payload(
 pub(crate) async fn dequeue_payloads(txn: &Transaction, through_seq: u64) -> Result<()> {
     let iter = txn
         .iter(IndexifyObjectsColumns::PayloadQueue.as_ref(), Vec::new())
-        .await;
+        .await?;
     for kv in iter {
         let (key, _) = kv?;
         if key.len() == 8 {

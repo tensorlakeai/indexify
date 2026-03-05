@@ -5,7 +5,7 @@ telemetry:
   enable_metrics: false
   # Shared OTLP endpoint for both traces and metrics
   # If specified, both traces and metrics will be sent to this endpoint
-  endpoint: 'http://localhost:4317'
+  # endpoint: 'http://localhost:4317'
   # Exporter used to send spans to, default is disabled.
   # If it's disabled, no spans will be sent anywhere.
   # The enabled options are `otlp` and `stdout`.
