@@ -6,10 +6,9 @@ use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use proto_api::executor_api_pb::{
-    AllocationFailureReason,
-    ContainerDescription,
-    ContainerTerminationReason,
+    AllocationFailureReason, ContainerDescription, ContainerTerminationReason,
 };
+use proto_api::function_executor_pb::{InitializationFailureReason, InitializationOutcomeCode};
 use tokio_util::sync::CancellationToken;
 use tracing::{Instrument, error, info, warn};
 
@@ -21,9 +20,7 @@ use super::{
 use crate::{
     driver::{ProcessConfig, ProcessHandle, ProcessType},
     function_executor::{
-        controller::FESpawnConfig,
-        fe_client::FunctionExecutorGrpcClient,
-        health_checker,
+        controller::FESpawnConfig, fe_client::FunctionExecutorGrpcClient, health_checker,
     },
     state_file::PersistedContainer,
 };
@@ -42,6 +39,22 @@ impl std::fmt::Display for InitTimedOut {
 }
 
 impl std::error::Error for InitTimedOut {}
+
+/// Typed error for FE initialization failures caused by user function code.
+#[derive(Debug)]
+struct InitFunctionError(InitializationFailureReason);
+
+impl std::fmt::Display for InitFunctionError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "FE initialization failed due to function error: {:?}",
+            self.0
+        )
+    }
+}
+
+impl std::error::Error for InitFunctionError {}
 
 impl AllocationController {
     /// Reconcile containers using delta semantics.
@@ -575,6 +588,8 @@ impl AllocationController {
                 // Determine termination reason from error
                 let reason = if e.downcast_ref::<crate::driver::ImageError>().is_some() {
                     ContainerTerminationReason::StartupFailedBadImage
+                } else if e.is::<InitFunctionError>() {
+                    ContainerTerminationReason::StartupFailedFunctionError
                 } else if e.is::<InitTimedOut>() {
                     ContainerTerminationReason::StartupFailedFunctionTimeout
                 } else {
@@ -800,6 +815,7 @@ async fn start_fe_process(
             config.executor_id.clone(),
         ),
         ("INDEXIFY_FE_ID".to_string(), fe_id.clone()),
+        ("PYTHONFAULTHANDLER".to_string(), "1".to_string()),
     ];
 
     // Fetch and inject secrets
@@ -910,8 +926,8 @@ async fn connect_to_fe(
             let driver = driver.clone();
             let process_handle = process_handle.clone();
             async move {
-                if let Some(h) = &process_handle &&
-                    !driver.alive(h).await.unwrap_or(false)
+                if let Some(h) = &process_handle
+                    && !driver.alive(h).await.unwrap_or(false)
                 {
                     let exit_status = driver.get_exit_status(h).await.ok().flatten();
                     anyhow::bail!(
@@ -1028,16 +1044,18 @@ async fn initialize_fe(
     }
     let init_response = init_result?;
 
-    use proto_api::function_executor_pb::InitializationOutcomeCode;
+    let init_failure_reason = init_response.failure_reason();
     match init_response.outcome_code() {
         InitializationOutcomeCode::Success => {
             info!("Function executor initialized successfully");
         }
         InitializationOutcomeCode::Failure => {
-            anyhow::bail!(
-                "FE initialization failed: {:?}",
-                init_response.failure_reason
-            );
+            if init_failure_reason == InitializationFailureReason::FunctionError {
+                return Err(anyhow::Error::from(InitFunctionError(
+                    InitializationFailureReason::FunctionError,
+                )));
+            }
+            anyhow::bail!("FE initialization failed: {:?}", init_failure_reason);
         }
         InitializationOutcomeCode::Unknown => {
             anyhow::bail!("FE initialization returned unknown outcome");
