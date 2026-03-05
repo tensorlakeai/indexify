@@ -126,6 +126,27 @@ struct AllocationRunner {
 }
 
 impl AllocationRunner {
+    async fn try_delete_allocation(&mut self) {
+        const DELETE_ALLOCATION_TIMEOUT: Duration = Duration::from_secs(2);
+        match tokio::time::timeout(
+            DELETE_ALLOCATION_TIMEOUT,
+            self.client.delete_allocation(&self.allocation_id),
+        )
+        .await
+        {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => {
+                warn!(error = ?e, "Failed to delete allocation from FE");
+            }
+            Err(_) => {
+                warn!(
+                    timeout_secs = DELETE_ALLOCATION_TIMEOUT.as_secs(),
+                    "Timed out deleting allocation from FE"
+                );
+            }
+        }
+    }
+
     fn new(
         client: FunctionExecutorGrpcClient,
         allocation: ServerAllocation,
@@ -176,12 +197,29 @@ impl AllocationRunner {
             let (reason, termination_reason, exit_status) =
                 self.determine_crash_reason(reason).await;
             let confirmed_fe_crash = termination_reason.is_some();
+            if confirmed_fe_crash {
+                warn!(
+                    allocation_id = %self.allocation_id,
+                    container_id = %self.ctx.process_handle.id,
+                    request_id = %self.allocation.request_id.as_deref().unwrap_or(""),
+                    termination_reason = ?termination_reason,
+                    exit_status = ?exit_status,
+                    "Suspected FE crash confirmed by liveness/exit-status evidence"
+                );
+            } else {
+                warn!(
+                    allocation_id = %self.allocation_id,
+                    container_id = %self.ctx.process_handle.id,
+                    request_id = %self.allocation.request_id.as_deref().unwrap_or(""),
+                    "Suspected FE crash not confirmed; treating as allocation failure and attempting cleanup"
+                );
+            }
             if !confirmed_fe_crash {
-                let _ = self.client.delete_allocation(&self.allocation_id).await;
+                self.try_delete_allocation().await;
             }
             (reason, termination_reason, exit_status, confirmed_fe_crash)
         } else {
-            let _ = self.client.delete_allocation(&self.allocation_id).await;
+            self.try_delete_allocation().await;
             (reason, None, None, false)
         };
         AllocationOutcome::Failed {
@@ -220,12 +258,28 @@ impl AllocationRunner {
             "Determined FE crash reason from process exit status"
         );
         if exit_status.as_ref().is_some_and(|s| s.oom_killed) {
+            warn!(
+                allocation_id = %self.allocation_id,
+                container_id = %self.ctx.process_handle.id,
+                request_id = %self.allocation.request_id.as_deref().unwrap_or(""),
+                alive = ?alive,
+                exit_status = ?exit_status,
+                "Crash reason classification: OOM"
+            );
             (
                 proto_api::executor_api_pb::AllocationFailureReason::Oom,
                 Some(proto_api::executor_api_pb::ContainerTerminationReason::Oom),
                 exit_status,
             )
         } else if alive == Some(false) || exit_status.is_some() {
+            warn!(
+                allocation_id = %self.allocation_id,
+                container_id = %self.ctx.process_handle.id,
+                request_id = %self.allocation.request_id.as_deref().unwrap_or(""),
+                alive = ?alive,
+                exit_status = ?exit_status,
+                "Crash reason classification: process crash"
+            );
             (
                 default_reason,
                 Some(proto_api::executor_api_pb::ContainerTerminationReason::ProcessCrash),
@@ -233,6 +287,14 @@ impl AllocationRunner {
             )
         } else {
             // No evidence of process death. Treat as regular allocation failure.
+            info!(
+                allocation_id = %self.allocation_id,
+                container_id = %self.ctx.process_handle.id,
+                request_id = %self.allocation.request_id.as_deref().unwrap_or(""),
+                alive = ?alive,
+                exit_status = ?exit_status,
+                "Crash reason classification: not confirmed"
+            );
             (default_reason, None, exit_status)
         }
     }
@@ -523,9 +585,7 @@ impl AllocationRunner {
         if let Some(fe_result) = final_result {
             let execution_duration_ms = start_time.elapsed().as_millis() as u64;
 
-            if let Err(e) = self.client.delete_allocation(&self.allocation_id).await {
-                warn!(error = ?e, "Failed to delete allocation from FE");
-            }
+            self.try_delete_allocation().await;
 
             let server_result = convert_fe_result_to_server(
                 &self.allocation,

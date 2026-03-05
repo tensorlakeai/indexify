@@ -20,7 +20,7 @@ use crate::{
     metrics::DataplaneMetrics,
 };
 
-const HEALTH_CHECK_INTERVAL: Duration = Duration::from_secs(1);
+const HEALTH_CHECK_INTERVAL: Duration = Duration::from_secs(5);
 const HEALTH_CHECK_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Core health check loop. Returns the termination reason when the FE dies.
@@ -38,8 +38,6 @@ pub async fn run_health_check_loop(
     client.set_timeout(HEALTH_CHECK_TIMEOUT);
 
     let mut interval = tokio::time::interval(HEALTH_CHECK_INTERVAL);
-    let mut consecutive_failures = 0u32;
-    const MAX_FAILURES: u32 = 3;
 
     // Reset the interval so the first tick happens after the duration
     interval.reset();
@@ -67,6 +65,7 @@ pub async fn run_health_check_loop(
                             fe_id = %fe_id,
                             exit_status = ?exit_status,
                             is_oom = is_oom,
+                            termination_reason = ?reason,
                             "Container is no longer running"
                         );
                         return Some(reason);
@@ -93,20 +92,19 @@ pub async fn run_health_check_loop(
                             .function_executor_health_check_latency_seconds
                             .record(check_start.elapsed().as_secs_f64(), &[]);
                         if response.healthy.unwrap_or(false) {
-                            consecutive_failures = 0;
-                        } else {
-                            consecutive_failures += 1;
-                            metrics
-                                .counters
-                                .function_executor_failed_health_checks
-                                .add(1, &[]);
-                            warn!(
-                                fe_id = %fe_id,
-                                consecutive_failures = consecutive_failures,
-                                status_message = ?response.status_message,
-                                "FE health check returned unhealthy"
-                            );
+                            continue;
                         }
+                        metrics
+                            .counters
+                            .function_executor_failed_health_checks
+                            .add(1, &[]);
+                        warn!(
+                            fe_id = %fe_id,
+                            status_message = ?response.status_message,
+                            termination_reason = ?ContainerTerminationReason::Unhealthy,
+                            "FE health check returned unhealthy"
+                        );
+                        return Some(ContainerTerminationReason::Unhealthy);
                     }
                     Err(e) => {
                         // gRPC health RPC can fail for transient reasons when the
@@ -128,20 +126,19 @@ pub async fn run_health_check_loop(
                                     error = ?e,
                                     exit_status = ?exit_status,
                                     is_oom = is_oom,
+                                    termination_reason = ?reason,
                                     "FE health RPC failed and container is not alive"
                                 );
                                 return Some(reason);
                             }
                             Ok(true) => {
                                 // Process is still running, so treat this as
-                                // transient transport/backpressure and do not
-                                // count it toward unhealthy termination.
+                                // transient transport/backpressure.
                                 warn!(
                                     fe_id = %fe_id,
                                     error = ?e,
                                     "FE health check RPC failed while process is alive; treating as transient"
                                 );
-                                consecutive_failures = 0;
                                 continue;
                             }
                             Err(alive_err) => {
@@ -150,8 +147,9 @@ pub async fn run_health_check_loop(
                                     error = ?alive_err,
                                     "Failed to re-check FE liveness after health RPC error"
                                 );
-                                // Fall through to conservative failure counting
-                                // when liveness cannot be determined.
+                                // Mirror old Python FE checker behavior:
+                                // when liveness cannot be confirmed, treat RPC
+                                // failures as transient/healthy.
                             }
                         }
 
@@ -159,27 +157,13 @@ pub async fn run_health_check_loop(
                             .histograms
                             .function_executor_health_check_latency_seconds
                             .record(check_start.elapsed().as_secs_f64(), &[]);
-                        consecutive_failures += 1;
-                        metrics
-                            .counters
-                            .function_executor_failed_health_checks
-                            .add(1, &[]);
                         warn!(
                             fe_id = %fe_id,
-                            consecutive_failures = consecutive_failures,
                             error = ?e,
-                            "FE health check failed"
+                            "FE health check RPC error treated as transient"
                         );
+                        continue;
                     }
-                }
-
-                if consecutive_failures >= MAX_FAILURES {
-                    warn!(
-                        fe_id = %fe_id,
-                        consecutive_failures = consecutive_failures,
-                        "FE failed too many health checks, terminating"
-                    );
-                    return Some(ContainerTerminationReason::Unhealthy);
                 }
             }
         }
