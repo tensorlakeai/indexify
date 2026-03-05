@@ -17,7 +17,8 @@ use std::{
 
 use proto_api::{
     executor_api_pb::{
-        Allocation as ServerAllocation, AllocationLogEntry,
+        Allocation as ServerAllocation,
+        AllocationLogEntry,
         AllocationResult as ServerAllocationResult,
     },
     function_executor_pb::{self, AllocationState, AllocationUpdate, CreateAllocationRequest},
@@ -31,7 +32,8 @@ use super::{
     blob_reconciler,
     events::{AllocationOutcome, PreparedAllocation},
     fe_client::FunctionExecutorGrpcClient,
-    function_call_reconciler, proto_convert,
+    function_call_reconciler,
+    proto_convert,
     state_ops::RequestStateHandler,
 };
 use crate::{
