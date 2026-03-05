@@ -25,6 +25,7 @@ use crate::{
         ContainerState,
         ExecutorId,
         SandboxKey,
+        SandboxStatus,
     },
     http_objects::{
         Allocation,
@@ -75,6 +76,7 @@ use crate::{
             healthz_handler,
             get_pending_resources,
             get_sandbox_by_id,
+            get_sandbox_by_id_global,
         ),
         components(
             schemas(
@@ -153,6 +155,10 @@ pub fn configure_internal_routes(route_state: RouteState) -> Router {
         .route(
             "/internal/v1/namespaces/{namespace}/sandboxes/{sandbox_id}",
             get(get_sandbox_by_id).with_state(route_state.clone()),
+        )
+        .route(
+            "/internal/v1/sandboxes/{sandbox_id}",
+            get(get_sandbox_by_id_global).with_state(route_state.clone()),
         )
         .route(
             "/internal/pending_resources",
@@ -659,8 +665,20 @@ pub async fn create_or_update_application_with_metadata(
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SandboxLookupResponse {
     pub id: String,
+    pub namespace: String,
     pub status: String,
     pub dataplane_api_address: Option<String>,
+    #[serde(default, alias = "allow_unauthenticated_proxy_access")]
+    pub allow_unauthenticated_access: bool,
+}
+
+fn sandbox_status_to_str(status: &SandboxStatus) -> &'static str {
+    match status {
+        SandboxStatus::Pending { .. } => "pending",
+        SandboxStatus::Running => "running",
+        SandboxStatus::Snapshotting { .. } => "snapshotting",
+        SandboxStatus::Terminated => "terminated",
+    }
 }
 
 /// Look up a sandbox by namespace and ID, returning its status and dataplane
@@ -675,7 +693,7 @@ pub struct SandboxLookupResponse {
     ),
     responses(
         (status = 200, description = "Sandbox found", body = SandboxLookupResponse),
-        (status = 404, description = "Sandbox or container not found"),
+        (status = 404, description = "Sandbox not found"),
         (status = INTERNAL_SERVER_ERROR, description = "Internal Server Error"),
     ),
 )]
@@ -692,33 +710,92 @@ async fn get_sandbox_by_id(
         .get(&sandbox_key)
         .ok_or_else(|| IndexifyAPIError::not_found("Sandbox not found"))?;
 
-    let container_id = sandbox
+    let status = sandbox_status_to_str(&sandbox.status);
+    let dataplane_api_address = sandbox
         .container_id
         .as_ref()
-        .ok_or_else(|| IndexifyAPIError::not_found("Sandbox has no container assigned"))?;
-
-    let container_meta = app
-        .scheduler
-        .function_containers
-        .get(container_id)
-        .ok_or_else(|| IndexifyAPIError::not_found("Container not found"))?;
-
-    let status = match &container_meta.function_container.state {
-        crate::data_model::ContainerState::Pending => "Pending",
-        crate::data_model::ContainerState::Running => "Running",
-        crate::data_model::ContainerState::Terminated { .. } => "Terminated",
-        crate::data_model::ContainerState::Unknown => "Unknown",
-    };
-
-    let dataplane_api_address = app
-        .scheduler
-        .executors
-        .get(&container_meta.executor_id)
-        .and_then(|executor| executor.proxy_address.clone());
+        .and_then(|container_id| app.scheduler.function_containers.get(container_id))
+        .and_then(|container_meta| {
+            app.scheduler
+                .executors
+                .get(&container_meta.executor_id)
+                .and_then(|executor| executor.proxy_address.clone())
+        });
 
     Ok(Json(SandboxLookupResponse {
         id: sandbox_id,
+        namespace,
         status: status.to_string(),
         dataplane_api_address,
+        allow_unauthenticated_access: sandbox.allow_unauthenticated_access,
+    }))
+}
+
+#[utoipa::path(
+    get,
+    path = "/internal/v1/sandboxes/{sandbox_id}",
+    tag = "operations",
+    params(
+        ("sandbox_id" = String, Path, description = "ID of the sandbox"),
+    ),
+    responses(
+        (status = 200, description = "Sandbox found", body = SandboxLookupResponse),
+        (status = 404, description = "Sandbox not found"),
+        (status = 409, description = "Multiple sandboxes found with same ID"),
+        (status = INTERNAL_SERVER_ERROR, description = "Internal Server Error"),
+    ),
+)]
+async fn get_sandbox_by_id_global(
+    State(state): State<RouteState>,
+    Path(sandbox_id): Path<String>,
+) -> Result<Json<SandboxLookupResponse>, IndexifyAPIError> {
+    let app = state.indexify_state.app_state.load();
+
+    let (namespace, status, container_id, allow_unauthenticated_access) = {
+        let matching_keys = app
+            .indexes
+            .sandboxes_by_id
+            .get(&sandbox_id)
+            .ok_or_else(|| IndexifyAPIError::not_found("Sandbox not found"))?;
+
+        if matching_keys.len() > 1 {
+            return Err(IndexifyAPIError::conflict(
+                "Found multiple sandboxes with the same sandbox_id across namespaces",
+            ));
+        }
+
+        let sandbox_key = matching_keys
+            .iter()
+            .next()
+            .ok_or_else(|| IndexifyAPIError::not_found("Sandbox not found"))?;
+        let sandbox = app
+            .indexes
+            .sandboxes
+            .get(sandbox_key)
+            .ok_or_else(|| IndexifyAPIError::not_found("Sandbox not found"))?;
+        (
+            sandbox.namespace.clone(),
+            sandbox_status_to_str(&sandbox.status),
+            sandbox.container_id.clone(),
+            sandbox.allow_unauthenticated_access,
+        )
+    };
+
+    let dataplane_api_address = container_id
+        .as_ref()
+        .and_then(|container_id| app.scheduler.function_containers.get(container_id))
+        .and_then(|container_meta| {
+            app.scheduler
+                .executors
+                .get(&container_meta.executor_id)
+                .and_then(|executor| executor.proxy_address.clone())
+        });
+
+    Ok(Json(SandboxLookupResponse {
+        id: sandbox_id,
+        namespace,
+        status: status.to_string(),
+        dataplane_api_address,
+        allow_unauthenticated_access,
     }))
 }

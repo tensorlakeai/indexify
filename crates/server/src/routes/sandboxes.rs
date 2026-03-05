@@ -76,6 +76,10 @@ pub struct CreateSandboxRequest {
     /// overridden.
     #[serde(default)]
     pub snapshot_id: Option<String>,
+    /// Allow sandbox-proxy to route requests to this sandbox without
+    /// validating authentication credentials.
+    #[serde(default, alias = "allow_unauthenticated_proxy_access")]
+    pub allow_unauthenticated_access: bool,
 }
 
 /// Response after creating a sandbox
@@ -111,6 +115,9 @@ pub struct SandboxInfo {
     /// Network access control policy for this sandbox, if set.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub network_policy: Option<NetworkAccessControl>,
+    /// Whether sandbox-proxy can route traffic to this sandbox without auth.
+    #[serde(default, alias = "allow_unauthenticated_proxy_access")]
+    pub allow_unauthenticated_access: bool,
 }
 
 /// Default sandbox-proxy port (for production with nip.io).
@@ -186,6 +193,7 @@ impl SandboxInfo {
                     allow_out: p.allow_out.clone(),
                     deny_out: p.deny_out.clone(),
                 }),
+            allow_unauthenticated_access: sandbox.allow_unauthenticated_access,
         }
     }
 }
@@ -313,6 +321,7 @@ pub async fn create_sandbox(
         .timeout_secs(timeout_secs)
         .entrypoint(entrypoint)
         .snapshot_id(snapshot_id_field)
+        .allow_unauthenticated_access(request.allow_unauthenticated_access)
         .network_policy(request.network.map(|n| data_model::NetworkPolicy {
             allow_internet_access: n.allow_internet_access,
             allow_out: n.allow_out,
