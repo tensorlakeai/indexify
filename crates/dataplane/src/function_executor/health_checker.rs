@@ -109,6 +109,52 @@ pub async fn run_health_check_loop(
                         }
                     }
                     Err(e) => {
+                        // gRPC health RPC can fail for transient reasons when the
+                        // Python FE process is alive but busy (e.g. GIL contention
+                        // or overloaded event loop). Re-check liveness before
+                        // treating this as unhealthy.
+                        match driver.alive(&process_handle).await {
+                            Ok(false) => {
+                                let exit_status =
+                                    driver.get_exit_status(&process_handle).await.ok().flatten();
+                                let is_oom = exit_status.as_ref().is_some_and(|s| s.oom_killed);
+                                let reason = if is_oom {
+                                    ContainerTerminationReason::Oom
+                                } else {
+                                    ContainerTerminationReason::ProcessCrash
+                                };
+                                warn!(
+                                    fe_id = %fe_id,
+                                    error = ?e,
+                                    exit_status = ?exit_status,
+                                    is_oom = is_oom,
+                                    "FE health RPC failed and container is not alive"
+                                );
+                                return Some(reason);
+                            }
+                            Ok(true) => {
+                                // Process is still running, so treat this as
+                                // transient transport/backpressure and do not
+                                // count it toward unhealthy termination.
+                                warn!(
+                                    fe_id = %fe_id,
+                                    error = ?e,
+                                    "FE health check RPC failed while process is alive; treating as transient"
+                                );
+                                consecutive_failures = 0;
+                                continue;
+                            }
+                            Err(alive_err) => {
+                                warn!(
+                                    fe_id = %fe_id,
+                                    error = ?alive_err,
+                                    "Failed to re-check FE liveness after health RPC error"
+                                );
+                                // Fall through to conservative failure counting
+                                // when liveness cannot be determined.
+                            }
+                        }
+
                         metrics
                             .histograms
                             .function_executor_health_check_latency_seconds
