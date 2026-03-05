@@ -5,10 +5,10 @@
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
-use proto_api::executor_api_pb::{
-    AllocationFailureReason, ContainerDescription, ContainerTerminationReason,
+use proto_api::{
+    executor_api_pb::{AllocationFailureReason, ContainerDescription, ContainerTerminationReason},
+    function_executor_pb::{InitializationFailureReason, InitializationOutcomeCode},
 };
-use proto_api::function_executor_pb::{InitializationFailureReason, InitializationOutcomeCode};
 use tokio_util::sync::CancellationToken;
 use tracing::{Instrument, error, info, warn};
 
@@ -20,7 +20,9 @@ use super::{
 use crate::{
     driver::{ProcessConfig, ProcessHandle, ProcessType},
     function_executor::{
-        controller::FESpawnConfig, fe_client::FunctionExecutorGrpcClient, health_checker,
+        controller::FESpawnConfig,
+        fe_client::FunctionExecutorGrpcClient,
+        health_checker,
     },
     state_file::PersistedContainer,
 };
@@ -926,8 +928,8 @@ async fn connect_to_fe(
             let driver = driver.clone();
             let process_handle = process_handle.clone();
             async move {
-                if let Some(h) = &process_handle
-                    && !driver.alive(h).await.unwrap_or(false)
+                if let Some(h) = &process_handle &&
+                    !driver.alive(h).await.unwrap_or(false)
                 {
                     let exit_status = driver.get_exit_status(h).await.ok().flatten();
                     anyhow::bail!(
