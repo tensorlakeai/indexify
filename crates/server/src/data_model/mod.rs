@@ -2819,6 +2819,10 @@ pub struct Sandbox {
     pub secret_names: Vec<String>,
     #[builder(default)]
     pub timeout_secs: u64,
+    /// Allow sandbox-proxy to route requests without credential validation.
+    #[builder(default)]
+    #[serde(default, alias = "allow_unauthenticated_proxy_access")]
+    pub allow_unauthenticated_access: bool,
     /// The Executor ID where the sandbox is running
     #[builder(default)]
     pub executor_id: Option<ExecutorId>,
