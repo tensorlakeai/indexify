@@ -135,6 +135,10 @@ pub enum DriverConfig {
         /// Default: "/var/log/indexify/firecracker".
         #[serde(default)]
         log_dir: Option<String>,
+        /// Directory for Firecracker snapshot restore delta files.
+        /// Default: "/var/lib/indexify/snapshots".
+        #[serde(default)]
+        snapshot_local_dir: Option<String>,
         /// LVM volume group for thin-provisioned VM devices.
         lvm_volume_group: String,
         /// LVM thin pool LV name within the volume group.
@@ -524,6 +528,22 @@ impl DataplaneConfig {
             .join("logs")
     }
 
+    /// Snapshot restore directory for Firecracker.
+    /// Uses the driver's explicit `snapshot_local_dir` if set, otherwise
+    /// `/var/lib/indexify/snapshots`.
+    #[cfg(feature = "firecracker")]
+    pub fn firecracker_snapshot_local_dir(&self, driver: &DriverConfig) -> PathBuf {
+        if let DriverConfig::Firecracker {
+            snapshot_local_dir, ..
+        } = driver
+        {
+            if let Some(dir) = snapshot_local_dir {
+                return PathBuf::from(dir);
+            }
+        }
+        PathBuf::from("/var/lib/indexify/snapshots")
+    }
+
     pub fn structured_logging(&self) -> bool {
         self.env != LOCAL_ENV
     }
@@ -854,6 +874,7 @@ sandbox_driver:
                 default_memory_mib,
                 state_dir,
                 log_dir,
+                snapshot_local_dir,
                 lvm_volume_group,
                 lvm_thin_pool,
             } => {
@@ -872,6 +893,7 @@ sandbox_driver:
                 assert!(default_memory_mib.is_none());
                 assert!(state_dir.is_none());
                 assert!(log_dir.is_none());
+                assert!(snapshot_local_dir.is_none());
             }
             _ => panic!("Expected Firecracker driver"),
         }
@@ -897,6 +919,7 @@ sandbox_driver:
   default_memory_mib: 1024
   state_dir: "/var/lib/indexify/fc"
   log_dir: "/var/log/indexify/fc"
+  snapshot_local_dir: "/var/lib/indexify/snapshots"
   lvm_volume_group: "my-vg"
   lvm_thin_pool: "my-pool"
 "#;
@@ -911,6 +934,7 @@ sandbox_driver:
                 default_memory_mib,
                 state_dir,
                 log_dir,
+                snapshot_local_dir,
                 lvm_volume_group,
                 lvm_thin_pool,
                 ..
@@ -926,6 +950,10 @@ sandbox_driver:
                 assert_eq!(*default_memory_mib, Some(1024));
                 assert_eq!(state_dir.as_deref(), Some("/var/lib/indexify/fc"));
                 assert_eq!(log_dir.as_deref(), Some("/var/log/indexify/fc"));
+                assert_eq!(
+                    snapshot_local_dir.as_deref(),
+                    Some("/var/lib/indexify/snapshots")
+                );
                 assert_eq!(lvm_volume_group, "my-vg");
                 assert_eq!(lvm_thin_pool, "my-pool");
             }
