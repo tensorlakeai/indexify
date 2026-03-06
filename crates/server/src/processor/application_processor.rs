@@ -471,43 +471,25 @@ impl ApplicationProcessor {
             // restore's Running, causing spurious ContainerRemoved events.
             merged_update.extend(reap_update);
 
-            // Allocate unblocked function runs.
-            if !unblocked.function_run_keys.is_empty() {
-                let function_runs =
-                    indexes.resolve_pending_function_runs(&unblocked.function_run_keys);
-                if !function_runs.is_empty() {
+            if !unblocked.function_run_keys.is_empty() || !unblocked.sandbox_keys.is_empty() {
+                if !unblocked.function_run_keys.is_empty() {
                     info!(
-                        num_unblocked = function_runs.len(),
+                        num_unblocked = unblocked.function_run_keys.len(),
                         "reap_idle: scheduling unblocked function runs"
                     );
-                    let task_allocator = FunctionRunProcessor::new(self.queue_size);
-                    let alloc_result = task_allocator.allocate_function_runs(
-                        &indexes,
-                        &mut container_scheduler,
-                        function_runs,
-                        &self.allocate_function_runs_latency,
-                        &mut feas_cache,
-                    )?;
-                    indexes.apply_scheduler_update(clock, &alloc_result, "reap_unblock_alloc")?;
-                    merged_update.extend(alloc_result);
                 }
-            }
-
-            // Allocate unblocked sandboxes (batched apply).
-            if !unblocked.sandbox_keys.is_empty() {
+                let task_allocator = FunctionRunProcessor::new(self.queue_size);
                 let sandbox_processor = SandboxProcessor::new();
-                let mut sb_batch = SchedulerUpdateRequest::default();
-                for sandbox_key in &unblocked.sandbox_keys {
-                    sb_batch.extend(sandbox_processor.allocate_sandbox_by_key(
-                        &indexes,
-                        &mut container_scheduler,
-                        sandbox_key.namespace(),
-                        sandbox_key.sandbox_id(),
-                        &mut feas_cache,
-                    )?);
-                }
-                indexes.apply_scheduler_update(clock, &sb_batch, "reap_unblock_sandbox")?;
-                merged_update.extend(sb_batch);
+                let unblocked_update = self.allocate_unblocked_work_update(
+                    &indexes,
+                    &mut container_scheduler,
+                    &task_allocator,
+                    &sandbox_processor,
+                    &unblocked,
+                    &mut feas_cache,
+                )?;
+                indexes.apply_scheduler_update(clock, &unblocked_update, "reap_unblock_work")?;
+                merged_update.extend(unblocked_update);
             }
         }
 
@@ -1199,11 +1181,33 @@ impl ApplicationProcessor {
         scheduler_update: &mut SchedulerUpdateRequest,
         feas_cache: &mut FeasibilityCache,
     ) -> Result<()> {
+        scheduler_update.extend(self.allocate_unblocked_work_update(
+            indexes_guard,
+            container_scheduler_guard,
+            task_allocator,
+            sandbox_processor,
+            unblocked,
+            feas_cache,
+        )?);
+        Ok(())
+    }
+
+    fn allocate_unblocked_work_update(
+        &self,
+        indexes_guard: &crate::state_store::in_memory_state::InMemoryState,
+        container_scheduler_guard: &mut crate::processor::container_scheduler::ContainerScheduler,
+        task_allocator: &FunctionRunProcessor,
+        sandbox_processor: &SandboxProcessor,
+        unblocked: &UnblockedWork,
+        feas_cache: &mut FeasibilityCache,
+    ) -> Result<SchedulerUpdateRequest> {
+        let mut update = SchedulerUpdateRequest::default();
+
         if !unblocked.function_run_keys.is_empty() {
             let function_runs =
                 indexes_guard.resolve_pending_function_runs(&unblocked.function_run_keys);
             if !function_runs.is_empty() {
-                scheduler_update.extend(task_allocator.allocate_function_runs(
+                update.extend(task_allocator.allocate_function_runs(
                     indexes_guard,
                     container_scheduler_guard,
                     function_runs,
@@ -1214,7 +1218,7 @@ impl ApplicationProcessor {
         }
 
         for sandbox_key in &unblocked.sandbox_keys {
-            scheduler_update.extend(sandbox_processor.allocate_sandbox_by_key(
+            update.extend(sandbox_processor.allocate_sandbox_by_key(
                 indexes_guard,
                 container_scheduler_guard,
                 sandbox_key.namespace(),
@@ -1223,7 +1227,7 @@ impl ApplicationProcessor {
             )?);
         }
 
-        Ok(())
+        Ok(update)
     }
 
     /// Persist an immediate payload and apply it to the in-memory clones used

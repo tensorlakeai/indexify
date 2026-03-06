@@ -135,24 +135,16 @@ impl BlockedWorkTracker {
         work: &mut UnblockedWork,
         remaining: &mut u64,
     ) {
-        if let Some(sandbox_keys) = self.sandboxes_by_class.get(class).cloned() {
-            let mut to_remove = Vec::new();
-            for key in &sandbox_keys {
-                if *remaining == 0 {
-                    break;
-                }
-                if let Some(info) = self.blocked_sandboxes.get(key) &&
-                    info.memory_mb <= *remaining
-                {
-                    *remaining -= info.memory_mb;
-                    to_remove.push(key.clone());
-                    work.sandbox_keys.push(key.clone());
-                }
-            }
-            for key in &to_remove {
-                self.remove_sandbox_from_indexes(key);
-                self.blocked_sandboxes.remove(key);
-            }
+        let to_remove = Self::collect_keys_within_budget(
+            &self.sandboxes_by_class,
+            &self.blocked_sandboxes,
+            class,
+            remaining,
+        );
+        for key in &to_remove {
+            self.remove_sandbox_from_indexes(key);
+            self.blocked_sandboxes.remove(key);
+            work.sandbox_keys.push(key.clone());
         }
     }
 
@@ -162,24 +154,16 @@ impl BlockedWorkTracker {
         work: &mut UnblockedWork,
         remaining: &mut u64,
     ) {
-        if let Some(fn_keys) = self.function_runs_by_class.get(class).cloned() {
-            let mut to_remove = Vec::new();
-            for key in &fn_keys {
-                if *remaining == 0 {
-                    break;
-                }
-                if let Some(info) = self.blocked_function_runs.get(key) &&
-                    info.memory_mb <= *remaining
-                {
-                    *remaining -= info.memory_mb;
-                    to_remove.push(key.clone());
-                    work.function_run_keys.push(key.clone());
-                }
-            }
-            for key in &to_remove {
-                self.remove_function_run_from_indexes(key);
-                self.blocked_function_runs.remove(key);
-            }
+        let to_remove = Self::collect_keys_within_budget(
+            &self.function_runs_by_class,
+            &self.blocked_function_runs,
+            class,
+            remaining,
+        );
+        for key in &to_remove {
+            self.remove_function_run_from_indexes(key);
+            self.blocked_function_runs.remove(key);
+            work.function_run_keys.push(key.clone());
         }
     }
 
@@ -217,6 +201,32 @@ impl BlockedWorkTracker {
     }
 
     // --- Internal helpers ---
+
+    fn collect_keys_within_budget<K>(
+        by_class: &imbl::HashMap<ExecutorClass, imbl::HashSet<K>>,
+        blocked: &imbl::HashMap<K, BlockingInfo>,
+        class: &ExecutorClass,
+        remaining: &mut u64,
+    ) -> Vec<K>
+    where
+        K: Clone + Eq + std::hash::Hash,
+    {
+        let mut to_remove = Vec::new();
+        if let Some(keys) = by_class.get(class).cloned() {
+            for key in &keys {
+                if *remaining == 0 {
+                    break;
+                }
+                if let Some(info) = blocked.get(key) &&
+                    info.memory_mb <= *remaining
+                {
+                    *remaining -= info.memory_mb;
+                    to_remove.push(key.clone());
+                }
+            }
+        }
+        to_remove
+    }
 
     /// Unblock escaped work (both sandboxes and function runs) within the
     /// given memory budget. Deducts consumed memory from `remaining`.
