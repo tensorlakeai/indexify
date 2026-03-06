@@ -449,6 +449,18 @@ impl FirecrackerDriver {
     ) -> Result<ProcessHandle> {
         let vm_id = &warm_vm.vm_id;
 
+        // Remove the warm VM's original registry entry (registered during
+        // boot_warm_vm under the warm handle_id). We'll re-insert under the
+        // container's handle_id below.
+        {
+            let mut vms = self.vms.lock().await;
+            if let Some(old) = vms.remove(&warm_vm.handle_id)
+                && let Some(cancel) = &old.log_cancel
+            {
+                cancel.cancel();
+            }
+        }
+
         // Compute resource limits
         let cpu_millicores = config
             .resources
@@ -868,6 +880,14 @@ impl FirecrackerDriver {
                 );
                 let mut proc = VmProcess::Recovered { pid };
                 proc.wait_for_exit().await;
+            } else {
+                // PID file read failed but jailer may have spawned a child FC
+                // process. Kill any processes in the cgroup to avoid orphans.
+                let cgroup = cgroup::CgroupHandle::from_jailer(
+                    &warm_pool_config.parent_cgroup,
+                    &vm_id_for_cleanup,
+                );
+                cgroup.kill_all_processes();
             }
             if let Some(dm) = &dm_name_created {
                 dm_swap::remove_dm_device_force(dm);
@@ -1205,8 +1225,7 @@ impl FirecrackerDriver {
         }
 
         if recovered > 0 {
-            let mut p = pool.lock().await;
-            p.set_total_vms(recovered);
+            let p = pool.lock().await;
             tracing::info!(
                 recovered,
                 total,
@@ -1266,6 +1285,18 @@ impl ProcessDriver for FirecrackerDriver {
                         );
                         let mut proc = VmProcess::Recovered { pid: warm_pid };
                         proc.wait_for_exit().await;
+                        // Remove any VM registry entry that claim_warm_vm may
+                        // have inserted (under the container's handle_id). The
+                        // original warm entry was already removed at the start
+                        // of claim_warm_vm.
+                        {
+                            let mut vms = self.vms.lock().await;
+                            if let Some(vm) = vms.remove(&handle_id)
+                                && let Some(cancel) = &vm.log_cancel
+                            {
+                                cancel.cancel();
+                            }
+                        }
                         // Remove dm device (releases reference to backing LVs).
                         dm_swap::remove_dm_device_async(warm_dm_device_name).await;
                         // Remove the claim snapshot LV (may or may not exist).

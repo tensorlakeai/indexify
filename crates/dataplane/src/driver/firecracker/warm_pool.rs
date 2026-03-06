@@ -188,10 +188,6 @@ impl WarmPool {
         self.total_vms
     }
 
-    /// Set total VMs count (used during recovery).
-    pub fn set_total_vms(&mut self, count: usize) {
-        self.total_vms = count;
-    }
 }
 
 #[cfg(test)]

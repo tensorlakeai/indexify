@@ -67,6 +67,27 @@ impl CgroupHandle {
     pub fn remove(&self) {
         let _ = std::fs::remove_dir(&self.cgroup_path);
     }
+
+    /// SIGKILL all processes in this cgroup.
+    ///
+    /// Reads `cgroup.procs` and sends SIGKILL to each PID. Best-effort:
+    /// used as a fallback when the FC PID is unknown (e.g., PID file read
+    /// failed but the jailer may have spawned a child process).
+    pub fn kill_all_processes(&self) {
+        let procs_path = self.cgroup_path.join("cgroup.procs");
+        let content = match std::fs::read_to_string(&procs_path) {
+            Ok(c) => c,
+            Err(_) => return, // cgroup doesn't exist or not readable
+        };
+        for line in content.lines() {
+            if let Ok(pid) = line.trim().parse::<i32>() {
+                let _ = nix::sys::signal::kill(
+                    nix::unistd::Pid::from_raw(pid),
+                    nix::sys::signal::Signal::SIGKILL,
+                );
+            }
+        }
+    }
 }
 
 /// Ensure the parent cgroup exists and has the `cpu` controller delegated.

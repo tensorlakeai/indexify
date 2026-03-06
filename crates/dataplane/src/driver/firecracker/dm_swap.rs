@@ -38,7 +38,7 @@ pub fn swap_backing(dm_name: &str, new_backing_device: &str, size_sectors: u64) 
 
     // Report both errors if both failed (load is the root cause).
     if let Err(load_err) = load_result {
-        if let Err(resume_err) = resume_result {
+        if let Err(resume_err) = &resume_result {
             warn!(
                 load_error = ?load_err,
                 resume_error = ?resume_err,
@@ -47,6 +47,13 @@ pub fn swap_backing(dm_name: &str, new_backing_device: &str, size_sectors: u64) 
             );
         }
         return Err(load_err);
+    }
+    if let Err(resume_err) = &resume_result {
+        warn!(
+            error = ?resume_err,
+            dm_name,
+            "dmsetup resume failed after successful load — device stuck suspended"
+        );
     }
     resume_result?;
 
