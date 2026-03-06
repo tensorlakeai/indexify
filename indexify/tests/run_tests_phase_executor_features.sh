@@ -73,9 +73,12 @@ run_test_suite "$executor_tests $features_tests" "Indexify"
 # --- Stop the background dataplane ---
 if [ -n "$DATAPLANE_PID" ]; then
   echo "Stopping background dataplane (PID: $DATAPLANE_PID)"
-  kill $DATAPLANE_PID 2>/dev/null
-  wait $DATAPLANE_PID 2>/dev/null
-  pkill -f function-executor 2>/dev/null
+  # The dataplane is terminated intentionally; ignore non-zero exit codes from
+  # kill/wait (e.g. 143 when reaped after SIGTERM) so they don't mask test
+  # results.
+  kill "$DATAPLANE_PID" 2>/dev/null || true
+  wait "$DATAPLANE_PID" 2>/dev/null || true
+  pkill -f function-executor 2>/dev/null || true
 fi
 
 echo ""
