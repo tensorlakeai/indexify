@@ -18,7 +18,7 @@ use crate::{
         SandboxStatus,
     },
     http_objects::{ContainerResources, ContainerResourcesInfo, IndexifyAPIError},
-    routes::routes_state::RouteState,
+    routes::{routes_state::RouteState, sandboxes::NetworkAccessControl},
     state_store::requests::{
         CreateContainerPoolRequest as StateCreateContainerPoolRequest,
         CreateSandboxRequest as StateCreateSandboxRequest,
@@ -61,6 +61,9 @@ pub struct CreateSandboxPoolRequest {
     /// from this pool. When absent, only the default port (9501) is accessible.
     #[serde(default)]
     pub exposed_ports: Option<Vec<u16>>,
+    /// Network access control settings for sandboxes from this pool (optional).
+    #[serde(default)]
+    pub network: Option<NetworkAccessControl>,
 }
 
 /// Request to update an existing sandbox pool
@@ -94,6 +97,9 @@ pub struct UpdateSandboxPoolRequest {
     /// from this pool. When absent, only the default port (9501) is accessible.
     #[serde(default)]
     pub exposed_ports: Option<Vec<u16>>,
+    /// Network access control settings for sandboxes from this pool (optional).
+    #[serde(default)]
+    pub network: Option<NetworkAccessControl>,
 }
 
 /// Response after creating a sandbox pool
@@ -132,6 +138,9 @@ pub struct SandboxPoolInfo {
     /// from this pool.
     #[serde(default)]
     pub exposed_ports: Option<Vec<u16>>,
+    /// Network access control policy for this pool, if set.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub network_policy: Option<NetworkAccessControl>,
 }
 
 impl SandboxPoolInfo {
@@ -152,6 +161,11 @@ impl SandboxPoolInfo {
             created_at: pool.created_at,
             allow_unauthenticated_access: pool.allow_unauthenticated_access,
             exposed_ports: pool.exposed_ports.clone(),
+            network_policy: pool.network_policy.as_ref().map(|p| NetworkAccessControl {
+                allow_internet_access: p.allow_internet_access,
+                allow_out: p.allow_out.clone(),
+                deny_out: p.deny_out.clone(),
+            }),
         }
     }
 }
@@ -194,6 +208,7 @@ fn build_pool(
     created_at: u64,
     allow_unauthenticated_access: bool,
     exposed_ports: Option<Vec<u16>>,
+    network_policy: Option<data_model::NetworkPolicy>,
 ) -> Result<ContainerPool, IndexifyAPIError> {
     ContainerPoolBuilder::default()
         .id(pool_id)
@@ -219,6 +234,7 @@ fn build_pool(
         .created_at(created_at)
         .allow_unauthenticated_access(allow_unauthenticated_access)
         .exposed_ports(exposed_ports)
+        .network_policy(network_policy)
         .build()
         .map_err(|e| IndexifyAPIError::internal_error_str(&e.to_string()))
 }
@@ -256,6 +272,11 @@ pub async fn create_sandbox_pool(
         0, // created_at will be set by state machine
         request.allow_unauthenticated_access,
         request.exposed_ports,
+        request.network.map(|n| data_model::NetworkPolicy {
+            allow_internet_access: n.allow_internet_access,
+            allow_out: n.allow_out,
+            deny_out: n.deny_out,
+        }),
     )?;
 
     pool.validate()
@@ -404,6 +425,11 @@ pub async fn update_sandbox_pool(
         created_at,
         request.allow_unauthenticated_access,
         request.exposed_ports,
+        request.network.map(|n| data_model::NetworkPolicy {
+            allow_internet_access: n.allow_internet_access,
+            allow_out: n.allow_out,
+            deny_out: n.deny_out,
+        }),
     )?;
 
     pool.validate()
