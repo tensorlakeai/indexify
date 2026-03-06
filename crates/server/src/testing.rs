@@ -53,6 +53,18 @@ impl TestService {
         Self::new_with_executor_catalog(vec![]).await
     }
 
+    /// Wrap an existing `Service` and its `TempDir` in a `TestService`.
+    /// Useful for restart tests that create `Service` instances directly.
+    pub fn wrap(service: Service, temp_dir: tempfile::TempDir) -> Self {
+        Self { service, temp_dir }
+    }
+
+    /// Drop the service and return the `TempDir` (keeps the data directory
+    /// alive for a subsequent `Service::new` in restart tests).
+    pub fn into_temp_dir(self) -> tempfile::TempDir {
+        self.temp_dir
+    }
+
     pub async fn new_with_executor_catalog(
         executor_catalog: Vec<ExecutorCatalogEntry>,
     ) -> Result<Self> {
