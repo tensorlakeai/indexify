@@ -194,6 +194,15 @@ impl ApplicationProcessor {
             error!("error processing startup state changes: {:?}", err);
         }
 
+        // Re-attempt placement for sandboxes that were pending before the
+        // restart. The BlockedWorkTracker is rebuilt empty on startup, so any
+        // sandboxes that were blocked in a previous session are orphaned —
+        // they exist in pending_sandboxes but nothing will retry them unless
+        // we do it here.
+        if let Err(err) = self.retry_pending_sandboxes().await {
+            error!("error retrying pending sandboxes at startup: {:?}", err);
+        }
+
         loop {
             tokio::select! {
                 _ = change_events_rx.changed() => {
@@ -243,6 +252,79 @@ impl ApplicationProcessor {
                 }
             }
         }
+    }
+
+    /// Re-attempt placement for all sandboxes that are pending allocation.
+    ///
+    /// On startup the `BlockedWorkTracker` is empty, so sandboxes that were
+    /// blocked in a previous server session have no retry path. This method
+    /// iterates all `pending_sandboxes` from the in-memory state and runs the
+    /// normal allocation logic for each.
+    async fn retry_pending_sandboxes(&self) -> Result<()> {
+        let current = self.indexify_state.app_state.load_full();
+        let pending: Vec<_> = current.indexes.pending_sandboxes.iter().cloned().collect();
+        if pending.is_empty() {
+            return Ok(());
+        }
+
+        info!(
+            num_pending = pending.len(),
+            "retrying pending sandboxes after startup"
+        );
+
+        let mut indexes = current.indexes.clone();
+        let mut container_scheduler = current.scheduler.clone();
+        let mut feas_cache = FeasibilityCache::new();
+        let sandbox_processor = SandboxProcessor::new();
+        let mut merged_update = SchedulerUpdateRequest::default();
+
+        for sandbox_key in &pending {
+            let alloc = sandbox_processor.allocate_sandbox_by_key(
+                &indexes,
+                &mut container_scheduler,
+                sandbox_key.namespace(),
+                sandbox_key.sandbox_id(),
+                &mut feas_cache,
+            )?;
+            let clock = indexes.clock;
+            indexes.apply_scheduler_update(clock, &alloc, "startup_retry_sandbox")?;
+            container_scheduler.apply_container_update(&alloc);
+            merged_update.extend(alloc);
+        }
+
+        if merged_update.updated_sandboxes.is_empty() && merged_update.containers.is_empty() {
+            return Ok(());
+        }
+
+        info!(
+            sandboxes = merged_update.updated_sandboxes.len(),
+            containers = merged_update.containers.len(),
+            "startup retry placed pending sandboxes"
+        );
+
+        self.executor_manager
+            .rebuild_scheduler_command_intents(&mut merged_update, &indexes);
+
+        self.indexify_state
+            .write_scheduler_output(StateMachineUpdateRequest {
+                payload: RequestPayload::SchedulerUpdate(SchedulerUpdatePayload {
+                    update: Box::new(merged_update),
+                }),
+            })
+            .await?;
+
+        self.indexify_state
+            .app_state
+            .store(Arc::new(crate::state_store::AppState {
+                indexes,
+                scheduler: container_scheduler,
+            }));
+
+        self.executor_manager
+            .drain_and_emit_scheduler_command_intents()
+            .await;
+
+        Ok(())
     }
 
     /// Generate ephemeral state changes from a payload.
