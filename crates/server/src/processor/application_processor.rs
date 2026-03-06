@@ -740,30 +740,15 @@ impl ApplicationProcessor {
                     let unblocked = container_scheduler_guard
                         .blocked_work
                         .unblock_for_freed_resources(&executor_class, freed_memory_mb);
-
-                    if !unblocked.function_run_keys.is_empty() {
-                        let function_runs = indexes_guard
-                            .resolve_pending_function_runs(&unblocked.function_run_keys);
-                        if !function_runs.is_empty() {
-                            scheduler_update.extend(task_allocator.allocate_function_runs(
-                                indexes_guard,
-                                container_scheduler_guard,
-                                function_runs,
-                                &self.allocate_function_runs_latency,
-                                feas_cache,
-                            )?);
-                        }
-                    }
-
-                    for sandbox_key in &unblocked.sandbox_keys {
-                        scheduler_update.extend(sandbox_processor.allocate_sandbox_by_key(
-                            indexes_guard,
-                            container_scheduler_guard,
-                            sandbox_key.namespace(),
-                            sandbox_key.sandbox_id(),
-                            feas_cache,
-                        )?);
-                    }
+                    self.extend_with_unblocked_work(
+                        indexes_guard,
+                        container_scheduler_guard,
+                        &task_allocator,
+                        &sandbox_processor,
+                        &unblocked,
+                        &mut scheduler_update,
+                        feas_cache,
+                    )?;
                 }
 
                 scheduler_update
@@ -821,33 +806,15 @@ impl ApplicationProcessor {
                     let unblocked = container_scheduler_guard
                         .blocked_work
                         .unblock_for_class(&executor_class, budget_mb);
-
-                    if !unblocked.is_empty() {
-                        // Resolve function run keys to actual FunctionRun objects
-                        let function_runs = indexes_guard
-                            .resolve_pending_function_runs(&unblocked.function_run_keys);
-
-                        if !function_runs.is_empty() {
-                            scheduler_update.extend(task_allocator.allocate_function_runs(
-                                indexes_guard,
-                                container_scheduler_guard,
-                                function_runs,
-                                &self.allocate_function_runs_latency,
-                                feas_cache,
-                            )?);
-                        }
-
-                        // Allocate unblocked sandboxes by key
-                        for sandbox_key in &unblocked.sandbox_keys {
-                            scheduler_update.extend(sandbox_processor.allocate_sandbox_by_key(
-                                indexes_guard,
-                                container_scheduler_guard,
-                                sandbox_key.namespace(),
-                                sandbox_key.sandbox_id(),
-                                feas_cache,
-                            )?);
-                        }
-                    }
+                    self.extend_with_unblocked_work(
+                        indexes_guard,
+                        container_scheduler_guard,
+                        &task_allocator,
+                        &sandbox_processor,
+                        &unblocked,
+                        &mut scheduler_update,
+                        feas_cache,
+                    )?;
                 }
                 scheduler_update
             }
@@ -1220,6 +1187,43 @@ impl ApplicationProcessor {
         // critical scheduling path.
 
         Ok(StateChangeResult::SchedulerUpdate(scheduler_update))
+    }
+
+    fn extend_with_unblocked_work(
+        &self,
+        indexes_guard: &crate::state_store::in_memory_state::InMemoryState,
+        container_scheduler_guard: &mut crate::processor::container_scheduler::ContainerScheduler,
+        task_allocator: &FunctionRunProcessor,
+        sandbox_processor: &SandboxProcessor,
+        unblocked: &UnblockedWork,
+        scheduler_update: &mut SchedulerUpdateRequest,
+        feas_cache: &mut FeasibilityCache,
+    ) -> Result<()> {
+        if !unblocked.function_run_keys.is_empty() {
+            let function_runs =
+                indexes_guard.resolve_pending_function_runs(&unblocked.function_run_keys);
+            if !function_runs.is_empty() {
+                scheduler_update.extend(task_allocator.allocate_function_runs(
+                    indexes_guard,
+                    container_scheduler_guard,
+                    function_runs,
+                    &self.allocate_function_runs_latency,
+                    feas_cache,
+                )?);
+            }
+        }
+
+        for sandbox_key in &unblocked.sandbox_keys {
+            scheduler_update.extend(sandbox_processor.allocate_sandbox_by_key(
+                indexes_guard,
+                container_scheduler_guard,
+                sandbox_key.namespace(),
+                sandbox_key.sandbox_id(),
+                feas_cache,
+            )?);
+        }
+
+        Ok(())
     }
 
     /// Persist an immediate payload and apply it to the in-memory clones used

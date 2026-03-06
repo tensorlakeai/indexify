@@ -25,12 +25,6 @@ pub struct UnblockedWork {
     pub function_run_keys: Vec<FunctionRunKey>,
 }
 
-impl UnblockedWork {
-    pub fn is_empty(&self) -> bool {
-        self.sandbox_keys.is_empty() && self.function_run_keys.is_empty()
-    }
-}
-
 /// Tracks failed placements by executor class eligibility.
 ///
 /// On capacity changes (new executor, freed resources), returns only work that
@@ -105,58 +99,7 @@ impl BlockedWorkTracker {
     /// `budget_mb` is the executor's free memory — only unblocks enough work
     /// to fill that capacity. Remaining blocked work stays for the next event.
     pub fn unblock_for_class(&mut self, class: &ExecutorClass, budget_mb: u64) -> UnblockedWork {
-        let mut work = UnblockedWork::default();
-        if self.is_empty() || budget_mb == 0 {
-            return work;
-        }
-        let mut remaining = budget_mb;
-
-        // Escaped work first — budget-limited
-        self.unblock_escaped_within_budget(&mut work, &mut remaining);
-
-        // Class-blocked sandboxes within cumulative budget
-        if let Some(sandbox_keys) = self.sandboxes_by_class.get(class).cloned() {
-            let mut to_remove = Vec::new();
-            for key in &sandbox_keys {
-                if remaining == 0 {
-                    break;
-                }
-                if let Some(info) = self.blocked_sandboxes.get(key) &&
-                    info.memory_mb <= remaining
-                {
-                    remaining -= info.memory_mb;
-                    to_remove.push(key.clone());
-                    work.sandbox_keys.push(key.clone());
-                }
-            }
-            for key in &to_remove {
-                self.remove_sandbox_from_indexes(key);
-                self.blocked_sandboxes.remove(key);
-            }
-        }
-
-        // Class-blocked function runs within cumulative budget
-        if let Some(fn_keys) = self.function_runs_by_class.get(class).cloned() {
-            let mut to_remove = Vec::new();
-            for key in &fn_keys {
-                if remaining == 0 {
-                    break;
-                }
-                if let Some(info) = self.blocked_function_runs.get(key) &&
-                    info.memory_mb <= remaining
-                {
-                    remaining -= info.memory_mb;
-                    to_remove.push(key.clone());
-                    work.function_run_keys.push(key.clone());
-                }
-            }
-            for key in &to_remove {
-                self.remove_function_run_from_indexes(key);
-                self.blocked_function_runs.remove(key);
-            }
-        }
-
-        work
+        self.unblock_with_budget(class, budget_mb)
     }
 
     /// Unblock work that fits in freed resources for a given class.
@@ -169,26 +112,39 @@ impl BlockedWorkTracker {
         class: &ExecutorClass,
         freed_mb: u64,
     ) -> UnblockedWork {
+        self.unblock_with_budget(class, freed_mb)
+    }
+
+    fn unblock_with_budget(&mut self, class: &ExecutorClass, budget_mb: u64) -> UnblockedWork {
         let mut work = UnblockedWork::default();
-        if self.is_empty() || freed_mb == 0 {
+        if self.is_empty() || budget_mb == 0 {
             return work;
         }
-        let mut remaining = freed_mb;
+        let mut remaining = budget_mb;
 
         // Escaped work first — budget-limited
         self.unblock_escaped_within_budget(&mut work, &mut remaining);
+        self.unblock_class_sandboxes_within_budget(class, &mut work, &mut remaining);
+        self.unblock_class_function_runs_within_budget(class, &mut work, &mut remaining);
+        work
+    }
 
-        // Sandboxes for this class within cumulative budget
+    fn unblock_class_sandboxes_within_budget(
+        &mut self,
+        class: &ExecutorClass,
+        work: &mut UnblockedWork,
+        remaining: &mut u64,
+    ) {
         if let Some(sandbox_keys) = self.sandboxes_by_class.get(class).cloned() {
             let mut to_remove = Vec::new();
             for key in &sandbox_keys {
-                if remaining == 0 {
+                if *remaining == 0 {
                     break;
                 }
                 if let Some(info) = self.blocked_sandboxes.get(key) &&
-                    info.memory_mb <= remaining
+                    info.memory_mb <= *remaining
                 {
-                    remaining -= info.memory_mb;
+                    *remaining -= info.memory_mb;
                     to_remove.push(key.clone());
                     work.sandbox_keys.push(key.clone());
                 }
@@ -198,18 +154,24 @@ impl BlockedWorkTracker {
                 self.blocked_sandboxes.remove(key);
             }
         }
+    }
 
-        // Function runs for this class within cumulative budget
+    fn unblock_class_function_runs_within_budget(
+        &mut self,
+        class: &ExecutorClass,
+        work: &mut UnblockedWork,
+        remaining: &mut u64,
+    ) {
         if let Some(fn_keys) = self.function_runs_by_class.get(class).cloned() {
             let mut to_remove = Vec::new();
             for key in &fn_keys {
-                if remaining == 0 {
+                if *remaining == 0 {
                     break;
                 }
                 if let Some(info) = self.blocked_function_runs.get(key) &&
-                    info.memory_mb <= remaining
+                    info.memory_mb <= *remaining
                 {
-                    remaining -= info.memory_mb;
+                    *remaining -= info.memory_mb;
                     to_remove.push(key.clone());
                     work.function_run_keys.push(key.clone());
                 }
@@ -219,8 +181,6 @@ impl BlockedWorkTracker {
                 self.blocked_function_runs.remove(key);
             }
         }
-
-        work
     }
 
     /// Remove a sandbox from the tracker (e.g., when it completes or is
