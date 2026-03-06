@@ -290,6 +290,37 @@ impl FirecrackerDriver {
             None => (None, None),
         };
 
+        // Extract warm VM metadata for async recovery in the replenishment task.
+        // We can't do async health checks here (sync fn), so we pull them out
+        // of recovered_vms and pass them to start_replenishment.
+        let warm_vm_candidates: Vec<VmMetadata> = if warm_pool.is_some() {
+            let warm_handle_ids: Vec<String> = recovered_vms
+                .iter()
+                .filter(|(_, vm)| vm.metadata.is_warm)
+                .map(|(id, _)| id.clone())
+                .collect();
+
+            let mut candidates = Vec::new();
+            for handle_id in warm_handle_ids {
+                let vm_state = recovered_vms.remove(&handle_id).unwrap();
+                // Cancel log streamer — warm VMs don't need active streaming.
+                if let Some(cancel) = &vm_state.log_cancel {
+                    cancel.cancel();
+                }
+                candidates.push(vm_state.metadata);
+            }
+
+            if !candidates.is_empty() {
+                tracing::info!(
+                    count = candidates.len(),
+                    "Found warm VMs from previous run, will health-check in background"
+                );
+            }
+            candidates
+        } else {
+            Vec::new()
+        };
+
         // Clean up dead VMs (those with metadata but whose process is gone).
         let driver = Self {
             firecracker_binary,
@@ -322,8 +353,9 @@ impl FirecrackerDriver {
         let driver = Arc::new(driver);
 
         // Start warm pool replenishment in the background (non-blocking).
+        // Passes recovered warm VM candidates for async health-check + pool insertion.
         if let (Some(pool), Some(rx)) = (&driver.warm_pool, replenish_rx) {
-            driver.start_replenishment(Arc::clone(pool), rx);
+            driver.start_replenishment(Arc::clone(pool), rx, warm_vm_candidates);
         }
 
         Ok(driver)
@@ -348,9 +380,17 @@ impl FirecrackerDriver {
             self.log_dir
                 .join(format!("fc-{}-serial.log", metadata.vm_id)),
         );
+        let _ = std::fs::remove_file(
+            self.log_dir
+                .join(format!("fc-{}-jailer.log", metadata.vm_id)),
+        );
 
         // Clean up jailer chroot
         self.cleanup_jailer_chroot(&metadata.vm_id);
+
+        // Clean up warm-pool-specific resources (dm device, empty LV).
+        let dm_device_name = metadata.dm_device_name.clone();
+        let empty_lv_name = metadata.empty_lv_name.clone();
 
         // Thin LV cleanup happens asynchronously.
         let lv_name = metadata.lv_name.clone();
@@ -360,12 +400,27 @@ impl FirecrackerDriver {
         let cni_bin_path = self.cni.cni_bin_path().to_string();
 
         tokio::spawn(async move {
+            // Remove dm device first (releases reference to backing LVs).
+            if let Some(dm_name) = dm_device_name {
+                dm_swap::remove_dm_device_force(&dm_name);
+            }
+
             if !lv_name.is_empty() &&
-                let Err(e) = dm_thin::destroy_snapshot_async(lv_name, lvm_config).await
+                let Err(e) = dm_thin::destroy_snapshot_async(lv_name, lvm_config.clone()).await
             {
                 tracing::warn!(
                     error = ?e,
                     "Failed to destroy thin LV for dead VM"
+                );
+            }
+
+            // Remove empty LV used for warm VM vdb backing.
+            if let Some(empty_lv) = empty_lv_name &&
+                let Err(e) = dm_thin::destroy_snapshot_async(empty_lv, lvm_config).await
+            {
+                tracing::warn!(
+                    error = ?e,
+                    "Failed to destroy empty LV for dead warm VM"
                 );
             }
 
@@ -901,10 +956,15 @@ impl FirecrackerDriver {
     /// This task watches for replenishment signals and boots new warm VMs
     /// to maintain the target pool size. Non-blocking — the dataplane
     /// starts accepting work immediately.
+    ///
+    /// If `warm_vm_candidates` is non-empty (restart recovery), health-checks
+    /// each candidate and pushes healthy ones into the pool before the initial
+    /// fill, so we don't boot duplicates.
     fn start_replenishment(
         self: &Arc<Self>,
         warm_pool: Arc<Mutex<warm_pool::WarmPool>>,
         mut replenish_rx: mpsc::Receiver<()>,
+        warm_vm_candidates: Vec<VmMetadata>,
     ) {
         let driver = Arc::clone(self);
         let pool = Arc::clone(&warm_pool);
@@ -916,7 +976,12 @@ impl FirecrackerDriver {
                 p.config().clone()
             };
 
-            // Initial fill
+            // Phase 0: recover warm VMs from previous run.
+            if !warm_vm_candidates.is_empty() {
+                Self::recover_warm_vms(&driver, &pool, warm_vm_candidates).await;
+            }
+
+            // Initial fill (accounts for any recovered VMs already in the pool).
             tracing::info!(
                 target_count = config.target_count,
                 "Warm pool: starting initial fill"
@@ -1044,6 +1109,91 @@ impl FirecrackerDriver {
 
         // Clean up jailer chroot directory (if it exists).
         self.cleanup_jailer_chroot(vm_id);
+    }
+
+    /// Recover warm VMs from a previous run.
+    ///
+    /// For each candidate: health-check the daemon, push healthy VMs into
+    /// the pool, and destroy unhealthy ones. Called once at startup before
+    /// the initial replenishment fill.
+    async fn recover_warm_vms(
+        driver: &Arc<Self>,
+        pool: &Arc<Mutex<warm_pool::WarmPool>>,
+        candidates: Vec<VmMetadata>,
+    ) {
+        let mut recovered = 0usize;
+        let total = candidates.len();
+
+        for meta in candidates {
+            // Verify all required warm pool fields are present.
+            let has_fields = meta.dm_device_name.is_some() &&
+                meta.empty_lv_name.is_some() &&
+                meta.max_memory_mib.is_some() &&
+                meta.max_vcpus.is_some();
+
+            if !has_fields {
+                tracing::warn!(
+                    vm_id = %meta.vm_id,
+                    "Warm VM missing required metadata fields, destroying"
+                );
+                driver.cleanup_dead_vm(&meta);
+                continue;
+            }
+
+            // Quick daemon health probe (5s timeout).
+            let healthy = match crate::daemon_client::DaemonClient::connect_with_retry(
+                &meta.daemon_addr,
+                Duration::from_secs(5),
+            )
+            .await
+            {
+                Ok(mut client) => client.health().await.unwrap_or(false),
+                Err(_) => false,
+            };
+
+            if healthy {
+                let cgroup = match &meta.cgroup_path {
+                    Some(p) => cgroup::CgroupHandle::from_path(PathBuf::from(p)),
+                    None => cgroup::CgroupHandle::from_jailer("indexify", &meta.vm_id),
+                };
+                let warm_vm = warm_pool::WarmVm {
+                    handle_id: meta.handle_id.clone(),
+                    vm_id: meta.vm_id.clone(),
+                    socket_path: meta.socket_path.clone(),
+                    daemon_addr: meta.daemon_addr.clone(),
+                    http_addr: meta.http_addr.clone(),
+                    guest_ip: meta.guest_ip.clone(),
+                    lv_name: meta.lv_name.clone(),
+                    netns_name: meta.netns_name.clone(),
+                    dm_device_name: meta.dm_device_name.unwrap(),
+                    empty_lv_name: meta.empty_lv_name.unwrap(),
+                    cgroup,
+                    max_memory_mib: meta.max_memory_mib.unwrap(),
+                    max_vcpus: meta.max_vcpus.unwrap(),
+                    pid: meta.pid,
+                };
+                tracing::info!(vm_id = %warm_vm.vm_id, "Recovered warm VM into pool");
+                pool.lock().await.push_warm(warm_vm);
+                recovered += 1;
+            } else {
+                tracing::info!(
+                    vm_id = %meta.vm_id,
+                    "Warm VM unhealthy after restart, destroying"
+                );
+                driver.cleanup_dead_vm(&meta);
+            }
+        }
+
+        if recovered > 0 {
+            let mut p = pool.lock().await;
+            p.set_total_vms(recovered);
+            tracing::info!(
+                recovered,
+                total,
+                target = p.config().target_count,
+                "Warm pool recovery complete"
+            );
+        }
     }
 }
 
