@@ -14,10 +14,12 @@ mod tests {
             ContainerResources,
             ContainerState,
             ContainerTerminationReason,
+            ExecutorId,
             Sandbox,
             SandboxBuilder,
             SandboxFailureReason,
             SandboxId,
+            SandboxKey,
             SandboxOutcome,
             SandboxPendingReason,
             SandboxStatus,
@@ -28,6 +30,8 @@ mod tests {
             },
         },
         executors::STARTUP_EXECUTOR_TIMEOUT,
+        processor::sandbox_processor::SandboxProcessor,
+        scheduler::placement::FeasibilityCache,
         service::Service,
         state_store::{
             IndexifyState,
@@ -1087,6 +1091,114 @@ mod tests {
                 reason: SandboxPendingReason::WaitingForContainer,
             },
             "Second sandbox should be placed after pool slot freed"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_reblock_sandbox_replaces_old_class_after_restart() -> Result<()> {
+        // Keep deterministic test timing around restart helper background tasks.
+        tokio::time::pause();
+
+        let temp_dir = tempfile::tempdir()?;
+        let state_store_path = temp_dir.path().join("state_store");
+        let blob_store_path = temp_dir.path().join("blob_store");
+        let ss = state_store_path.to_str().unwrap();
+        let bs = format!("file://{}", blob_store_path.to_str().unwrap());
+
+        // First service lifetime: create a pending sandbox with no executors.
+        let service1 = Service::new(server_config(ss, &bs)).await?;
+        tokio::task::yield_now().await;
+
+        let sandbox_id = create_sandbox(&service1.indexify_state, TEST_NAMESPACE).await;
+        let test_srv1 = testing::TestService::wrap(service1, temp_dir);
+        test_srv1.process_all_state_changes().await?;
+
+        let sandbox = get_sandbox(
+            &test_srv1.service.indexify_state,
+            TEST_NAMESPACE,
+            sandbox_id.get(),
+        )
+        .await
+        .expect("Sandbox should exist before restart");
+        assert!(
+            sandbox.status.is_pending(),
+            "sandbox should be pending before restart"
+        );
+
+        // Simulate restart by dropping the service and recreating it from the
+        // same persisted state store.
+        let _temp_dir = test_srv1.into_temp_dir();
+        tokio::time::advance(STARTUP_EXECUTOR_TIMEOUT + Duration::from_secs(1)).await;
+        tokio::task::yield_now().await;
+
+        let service2 = Service::new(server_config(ss, &bs)).await?;
+        tokio::task::yield_now().await;
+
+        let sandbox = get_sandbox(&service2.indexify_state, TEST_NAMESPACE, sandbox_id.get())
+            .await
+            .expect("Sandbox should exist after restart");
+        assert!(
+            sandbox.status.is_pending(),
+            "sandbox should remain pending after restart"
+        );
+
+        // Re-block same sandbox first under class A, then class B.
+        let current = service2.indexify_state.app_state.load_full();
+        let mut indexes = current.indexes.clone();
+        let mut scheduler = current.scheduler.clone();
+        let mut feas_cache = FeasibilityCache::new();
+        let sandbox_processor = SandboxProcessor::new();
+
+        let mut executor =
+            mock_sandbox_executor_metadata(ExecutorId::new("reblock-exec".to_string()));
+        executor
+            .labels
+            .insert("region".to_string(), "us-east".to_string());
+        scheduler.upsert_executor(&executor);
+        let class_a = scheduler.get_executor_class(&executor.id);
+
+        let alloc_a = sandbox_processor.allocate_sandbox_by_key(
+            &indexes,
+            &mut scheduler,
+            TEST_NAMESPACE,
+            sandbox_id.get(),
+            &mut feas_cache,
+        )?;
+        let clock = indexes.clock;
+        indexes.apply_scheduler_update(clock, &alloc_a, "test_reblock_class_a")?;
+        scheduler.apply_container_update(&alloc_a);
+
+        executor
+            .labels
+            .insert("region".to_string(), "us-west".to_string());
+        scheduler.upsert_executor(&executor);
+        let class_b = scheduler.get_executor_class(&executor.id);
+        assert_ne!(class_a, class_b, "executor class should change");
+
+        let alloc_b = sandbox_processor.allocate_sandbox_by_key(
+            &indexes,
+            &mut scheduler,
+            TEST_NAMESPACE,
+            sandbox_id.get(),
+            &mut feas_cache,
+        )?;
+        let clock = indexes.clock;
+        indexes.apply_scheduler_update(clock, &alloc_b, "test_reblock_class_b")?;
+        scheduler.apply_container_update(&alloc_b);
+
+        let unblocked_a = scheduler.blocked_work.unblock_for_class(&class_a, u64::MAX);
+        assert!(
+            unblocked_a.sandbox_keys.is_empty(),
+            "old class should not unblock after re-block replacement"
+        );
+
+        let unblocked_b = scheduler.blocked_work.unblock_for_class(&class_b, u64::MAX);
+        assert_eq!(
+            unblocked_b.sandbox_keys,
+            vec![SandboxKey::new(TEST_NAMESPACE, sandbox_id.get())],
+            "new class should unblock sandbox"
         );
 
         Ok(())
