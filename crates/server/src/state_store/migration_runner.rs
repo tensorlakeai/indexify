@@ -56,6 +56,16 @@ pub async fn run(path: &Path, config: RocksDBConfig) -> Result<StateMachineMetad
     // Find applicable migrations
     let migrations = registry.find_migrations(sm_meta.db_version);
 
+    // Check if DB is ahead of this binary
+    if sm_meta.db_version > latest_version {
+        return Err(anyhow::anyhow!(
+            "Database is at version {} but this binary only supports up to version {}. \
+             Please upgrade the binary before starting.",
+            sm_meta.db_version,
+            latest_version
+        ));
+    }
+
     // No migrations needed
     if migrations.is_empty() {
         info!(
@@ -274,6 +284,47 @@ mod tests {
         assert_eq!(
             sm_meta.db_version,
             MigrationRegistry::new()?.latest_version()
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_migration_rejects_db_ahead_of_binary() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let path = temp_dir.path();
+
+        // Create DB with all column families
+        let sm_column_families = IndexifyObjectsColumns::iter()
+            .map(|cf| ColumnFamilyDescriptor::new(cf.to_string(), Options::default()));
+
+        let metrics = Arc::new(StateStoreMetrics::new());
+        let config = RocksDBConfig::default();
+        let db =
+            state_store::open_database(path.to_path_buf(), config, sm_column_families, metrics)?;
+
+        // Set DB version far ahead of what the binary knows
+        let future_version = MigrationRegistry::new()?.latest_version() + 100;
+        let txn = db.transaction();
+        let meta = StateMachineMetadata {
+            db_version: future_version,
+            last_change_idx: 0,
+            last_usage_idx: 0,
+            last_request_event_idx: 0,
+        };
+
+        let mut ctx = MigrationContext::new(db, txn);
+        ctx.write_sm_meta(&meta).await?;
+        ctx.commit().await?;
+        drop(ctx);
+
+        // Running migrations should fail
+        let result = run(path, RocksDBConfig::default()).await;
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("but this binary only supports up to version"),
+            "unexpected error: {err}"
         );
 
         Ok(())
