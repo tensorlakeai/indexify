@@ -114,6 +114,9 @@ impl SandboxProcessor {
                         sandbox,
                         SandboxPendingReason::PoolAtCapacity,
                     );
+                    // Record in BlockedWorkTracker so the sandbox is retried
+                    // when a pool container terminates and frees a slot.
+                    Self::record_blocked_sandbox(container_scheduler, cache, sandbox);
                     return Ok((update, false));
                 }
             }
