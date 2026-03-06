@@ -34,10 +34,16 @@ class TestFunctionProcessCrash(unittest.TestCase):
                 function,
                 True,
             )
-            try:
+            with self.assertRaises(RequestFailed) as cm:
                 request.output()
-            except RequestFailed as e:
-                self.assertEqual(str(e), "function_error")
+
+            # The crash can surface as a function failure or as an internal
+            # infrastructure failure depending on where the process termination
+            # is observed.
+            self.assertIn(
+                str(cm.exception),
+                {"function_error", "internal_error", "function_executor_terminated"},
+            )
 
         # FIXME: we're only doing periodic Function Executor health checks right now,
         # so we need to wait for the crash to be detected.
