@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use rand::RngExt;
+use serde::Serialize;
 
 use crate::{
     data_model::{ExecutorId, ExecutorMetadata, Function, FunctionResources},
@@ -52,6 +53,25 @@ pub enum WorkloadKey {
     },
 }
 
+/// Counts of executors rejected at each stage of placement.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct RejectionCounts {
+    /// Executors evaluated in the placement loop.
+    pub considered: u32,
+    /// Rejected because the executor is tombstoned.
+    pub tombstoned: u32,
+    /// Rejected because constraint checks failed (allowlist, placement).
+    pub constraints: u32,
+    /// Rejected because of insufficient free memory.
+    pub memory: u32,
+    /// Rejected because of insufficient free CPU.
+    pub cpu: u32,
+    /// Rejected because of insufficient free disk.
+    pub disk: u32,
+    /// Rejected because of insufficient GPU resources.
+    pub gpu: u32,
+}
+
 /// Result of executor selection.
 #[derive(Debug, Clone)]
 pub struct PlacementResult {
@@ -59,6 +79,11 @@ pub struct PlacementResult {
     pub executor_id: Option<ExecutorId>,
     /// Executor classes that passed constraint checks.
     pub eligible_classes: HashSet<ExecutorClass>,
+    /// Counts of executors rejected at each filter stage.
+    pub rejection_counts: RejectionCounts,
+    /// Total executors in the memory index (includes all non-tombstoned with
+    /// resources > 0).
+    pub total_executors_in_index: u32,
 }
 
 /// Compute which executor classes are eligible (pass constraint checks) and
@@ -129,20 +154,24 @@ pub fn select_executor(
     resources: &FunctionResources,
     limit: usize,
 ) -> PlacementResult {
+    let total_executors_in_index = scheduler.executors_by_free_memory.len() as u32;
+    let max_memory = scheduler
+        .executors_by_free_memory
+        .get_max()
+        .map(|(mem, _)| *mem)
+        .unwrap_or(0);
+
     let mut result = PlacementResult {
         executor_id: None,
         eligible_classes: HashSet::new(),
+        rejection_counts: RejectionCounts::default(),
+        total_executors_in_index,
     };
 
     let min_memory_bytes = resources.memory_mb * 1024 * 1024;
 
     // Check if any executor has enough free memory (O(log N) range start).
     let range_start = || (min_memory_bytes, ExecutorId::default());
-    let max_memory = scheduler
-        .executors_by_free_memory
-        .get_max()
-        .map(|(mem, _)| *mem)
-        .unwrap_or(0);
 
     if max_memory < min_memory_bytes {
         // No executor has enough free memory, but still compute feasibility
@@ -177,8 +206,11 @@ pub fn select_executor(
         );
 
     let mut feasible_candidates: Vec<(ExecutorId, u64)> = Vec::new();
+    let rejections = &mut result.rejection_counts;
 
     for (snapshot_free_memory, executor_id) in wrapped_iter {
+        rejections.considered += 1;
+
         // Look up executor metadata
         let Some(executor) = scheduler.executors.get(executor_id) else {
             continue;
@@ -186,6 +218,7 @@ pub fn select_executor(
 
         // Skip tombstoned executors
         if executor.tombstoned {
+            rejections.tombstoned += 1;
             continue;
         }
 
@@ -209,6 +242,7 @@ pub fn select_executor(
         };
 
         if !feasible {
+            rejections.constraints += 1;
             continue;
         }
 
@@ -217,6 +251,7 @@ pub fn select_executor(
         // Check free memory (register_container already updates executor_states
         // inline, so the snapshot value is current within this batch)
         if *snapshot_free_memory < min_memory_bytes {
+            rejections.memory += 1;
             continue;
         }
 
@@ -225,9 +260,11 @@ pub fn select_executor(
             continue;
         };
         if executor_state.free_resources.cpu_ms_per_sec < resources.cpu_ms_per_sec {
+            rejections.cpu += 1;
             continue;
         }
         if executor_state.free_resources.disk_bytes < resources.ephemeral_disk_mb * 1024 * 1024 {
+            rejections.disk += 1;
             continue;
         }
         // GPU check against snapshot values (context doesn't track GPU)
@@ -236,6 +273,7 @@ pub fn select_executor(
             .can_handle_function_resources(resources)
             .is_err()
         {
+            rejections.gpu += 1;
             continue;
         }
 
@@ -320,6 +358,8 @@ mod tests {
         let result = PlacementResult {
             executor_id: None,
             eligible_classes: HashSet::new(),
+            rejection_counts: RejectionCounts::default(),
+            total_executors_in_index: 0,
         };
         assert!(result.executor_id.is_none());
     }

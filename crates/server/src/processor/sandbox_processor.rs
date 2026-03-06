@@ -181,10 +181,22 @@ impl SandboxProcessor {
                 // Distinguish between "no executors exist" and "executors
                 // exist but lack capacity" by checking the executor list.
                 if container_scheduler.has_executors() {
+                    let placement = container_scheduler.last_placement.as_ref();
+                    let requested = serde_json::json!({
+                        "cpu_ms": sandbox.resources.cpu_ms_per_sec,
+                        "memory_mb": sandbox.resources.memory_mb,
+                        "disk_mb": sandbox.resources.ephemeral_disk_mb,
+                    });
+                    let rejected = placement
+                        .map(|p| serde_json::to_string(&p.rejection_counts).unwrap_or_default())
+                        .unwrap_or_default();
                     info!(
                         sandbox_id = %sandbox.id,
                         namespace = %sandbox.namespace,
                         pool_id = sandbox.pool_id.as_ref().map(|id| id.get()).unwrap_or(""),
+                        %requested,
+                        total_executors = placement.map(|p| p.total_executors_in_index).unwrap_or(0),
+                        rejected = %rejected,
                         "No resources available for sandbox, keeping as pending"
                     );
                     Self::set_pending_reason(
