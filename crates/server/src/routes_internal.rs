@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::LazyLock, time::Instant};
 
 use anyhow::Result;
 use axum::{
@@ -11,6 +11,7 @@ use axum::{
     routing::{get, post, put},
 };
 use hyper::StatusCode;
+use opentelemetry::metrics::Histogram;
 use serde::{Deserialize, Serialize};
 use tracing::{error, info};
 use utoipa::OpenApi;
@@ -481,7 +482,15 @@ async fn list_executor_catalog(
 }
 
 /// Get pending resource profiles for capacity planning
-///
+static PENDING_RESOURCES_LATENCY: LazyLock<Histogram<f64>> = LazyLock::new(|| {
+    let meter = opentelemetry::global::meter("service-api");
+    meter
+        .f64_histogram("indexify.pending_resources_duration")
+        .with_unit("s")
+        .with_description("Latency of the pending_resources API handler in seconds")
+        .build()
+});
+
 /// Returns a histogram of resource profiles for pending function runs and
 /// sandboxes. Each profile represents a unique combination of resource
 /// requirements with a count of how many pending items need those resources.
@@ -499,9 +508,28 @@ async fn list_executor_catalog(
 async fn get_pending_resources(
     State(state): State<RouteState>,
 ) -> Result<Json<PendingResourcesResponse>, IndexifyAPIError> {
+    let start = Instant::now();
+
     let app = state.indexify_state.app_state.load();
-    let pending = app.indexes.get_pending_resources().clone();
-    Ok(Json(pending.into()))
+    let pending = app.indexes.get_pending_resources();
+
+    // Compute blocked-by-max on the fly from current state, then subtract
+    // from totals to get executor-scalable demand.
+    let (fn_blocked, sb_blocked) = crate::processor::buffer_reconciler::compute_blocked_by_pool_max(
+        &app.indexes,
+        &app.scheduler,
+    );
+    let scalable_fn = pending.function_runs.subtract(&fn_blocked);
+    let scalable_sb = pending.sandboxes.subtract(&sb_blocked);
+
+    PENDING_RESOURCES_LATENCY.record(start.elapsed().as_secs_f64(), &[]);
+
+    Ok(Json(PendingResourcesResponse {
+        function_runs: scalable_fn.into(),
+        sandboxes: scalable_sb.into(),
+        function_pool_deficits: pending.function_pool_deficits.clone().into(),
+        sandbox_pool_deficits: pending.sandbox_pool_deficits.clone().into(),
+    }))
 }
 
 /// Update the application state

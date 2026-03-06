@@ -564,4 +564,214 @@ mod tests {
 
         Ok(())
     }
+
+    /// Helper to get the pending resources response as the HTTP API would
+    /// return it (computing executor-scalable demand on the fly).
+    fn get_pending_resources_response(
+        test_srv: &TestService,
+    ) -> crate::http_objects::PendingResourcesResponse {
+        let app = test_srv.service.indexify_state.app_state.load();
+        let pending = app.indexes.get_pending_resources();
+        let (fn_blocked, sb_blocked) =
+            crate::processor::buffer_reconciler::compute_blocked_by_pool_max(
+                &app.indexes,
+                &app.scheduler,
+            );
+        let scalable_fn = pending.function_runs.subtract(&fn_blocked);
+        let scalable_sb = pending.sandboxes.subtract(&sb_blocked);
+        crate::http_objects::PendingResourcesResponse {
+            function_runs: scalable_fn.into(),
+            sandboxes: scalable_sb.into(),
+            function_pool_deficits: pending.function_pool_deficits.clone().into(),
+            sandbox_pool_deficits: pending.sandbox_pool_deficits.clone().into(),
+        }
+    }
+
+    /// When a function pool is at max_containers and there are unallocated
+    /// function runs, function_runs must exclude those runs so the autoscaler
+    /// does not provision extra executors.
+    #[tokio::test]
+    async fn test_function_runs_blocked_by_pool_max() -> Result<()> {
+        let test_srv = testing::TestService::new().await?;
+        let indexify_state = test_srv.service.indexify_state.clone();
+
+        // Create an app whose fn_a has max_containers=1 and buffer=1.
+        let fn_a = crate::data_model::Function {
+            name: "fn_a".to_string(),
+            max_concurrency: 1,
+            max_containers: Some(1),
+            warm_containers: Some(1),
+            ..Default::default()
+        };
+        let app = crate::data_model::ApplicationBuilder::default()
+            .namespace(TEST_NAMESPACE.to_string())
+            .state(crate::data_model::ApplicationState::Active)
+            .name("max_cap_app".to_string())
+            .tags(std::collections::HashMap::new())
+            .tombstoned(false)
+            .functions(std::collections::HashMap::from([(
+                "fn_a".to_string(),
+                fn_a.clone(),
+            )]))
+            .version("1".to_string())
+            .description("app for max capacity test".to_string())
+            .code(Some(crate::data_model::DataPayload {
+                id: "code_id".to_string(),
+                metadata_size: 0,
+                offset: 0,
+                encoding: "application/octet-stream".to_string(),
+                path: "cg_path".to_string(),
+                size: 23,
+                sha256_hash: "hash123".to_string(),
+            }))
+            .created_at(5)
+            .entrypoint(Some(crate::data_model::ApplicationEntryPoint {
+                function_name: "fn_a".to_string(),
+                input_serializer: "json".to_string(),
+                inputs_base64: "".to_string(),
+                output_serializer: "json".to_string(),
+                output_type_hints_base64: "".to_string(),
+            }))
+            .build()
+            .unwrap();
+
+        let container_pools = vec![ContainerPool::from_function(
+            TEST_NAMESPACE,
+            "max_cap_app",
+            "1",
+            &fn_a,
+        )];
+        indexify_state
+            .write(StateMachineUpdateRequest {
+                payload: RequestPayload::CreateOrUpdateApplication(Box::new(
+                    CreateOrUpdateApplicationRequest {
+                        namespace: TEST_NAMESPACE.to_string(),
+                        application: app.clone(),
+                        upgrade_requests_to_current_version: true,
+                        container_pools,
+                    },
+                )),
+            })
+            .await?;
+        test_srv.process_all_state_changes().await?;
+
+        // Register executor and process — fills the buffer (1 container).
+        let _executor = test_srv
+            .create_executor(mock_executor_metadata(TEST_EXECUTOR_ID.into()))
+            .await?;
+        test_srv.process_all_state_changes().await?;
+
+        // Verify pool hit max (1 container).
+        let (active, idle) =
+            get_function_container_counts(&test_srv, TEST_NAMESPACE, "max_cap_app", "fn_a", "1")
+                .await;
+        assert_eq!(
+            active + idle,
+            1,
+            "Pool should be at max_containers=1 (active={active}, idle={idle})"
+        );
+
+        // Invoke the app twice to create 2 pending function runs.
+        crate::state_store::test_state_store::invoke_application(&indexify_state, &app).await?;
+        crate::state_store::test_state_store::invoke_application(&indexify_state, &app).await?;
+        test_srv.process_all_state_changes().await?;
+
+        // The pool is at max, so these runs cannot be served by scaling.
+        // function_runs should be 0.
+        let pr = get_pending_resources_response(&test_srv);
+        let scalable: u64 = pr.function_runs.profiles.iter().map(|e| e.count).sum();
+        assert_eq!(
+            scalable, 0,
+            "Scalable function runs should be 0 when pool is at max"
+        );
+
+        // Deficits should be 0 — pool is at max so there is no deficit.
+        let deficit: u64 = pr
+            .function_pool_deficits
+            .profiles
+            .iter()
+            .map(|e| e.count)
+            .sum();
+        assert_eq!(deficit, 0, "Deficit should be 0 when pool is at max");
+
+        Ok(())
+    }
+
+    /// When a sandbox pool is at max_containers and sandboxes are pending,
+    /// sandboxes must exclude those sandboxes.
+    #[tokio::test]
+    async fn test_sandboxes_blocked_by_pool_max() -> Result<()> {
+        let test_srv = testing::TestService::new().await?;
+        let indexify_state = test_srv.service.indexify_state.clone();
+
+        // Register sandbox executor.
+        let mut executor = test_srv
+            .create_executor(mock_sandbox_executor_metadata(TEST_EXECUTOR_ID.into()))
+            .await?;
+        test_srv.process_all_state_changes().await?;
+
+        // Create a sandbox pool with max_containers=1, buffer=1.
+        let pool = ContainerPoolBuilder::default()
+            .id(ContainerPoolId::new("sb_max_pool"))
+            .namespace(TEST_NAMESPACE.to_string())
+            .image("python:3.11".to_string())
+            .resources(ContainerResources {
+                cpu_ms_per_sec: 1000,
+                memory_mb: 512,
+                ephemeral_disk_mb: 1024,
+                gpu: None,
+            })
+            .min_containers(Some(0))
+            .max_containers(Some(1))
+            .buffer_containers(Some(1))
+            .build()
+            .unwrap();
+        let pool_key = ContainerPoolKey::from(&pool);
+        register_container_pool(&test_srv, pool).await?;
+        test_srv.process_all_state_changes().await?;
+
+        // Mark containers running so the pool is fully at max.
+        executor.mark_function_executors_as_running().await?;
+        test_srv.process_all_state_changes().await?;
+
+        let (claimed, warm) = get_pool_container_counts(&test_srv, &pool_key).await;
+        assert_eq!(
+            claimed + warm,
+            1,
+            "Pool should be at max_containers=1 (claimed={claimed}, warm={warm})"
+        );
+
+        // Create the first sandbox — it claims the warm container and moves
+        // to WaitingForContainer (not counted as pending).
+        let sandbox1 = mock_sandbox_with_pool(TEST_NAMESPACE, "sb_max_pool");
+        indexify_state
+            .write(StateMachineUpdateRequest {
+                payload: RequestPayload::CreateSandbox(CreateSandboxRequest {
+                    sandbox: sandbox1.clone(),
+                }),
+            })
+            .await?;
+        test_srv.process_all_state_changes().await?;
+
+        // Create a second sandbox — no warm container left and pool is at max,
+        // so it stays in Pending/Scheduling and is counted as pending.
+        let sandbox2 = mock_sandbox_with_pool(TEST_NAMESPACE, "sb_max_pool");
+        indexify_state
+            .write(StateMachineUpdateRequest {
+                payload: RequestPayload::CreateSandbox(CreateSandboxRequest {
+                    sandbox: sandbox2.clone(),
+                }),
+            })
+            .await?;
+        test_srv.process_all_state_changes().await?;
+
+        let pr = get_pending_resources_response(&test_srv);
+        let scalable: u64 = pr.sandboxes.profiles.iter().map(|e| e.count).sum();
+        assert_eq!(
+            scalable, 0,
+            "Scalable sandboxes should be 0 when pool is at max"
+        );
+
+        Ok(())
+    }
 }
