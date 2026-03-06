@@ -325,13 +325,6 @@ impl ApplicationProcessor {
             }
         }
 
-        if merged_update.updated_sandboxes.is_empty()
-            && merged_update.containers.is_empty()
-            && merged_update.new_allocations.is_empty()
-        {
-            return Ok(());
-        }
-
         info!(
             sandboxes = merged_update.updated_sandboxes.len(),
             containers = merged_update.containers.len(),
@@ -350,6 +343,9 @@ impl ApplicationProcessor {
             })
             .await?;
 
+        // Always publish the updated state — even when nothing was placed,
+        // the allocation attempts may have registered work in the
+        // BlockedWorkTracker for future capacity-driven retries.
         self.indexify_state
             .app_state
             .store(Arc::new(crate::state_store::AppState {

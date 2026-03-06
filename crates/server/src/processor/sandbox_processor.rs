@@ -116,6 +116,10 @@ impl SandboxProcessor {
                     );
                     // Record in BlockedWorkTracker so the sandbox is retried
                     // when a pool container terminates and frees a slot.
+                    // Clear last_placement first — no placement was attempted
+                    // on this path, so stale data from a prior allocation in
+                    // the same batch would cause incorrect eligible classes.
+                    container_scheduler.last_placement.take();
                     Self::record_blocked_sandbox(container_scheduler, cache, sandbox);
                     return Ok((update, false));
                 }
