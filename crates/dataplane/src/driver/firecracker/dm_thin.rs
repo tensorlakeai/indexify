@@ -623,6 +623,55 @@ pub fn destroy_snapshot(lv_name: &str, lvm_config: &LvmConfig) -> Result<()> {
     Ok(())
 }
 
+/// Create an empty thin LV for use as initial vdb backing in warm VMs.
+///
+/// Sized to match the expected rootfs so Firecracker's virtio-blk reports the
+/// correct capacity from boot. Since it's thin-provisioned, unwritten blocks
+/// consume no pool space.
+pub fn create_empty_lv(
+    vm_id: &str,
+    lvm_config: &LvmConfig,
+    size_bytes: u64,
+) -> Result<ThinSnapshotHandle> {
+    let lv_name = format!("indexify-empty-{}", vm_id);
+    let pool = format!("{}/{}", lvm_config.volume_group, lvm_config.thin_pool);
+    let lv_path = format!("{}/{}", lvm_config.volume_group, lv_name);
+
+    run_cmd(
+        "lvcreate",
+        &[
+            "-V",
+            &format!("{}B", size_bytes),
+            "-T",
+            &pool,
+            "-n",
+            &lv_name,
+        ],
+    )
+    .with_context(|| format!("Failed to create empty thin LV {}", lv_path))?;
+
+    let device_path = PathBuf::from(format!("/dev/{}", lv_path));
+
+    tracing::info!(lv_name = %lv_name, "Empty thin LV created for warm VM vdb");
+
+    Ok(ThinSnapshotHandle {
+        lv_name,
+        device_path,
+        size_bytes,
+    })
+}
+
+/// Create an empty thin LV asynchronously.
+pub async fn create_empty_lv_async(
+    vm_id: String,
+    lvm_config: LvmConfig,
+    size_bytes: u64,
+) -> Result<ThinSnapshotHandle> {
+    tokio::task::spawn_blocking(move || create_empty_lv(&vm_id, &lvm_config, size_bytes))
+        .await
+        .context("empty LV creation task panicked")?
+}
+
 // ---------------------------------------------------------------------------
 // thin_delta metadata-based change detection
 // ---------------------------------------------------------------------------
@@ -1026,7 +1075,7 @@ pub async fn destroy_snapshot_async(lv_name: String, lvm_config: LvmConfig) -> R
 // ---------------------------------------------------------------------------
 
 /// Run a command and capture stdout. Returns error if exit code != 0.
-fn run_cmd(cmd: &str, args: &[&str]) -> Result<String> {
+pub(super) fn run_cmd(cmd: &str, args: &[&str]) -> Result<String> {
     let output = std::process::Command::new(cmd)
         .args(args)
         .stdout(std::process::Stdio::piped())

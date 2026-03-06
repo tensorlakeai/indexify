@@ -92,6 +92,12 @@ impl ManagedProcess {
 pub struct ProcessManager {
     processes: Arc<Mutex<HashMap<u32, ManagedProcess>>>,
     log_dir: PathBuf,
+    /// Default environment variables set via Prepare RPC.
+    default_env: Arc<Mutex<HashMap<String, String>>>,
+    /// Chroot path for process isolation (set via Prepare RPC).
+    chroot_path: Arc<Mutex<Option<PathBuf>>>,
+    /// Default working directory for spawned processes.
+    default_working_dir: Arc<Mutex<Option<PathBuf>>>,
 }
 
 impl ProcessManager {
@@ -100,7 +106,28 @@ impl ProcessManager {
         Self {
             processes: Arc::new(Mutex::new(HashMap::new())),
             log_dir,
+            default_env: Arc::new(Mutex::new(HashMap::new())),
+            chroot_path: Arc::new(Mutex::new(None)),
+            default_working_dir: Arc::new(Mutex::new(None)),
         }
+    }
+
+    /// Set default environment variables for future processes.
+    pub async fn set_default_env(&self, env: HashMap<String, String>) {
+        let mut default_env = self.default_env.lock().await;
+        default_env.extend(env);
+    }
+
+    /// Set the chroot path for future processes.
+    pub async fn set_chroot_path(&self, path: PathBuf) {
+        let mut chroot = self.chroot_path.lock().await;
+        *chroot = Some(path);
+    }
+
+    /// Set the default working directory for future processes.
+    pub async fn set_default_working_dir(&self, path: PathBuf) {
+        let mut dir = self.default_working_dir.lock().await;
+        *dir = Some(path);
     }
 
     /// Start a new process with the given configuration.
@@ -124,14 +151,40 @@ impl ProcessManager {
         let mut cmd = Command::new(&req.command);
         cmd.args(&req.args);
 
-        // Set environment variables
+        // Apply default env vars first, then request-specific ones (override)
+        {
+            let default_env = self.default_env.lock().await;
+            for (key, value) in default_env.iter() {
+                cmd.env(key, value);
+            }
+        }
         for (key, value) in &req.env {
             cmd.env(key, value);
         }
 
-        // Set working directory if specified
+        // Set working directory: request-specific > default > none
         if let Some(dir) = &req.working_dir {
             cmd.current_dir(dir);
+        } else {
+            let default_dir = self.default_working_dir.lock().await;
+            if let Some(dir) = default_dir.as_ref() {
+                cmd.current_dir(dir);
+            }
+        }
+
+        // Apply chroot if configured (via pre_exec)
+        {
+            let chroot = self.chroot_path.lock().await;
+            if let Some(chroot_path) = chroot.clone() {
+                unsafe {
+                    cmd.pre_exec(move || {
+                        nix::unistd::chroot(chroot_path.as_path())
+                            .map_err(std::io::Error::other)?;
+                        nix::unistd::chdir("/").map_err(std::io::Error::other)?;
+                        Ok(())
+                    });
+                }
+            }
         }
 
         // Configure stdio

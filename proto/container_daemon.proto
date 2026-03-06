@@ -32,6 +32,42 @@ message HealthResponse {
     optional uint64 uptime_secs = 3;
 }
 
+// Environment variable key-value pair
+message EnvVar {
+    string key = 1;
+    string value = 2;
+}
+
+// Mount configuration for user image
+message MountConfig {
+    // Block device to mount (e.g., "/dev/vdb")
+    string device = 1;
+    // Where to mount the device read-only (e.g., "/mnt/image")
+    string device_mount_point = 2;
+    // Where to mount the overlay filesystem (e.g., "/mnt/merged")
+    string overlay_mount_point = 3;
+    // Whether to use overlayfs (lowerdir=device, upperdir on tmpfs)
+    bool use_overlay = 4;
+}
+
+// Request to prepare the daemon for a claimed warm VM
+message PrepareRequest {
+    // Environment variables to set as defaults for future processes
+    repeated EnvVar env_vars = 1;
+    // Working directory for future processes
+    optional string working_dir = 2;
+    // Mount configuration for user image block device
+    optional MountConfig mount = 3;
+}
+
+// Response after preparing the daemon
+message PrepareResponse {
+    // Whether preparation succeeded
+    bool success = 1;
+    // Error message if preparation failed
+    optional string error = 2;
+}
+
 // Container daemon service - runs as PID1 inside function executor containers
 // and provides an API for the dataplane agent to manage the function executor process.
 service ContainerDaemon {
@@ -40,4 +76,7 @@ service ContainerDaemon {
 
     // Health check to verify daemon is ready
     rpc Health(HealthRequest) returns (HealthResponse);
+
+    // Prepare the daemon for a claimed warm VM (mount image, set env)
+    rpc Prepare(PrepareRequest) returns (PrepareResponse);
 }

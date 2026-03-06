@@ -156,6 +156,26 @@ pub struct VmMetadata {
     /// Labels from the application layer for log attribution.
     #[serde(default)]
     pub labels: HashMap<String, String>,
+
+    // --- Warm pool fields (backward-compatible via serde(default)) ---
+    /// Whether this VM is in the warm pool (not yet claimed).
+    #[serde(default)]
+    pub is_warm: bool,
+    /// Maximum memory in MiB the VM was booted with.
+    #[serde(default)]
+    pub max_memory_mib: Option<u64>,
+    /// Maximum vCPUs the VM was booted with.
+    #[serde(default)]
+    pub max_vcpus: Option<u32>,
+    /// Device-mapper device name for vdb (e.g., "dm-vdb-abc123").
+    #[serde(default)]
+    pub dm_device_name: Option<String>,
+    /// Empty thin LV name used as initial vdb backing.
+    #[serde(default)]
+    pub empty_lv_name: Option<String>,
+    /// Cgroup path for runtime CPU/memory adjustments.
+    #[serde(default)]
+    pub cgroup_path: Option<String>,
 }
 
 impl VmMetadata {
@@ -296,6 +316,12 @@ mod tests {
             http_addr: "192.168.30.2:9501".to_string(),
             socket_path: "/tmp/fc-test-vm-1.sock".to_string(),
             labels: HashMap::new(),
+            is_warm: false,
+            max_memory_mib: None,
+            max_vcpus: None,
+            dm_device_name: None,
+            empty_lv_name: None,
+            cgroup_path: None,
         }
     }
 

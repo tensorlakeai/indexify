@@ -8,11 +8,14 @@
 //! independently resized for per-VM disk sizing with COW block sharing.
 
 pub(crate) mod api;
+pub(crate) mod cgroup;
 mod cni;
+pub(crate) mod dm_swap;
 pub(crate) mod dm_thin;
 mod log_stream;
 mod rootfs;
 pub(crate) mod vm_state;
+pub(crate) mod warm_pool;
 
 use std::{
     collections::{HashMap, HashSet},
@@ -24,7 +27,7 @@ use std::{
 
 use anyhow::{Context, Result, bail};
 use async_trait::async_trait;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, mpsc};
 
 use self::{
     api::FirecrackerApiClient,
@@ -63,10 +66,38 @@ const API_SOCKET_TIMEOUT: Duration = Duration::from_secs(5);
 /// Poll interval for API socket.
 const API_SOCKET_POLL_INTERVAL: Duration = Duration::from_millis(50);
 
+/// Resolve a binary name to an absolute path.
+///
+/// The jailer's `--exec-file` requires an absolute path. If the caller
+/// provides a bare name (e.g., "firecracker"), resolve it via PATH.
+fn resolve_binary_path(name: &str) -> Result<String> {
+    let path = PathBuf::from(name);
+    if path.is_absolute() {
+        return Ok(name.to_string());
+    }
+    // Search PATH using `which`
+    let output = std::process::Command::new("which")
+        .arg(name)
+        .output()
+        .with_context(|| format!("Failed to run `which {}`", name))?;
+    if output.status.success() {
+        let resolved = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if !resolved.is_empty() {
+            return Ok(resolved);
+        }
+    }
+    bail!(
+        "Binary '{}' not found on PATH (the jailer requires absolute paths)",
+        name
+    );
+}
+
 /// Firecracker microVM driver implementing the `ProcessDriver` trait.
 pub struct FirecrackerDriver {
     /// Path to the firecracker binary.
     firecracker_binary: String,
+    /// Path to the jailer binary (for warm pool VMs).
+    jailer_binary: String,
     /// Path to the Linux kernel image.
     kernel_image_path: PathBuf,
     /// Base image thin LV handle.
@@ -91,6 +122,8 @@ pub struct FirecrackerDriver {
     log_dir: PathBuf,
     /// In-memory registry of running VMs.
     vms: Arc<Mutex<HashMap<String, VmState>>>,
+    /// Warm VM pool (None if warm pool is not configured).
+    warm_pool: Option<Arc<Mutex<warm_pool::WarmPool>>>,
 }
 
 impl FirecrackerDriver {
@@ -98,8 +131,10 @@ impl FirecrackerDriver {
     ///
     /// Validates paths, creates directories, sets up the origin device,
     /// and recovers any VMs from a previous run.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         firecracker_binary: Option<String>,
+        jailer_binary: Option<String>,
         kernel_image_path: String,
         default_rootfs_size_bytes: Option<u64>,
         base_rootfs_image: String,
@@ -113,8 +148,19 @@ impl FirecrackerDriver {
         log_dir: PathBuf,
         lvm_volume_group: String,
         lvm_thin_pool: String,
-    ) -> Result<Self> {
-        let firecracker_binary = firecracker_binary.unwrap_or_else(|| "firecracker".to_string());
+        warm_pool_config: Option<crate::config::WarmPoolConfig>,
+    ) -> Result<Arc<Self>> {
+        let firecracker_binary = resolve_binary_path(
+            firecracker_binary.as_deref().unwrap_or("firecracker"),
+        )?;
+        // Jailer is only required for warm pool VMs. If warm pool is not
+        // configured, fall back to unresolved name (won't be used).
+        let jailer_binary = if warm_pool_config.is_some() {
+            resolve_binary_path(jailer_binary.as_deref().unwrap_or("jailer"))?
+        } else {
+            jailer_binary
+                .unwrap_or_else(|| "jailer".to_string())
+        };
         let kernel_path = PathBuf::from(&kernel_image_path);
         let rootfs_path = PathBuf::from(&base_rootfs_image);
         let cni_bin_path = cni_bin_path.unwrap_or_else(|| DEFAULT_CNI_BIN_PATH.to_string());
@@ -233,9 +279,23 @@ impl FirecrackerDriver {
             .map(|vm| vm.metadata.vm_id.clone())
             .collect();
 
+        // Set up warm pool if configured — keep the receiver for the replenishment
+        // task.
+        let (warm_pool, replenish_rx) = match warm_pool_config {
+            Some(cfg) => {
+                let (tx, rx) = warm_pool::WarmPool::create_replenish_channel();
+                (
+                    Some(Arc::new(Mutex::new(warm_pool::WarmPool::new(cfg, tx)))),
+                    Some(rx),
+                )
+            }
+            None => (None, None),
+        };
+
         // Clean up dead VMs (those with metadata but whose process is gone).
         let driver = Self {
             firecracker_binary,
+            jailer_binary,
             kernel_image_path: kernel_path,
             base_image,
             lvm_config,
@@ -248,6 +308,7 @@ impl FirecrackerDriver {
             state_dir,
             log_dir,
             vms: Arc::new(Mutex::new(recovered_vms)),
+            warm_pool,
         };
 
         for metadata in &dead_vms {
@@ -259,6 +320,13 @@ impl FirecrackerDriver {
 
         // Clean up leaked network namespaces from crashed VMs.
         driver.cni.cleanup_orphaned_netns_sync(&active_vm_ids);
+
+        let driver = Arc::new(driver);
+
+        // Start warm pool replenishment in the background (non-blocking).
+        if let (Some(pool), Some(rx)) = (&driver.warm_pool, replenish_rx) {
+            driver.start_replenishment(Arc::clone(pool), rx);
+        }
 
         Ok(driver)
     }
@@ -283,6 +351,9 @@ impl FirecrackerDriver {
                 .join(format!("fc-{}-serial.log", metadata.vm_id)),
         );
 
+        // Clean up jailer chroot
+        self.cleanup_jailer_chroot(&metadata.vm_id);
+
         // Thin LV cleanup happens asynchronously.
         let lv_name = metadata.lv_name.clone();
         let vm_id = metadata.vm_id.clone();
@@ -304,6 +375,606 @@ impl FirecrackerDriver {
             let cni = CniManager::new(cni_network_name, cni_bin_path);
             cni.teardown_network(&vm_id).await;
         });
+    }
+
+    /// Claim a pre-booted warm VM and configure it for the given container.
+    ///
+    /// Steps:
+    /// 1. Create thin LV snapshot of user's image
+    /// 2. Swap dm device backing from empty LV to user's snapshot
+    /// 3. Adjust CPU via cgroup and memory via balloon
+    /// 4. Call daemon Prepare RPC to mount image and set env
+    async fn claim_warm_vm(
+        &self,
+        warm_vm: warm_pool::WarmVm,
+        config: &ProcessConfig,
+        handle_id: &str,
+        start_time: Instant,
+    ) -> Result<ProcessHandle> {
+        let vm_id = &warm_vm.vm_id;
+
+        // Compute resource limits
+        let cpu_millicores = config
+            .resources
+            .as_ref()
+            .and_then(|r| r.cpu_millicores)
+            .unwrap_or(self.default_vcpu_count as u64 * 1000);
+        let memory_mib = config
+            .resources
+            .as_ref()
+            .and_then(|r| r.memory_bytes)
+            .map(|b| (b / (1024 * 1024)).max(128))
+            .unwrap_or(self.default_memory_mib);
+
+        let rootfs_size_bytes = config
+            .resources
+            .as_ref()
+            .and_then(|r| r.disk_bytes)
+            .unwrap_or(self.default_rootfs_size_bytes)
+            .max(self.base_image.size_bytes);
+
+        // 1. Create thin LV snapshot of user's image
+        let snapshot = dm_thin::create_snapshot_async(
+            self.base_image.lv_name.clone(),
+            self.base_image.device_path.clone(),
+            self.base_image.size_bytes,
+            config.id.clone(),
+            self.lvm_config.clone(),
+            rootfs_size_bytes,
+        )
+        .await
+        .context("Failed to create thin snapshot for warm VM claim")?;
+
+        // 2. Swap dm device backing from empty LV to user's snapshot
+        let size_sectors = dm_swap::bytes_to_sectors(snapshot.size_bytes);
+        let dev_path_str = snapshot.device_path.to_string_lossy().to_string();
+        dm_swap::swap_backing_async(warm_vm.dm_device_name.clone(), dev_path_str, size_sectors)
+            .await
+            .context("Failed to swap dm device backing")?;
+
+        // 3. Adjust balloon (give guest the requested memory)
+        let balloon_size = warm_vm.max_memory_mib.saturating_sub(memory_mib);
+        let api_client = api::FirecrackerApiClient::new(&warm_vm.socket_path);
+        api_client
+            .update_balloon(balloon_size)
+            .await
+            .context("Failed to update balloon")?;
+
+        // 4. Set CPU limit via cgroup
+        warm_vm
+            .cgroup
+            .set_cpu_limit(cpu_millicores as u32)
+            .await
+            .context("Failed to set cgroup CPU limit")?;
+
+        // 5. Prepare daemon (mount image, set env vars)
+        let mut env_vars: Vec<(String, String)> = config.env.clone();
+        if let Some(dns) = rootfs::read_host_dns() {
+            env_vars.push(("DNS_NAMESERVERS".to_string(), dns));
+        }
+
+        let mount_config = proto_api::container_daemon_pb::MountConfig {
+            device: "/dev/vdb".to_string(),
+            device_mount_point: "/mnt/image".to_string(),
+            overlay_mount_point: "/mnt/merged".to_string(),
+            use_overlay: true,
+        };
+
+        let mut daemon_client =
+            crate::daemon_client::DaemonClient::connect(&warm_vm.daemon_addr).await?;
+        daemon_client
+            .prepare(env_vars, None, Some(mount_config))
+            .await
+            .context("Daemon prepare failed")?;
+
+        // 6. Build addresses and persist metadata
+        let labels: HashMap<String, String> = config.labels.iter().cloned().collect();
+
+        let metadata = VmMetadata {
+            handle_id: handle_id.to_string(),
+            vm_id: vm_id.clone(),
+            pid: warm_vm.pid,
+            lv_name: snapshot.lv_name.clone(),
+            netns_name: warm_vm.netns_name.clone(),
+            guest_ip: warm_vm.guest_ip.clone(),
+            daemon_addr: warm_vm.daemon_addr.clone(),
+            http_addr: warm_vm.http_addr.clone(),
+            socket_path: warm_vm.socket_path.clone(),
+            labels: labels.clone(),
+            is_warm: false, // No longer warm — it's claimed
+            max_memory_mib: Some(warm_vm.max_memory_mib),
+            max_vcpus: Some(warm_vm.max_vcpus),
+            dm_device_name: Some(warm_vm.dm_device_name.clone()),
+            empty_lv_name: Some(warm_vm.empty_lv_name.clone()),
+            cgroup_path: Some(warm_vm.cgroup.path_string()),
+        };
+        metadata.save(&self.state_dir)?;
+
+        // Spawn log streamer
+        let log_cancel =
+            log_stream::spawn_log_streamer(vm_id.clone(), self.log_dir.clone(), labels);
+
+        // Insert into VM registry
+        self.vms.lock().await.insert(
+            handle_id.to_string(),
+            VmState {
+                process: VmProcess::Recovered { pid: warm_vm.pid },
+                metadata,
+                log_cancel: Some(log_cancel),
+            },
+        );
+
+        tracing::info!(
+            vm_id = %vm_id,
+            total_ms = start_time.elapsed().as_millis() as u64,
+            "Warm VM claim complete"
+        );
+
+        Ok(ProcessHandle {
+            id: handle_id.to_string(),
+            daemon_addr: Some(warm_vm.daemon_addr),
+            http_addr: Some(warm_vm.http_addr),
+            container_ip: warm_vm.guest_ip,
+        })
+    }
+
+    /// Boot a warm VM for the pool.
+    ///
+    /// This follows the same steps as the cold boot path but:
+    /// - Boots with max resources (vCPUs, memory)
+    /// - Configures balloon to inflate (take memory from guest)
+    /// - Sets up dm-linear device backed by an empty LV for vdb
+    /// - Sets idle CPU limit via jailer cgroup
+    /// - Does NOT inject user-specific env or mount user images
+    pub async fn boot_warm_vm(
+        &self,
+        warm_pool_config: &crate::config::WarmPoolConfig,
+    ) -> Result<warm_pool::WarmVm> {
+        let vm_id = format!("warm-{}", &uuid::Uuid::new_v4().to_string()[..12]);
+        let handle_id = format!("fc-{}", vm_id);
+        let start_time = Instant::now();
+
+        let max_vcpus = warm_pool_config
+            .max_vcpus
+            .unwrap_or(self.default_vcpu_count);
+        let max_memory_mib = warm_pool_config
+            .max_memory_mib
+            .unwrap_or(self.default_memory_mib);
+
+        // 1. Create thin snapshot of base image
+        let snapshot = dm_thin::create_snapshot_async(
+            self.base_image.lv_name.clone(),
+            self.base_image.device_path.clone(),
+            self.base_image.size_bytes,
+            vm_id.clone(),
+            self.lvm_config.clone(),
+            self.default_rootfs_size_bytes,
+        )
+        .await
+        .context("Failed to create thin snapshot for warm VM")?;
+
+        // 2. Inject rootfs (daemon binary + init script, no user env)
+        let daemon_binary =
+            crate::daemon_binary::get_daemon_path().context("Daemon binary not available")?;
+        let dns_env = rootfs::read_host_dns()
+            .map(|dns| vec![("DNS_NAMESERVERS".to_string(), dns)])
+            .unwrap_or_default();
+        rootfs::inject_rootfs(&snapshot.device_path, daemon_binary, &dns_env, &vm_id).await?;
+
+        // 3. Setup CNI networking
+        let cni_result = self.cni.setup_network(&vm_id).await?;
+
+        // 4. Create empty LV + dm device for vdb
+        //    Size matches the base image so the guest virtio-blk sees the right
+        //    capacity from boot.  Thin-provisioned → near-zero actual disk use.
+        let empty_lv = dm_thin::create_empty_lv_async(
+            vm_id.clone(),
+            self.lvm_config.clone(),
+            self.base_image.size_bytes,
+        )
+        .await
+        .context("Failed to create empty LV for warm VM vdb")?;
+
+        let dm_name = dm_swap::dm_device_name(&vm_id);
+        let empty_sectors = dm_swap::bytes_to_sectors(empty_lv.size_bytes);
+        let empty_dev_path = empty_lv.device_path.to_string_lossy().to_string();
+        let dm_device_path = tokio::task::spawn_blocking({
+            let vm_id = vm_id.clone();
+            let empty_dev = empty_dev_path.clone();
+            move || dm_swap::create_dm_device(&vm_id, &empty_dev, empty_sectors)
+        })
+        .await
+        .context("dm device creation task panicked")?
+        .context("Failed to create dm device for warm VM")?;
+
+        // 5. Spawn Firecracker via jailer
+        //
+        // The jailer creates a chroot at:
+        //   <chroot_base>/firecracker/<id>/root/
+        // and copies the firecracker binary into it. We must hard-link
+        // the kernel, rootfs device, and dm device into the chroot so
+        // Firecracker can access them. The jailer also creates the cgroup
+        // at /sys/fs/cgroup/<parent_cgroup>/<id>/.
+
+        // Ensure parent cgroup exists with cpu controller delegation.
+        cgroup::ensure_parent_cgroup(&warm_pool_config.parent_cgroup)?;
+        // Use a short chroot base path to keep the API socket path under
+        // the 108-byte Unix domain socket limit. The jailer creates the
+        // structure: <base>/firecracker/<id>/root/run/firecracker.socket
+        let chroot_base = PathBuf::from("/srv/jailer");
+        std::fs::create_dir_all(&chroot_base)?;
+        let chroot_dir = chroot_base
+            .join("firecracker")
+            .join(&vm_id)
+            .join("root");
+
+        let serial_path = self.log_dir.join(format!("fc-{}-serial.log", vm_id));
+        let serial_file =
+            std::fs::File::create(&serial_path).or_else(|_| std::fs::File::create("/dev/null"))?;
+
+        // Boot args
+        let boot_args = format!(
+            "console=ttyS0 reboot=k panic=1 pci=off \
+             ip={}::{}:{}::eth0:off \
+             init=/sbin/indexify-init",
+            cni_result.guest_ip, self.guest_gateway, self.guest_netmask,
+        );
+
+        let netns_path = format!("/var/run/netns/{}", cni_result.netns_name);
+        let chroot_base_str = chroot_base.to_string_lossy().to_string();
+        let idle_cpu_quota = format!(
+            "cpu.max={} 100000",
+            warm_pool_config.idle_cpu_millicores as u64 * 100
+        );
+
+        let stderr_path = self.log_dir.join(format!("fc-{}-jailer.log", vm_id));
+        let stderr_file = std::fs::File::create(&stderr_path)
+            .or_else(|_| std::fs::File::create("/dev/null"))?;
+
+        let _child = tokio::process::Command::new(&self.jailer_binary)
+            .args([
+                "--id",
+                &vm_id,
+                "--exec-file",
+                &self.firecracker_binary,
+                "--uid",
+                "0",
+                "--gid",
+                "0",
+                "--cgroup-version",
+                "2",
+                "--cgroup",
+                &idle_cpu_quota,
+                "--parent-cgroup",
+                &warm_pool_config.parent_cgroup,
+                "--netns",
+                &netns_path,
+                "--new-pid-ns",
+                "--chroot-base-dir",
+                &chroot_base_str,
+                "--", // separator for firecracker args
+                "--api-sock",
+                "/run/firecracker.socket",
+            ])
+            .stdin(Stdio::null())
+            .stdout(serial_file)
+            .stderr(stderr_file)
+            .kill_on_drop(false)
+            .process_group(0)
+            .spawn()
+            .context("Failed to spawn jailer for warm VM")?;
+
+        // The jailer with --new-pid-ns forks: the parent exits after exec-ing
+        // the child into the new PID namespace. Wait briefly to let it set up,
+        // then check stderr for errors.
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        let stderr_content = std::fs::read_to_string(&stderr_path).unwrap_or_default();
+        if !stderr_content.is_empty() {
+            bail!("Jailer failed: {}", stderr_content.trim());
+        }
+
+        // The real Firecracker PID is in the chroot (written by jailer).
+        let pid_file = chroot_dir.join("firecracker.pid");
+        let fc_pid: u32 = std::fs::read_to_string(&pid_file)
+            .with_context(|| format!("Failed to read PID file {}", pid_file.display()))?
+            .trim()
+            .parse()
+            .with_context(|| format!("Invalid PID in {}", pid_file.display()))?;
+
+        // The API socket is inside the chroot.
+        let socket_path = chroot_dir
+            .join("run")
+            .join("firecracker.socket")
+            .to_string_lossy()
+            .to_string();
+
+        // 6. Wait for API socket
+        let api_client = FirecrackerApiClient::new(&socket_path);
+        api_client
+            .wait_for_socket(API_SOCKET_TIMEOUT, API_SOCKET_POLL_INTERVAL)
+            .await?;
+
+        // Hard-link device nodes and kernel into the chroot so Firecracker
+        // can access them. Must happen after jailer creates the chroot but
+        // before we configure the VM via API.
+        let kernel_chroot = chroot_dir.join("kernel");
+        let rootfs_chroot = chroot_dir.join("rootfs");
+        let dm_chroot = chroot_dir.join("vdb");
+
+        Self::link_or_copy(&self.kernel_image_path, &kernel_chroot)?;
+        Self::link_device_node(&snapshot.device_path, &rootfs_chroot)?;
+        Self::link_device_node(&PathBuf::from(&dm_device_path), &dm_chroot)?;
+
+        // 7. Configure VM via API (paths are relative to chroot)
+        api_client
+            .configure_boot_source("/kernel", &boot_args)
+            .await?;
+        api_client.configure_rootfs("/rootfs").await?;
+        api_client
+            .configure_machine(max_vcpus, max_memory_mib)
+            .await?;
+        api_client
+            .configure_network(&cni_result.tap_device, &cni_result.guest_mac)
+            .await?;
+
+        // Configure balloon: inflate to take all memory (idle VM needs minimal memory)
+        let balloon_inflate = max_memory_mib.saturating_sub(warm_pool_config.idle_memory_mib);
+        api_client.configure_balloon(balloon_inflate, true).await?;
+
+        // Configure secondary drive (vdb) backed by dm device
+        api_client
+            .configure_secondary_drive("vdb", "/vdb", false, "Unsafe")
+            .await?;
+
+        // Start the VM
+        api_client.start_instance().await?;
+
+        // 8. Wait for daemon to be healthy
+        let daemon_addr = format!("{}:{}", cni_result.guest_ip, DAEMON_GRPC_PORT);
+        let http_addr = format!("{}:{}", cni_result.guest_ip, DAEMON_HTTP_PORT);
+
+        let mut daemon_client = crate::daemon_client::DaemonClient::connect_with_retry(
+            &daemon_addr,
+            Duration::from_secs(30),
+        )
+        .await?;
+        daemon_client
+            .wait_for_ready(Duration::from_secs(30))
+            .await?;
+
+        // Cgroup was created by the jailer — derive handle for runtime adjustments.
+        let cgroup = cgroup::CgroupHandle::from_jailer(&warm_pool_config.parent_cgroup, &vm_id);
+
+        // 9. Persist metadata
+        let metadata = VmMetadata {
+            handle_id: handle_id.clone(),
+            vm_id: vm_id.clone(),
+            pid: fc_pid,
+            lv_name: snapshot.lv_name.clone(),
+            netns_name: cni_result.netns_name.clone(),
+            guest_ip: cni_result.guest_ip.clone(),
+            daemon_addr: daemon_addr.clone(),
+            http_addr: http_addr.clone(),
+            socket_path: socket_path.clone(),
+            labels: HashMap::new(),
+            is_warm: true,
+            max_memory_mib: Some(max_memory_mib),
+            max_vcpus: Some(max_vcpus),
+            dm_device_name: Some(dm_name.clone()),
+            empty_lv_name: Some(empty_lv.lv_name.clone()),
+            cgroup_path: Some(cgroup.path_string()),
+        };
+        metadata.save(&self.state_dir)?;
+
+        // Spawn log streamer
+        let log_cancel =
+            log_stream::spawn_log_streamer(vm_id.clone(), self.log_dir.clone(), HashMap::new());
+
+        // Register in VM registry (so recovery can find it).
+        // The jailer forks with --new-pid-ns, so we only have the PID
+        // (not a Child handle). Use Recovered mode.
+        self.vms.lock().await.insert(
+            handle_id.clone(),
+            VmState {
+                process: VmProcess::Recovered { pid: fc_pid },
+                metadata,
+                log_cancel: Some(log_cancel),
+            },
+        );
+
+        tracing::info!(
+            vm_id = %vm_id,
+            max_vcpus,
+            max_memory_mib,
+            total_ms = start_time.elapsed().as_millis() as u64,
+            "Warm VM booted successfully"
+        );
+
+        Ok(warm_pool::WarmVm {
+            handle_id,
+            vm_id,
+            socket_path,
+            daemon_addr,
+            http_addr,
+            guest_ip: cni_result.guest_ip,
+            lv_name: snapshot.lv_name,
+            netns_name: cni_result.netns_name,
+            dm_device_name: dm_name,
+            empty_lv_name: empty_lv.lv_name,
+            cgroup,
+            max_memory_mib,
+            max_vcpus,
+            pid: fc_pid,
+        })
+    }
+
+    /// Hard-link a regular file into the jailer chroot. Falls back to copy
+    /// if hard-linking fails (e.g., cross-device).
+    fn link_or_copy(src: &std::path::Path, dst: &std::path::Path) -> Result<()> {
+        if let Some(parent) = dst.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::hard_link(src, dst)
+            .or_else(|_| std::fs::copy(src, dst).map(|_| ()))
+            .with_context(|| {
+                format!(
+                    "Failed to link/copy {} -> {}",
+                    src.display(),
+                    dst.display()
+                )
+            })
+    }
+
+    /// Create a device node in the jailer chroot that mirrors the given
+    /// block device. Uses `mknod` with the same major/minor as the source.
+    fn link_device_node(src: &std::path::Path, dst: &std::path::Path) -> Result<()> {
+        use std::os::unix::fs::MetadataExt;
+        if let Some(parent) = dst.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let meta = std::fs::metadata(src)
+            .with_context(|| format!("stat {} for mknod", src.display()))?;
+        let rdev = meta.rdev();
+        let major = nix::sys::stat::major(rdev);
+        let minor = nix::sys::stat::minor(rdev);
+        let dev = nix::sys::stat::makedev(major, minor);
+        nix::sys::stat::mknod(
+            dst,
+            nix::sys::stat::SFlag::S_IFBLK,
+            nix::sys::stat::Mode::from_bits_truncate(0o660),
+            dev,
+        )
+        .with_context(|| {
+            format!(
+                "mknod {} ({}:{}) for {}",
+                dst.display(),
+                major,
+                minor,
+                src.display()
+            )
+        })
+    }
+
+    /// Clean up a jailer chroot directory for a VM.
+    fn cleanup_jailer_chroot(&self, vm_id: &str) {
+        let chroot_dir = PathBuf::from("/srv/jailer")
+            .join("firecracker")
+            .join(vm_id);
+        if chroot_dir.exists() {
+            let _ = std::fs::remove_dir_all(&chroot_dir);
+        }
+    }
+
+    /// Spawn the warm pool replenishment background task.
+    ///
+    /// This task watches for replenishment signals and boots new warm VMs
+    /// to maintain the target pool size. Non-blocking — the dataplane
+    /// starts accepting work immediately.
+    fn start_replenishment(
+        self: &Arc<Self>,
+        warm_pool: Arc<Mutex<warm_pool::WarmPool>>,
+        mut replenish_rx: mpsc::Receiver<()>,
+    ) {
+        let driver = Arc::clone(self);
+        let pool = Arc::clone(&warm_pool);
+
+        tokio::spawn(async move {
+            // Get config once
+            let config = {
+                let p = pool.lock().await;
+                p.config().clone()
+            };
+
+            // Initial fill
+            tracing::info!(
+                target_count = config.target_count,
+                "Warm pool: starting initial fill"
+            );
+            Self::replenish_pool(&driver, &pool, &config).await;
+
+            // Replenishment loop: event-driven with periodic safety-net timer.
+            // Wakes on claim/destroy signals OR every 30s (whichever comes first).
+            let mut failure_reset = tokio::time::interval(Duration::from_secs(60));
+            failure_reset.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+            loop {
+                tokio::select! {
+                    // Event-driven: claim or destroy triggered replenishment
+                    msg = replenish_rx.recv() => {
+                        if msg.is_none() {
+                            // Channel closed — warm pool dropped, stop task
+                            tracing::info!("Warm pool replenishment channel closed, stopping");
+                            break;
+                        }
+                        // Drain any extra signals that arrived while we were booting
+                        while replenish_rx.try_recv().is_ok() {}
+                    }
+                    // Safety-net: periodic replenishment check
+                    _ = tokio::time::sleep(Duration::from_secs(30)) => {}
+                    // Periodic failure reset to allow retry after backoff
+                    _ = failure_reset.tick() => {
+                        let mut p = pool.lock().await;
+                        p.reset_failures();
+                    }
+                }
+
+                Self::replenish_pool(&driver, &pool, &config).await;
+            }
+        });
+    }
+
+    /// Run one round of replenishment.
+    async fn replenish_pool(
+        driver: &Arc<Self>,
+        pool: &Arc<Mutex<warm_pool::WarmPool>>,
+        config: &crate::config::WarmPoolConfig,
+    ) {
+        let needed = {
+            let p = pool.lock().await;
+            p.replenish_count()
+        };
+
+        if needed == 0 {
+            return;
+        }
+
+        tracing::info!(count = needed, "Warm pool: booting VMs");
+
+        {
+            let mut p = pool.lock().await;
+            p.start_boots(needed);
+        }
+
+        let mut handles = Vec::with_capacity(needed);
+        for _ in 0..needed {
+            let driver = Arc::clone(driver);
+            let pool = Arc::clone(pool);
+            let config = config.clone();
+            handles.push(tokio::spawn(async move {
+                match driver.boot_warm_vm(&config).await {
+                    Ok(vm) => {
+                        let mut p = pool.lock().await;
+                        p.push_warm(vm);
+                        p.boot_completed();
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = ?e, "Failed to boot warm VM");
+                        let mut p = pool.lock().await;
+                        p.record_boot_failure();
+                    }
+                }
+            }));
+        }
+
+        // Wait for all boots to complete
+        for handle in handles {
+            let _ = handle.await;
+        }
+    }
+
+    /// Get the warm pool reference (for resource reporting).
+    pub fn warm_pool(&self) -> Option<&Arc<Mutex<warm_pool::WarmPool>>> {
+        self.warm_pool.as_ref()
     }
 
     /// Clean up all resources for a VM after it has been killed.
@@ -338,6 +1009,9 @@ impl FirecrackerDriver {
         // Remove log files
         let _ = std::fs::remove_file(self.log_dir.join(format!("fc-{}.log", vm_id)));
         let _ = std::fs::remove_file(self.log_dir.join(format!("fc-{}-serial.log", vm_id)));
+
+        // Clean up jailer chroot directory (if it exists).
+        self.cleanup_jailer_chroot(vm_id);
     }
 }
 
@@ -348,6 +1022,87 @@ impl ProcessDriver for FirecrackerDriver {
         let handle_id = format!("fc-{}", vm_id);
         let start_time = Instant::now();
 
+        // --- Warm pool fast path ---
+        // Try to claim a pre-booted VM from the warm pool.
+        if let Some(warm_pool) = &self.warm_pool {
+            let claimed = {
+                let mut pool = warm_pool.lock().await;
+                pool.try_claim()
+            };
+
+            if let Some(warm_vm) = claimed {
+                // Capture warm VM info for cleanup before moving into claim.
+                let warm_vm_id = warm_vm.vm_id.clone();
+                let warm_lv_name = warm_vm.lv_name.clone();
+                let warm_socket_path = warm_vm.socket_path.clone();
+                let warm_dm_device_name = warm_vm.dm_device_name.clone();
+                let warm_empty_lv_name = warm_vm.empty_lv_name.clone();
+                let warm_pid = warm_vm.pid;
+
+                match self
+                    .claim_warm_vm(warm_vm, &config, &handle_id, start_time)
+                    .await
+                {
+                    Ok(handle) => return Ok(handle),
+                    Err(e) => {
+                        tracing::warn!(
+                            error = ?e,
+                            vm_id = %vm_id,
+                            warm_vm_id = %warm_vm_id,
+                            "Warm VM claim failed, destroying warm VM and falling back to cold boot"
+                        );
+                        // The claim may have partially mutated the warm VM
+                        // (e.g., dm-swap succeeded but balloon/cgroup/prepare
+                        // failed). We must fully destroy the warm VM so the
+                        // cold boot fallback can create resources from scratch.
+                        //
+                        // Kill the Firecracker process.
+                        let _ = nix::sys::signal::kill(
+                            nix::unistd::Pid::from_raw(warm_pid as i32),
+                            nix::sys::signal::Signal::SIGKILL,
+                        );
+                        // Remove dm device (releases reference to claim snapshot).
+                        dm_swap::remove_dm_device_force(&warm_dm_device_name);
+                        // Remove the claim snapshot LV (may or may not exist).
+                        let claim_lv = format!("indexify-vm-{}", vm_id);
+                        let _ = dm_thin::destroy_snapshot_async(
+                            claim_lv,
+                            self.lvm_config.clone(),
+                        )
+                        .await;
+                        // Remove the warm VM's original rootfs LV.
+                        let _ = dm_thin::destroy_snapshot_async(
+                            warm_lv_name,
+                            self.lvm_config.clone(),
+                        )
+                        .await;
+                        // Remove the empty LV.
+                        let _ = dm_thin::destroy_snapshot_async(
+                            warm_empty_lv_name,
+                            self.lvm_config.clone(),
+                        )
+                        .await;
+                        // Teardown CNI networking.
+                        self.cni.teardown_network(&warm_vm_id).await;
+                        // Remove jailer chroot directory.
+                        self.cleanup_jailer_chroot(&warm_vm_id);
+                        // Remove socket and metadata files.
+                        let _ = std::fs::remove_file(&warm_socket_path);
+                        let _ = std::fs::remove_file(
+                            self.state_dir
+                                .join(format!("fc-{}.json", warm_vm_id)),
+                        );
+                        // Notify warm pool that a VM was destroyed.
+                        if let Some(wp) = &self.warm_pool {
+                            let mut pool = wp.lock().await;
+                            pool.notify_destroyed();
+                        }
+                    }
+                }
+            }
+        }
+
+        // --- Cold boot path ---
         // Extract tracing labels early (before config.labels is consumed).
         let pool = config
             .labels
@@ -737,6 +1492,12 @@ impl ProcessDriver for FirecrackerDriver {
             http_addr: http_addr.clone(),
             socket_path: socket_path.clone(),
             labels,
+            is_warm: false,
+            max_memory_mib: None,
+            max_vcpus: None,
+            dm_device_name: None,
+            empty_lv_name: None,
+            cgroup_path: None,
         };
         metadata.save(&self.state_dir)?;
 
@@ -780,7 +1541,7 @@ impl ProcessDriver for FirecrackerDriver {
     }
 
     async fn kill(&self, handle: &ProcessHandle) -> Result<()> {
-        let (vm_id, lv_name, socket_path) = {
+        let (vm_id, lv_name, socket_path, dm_device_name, empty_lv_name) = {
             let mut vms = self.vms.lock().await;
             if let Some(vm) = vms.get_mut(&handle.id) {
                 // Kill the Firecracker process
@@ -799,15 +1560,34 @@ impl ProcessDriver for FirecrackerDriver {
                     vm.metadata.vm_id.clone(),
                     vm.metadata.lv_name.clone(),
                     vm.metadata.socket_path.clone(),
+                    vm.metadata.dm_device_name.clone(),
+                    vm.metadata.empty_lv_name.clone(),
                 )
             } else {
                 return Ok(());
             }
         };
 
+        // Clean up dm device if this was a warm pool VM
+        if let Some(dm_name) = &dm_device_name {
+            dm_swap::remove_dm_device_async(dm_name.clone()).await;
+        }
+
+        // Clean up empty LV if present
+        if let Some(empty_lv) = &empty_lv_name {
+            let _ =
+                dm_thin::destroy_snapshot_async(empty_lv.clone(), self.lvm_config.clone()).await;
+        }
+
         // Clean up all resources
         self.cleanup_vm(&handle.id, &vm_id, &lv_name, &socket_path)
             .await;
+
+        // Notify warm pool that a VM was destroyed
+        if let Some(warm_pool) = &self.warm_pool {
+            let mut pool = warm_pool.lock().await;
+            pool.notify_destroyed();
+        }
 
         Ok(())
     }

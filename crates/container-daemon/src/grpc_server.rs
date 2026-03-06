@@ -9,6 +9,8 @@ use anyhow::{Context, Result};
 use proto_api::container_daemon_pb::{
     HealthRequest,
     HealthResponse,
+    PrepareRequest,
+    PrepareResponse,
     SendSignalRequest,
     SendSignalResponse,
     container_daemon_server::{ContainerDaemon, ContainerDaemonServer},
@@ -33,6 +35,62 @@ impl ContainerDaemonService {
             process_manager,
             start_time: Instant::now(),
         }
+    }
+
+    /// Mount a user image block device, optionally with overlayfs.
+    async fn mount_user_image(
+        &self,
+        mount: &proto_api::container_daemon_pb::MountConfig,
+    ) -> anyhow::Result<()> {
+        // Create mount point directories
+        tokio::fs::create_dir_all(&mount.device_mount_point).await?;
+
+        // Mount device read-only
+        let output = tokio::process::Command::new("mount")
+            .args(["-o", "ro", &mount.device, &mount.device_mount_point])
+            .output()
+            .await?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            anyhow::bail!(
+                "mount {} -> {} failed with exit code {:?}: {}",
+                mount.device,
+                mount.device_mount_point,
+                output.status.code(),
+                stderr.trim()
+            );
+        }
+
+        if mount.use_overlay {
+            // Create overlay directories on tmpfs
+            let upper = format!("{}/upper", mount.overlay_mount_point);
+            let work = format!("{}/work", mount.overlay_mount_point);
+            tokio::fs::create_dir_all(&upper).await?;
+            tokio::fs::create_dir_all(&work).await?;
+            tokio::fs::create_dir_all(&mount.overlay_mount_point).await?;
+
+            // Mount overlayfs
+            let overlay_opts = format!(
+                "lowerdir={},upperdir={},workdir={}",
+                mount.device_mount_point, upper, work
+            );
+            let status = tokio::process::Command::new("mount")
+                .args([
+                    "-t",
+                    "overlay",
+                    "overlay",
+                    "-o",
+                    &overlay_opts,
+                    &mount.overlay_mount_point,
+                ])
+                .status()
+                .await?;
+            if !status.success() {
+                anyhow::bail!("overlayfs mount failed with exit code {:?}", status.code());
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -73,6 +131,66 @@ impl ContainerDaemon for ContainerDaemonService {
             healthy: Some(true),
             version: Some(VERSION.to_string()),
             uptime_secs: Some(uptime_secs),
+        }))
+    }
+
+    async fn prepare(
+        &self,
+        request: Request<PrepareRequest>,
+    ) -> Result<Response<PrepareResponse>, Status> {
+        let req = request.into_inner();
+
+        // Store env vars as defaults for future process spawns
+        let env_map: std::collections::HashMap<String, String> =
+            req.env_vars.into_iter().map(|e| (e.key, e.value)).collect();
+
+        if !env_map.is_empty() {
+            info!(
+                count = env_map.len(),
+                "Setting default environment variables"
+            );
+            self.process_manager.set_default_env(env_map).await;
+        }
+
+        // Handle mount configuration
+        if let Some(mount) = req.mount {
+            info!(
+                device = %mount.device,
+                mount_point = %mount.device_mount_point,
+                overlay = %mount.overlay_mount_point,
+                use_overlay = mount.use_overlay,
+                "Mounting user image"
+            );
+
+            if let Err(e) = self.mount_user_image(&mount).await {
+                error!(error = %e, "Failed to mount user image");
+                return Ok(Response::new(PrepareResponse {
+                    success: false,
+                    error: Some(e.to_string()),
+                }));
+            }
+
+            // Set chroot path so future processes run inside the mounted image
+            let chroot_path = if mount.use_overlay {
+                mount.overlay_mount_point.clone()
+            } else {
+                mount.device_mount_point.clone()
+            };
+            self.process_manager
+                .set_chroot_path(std::path::PathBuf::from(chroot_path))
+                .await;
+        }
+
+        // Set working directory for future processes
+        if let Some(working_dir) = req.working_dir {
+            self.process_manager
+                .set_default_working_dir(std::path::PathBuf::from(working_dir))
+                .await;
+        }
+
+        Ok(Response::new(PrepareResponse {
+            success: true,
+            error: None,
         }))
     }
 }

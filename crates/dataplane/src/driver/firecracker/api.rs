@@ -109,6 +109,49 @@ impl FirecrackerApiClient {
         self.patch("/vm", &body).await
     }
 
+    /// Configure the balloon device (pre-boot, before InstanceStart).
+    ///
+    /// `amount_mib` is the balloon SIZE — memory TAKEN from the guest.
+    /// So to give the guest 256 MiB out of 512 MiB total, set amount_mib=256.
+    pub async fn configure_balloon(&self, amount_mib: u64, deflate_on_oom: bool) -> Result<()> {
+        let body = serde_json::json!({
+            "amount_mib": amount_mib,
+            "deflate_on_oom": deflate_on_oom,
+        });
+        self.put("/balloon", &body).await
+    }
+
+    /// Update the balloon size at runtime (after InstanceStart).
+    ///
+    /// `amount_mib` is the new balloon SIZE — memory TAKEN from guest.
+    /// Decreasing this value (deflation) gives memory back to the guest.
+    pub async fn update_balloon(&self, amount_mib: u64) -> Result<()> {
+        let body = serde_json::json!({
+            "amount_mib": amount_mib,
+        });
+        self.patch("/balloon", &body).await
+    }
+
+    /// Configure a secondary block device (pre-boot, before InstanceStart).
+    ///
+    /// `cache_type` should be "Unsafe" for warm pool vdb devices.
+    pub async fn configure_secondary_drive(
+        &self,
+        drive_id: &str,
+        path: &str,
+        is_read_only: bool,
+        cache_type: &str,
+    ) -> Result<()> {
+        let body = serde_json::json!({
+            "drive_id": drive_id,
+            "path_on_host": path,
+            "is_root_device": false,
+            "is_read_only": is_read_only,
+            "cache_type": cache_type,
+        });
+        self.put(&format!("/drives/{}", drive_id), &body).await
+    }
+
     /// Send a PATCH request to the Firecracker API.
     async fn patch(&self, path: &str, body: &serde_json::Value) -> Result<()> {
         self.request("PATCH", path, body).await
