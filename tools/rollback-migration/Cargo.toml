@@ -1,0 +1,11 @@
+[package]
+name = "rollback-migration"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+rocksdb = { version = "0.24.0" }
+postcard = { version = "1", features = ["alloc"] }
+serde = { version = "1", features = ["derive"] }
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }

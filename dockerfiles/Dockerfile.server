@@ -16,8 +16,10 @@ COPY Cargo.toml .
 COPY Cargo.lock .
 COPY proto proto
 COPY crates crates
+COPY tools tools
 
 RUN cargo build --release --bin indexify-server
+RUN cargo build --release --manifest-path tools/rollback-migration/Cargo.toml
 
 FROM ubuntu:24.04 AS runner
 
@@ -34,6 +36,7 @@ RUN update-ca-certificates
 WORKDIR /indexify
 
 COPY --from=builder /app/target/release/indexify-server ./
+COPY --from=builder /app/tools/rollback-migration/target/release/rollback-migration ./
 
 ENV PATH="/indexify:${PATH}"
 
