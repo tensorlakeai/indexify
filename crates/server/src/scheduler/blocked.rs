@@ -67,6 +67,9 @@ impl BlockedWorkTracker {
 
     /// Record a failed sandbox placement.
     pub fn block_sandbox(&mut self, key: SandboxKey, info: BlockingInfo) {
+        // Re-blocking the same key must replace prior class/escaped indexes.
+        // Otherwise stale reverse-index entries can unblock it under old classes.
+        self.remove_sandbox(&key);
         if info.escaped {
             self.escaped_sandboxes.insert(key.clone());
         }
@@ -81,6 +84,9 @@ impl BlockedWorkTracker {
 
     /// Record a failed function run placement.
     pub fn block_function_run(&mut self, key: FunctionRunKey, info: BlockingInfo) {
+        // Re-blocking the same key must replace prior class/escaped indexes.
+        // Otherwise stale reverse-index entries can unblock it under old classes.
+        self.remove_function_run(&key);
         if info.escaped {
             self.escaped_function_runs.insert(key.clone());
         }
