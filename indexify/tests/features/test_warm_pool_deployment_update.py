@@ -141,7 +141,9 @@ class TestWarmPoolDeploymentUpdate(unittest.TestCase):
         self.assertNotEqual(version_1, version_2)
         deploy_applications(__file__)
 
-        active_containers = _wait_for_active_versions(app_name, {version_2}, min_count=1)
+        active_containers = _wait_for_active_versions(
+            app_name, {version_2}, min_count=1
+        )
         active_versions = {c["version"] for c in active_containers}
         self.assertEqual(active_versions, {version_2})
         self.assertNotIn(version_1, active_versions)
