@@ -366,7 +366,12 @@ impl FirecrackerDriver {
         &self.state_dir
     }
 
-    /// Clean up resources for a dead VM (blocking, used during recovery).
+    /// Clean up resources for a dead VM (used during recovery).
+    ///
+    /// Synchronous cleanup (files, cgroup, dm device) runs inline so
+    /// resources are released before the function returns. LV destruction
+    /// and CNI teardown are spawned as background tasks — they're
+    /// idempotent and tolerant of interruption.
     fn cleanup_dead_vm(&self, metadata: &VmMetadata) {
         // Remove metadata file
         metadata.remove(&self.state_dir);
@@ -391,23 +396,22 @@ impl FirecrackerDriver {
             cgroup::CgroupHandle::from_path(PathBuf::from(cgroup_path)).remove();
         }
 
-        // Clean up warm-pool-specific resources (dm device, empty LV).
-        let dm_device_name = metadata.dm_device_name.clone();
-        let empty_lv_name = metadata.empty_lv_name.clone();
+        // Remove dm device synchronously (releases reference to backing LVs
+        // and must complete before LV destruction).
+        if let Some(ref dm_name) = metadata.dm_device_name {
+            dm_swap::remove_dm_device_force(dm_name);
+        }
 
-        // Thin LV cleanup happens asynchronously.
+        // LV destruction and CNI teardown run in the background — they're
+        // idempotent and safe to interrupt on shutdown.
         let lv_name = metadata.lv_name.clone();
+        let empty_lv_name = metadata.empty_lv_name.clone();
         let vm_id = metadata.vm_id.clone();
         let lvm_config = self.lvm_config.clone();
         let cni_network_name = self.cni.network_name().to_string();
         let cni_bin_path = self.cni.cni_bin_path().to_string();
 
         tokio::spawn(async move {
-            // Remove dm device first (releases reference to backing LVs).
-            if let Some(dm_name) = dm_device_name {
-                dm_swap::remove_dm_device_force(&dm_name);
-            }
-
             if !lv_name.is_empty() &&
                 let Err(e) = dm_thin::destroy_snapshot_async(lv_name, lvm_config.clone()).await
             {
@@ -417,7 +421,6 @@ impl FirecrackerDriver {
                 );
             }
 
-            // Remove empty LV used for warm VM vdb backing.
             if let Some(empty_lv) = empty_lv_name &&
                 let Err(e) = dm_thin::destroy_snapshot_async(empty_lv, lvm_config).await
             {
@@ -427,7 +430,6 @@ impl FirecrackerDriver {
                 );
             }
 
-            // Teardown CNI
             let cni = CniManager::new(cni_network_name, cni_bin_path);
             cni.teardown_network(&vm_id).await;
         });
@@ -650,13 +652,15 @@ impl FirecrackerDriver {
             let cni_result = self.cni.setup_network(&vm_id).await?;
             cni_setup = true;
 
-            // 4. Create empty LV + dm device for vdb Size matches the base image so the
-            //    guest virtio-blk sees the right capacity from boot.  Thin-provisioned →
-            //    near-zero actual disk use.
+            // 4. Create empty LV + dm device for vdb.  Size matches the default
+            //    rootfs size so the guest virtio-blk sees the right capacity
+            //    from boot and claim-time snapshots (which use the same default)
+            //    fit without a dm table resize.  Thin-provisioned → near-zero
+            //    actual disk use.
             let empty_lv = dm_thin::create_empty_lv_async(
                 vm_id.clone(),
                 self.lvm_config.clone(),
-                self.base_image.size_bytes,
+                self.default_rootfs_size_bytes,
             )
             .await
             .context("Failed to create empty LV for warm VM vdb")?;
@@ -1307,15 +1311,35 @@ impl ProcessDriver for FirecrackerDriver {
                         dm_swap::remove_dm_device_async(warm_dm_device_name).await;
                         // Remove the claim snapshot LV (may or may not exist).
                         // This MUST succeed before the cold boot fallback below,
-                        // which will create a new LV with the same name.
+                        // which will create a new LV with the same name. If we
+                        // can't remove it, bail — cold boot would fail anyway.
                         let claim_lv = format!("indexify-vm-{}", vm_id);
                         if let Err(e) =
                             dm_thin::destroy_snapshot_async(claim_lv, self.lvm_config.clone()).await
                         {
-                            tracing::warn!(
-                                error = ?e,
-                                vm_id = %vm_id,
-                                "Failed to destroy claim snapshot LV — cold boot may fail"
+                            // Still clean up remaining warm VM resources.
+                            let _ = dm_thin::destroy_snapshot_async(
+                                warm_lv_name,
+                                self.lvm_config.clone(),
+                            )
+                            .await;
+                            let _ = dm_thin::destroy_snapshot_async(
+                                warm_empty_lv_name,
+                                self.lvm_config.clone(),
+                            )
+                            .await;
+                            self.cni.teardown_network(&warm_vm_id).await;
+                            self.cleanup_jailer_chroot(&warm_vm_id);
+                            let _ = std::fs::remove_file(&warm_socket_path);
+                            let _ = std::fs::remove_file(
+                                self.state_dir.join(format!("fc-{}.json", warm_vm_id)),
+                            );
+                            if let Some(wp) = &self.warm_pool {
+                                wp.lock().await.notify_destroyed();
+                            }
+                            return Err(e).context(
+                                "Failed to destroy claim snapshot LV after warm claim failure; \
+                                 cannot fall back to cold boot",
                             );
                         }
                         // Remove the warm VM's original rootfs LV.
