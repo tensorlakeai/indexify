@@ -515,7 +515,7 @@ impl FirecrackerDriver {
             .await
             .context("Failed to set cgroup CPU limit")?;
 
-        // 5. Prepare daemon (mount image, set env vars)
+        // 5. Prepare daemon (mount image, set env vars, offline extra CPUs)
         let mut env_vars: Vec<(String, String)> = config.env.clone();
         if let Some(dns) = rootfs::read_host_dns() {
             env_vars.push(("DNS_NAMESERVERS".to_string(), dns));
@@ -528,10 +528,16 @@ impl FirecrackerDriver {
             use_overlay: true,
         };
 
+        // Round up millicores to whole CPUs, capped by the VM's max vCPUs.
+        let num_cpus = cpu_millicores
+            .div_ceil(1000)
+            .min(warm_vm.max_vcpus as u64)
+            .max(1) as u32;
+
         let mut daemon_client =
             crate::daemon_client::DaemonClient::connect(&warm_vm.daemon_addr).await?;
         daemon_client
-            .prepare(env_vars, None, Some(mount_config))
+            .prepare(env_vars, None, Some(mount_config), Some(num_cpus))
             .await
             .context("Daemon prepare failed")?;
 

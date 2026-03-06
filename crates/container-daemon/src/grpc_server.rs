@@ -210,11 +210,79 @@ impl ContainerDaemon for ContainerDaemonService {
                 .await;
         }
 
+        // Offline extra CPUs so guest processes see the correct count via
+        // nproc / /proc/cpuinfo. CPU0 cannot be offlined on Linux.
+        if let Some(num_cpus) = req.num_cpus
+            && num_cpus > 0
+            && let Err(e) = offline_extra_cpus(num_cpus).await
+        {
+            error!(error = %e, num_cpus, "Failed to offline extra CPUs");
+            return Ok(Response::new(PrepareResponse {
+                success: false,
+                error: Some(e.to_string()),
+            }));
+        }
+
         Ok(Response::new(PrepareResponse {
             success: true,
             error: None,
         }))
     }
+}
+
+/// Offline CPUs beyond `keep_online` so `nproc` and `/proc/cpuinfo` reflect
+/// the actual allocation. CPU0 cannot be offlined on Linux, so the minimum
+/// online count is 1.
+async fn offline_extra_cpus(keep_online: u32) -> anyhow::Result<()> {
+    let keep = keep_online.max(1) as usize;
+
+    // Count available CPUs by scanning /sys/devices/system/cpu/cpu[0-9]+
+    let mut entries = tokio::fs::read_dir("/sys/devices/system/cpu").await?;
+    let mut cpu_ids: Vec<usize> = Vec::new();
+    while let Some(entry) = entries.next_entry().await? {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if let Some(id_str) = name.strip_prefix("cpu")
+            && let Ok(id) = id_str.parse::<usize>()
+        {
+            cpu_ids.push(id);
+        }
+    }
+    cpu_ids.sort();
+
+    if cpu_ids.len() <= keep {
+        info!(
+            total_cpus = cpu_ids.len(),
+            keep_online = keep,
+            "All CPUs already within limit, no offlining needed"
+        );
+        return Ok(());
+    }
+
+    // Offline CPUs from the highest ID down, keeping the first `keep` online.
+    // CPU0 is always skipped (cannot be offlined).
+    let to_offline = &cpu_ids[keep..];
+    let mut offlined = 0usize;
+    for &cpu_id in to_offline {
+        if cpu_id == 0 {
+            continue;
+        }
+        let path = format!("/sys/devices/system/cpu/cpu{}/online", cpu_id);
+        if let Err(e) = tokio::fs::write(&path, "0").await {
+            // Non-fatal: some kernels don't support CPU hotplug for all CPUs.
+            info!(cpu_id, error = %e, "Could not offline CPU (may not support hotplug)");
+        } else {
+            offlined += 1;
+        }
+    }
+
+    info!(
+        total_cpus = cpu_ids.len(),
+        keep_online = keep,
+        offlined,
+        "CPU offlining complete"
+    );
+    Ok(())
 }
 
 /// Check if a path is currently a mountpoint.

@@ -58,6 +58,9 @@ message PrepareRequest {
     optional string working_dir = 2;
     // Mount configuration for user image block device
     optional MountConfig mount = 3;
+    // Number of CPUs to keep online (offline the rest).
+    // If 0 or unset, no CPU offlining is performed.
+    optional uint32 num_cpus = 4;
 }
 
 // Response after preparing the daemon

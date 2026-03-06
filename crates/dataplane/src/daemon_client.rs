@@ -88,12 +88,13 @@ impl DaemonClient {
     /// Prepare the daemon for a claimed warm VM.
     ///
     /// Sets default environment variables, mounts the user image block device,
-    /// and configures chroot for future process spawns.
+    /// configures chroot for future process spawns, and offlines extra CPUs.
     pub async fn prepare(
         &mut self,
         env_vars: Vec<(String, String)>,
         working_dir: Option<String>,
         mount: Option<MountConfig>,
+        num_cpus: Option<u32>,
     ) -> Result<()> {
         let request = PrepareRequest {
             env_vars: env_vars
@@ -102,6 +103,7 @@ impl DaemonClient {
                 .collect(),
             working_dir,
             mount,
+            num_cpus,
         };
 
         let response = self
