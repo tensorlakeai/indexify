@@ -194,7 +194,7 @@ impl SandboxProcessor {
                         sandbox_id = %sandbox.id,
                         namespace = %sandbox.namespace,
                         pool_id = sandbox.pool_id.as_ref().map(|id| id.get()).unwrap_or(""),
-                        %requested,
+                        requested = %requested,
                         total_executors = placement.map(|p| p.total_executors_in_index).unwrap_or(0),
                         rejected = %rejected,
                         "No resources available for sandbox, keeping as pending"

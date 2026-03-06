@@ -155,7 +155,6 @@ pub fn select_executor(
     limit: usize,
 ) -> PlacementResult {
     let total_executors_in_index = scheduler.executors_by_free_memory.len() as u32;
-
     let mut result = PlacementResult {
         executor_id: None,
         eligible_classes: HashSet::new(),
