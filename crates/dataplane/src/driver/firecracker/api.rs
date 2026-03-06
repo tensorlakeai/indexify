@@ -187,7 +187,7 @@ impl FirecrackerApiClient {
         // Read the response before shutting down the write side.
         // Shutting down first can cause Firecracker to close the connection
         // before sending a response.
-        let mut response = Vec::new();
+        let mut response = Vec::with_capacity(4096);
         let mut buf = [0u8; 4096];
         loop {
             let n = stream.read(&mut buf).await?;
@@ -195,29 +195,19 @@ impl FirecrackerApiClient {
                 break;
             }
             response.extend_from_slice(&buf[..n]);
-            // Check if we've received the full response (headers + body).
-            // HTTP responses end with \r\n\r\n for headers-only or after
-            // Content-Length bytes of body.
-            let response_str = String::from_utf8_lossy(&response);
-            if response_str.contains("\r\n\r\n") {
-                // Check if we have the full body
-                if let Some(header_end) = response_str.find("\r\n\r\n") {
-                    let headers = &response_str[..header_end];
-                    let body_start = header_end + 4;
-                    let content_length = headers
-                        .lines()
-                        .find(|l| l.to_lowercase().starts_with("content-length:"))
-                        .and_then(|l| l.split(':').nth(1))
-                        .and_then(|v| v.trim().parse::<usize>().ok())
-                        .unwrap_or(0);
-                    if response.len() >= body_start + content_length {
-                        break;
-                    }
+
+            // Search for header/body boundary on raw bytes (avoids per-iteration
+            // UTF-8 conversion).
+            if let Some(header_end) = find_header_end(&response) {
+                let body_start = header_end + 4;
+                let content_length = parse_content_length(&response[..header_end]);
+                if response.len() >= body_start + content_length {
+                    break;
                 }
             }
         }
 
-        let response = String::from_utf8_lossy(&response).to_string();
+        let response = String::from_utf8_lossy(&response).into_owned();
 
         // Parse the HTTP status line
         let status_line = response
@@ -232,7 +222,7 @@ impl FirecrackerApiClient {
             .parse()
             .context("Invalid HTTP status code")?;
 
-        if status_code >= 200 && status_code < 300 {
+        if (200..300).contains(&status_code) {
             Ok(())
         } else {
             // Extract body after the blank line
@@ -246,6 +236,27 @@ impl FirecrackerApiClient {
             );
         }
     }
+}
+
+/// Find the byte offset of `\r\n\r\n` in a byte slice (header/body boundary).
+fn find_header_end(data: &[u8]) -> Option<usize> {
+    data.windows(4).position(|w| w == b"\r\n\r\n")
+}
+
+/// Parse Content-Length from raw header bytes.
+///
+/// Scans lines for a case-insensitive match without allocating.
+fn parse_content_length(headers: &[u8]) -> usize {
+    let header_str = std::str::from_utf8(headers).unwrap_or("");
+    for line in header_str.lines() {
+        if line.len() > 15 &&
+            line[..15].eq_ignore_ascii_case("content-length:") &&
+            let Ok(len) = line[15..].trim().parse::<usize>()
+        {
+            return len;
+        }
+    }
+    0
 }
 
 #[cfg(test)]

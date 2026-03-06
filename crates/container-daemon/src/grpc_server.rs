@@ -42,6 +42,16 @@ impl ContainerDaemonService {
         &self,
         mount: &proto_api::container_daemon_pb::MountConfig,
     ) -> anyhow::Result<()> {
+        // Idempotency: if the device mount point already has something mounted,
+        // skip the entire mount sequence.
+        if is_mountpoint(&mount.device_mount_point).await {
+            info!(
+                mount_point = %mount.device_mount_point,
+                "Device already mounted (idempotent Prepare), skipping"
+            );
+            return Ok(());
+        }
+
         // Create mount point directories
         tokio::fs::create_dir_all(&mount.device_mount_point).await?;
 
@@ -62,9 +72,11 @@ impl ContainerDaemonService {
         }
 
         if mount.use_overlay {
-            // Create overlay directories on tmpfs
-            let upper = format!("{}/upper", mount.overlay_mount_point);
-            let work = format!("{}/work", mount.overlay_mount_point);
+            // Upper/work dirs must be OUTSIDE the overlay mount point to avoid
+            // a self-referential mount. Use a tmpfs scratch area.
+            let scratch = "/mnt/overlay-work";
+            let upper = format!("{}/upper", scratch);
+            let work = format!("{}/work", scratch);
             tokio::fs::create_dir_all(&upper).await?;
             tokio::fs::create_dir_all(&work).await?;
             tokio::fs::create_dir_all(&mount.overlay_mount_point).await?;
@@ -74,7 +86,7 @@ impl ContainerDaemonService {
                 "lowerdir={},upperdir={},workdir={}",
                 mount.device_mount_point, upper, work
             );
-            let status = tokio::process::Command::new("mount")
+            let output = tokio::process::Command::new("mount")
                 .args([
                     "-t",
                     "overlay",
@@ -83,10 +95,20 @@ impl ContainerDaemonService {
                     &overlay_opts,
                     &mount.overlay_mount_point,
                 ])
-                .status()
+                .output()
                 .await?;
-            if !status.success() {
-                anyhow::bail!("overlayfs mount failed with exit code {:?}", status.code());
+            if !output.status.success() {
+                // Clean up the device mount before returning the error.
+                let _ = tokio::process::Command::new("umount")
+                    .arg(&mount.device_mount_point)
+                    .status()
+                    .await;
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                anyhow::bail!(
+                    "overlayfs mount failed with exit code {:?}: {}",
+                    output.status.code(),
+                    stderr.trim()
+                );
             }
         }
 
@@ -193,6 +215,17 @@ impl ContainerDaemon for ContainerDaemonService {
             error: None,
         }))
     }
+}
+
+/// Check if a path is currently a mountpoint.
+async fn is_mountpoint(path: &str) -> bool {
+    tokio::process::Command::new("mountpoint")
+        .arg("-q")
+        .arg(path)
+        .status()
+        .await
+        .map(|s| s.success())
+        .unwrap_or(false)
 }
 
 /// Run the gRPC server over TCP.

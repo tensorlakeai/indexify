@@ -57,7 +57,7 @@ impl CgroupHandle {
 
     /// Get the cgroup path as a string for metadata persistence.
     pub fn path_string(&self) -> String {
-        self.cgroup_path.to_string_lossy().to_string()
+        self.cgroup_path.to_string_lossy().into_owned()
     }
 }
 
@@ -72,7 +72,8 @@ pub fn ensure_parent_cgroup(parent_cgroup: &str) -> Result<()> {
 
     let subtree_control = parent.join("cgroup.subtree_control");
     let current = std::fs::read_to_string(&subtree_control).unwrap_or_default();
-    if !current.contains("cpu") {
+    let has_cpu = current.split_whitespace().any(|c| c == "cpu");
+    if !has_cpu {
         std::fs::write(&subtree_control, "+cpu").with_context(|| {
             format!(
                 "Failed to enable cpu controller in {}",

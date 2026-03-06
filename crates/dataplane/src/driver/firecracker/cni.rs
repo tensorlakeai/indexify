@@ -127,7 +127,7 @@ impl CniManager {
         let tap_device = self
             .find_tap_device(&netns_name)
             .await
-            .unwrap_or_else(|_| format!("tap0"));
+            .unwrap_or_else(|_| "tap0".to_string());
 
         // 5. Generate deterministic MAC address from vm_id
         let guest_mac = generate_mac(vm_id);
@@ -269,10 +269,10 @@ impl CniManager {
 
         // Look for a TAP device (name starts with "tap")
         for iface in &interfaces {
-            if let Some(name) = iface["ifname"].as_str() {
-                if name.starts_with("tap") {
-                    return Ok(name.to_string());
-                }
+            if let Some(name) = iface["ifname"].as_str() &&
+                name.starts_with("tap")
+            {
+                return Ok(name.to_string());
             }
         }
 

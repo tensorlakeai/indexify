@@ -1317,7 +1317,11 @@ async fn test_warm_claim_faster_than_cold_boot() {
     eprintln!(
         "  warm/cold ratio: {:.2}x (warm claim {})",
         warm_elapsed.as_secs_f64() / cold_elapsed.as_secs_f64(),
-        if warm_elapsed < cold_elapsed { "FASTER" } else { "fell back to cold boot (no jailer)" }
+        if warm_elapsed < cold_elapsed {
+            "FASTER"
+        } else {
+            "fell back to cold boot (no jailer)"
+        }
     );
 
     eprintln!(

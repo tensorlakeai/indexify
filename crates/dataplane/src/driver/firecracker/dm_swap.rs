@@ -6,6 +6,7 @@
 //! is in-flight on the idle vdb device.
 
 use anyhow::{Context, Result};
+use tracing::warn;
 
 use super::dm_thin::run_cmd;
 
@@ -18,7 +19,7 @@ pub fn create_dm_device(vm_id: &str, backing_device: &str, size_sectors: u64) ->
 
     run_cmd("dmsetup", &["create", &dm_name, "--table", &table])?;
 
-    Ok(format!("/dev/mapper/{}", dm_name))
+    Ok(dm_device_path(&dm_name))
 }
 
 /// Swap the backing store of a dm-linear device.
@@ -33,15 +34,33 @@ pub fn swap_backing(dm_name: &str, new_backing_device: &str, size_sectors: u64) 
     // If load fails, try to resume anyway to avoid leaving the device suspended.
     let load_result = run_cmd("dmsetup", &["load", dm_name, "--table", &table]);
 
-    run_cmd("dmsetup", &["resume", dm_name])?;
+    let resume_result = run_cmd("dmsetup", &["resume", dm_name]);
 
-    load_result?;
+    // Report both errors if both failed (load is the root cause).
+    if let Err(load_err) = load_result {
+        if let Err(resume_err) = resume_result {
+            warn!(
+                load_error = ?load_err,
+                resume_error = ?resume_err,
+                dm_name,
+                "Both dmsetup load and resume failed — device may be stuck suspended"
+            );
+        }
+        return Err(load_err);
+    }
+    resume_result?;
 
     // Flush the block device buffer cache so consumers (e.g. Firecracker VMM)
     // see fresh data from the new backing device instead of stale page cache
     // entries from the old backing.
-    let dm_path = format!("/dev/mapper/{}", dm_name);
-    let _ = run_cmd("blockdev", &["--flushbufs", &dm_path]);
+    let dm_path = dm_device_path(dm_name);
+    if let Err(e) = run_cmd("blockdev", &["--flushbufs", &dm_path]) {
+        warn!(
+            error = ?e,
+            dm_name,
+            "blockdev --flushbufs failed — Firecracker may see stale page cache data"
+        );
+    }
 
     Ok(())
 }
@@ -65,8 +84,11 @@ pub fn remove_dm_device(dm_name: &str) -> Result<()> {
 
 /// Remove a dm device, falling back to `--force` on failure.
 pub fn remove_dm_device_force(dm_name: &str) {
-    if remove_dm_device(dm_name).is_err() {
-        let _ = run_cmd("dmsetup", &["remove", "--force", dm_name]);
+    if let Err(e) = remove_dm_device(dm_name) {
+        warn!(error = ?e, dm_name, "dmsetup remove failed, retrying with --force");
+        if let Err(e2) = run_cmd("dmsetup", &["remove", "--force", dm_name]) {
+            warn!(error = ?e2, dm_name, "dmsetup remove --force also failed, device leaked");
+        }
     }
 }
 
@@ -83,13 +105,19 @@ pub fn dm_device_name(vm_id: &str) -> String {
 }
 
 /// Device path for a dm device name.
-#[allow(dead_code)]
 pub fn dm_device_path(dm_name: &str) -> String {
     format!("/dev/mapper/{}", dm_name)
 }
 
 /// Convert device size in bytes to 512-byte sectors.
+///
+/// Panics in debug mode if `bytes` is not aligned to 512.
 pub fn bytes_to_sectors(bytes: u64) -> u64 {
+    debug_assert!(
+        bytes.is_multiple_of(512),
+        "bytes_to_sectors: {} is not aligned to 512-byte sectors",
+        bytes
+    );
     bytes / 512
 }
 

@@ -150,16 +150,14 @@ impl FirecrackerDriver {
         lvm_thin_pool: String,
         warm_pool_config: Option<crate::config::WarmPoolConfig>,
     ) -> Result<Arc<Self>> {
-        let firecracker_binary = resolve_binary_path(
-            firecracker_binary.as_deref().unwrap_or("firecracker"),
-        )?;
+        let firecracker_binary =
+            resolve_binary_path(firecracker_binary.as_deref().unwrap_or("firecracker"))?;
         // Jailer is only required for warm pool VMs. If warm pool is not
         // configured, fall back to unresolved name (won't be used).
         let jailer_binary = if warm_pool_config.is_some() {
             resolve_binary_path(jailer_binary.as_deref().unwrap_or("jailer"))?
         } else {
-            jailer_binary
-                .unwrap_or_else(|| "jailer".to_string())
+            jailer_binary.unwrap_or_else(|| "jailer".to_string())
         };
         let kernel_path = PathBuf::from(&kernel_image_path);
         let rootfs_path = PathBuf::from(&base_rootfs_image);
@@ -207,10 +205,10 @@ impl FirecrackerDriver {
                 new_image = %base_rootfs_image,
                 "Base rootfs image changed, tearing down old base LV"
             );
-            if !old_meta.lv_name.is_empty() {
-                if let Err(e) = dm_thin::teardown_base_image(&old_meta.lv_name, &lvm_config) {
-                    tracing::warn!(error = ?e, "Failed to tear down old base LV (continuing)");
-                }
+            if !old_meta.lv_name.is_empty() &&
+                let Err(e) = dm_thin::teardown_base_image(&old_meta.lv_name, &lvm_config)
+            {
+                tracing::warn!(error = ?e, "Failed to tear down old base LV (continuing)");
             }
             BaseImageMetadata::remove(&state_dir);
         }
@@ -362,13 +360,13 @@ impl FirecrackerDriver {
         let cni_bin_path = self.cni.cni_bin_path().to_string();
 
         tokio::spawn(async move {
-            if !lv_name.is_empty() {
-                if let Err(e) = dm_thin::destroy_snapshot_async(lv_name, lvm_config).await {
-                    tracing::warn!(
-                        error = ?e,
-                        "Failed to destroy thin LV for dead VM"
-                    );
-                }
+            if !lv_name.is_empty() &&
+                let Err(e) = dm_thin::destroy_snapshot_async(lv_name, lvm_config).await
+            {
+                tracing::warn!(
+                    error = ?e,
+                    "Failed to destroy thin LV for dead VM"
+                );
             }
 
             // Teardown CNI
@@ -427,7 +425,7 @@ impl FirecrackerDriver {
 
         // 2. Swap dm device backing from empty LV to user's snapshot
         let size_sectors = dm_swap::bytes_to_sectors(snapshot.size_bytes);
-        let dev_path_str = snapshot.device_path.to_string_lossy().to_string();
+        let dev_path_str = snapshot.device_path.to_string_lossy().into_owned();
         dm_swap::swap_backing_async(warm_vm.dm_device_name.clone(), dev_path_str, size_sectors)
             .await
             .context("Failed to swap dm device backing")?;
@@ -541,271 +539,312 @@ impl FirecrackerDriver {
             .max_memory_mib
             .unwrap_or(self.default_memory_mib);
 
-        // 1. Create thin snapshot of base image
-        let snapshot = dm_thin::create_snapshot_async(
-            self.base_image.lv_name.clone(),
-            self.base_image.device_path.clone(),
-            self.base_image.size_bytes,
-            vm_id.clone(),
-            self.lvm_config.clone(),
-            self.default_rootfs_size_bytes,
-        )
-        .await
-        .context("Failed to create thin snapshot for warm VM")?;
+        // Track allocated resources so we can clean up on any failure.
+        // Each step sets a flag so the cleanup block knows what to tear down.
+        let vm_id_for_cleanup = vm_id.clone();
+        let mut snapshot_lv: Option<String> = None;
+        let mut cni_setup = false;
+        let mut empty_lv_name: Option<String> = None;
+        let mut dm_name_created: Option<String> = None;
+        let mut fc_pid: Option<u32> = None;
 
-        // 2. Inject rootfs (daemon binary + init script, no user env)
-        let daemon_binary =
-            crate::daemon_binary::get_daemon_path().context("Daemon binary not available")?;
-        let dns_env = rootfs::read_host_dns()
-            .map(|dns| vec![("DNS_NAMESERVERS".to_string(), dns)])
-            .unwrap_or_default();
-        rootfs::inject_rootfs(&snapshot.device_path, daemon_binary, &dns_env, &vm_id).await?;
+        let result: Result<warm_pool::WarmVm> = async {
+            // 1. Create thin snapshot of base image
+            let snapshot = dm_thin::create_snapshot_async(
+                self.base_image.lv_name.clone(),
+                self.base_image.device_path.clone(),
+                self.base_image.size_bytes,
+                vm_id.clone(),
+                self.lvm_config.clone(),
+                self.default_rootfs_size_bytes,
+            )
+            .await
+            .context("Failed to create thin snapshot for warm VM")?;
+            snapshot_lv = Some(snapshot.lv_name.clone());
 
-        // 3. Setup CNI networking
-        let cni_result = self.cni.setup_network(&vm_id).await?;
+            // 2. Inject rootfs (daemon binary + init script, no user env)
+            let daemon_binary =
+                crate::daemon_binary::get_daemon_path().context("Daemon binary not available")?;
+            let dns_env = rootfs::read_host_dns()
+                .map(|dns| vec![("DNS_NAMESERVERS".to_string(), dns)])
+                .unwrap_or_default();
+            rootfs::inject_rootfs(&snapshot.device_path, daemon_binary, &dns_env, &vm_id).await?;
 
-        // 4. Create empty LV + dm device for vdb
-        //    Size matches the base image so the guest virtio-blk sees the right
-        //    capacity from boot.  Thin-provisioned → near-zero actual disk use.
-        let empty_lv = dm_thin::create_empty_lv_async(
-            vm_id.clone(),
-            self.lvm_config.clone(),
-            self.base_image.size_bytes,
-        )
-        .await
-        .context("Failed to create empty LV for warm VM vdb")?;
+            // 3. Setup CNI networking
+            let cni_result = self.cni.setup_network(&vm_id).await?;
+            cni_setup = true;
 
-        let dm_name = dm_swap::dm_device_name(&vm_id);
-        let empty_sectors = dm_swap::bytes_to_sectors(empty_lv.size_bytes);
-        let empty_dev_path = empty_lv.device_path.to_string_lossy().to_string();
-        let dm_device_path = tokio::task::spawn_blocking({
-            let vm_id = vm_id.clone();
-            let empty_dev = empty_dev_path.clone();
-            move || dm_swap::create_dm_device(&vm_id, &empty_dev, empty_sectors)
-        })
-        .await
-        .context("dm device creation task panicked")?
-        .context("Failed to create dm device for warm VM")?;
+            // 4. Create empty LV + dm device for vdb Size matches the base image so the
+            //    guest virtio-blk sees the right capacity from boot.  Thin-provisioned →
+            //    near-zero actual disk use.
+            let empty_lv = dm_thin::create_empty_lv_async(
+                vm_id.clone(),
+                self.lvm_config.clone(),
+                self.base_image.size_bytes,
+            )
+            .await
+            .context("Failed to create empty LV for warm VM vdb")?;
+            empty_lv_name = Some(empty_lv.lv_name.clone());
 
-        // 5. Spawn Firecracker via jailer
-        //
-        // The jailer creates a chroot at:
-        //   <chroot_base>/firecracker/<id>/root/
-        // and copies the firecracker binary into it. We must hard-link
-        // the kernel, rootfs device, and dm device into the chroot so
-        // Firecracker can access them. The jailer also creates the cgroup
-        // at /sys/fs/cgroup/<parent_cgroup>/<id>/.
+            let dm_name = dm_swap::dm_device_name(&vm_id);
+            let empty_sectors = dm_swap::bytes_to_sectors(empty_lv.size_bytes);
+            let empty_dev_path = empty_lv.device_path.to_string_lossy().into_owned();
+            let dm_device_path = tokio::task::spawn_blocking({
+                let vm_id = vm_id.clone();
+                let empty_dev = empty_dev_path.clone();
+                move || dm_swap::create_dm_device(&vm_id, &empty_dev, empty_sectors)
+            })
+            .await
+            .context("dm device creation task panicked")?
+            .context("Failed to create dm device for warm VM")?;
+            dm_name_created = Some(dm_name.clone());
 
-        // Ensure parent cgroup exists with cpu controller delegation.
-        cgroup::ensure_parent_cgroup(&warm_pool_config.parent_cgroup)?;
-        // Use a short chroot base path to keep the API socket path under
-        // the 108-byte Unix domain socket limit. The jailer creates the
-        // structure: <base>/firecracker/<id>/root/run/firecracker.socket
-        let chroot_base = PathBuf::from("/srv/jailer");
-        std::fs::create_dir_all(&chroot_base)?;
-        let chroot_dir = chroot_base
-            .join("firecracker")
-            .join(&vm_id)
-            .join("root");
+            // 5. Spawn Firecracker via jailer
+            cgroup::ensure_parent_cgroup(&warm_pool_config.parent_cgroup)?;
+            let chroot_base = PathBuf::from("/srv/jailer");
+            std::fs::create_dir_all(&chroot_base)?;
+            let chroot_dir = chroot_base.join("firecracker").join(&vm_id).join("root");
 
-        let serial_path = self.log_dir.join(format!("fc-{}-serial.log", vm_id));
-        let serial_file =
-            std::fs::File::create(&serial_path).or_else(|_| std::fs::File::create("/dev/null"))?;
+            let serial_path = self.log_dir.join(format!("fc-{}-serial.log", vm_id));
+            let serial_file = std::fs::File::create(&serial_path)
+                .or_else(|_| std::fs::File::create("/dev/null"))?;
 
-        // Boot args
-        let boot_args = format!(
+            let boot_args = self.build_boot_args(&cni_result.guest_ip);
+
+            let netns_path = format!("/var/run/netns/{}", cni_result.netns_name);
+            let chroot_base_str = chroot_base.to_string_lossy().into_owned();
+            let idle_cpu_quota = format!(
+                "cpu.max={} 100000",
+                warm_pool_config.idle_cpu_millicores as u64 * 100
+            );
+
+            let stderr_path = self.log_dir.join(format!("fc-{}-jailer.log", vm_id));
+            let stderr_file = std::fs::File::create(&stderr_path)
+                .or_else(|_| std::fs::File::create("/dev/null"))?;
+
+            let _child = tokio::process::Command::new(&self.jailer_binary)
+                .args([
+                    "--id",
+                    &vm_id,
+                    "--exec-file",
+                    &self.firecracker_binary,
+                    "--uid",
+                    "0",
+                    "--gid",
+                    "0",
+                    "--cgroup-version",
+                    "2",
+                    "--cgroup",
+                    &idle_cpu_quota,
+                    "--parent-cgroup",
+                    &warm_pool_config.parent_cgroup,
+                    "--netns",
+                    &netns_path,
+                    "--new-pid-ns",
+                    "--chroot-base-dir",
+                    &chroot_base_str,
+                    "--", // separator for firecracker args
+                    "--api-sock",
+                    "/run/firecracker.socket",
+                ])
+                .stdin(Stdio::null())
+                .stdout(serial_file)
+                .stderr(stderr_file)
+                .kill_on_drop(false)
+                .process_group(0)
+                .spawn()
+                .context("Failed to spawn jailer for warm VM")?;
+
+            // The jailer with --new-pid-ns forks: the parent exits after exec-ing
+            // the child into the new PID namespace. Wait briefly to let it set up,
+            // then check stderr for errors.
+            tokio::time::sleep(Duration::from_millis(200)).await;
+            let stderr_content = std::fs::read_to_string(&stderr_path).unwrap_or_default();
+            if !stderr_content.is_empty() {
+                bail!("Jailer failed: {}", stderr_content.trim());
+            }
+
+            // The real Firecracker PID is in the chroot (written by jailer).
+            let pid_file = chroot_dir.join("firecracker.pid");
+            let pid: u32 = std::fs::read_to_string(&pid_file)
+                .with_context(|| format!("Failed to read PID file {}", pid_file.display()))?
+                .trim()
+                .parse()
+                .with_context(|| format!("Invalid PID in {}", pid_file.display()))?;
+            fc_pid = Some(pid);
+
+            // The API socket is inside the chroot.
+            let socket_path = chroot_dir
+                .join("run")
+                .join("firecracker.socket")
+                .to_string_lossy()
+                .into_owned();
+
+            // 6. Wait for API socket
+            let api_client = FirecrackerApiClient::new(&socket_path);
+            api_client
+                .wait_for_socket(API_SOCKET_TIMEOUT, API_SOCKET_POLL_INTERVAL)
+                .await?;
+
+            // Hard-link device nodes and kernel into the chroot.
+            let kernel_chroot = chroot_dir.join("kernel");
+            let rootfs_chroot = chroot_dir.join("rootfs");
+            let dm_chroot = chroot_dir.join("vdb");
+
+            Self::link_or_copy(&self.kernel_image_path, &kernel_chroot)?;
+            Self::link_device_node(&snapshot.device_path, &rootfs_chroot)?;
+            Self::link_device_node(&PathBuf::from(&dm_device_path), &dm_chroot)?;
+
+            // 7. Configure VM via API (paths are relative to chroot)
+            api_client
+                .configure_boot_source("/kernel", &boot_args)
+                .await?;
+            api_client.configure_rootfs("/rootfs").await?;
+            api_client
+                .configure_machine(max_vcpus, max_memory_mib)
+                .await?;
+            api_client
+                .configure_network(&cni_result.tap_device, &cni_result.guest_mac)
+                .await?;
+
+            // Configure balloon: inflate to take all memory (idle VM needs minimal memory)
+            let balloon_inflate = max_memory_mib.saturating_sub(warm_pool_config.idle_memory_mib);
+            api_client.configure_balloon(balloon_inflate, true).await?;
+
+            // Configure secondary drive (vdb) backed by dm device
+            api_client
+                .configure_secondary_drive("vdb", "/vdb", false, "Unsafe")
+                .await?;
+
+            // Start the VM
+            api_client.start_instance().await?;
+
+            // 8. Wait for daemon to be healthy
+            let daemon_addr = format!("{}:{}", cni_result.guest_ip, DAEMON_GRPC_PORT);
+            let http_addr = format!("{}:{}", cni_result.guest_ip, DAEMON_HTTP_PORT);
+
+            let mut daemon_client = crate::daemon_client::DaemonClient::connect_with_retry(
+                &daemon_addr,
+                Duration::from_secs(30),
+            )
+            .await?;
+            daemon_client
+                .wait_for_ready(Duration::from_secs(30))
+                .await?;
+
+            // Cgroup was created by the jailer — derive handle for runtime adjustments.
+            let cgroup = cgroup::CgroupHandle::from_jailer(&warm_pool_config.parent_cgroup, &vm_id);
+
+            // 9. Persist metadata
+            let metadata = VmMetadata {
+                handle_id: handle_id.clone(),
+                vm_id: vm_id.clone(),
+                pid,
+                lv_name: snapshot.lv_name.clone(),
+                netns_name: cni_result.netns_name.clone(),
+                guest_ip: cni_result.guest_ip.clone(),
+                daemon_addr: daemon_addr.clone(),
+                http_addr: http_addr.clone(),
+                socket_path: socket_path.clone(),
+                labels: HashMap::new(),
+                is_warm: true,
+                max_memory_mib: Some(max_memory_mib),
+                max_vcpus: Some(max_vcpus),
+                dm_device_name: Some(dm_name.clone()),
+                empty_lv_name: Some(empty_lv.lv_name.clone()),
+                cgroup_path: Some(cgroup.path_string()),
+            };
+            metadata.save(&self.state_dir)?;
+
+            // Spawn log streamer
+            let log_cancel =
+                log_stream::spawn_log_streamer(vm_id.clone(), self.log_dir.clone(), HashMap::new());
+
+            // Register in VM registry (so recovery can find it).
+            // The jailer forks with --new-pid-ns, so we only have the PID
+            // (not a Child handle). Use Recovered mode.
+            self.vms.lock().await.insert(
+                handle_id.clone(),
+                VmState {
+                    process: VmProcess::Recovered { pid },
+                    metadata,
+                    log_cancel: Some(log_cancel),
+                },
+            );
+
+            tracing::info!(
+                vm_id = %vm_id,
+                max_vcpus,
+                max_memory_mib,
+                total_ms = start_time.elapsed().as_millis() as u64,
+                "Warm VM booted successfully"
+            );
+
+            Ok(warm_pool::WarmVm {
+                handle_id,
+                vm_id,
+                socket_path,
+                daemon_addr,
+                http_addr,
+                guest_ip: cni_result.guest_ip,
+                lv_name: snapshot.lv_name,
+                netns_name: cni_result.netns_name,
+                dm_device_name: dm_name,
+                empty_lv_name: empty_lv.lv_name,
+                cgroup,
+                max_memory_mib,
+                max_vcpus,
+                pid,
+            })
+        }
+        .await;
+
+        // On failure, clean up any resources that were allocated.
+        if result.is_err() {
+            tracing::warn!(vm_id = %vm_id_for_cleanup, "Warm VM boot failed, cleaning up partial resources");
+            // Kill the FC process if it was started.
+            if let Some(pid) = fc_pid {
+                let _ = nix::sys::signal::kill(
+                    nix::unistd::Pid::from_raw(pid as i32),
+                    nix::sys::signal::Signal::SIGKILL,
+                );
+                let mut proc = VmProcess::Recovered { pid };
+                proc.wait_for_exit().await;
+            }
+            if let Some(dm) = &dm_name_created {
+                dm_swap::remove_dm_device_force(dm);
+            }
+            if let Some(lv) = empty_lv_name {
+                let _ = dm_thin::destroy_snapshot_async(lv, self.lvm_config.clone()).await;
+            }
+            if cni_setup {
+                self.cni.teardown_network(&vm_id_for_cleanup).await;
+            }
+            if let Some(lv) = snapshot_lv {
+                let _ = dm_thin::destroy_snapshot_async(lv, self.lvm_config.clone()).await;
+            }
+            self.cleanup_jailer_chroot(&vm_id_for_cleanup);
+        }
+
+        result
+    }
+
+    /// Build kernel boot args for a VM with the given guest IP.
+    fn build_boot_args(&self, guest_ip: &str) -> String {
+        format!(
             "console=ttyS0 reboot=k panic=1 pci=off \
              ip={}::{}:{}::eth0:off \
              init=/sbin/indexify-init",
-            cni_result.guest_ip, self.guest_gateway, self.guest_netmask,
-        );
-
-        let netns_path = format!("/var/run/netns/{}", cni_result.netns_name);
-        let chroot_base_str = chroot_base.to_string_lossy().to_string();
-        let idle_cpu_quota = format!(
-            "cpu.max={} 100000",
-            warm_pool_config.idle_cpu_millicores as u64 * 100
-        );
-
-        let stderr_path = self.log_dir.join(format!("fc-{}-jailer.log", vm_id));
-        let stderr_file = std::fs::File::create(&stderr_path)
-            .or_else(|_| std::fs::File::create("/dev/null"))?;
-
-        let _child = tokio::process::Command::new(&self.jailer_binary)
-            .args([
-                "--id",
-                &vm_id,
-                "--exec-file",
-                &self.firecracker_binary,
-                "--uid",
-                "0",
-                "--gid",
-                "0",
-                "--cgroup-version",
-                "2",
-                "--cgroup",
-                &idle_cpu_quota,
-                "--parent-cgroup",
-                &warm_pool_config.parent_cgroup,
-                "--netns",
-                &netns_path,
-                "--new-pid-ns",
-                "--chroot-base-dir",
-                &chroot_base_str,
-                "--", // separator for firecracker args
-                "--api-sock",
-                "/run/firecracker.socket",
-            ])
-            .stdin(Stdio::null())
-            .stdout(serial_file)
-            .stderr(stderr_file)
-            .kill_on_drop(false)
-            .process_group(0)
-            .spawn()
-            .context("Failed to spawn jailer for warm VM")?;
-
-        // The jailer with --new-pid-ns forks: the parent exits after exec-ing
-        // the child into the new PID namespace. Wait briefly to let it set up,
-        // then check stderr for errors.
-        tokio::time::sleep(Duration::from_millis(200)).await;
-        let stderr_content = std::fs::read_to_string(&stderr_path).unwrap_or_default();
-        if !stderr_content.is_empty() {
-            bail!("Jailer failed: {}", stderr_content.trim());
-        }
-
-        // The real Firecracker PID is in the chroot (written by jailer).
-        let pid_file = chroot_dir.join("firecracker.pid");
-        let fc_pid: u32 = std::fs::read_to_string(&pid_file)
-            .with_context(|| format!("Failed to read PID file {}", pid_file.display()))?
-            .trim()
-            .parse()
-            .with_context(|| format!("Invalid PID in {}", pid_file.display()))?;
-
-        // The API socket is inside the chroot.
-        let socket_path = chroot_dir
-            .join("run")
-            .join("firecracker.socket")
-            .to_string_lossy()
-            .to_string();
-
-        // 6. Wait for API socket
-        let api_client = FirecrackerApiClient::new(&socket_path);
-        api_client
-            .wait_for_socket(API_SOCKET_TIMEOUT, API_SOCKET_POLL_INTERVAL)
-            .await?;
-
-        // Hard-link device nodes and kernel into the chroot so Firecracker
-        // can access them. Must happen after jailer creates the chroot but
-        // before we configure the VM via API.
-        let kernel_chroot = chroot_dir.join("kernel");
-        let rootfs_chroot = chroot_dir.join("rootfs");
-        let dm_chroot = chroot_dir.join("vdb");
-
-        Self::link_or_copy(&self.kernel_image_path, &kernel_chroot)?;
-        Self::link_device_node(&snapshot.device_path, &rootfs_chroot)?;
-        Self::link_device_node(&PathBuf::from(&dm_device_path), &dm_chroot)?;
-
-        // 7. Configure VM via API (paths are relative to chroot)
-        api_client
-            .configure_boot_source("/kernel", &boot_args)
-            .await?;
-        api_client.configure_rootfs("/rootfs").await?;
-        api_client
-            .configure_machine(max_vcpus, max_memory_mib)
-            .await?;
-        api_client
-            .configure_network(&cni_result.tap_device, &cni_result.guest_mac)
-            .await?;
-
-        // Configure balloon: inflate to take all memory (idle VM needs minimal memory)
-        let balloon_inflate = max_memory_mib.saturating_sub(warm_pool_config.idle_memory_mib);
-        api_client.configure_balloon(balloon_inflate, true).await?;
-
-        // Configure secondary drive (vdb) backed by dm device
-        api_client
-            .configure_secondary_drive("vdb", "/vdb", false, "Unsafe")
-            .await?;
-
-        // Start the VM
-        api_client.start_instance().await?;
-
-        // 8. Wait for daemon to be healthy
-        let daemon_addr = format!("{}:{}", cni_result.guest_ip, DAEMON_GRPC_PORT);
-        let http_addr = format!("{}:{}", cni_result.guest_ip, DAEMON_HTTP_PORT);
-
-        let mut daemon_client = crate::daemon_client::DaemonClient::connect_with_retry(
-            &daemon_addr,
-            Duration::from_secs(30),
+            guest_ip, self.guest_gateway, self.guest_netmask,
         )
-        .await?;
-        daemon_client
-            .wait_for_ready(Duration::from_secs(30))
-            .await?;
+    }
 
-        // Cgroup was created by the jailer — derive handle for runtime adjustments.
-        let cgroup = cgroup::CgroupHandle::from_jailer(&warm_pool_config.parent_cgroup, &vm_id);
-
-        // 9. Persist metadata
-        let metadata = VmMetadata {
-            handle_id: handle_id.clone(),
-            vm_id: vm_id.clone(),
-            pid: fc_pid,
-            lv_name: snapshot.lv_name.clone(),
-            netns_name: cni_result.netns_name.clone(),
-            guest_ip: cni_result.guest_ip.clone(),
-            daemon_addr: daemon_addr.clone(),
-            http_addr: http_addr.clone(),
-            socket_path: socket_path.clone(),
-            labels: HashMap::new(),
-            is_warm: true,
-            max_memory_mib: Some(max_memory_mib),
-            max_vcpus: Some(max_vcpus),
-            dm_device_name: Some(dm_name.clone()),
-            empty_lv_name: Some(empty_lv.lv_name.clone()),
-            cgroup_path: Some(cgroup.path_string()),
-        };
-        metadata.save(&self.state_dir)?;
-
-        // Spawn log streamer
-        let log_cancel =
-            log_stream::spawn_log_streamer(vm_id.clone(), self.log_dir.clone(), HashMap::new());
-
-        // Register in VM registry (so recovery can find it).
-        // The jailer forks with --new-pid-ns, so we only have the PID
-        // (not a Child handle). Use Recovered mode.
-        self.vms.lock().await.insert(
-            handle_id.clone(),
-            VmState {
-                process: VmProcess::Recovered { pid: fc_pid },
-                metadata,
-                log_cancel: Some(log_cancel),
-            },
-        );
-
-        tracing::info!(
-            vm_id = %vm_id,
-            max_vcpus,
-            max_memory_mib,
-            total_ms = start_time.elapsed().as_millis() as u64,
-            "Warm VM booted successfully"
-        );
-
-        Ok(warm_pool::WarmVm {
-            handle_id,
-            vm_id,
-            socket_path,
-            daemon_addr,
-            http_addr,
-            guest_ip: cni_result.guest_ip,
-            lv_name: snapshot.lv_name,
-            netns_name: cni_result.netns_name,
-            dm_device_name: dm_name,
-            empty_lv_name: empty_lv.lv_name,
-            cgroup,
-            max_memory_mib,
-            max_vcpus,
-            pid: fc_pid,
-        })
+    /// Build daemon gRPC and HTTP addresses from a guest IP.
+    fn build_daemon_addrs(guest_ip: &str) -> (String, String) {
+        (
+            format!("{}:{}", guest_ip, DAEMON_GRPC_PORT),
+            format!("{}:{}", guest_ip, DAEMON_HTTP_PORT),
+        )
     }
 
     /// Hard-link a regular file into the jailer chroot. Falls back to copy
@@ -816,13 +855,7 @@ impl FirecrackerDriver {
         }
         std::fs::hard_link(src, dst)
             .or_else(|_| std::fs::copy(src, dst).map(|_| ()))
-            .with_context(|| {
-                format!(
-                    "Failed to link/copy {} -> {}",
-                    src.display(),
-                    dst.display()
-                )
-            })
+            .with_context(|| format!("Failed to link/copy {} -> {}", src.display(), dst.display()))
     }
 
     /// Create a device node in the jailer chroot that mirrors the given
@@ -832,8 +865,8 @@ impl FirecrackerDriver {
         if let Some(parent) = dst.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        let meta = std::fs::metadata(src)
-            .with_context(|| format!("stat {} for mknod", src.display()))?;
+        let meta =
+            std::fs::metadata(src).with_context(|| format!("stat {} for mknod", src.display()))?;
         let rdev = meta.rdev();
         let major = nix::sys::stat::major(rdev);
         let minor = nix::sys::stat::minor(rdev);
@@ -857,9 +890,7 @@ impl FirecrackerDriver {
 
     /// Clean up a jailer chroot directory for a VM.
     fn cleanup_jailer_chroot(&self, vm_id: &str) {
-        let chroot_dir = PathBuf::from("/srv/jailer")
-            .join("firecracker")
-            .join(vm_id);
+        let chroot_dir = PathBuf::from("/srv/jailer").join("firecracker").join(vm_id);
         if chroot_dir.exists() {
             let _ = std::fs::remove_dir_all(&chroot_dir);
         }
@@ -982,10 +1013,10 @@ impl FirecrackerDriver {
         // Cancel log streamer and remove from registry.
         {
             let mut vms = self.vms.lock().await;
-            if let Some(vm) = vms.remove(handle_id) {
-                if let Some(cancel) = &vm.log_cancel {
-                    cancel.cancel();
-                }
+            if let Some(vm) = vms.remove(handle_id) &&
+                let Some(cancel) = &vm.log_cancel
+            {
+                cancel.cancel();
             }
         }
 
@@ -1006,9 +1037,10 @@ impl FirecrackerDriver {
         let metadata_path = self.state_dir.join(format!("fc-{}.json", vm_id));
         let _ = std::fs::remove_file(metadata_path);
 
-        // Remove log files
+        // Remove log files (including jailer stderr log).
         let _ = std::fs::remove_file(self.log_dir.join(format!("fc-{}.log", vm_id)));
         let _ = std::fs::remove_file(self.log_dir.join(format!("fc-{}-serial.log", vm_id)));
+        let _ = std::fs::remove_file(self.log_dir.join(format!("fc-{}-jailer.log", vm_id)));
 
         // Clean up jailer chroot directory (if it exists).
         self.cleanup_jailer_chroot(vm_id);
@@ -1056,26 +1088,24 @@ impl ProcessDriver for FirecrackerDriver {
                         // failed). We must fully destroy the warm VM so the
                         // cold boot fallback can create resources from scratch.
                         //
-                        // Kill the Firecracker process.
+                        // Kill the Firecracker process and wait for exit so
+                        // subsequent dmsetup/lvremove don't fail with EBUSY.
                         let _ = nix::sys::signal::kill(
                             nix::unistd::Pid::from_raw(warm_pid as i32),
                             nix::sys::signal::Signal::SIGKILL,
                         );
+                        let mut proc = VmProcess::Recovered { pid: warm_pid };
+                        proc.wait_for_exit().await;
                         // Remove dm device (releases reference to claim snapshot).
                         dm_swap::remove_dm_device_force(&warm_dm_device_name);
                         // Remove the claim snapshot LV (may or may not exist).
                         let claim_lv = format!("indexify-vm-{}", vm_id);
-                        let _ = dm_thin::destroy_snapshot_async(
-                            claim_lv,
-                            self.lvm_config.clone(),
-                        )
-                        .await;
+                        let _ = dm_thin::destroy_snapshot_async(claim_lv, self.lvm_config.clone())
+                            .await;
                         // Remove the warm VM's original rootfs LV.
-                        let _ = dm_thin::destroy_snapshot_async(
-                            warm_lv_name,
-                            self.lvm_config.clone(),
-                        )
-                        .await;
+                        let _ =
+                            dm_thin::destroy_snapshot_async(warm_lv_name, self.lvm_config.clone())
+                                .await;
                         // Remove the empty LV.
                         let _ = dm_thin::destroy_snapshot_async(
                             warm_empty_lv_name,
@@ -1089,8 +1119,7 @@ impl ProcessDriver for FirecrackerDriver {
                         // Remove socket and metadata files.
                         let _ = std::fs::remove_file(&warm_socket_path);
                         let _ = std::fs::remove_file(
-                            self.state_dir
-                                .join(format!("fc-{}.json", warm_vm_id)),
+                            self.state_dir.join(format!("fc-{}.json", warm_vm_id)),
                         );
                         // Notify warm pool that a VM was destroyed.
                         if let Some(wp) = &self.warm_pool {
@@ -1103,31 +1132,18 @@ impl ProcessDriver for FirecrackerDriver {
         }
 
         // --- Cold boot path ---
-        // Extract tracing labels early (before config.labels is consumed).
-        let pool = config
-            .labels
-            .iter()
-            .find(|(k, _)| k == "pool_id")
-            .map(|(_, v)| v.clone())
-            .unwrap_or_default();
-        let namespace = config
-            .labels
-            .iter()
-            .find(|(k, _)| k == "namespace")
-            .map(|(_, v)| v.clone())
-            .unwrap_or_default();
-        let container_id = config
-            .labels
-            .iter()
-            .find(|(k, _)| k == "container_id")
-            .map(|(_, v)| v.clone())
-            .unwrap_or_default();
-        let sandbox_id = config
-            .labels
-            .iter()
-            .find(|(k, _)| k == "sandbox_id")
-            .map(|(_, v)| v.clone())
-            .unwrap_or_default();
+        // Extract tracing labels in a single pass (before config.labels is consumed).
+        let (mut pool, mut namespace, mut container_id, mut sandbox_id) =
+            (String::new(), String::new(), String::new(), String::new());
+        for (k, v) in &config.labels {
+            match k.as_str() {
+                "pool_id" => pool.clone_from(v),
+                "namespace" => namespace.clone_from(v),
+                "container_id" => container_id.clone_from(v),
+                "sandbox_id" => sandbox_id.clone_from(v),
+                _ => {}
+            }
+        }
 
         // Use per-container disk size if provided, otherwise fall back to the
         // driver default. Clamp to at least the base image size so the thin
@@ -1303,12 +1319,7 @@ impl ProcessDriver for FirecrackerDriver {
         );
 
         // 5. Build kernel boot args
-        let boot_args = format!(
-            "console=ttyS0 reboot=k panic=1 pci=off \
-             ip={}::{}:{}::eth0:off \
-             init=/sbin/indexify-init",
-            cni_result.guest_ip, self.guest_gateway, self.guest_netmask,
-        );
+        let boot_args = self.build_boot_args(&cni_result.guest_ip);
 
         // 6. Spawn Firecracker process
         tracing::info!(
@@ -1324,12 +1335,12 @@ impl ProcessDriver for FirecrackerDriver {
             .state_dir
             .join(format!("fc-{}.sock", vm_id))
             .to_string_lossy()
-            .to_string();
+            .into_owned();
         let log_path = self
             .log_dir
             .join(format!("fc-{}.log", vm_id))
             .to_string_lossy()
-            .to_string();
+            .into_owned();
 
         // Remove stale socket if present
         let _ = std::fs::remove_file(&socket_path);
@@ -1425,8 +1436,8 @@ impl ProcessDriver for FirecrackerDriver {
 
         // 9. Configure VM via API and start the instance
         let step9 = Instant::now();
-        let dev_path_str = snapshot.device_path.to_string_lossy().to_string();
-        let kernel_str = self.kernel_image_path.to_string_lossy().to_string();
+        let dev_path_str = snapshot.device_path.to_string_lossy().into_owned();
+        let kernel_str = self.kernel_image_path.to_string_lossy().into_owned();
 
         let configure_result = async {
             api_client
@@ -1477,8 +1488,7 @@ impl ProcessDriver for FirecrackerDriver {
         );
 
         // 10. Build addresses
-        let daemon_addr = format!("{}:{}", cni_result.guest_ip, DAEMON_GRPC_PORT);
-        let http_addr = format!("{}:{}", cni_result.guest_ip, DAEMON_HTTP_PORT);
+        let (daemon_addr, http_addr) = Self::build_daemon_addrs(&cni_result.guest_ip);
 
         // 11. Persist metadata for recovery
         let metadata = VmMetadata {
@@ -1532,12 +1542,27 @@ impl ProcessDriver for FirecrackerDriver {
     }
 
     async fn alive(&self, handle: &ProcessHandle) -> Result<bool> {
-        let mut vms = self.vms.lock().await;
-        if let Some(vm) = vms.get_mut(&handle.id) {
-            Ok(vm.process.is_alive())
-        } else {
-            Ok(false)
-        }
+        // Extract the info needed to check liveness, then drop the lock
+        // before doing any filesystem I/O (/proc check for Recovered VMs).
+        let check = {
+            let mut vms = self.vms.lock().await;
+            match vms.get_mut(&handle.id) {
+                Some(vm) => match &mut vm.process {
+                    VmProcess::Owned(child) => {
+                        // try_wait is non-blocking, safe under lock
+                        Some(matches!(child.try_wait(), Ok(None)))
+                    }
+                    VmProcess::Recovered { pid } => {
+                        // Need to check /proc — just grab the PID
+                        let pid = *pid;
+                        drop(vms);
+                        return Ok(std::path::Path::new(&format!("/proc/{}", pid)).exists());
+                    }
+                },
+                None => Some(false),
+            }
+        };
+        Ok(check.unwrap_or(false))
     }
 
     async fn kill(&self, handle: &ProcessHandle) -> Result<()> {
@@ -1605,7 +1630,8 @@ impl ProcessDriver for FirecrackerDriver {
         if let Some(vm) = vms.get_mut(&handle.id) {
             if let Some(status) = vm.process.try_exit_status() {
                 let exit_code = status.code().map(|c| c as i64);
-                let oom_killed = exit_code == Some(134);
+                // SIGKILL (exit code 137 = 128+9) is sent by the Linux OOM killer.
+                let oom_killed = exit_code == Some(137);
                 Ok(Some(ExitStatus {
                     exit_code,
                     oom_killed,
@@ -1619,8 +1645,8 @@ impl ProcessDriver for FirecrackerDriver {
     }
 
     async fn list_containers(&self) -> Result<Vec<String>> {
-        let metadata_list = scan_metadata_files(&self.state_dir)?;
-        Ok(metadata_list.into_iter().map(|m| m.handle_id).collect())
+        let vms = self.vms.lock().await;
+        Ok(vms.keys().cloned().collect())
     }
 
     async fn get_logs(&self, handle: &ProcessHandle, tail: u32) -> Result<String> {
@@ -1632,16 +1658,27 @@ impl ProcessDriver for FirecrackerDriver {
         let log_path = self.log_dir.join(format!("fc-{}.log", vm_id));
 
         tokio::task::spawn_blocking(move || {
+            use std::io::{Read, Seek, SeekFrom};
+
             if !log_path.exists() {
                 return Ok(String::new());
             }
 
-            let content = std::fs::read_to_string(&log_path)
-                .with_context(|| format!("Failed to read log file {}", log_path.display()))?;
-
             if tail == 0 {
-                return Ok(content);
+                return std::fs::read_to_string(&log_path)
+                    .with_context(|| format!("Failed to read log file {}", log_path.display()));
             }
+
+            // Read from the end to find the last `tail` lines efficiently.
+            let mut file = std::fs::File::open(&log_path)
+                .with_context(|| format!("Failed to open log file {}", log_path.display()))?;
+            let file_len = file.metadata()?.len();
+            // Read at most 64KB from the tail — enough for most log tails.
+            let read_size = file_len.min(64 * 1024) as usize;
+            file.seek(SeekFrom::End(-(read_size as i64)))?;
+            let mut buf = vec![0u8; read_size];
+            file.read_exact(&mut buf)?;
+            let content = String::from_utf8_lossy(&buf);
 
             let lines: Vec<&str> = content.lines().collect();
             let start = lines.len().saturating_sub(tail as usize);

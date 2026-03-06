@@ -34,6 +34,7 @@ impl VmProcess {
     }
 
     /// Check if the process is still running.
+    #[allow(dead_code)]
     pub fn is_alive(&mut self) -> bool {
         match self {
             VmProcess::Owned(child) => {
@@ -93,10 +94,10 @@ impl VmProcess {
                 let _ = tokio::time::timeout(EXIT_TIMEOUT, child.wait()).await;
             }
             VmProcess::Recovered { pid } => {
-                let pid = *pid;
+                let proc_path = format!("/proc/{}", pid);
                 let _ = tokio::time::timeout(EXIT_TIMEOUT, async {
                     loop {
-                        if !Path::new(&format!("/proc/{}", pid)).exists() {
+                        if !Path::new(&proc_path).exists() {
                             break;
                         }
                         tokio::time::sleep(Duration::from_millis(50)).await;
@@ -182,7 +183,7 @@ impl VmMetadata {
     /// Write this metadata to a JSON file for recovery.
     pub fn save(&self, state_dir: &Path) -> Result<()> {
         let path = self.metadata_path(state_dir);
-        let json = serde_json::to_string_pretty(self).context("Failed to serialize VM metadata")?;
+        let json = serde_json::to_string(self).context("Failed to serialize VM metadata")?;
         std::fs::write(&path, json)
             .with_context(|| format!("Failed to write VM metadata to {}", path.display()))?;
         Ok(())
@@ -223,17 +224,19 @@ pub fn scan_metadata_files(state_dir: &Path) -> Result<Vec<VmMetadata>> {
     for entry in entries {
         let entry = entry?;
         let path = entry.path();
-        if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-            if name.starts_with("fc-") && name.ends_with(".json") && name != "fc-origin.json" {
-                match VmMetadata::load(&path) {
-                    Ok(metadata) => results.push(metadata),
-                    Err(e) => {
-                        tracing::warn!(
-                            path = %path.display(),
-                            error = ?e,
-                            "Failed to load VM metadata file, skipping"
-                        );
-                    }
+        if let Some(name) = path.file_name().and_then(|n| n.to_str()) &&
+            name.starts_with("fc-") &&
+            name.ends_with(".json") &&
+            name != "fc-origin.json"
+        {
+            match VmMetadata::load(&path) {
+                Ok(metadata) => results.push(metadata),
+                Err(e) => {
+                    tracing::warn!(
+                        path = %path.display(),
+                        error = ?e,
+                        "Failed to load VM metadata file, skipping"
+                    );
                 }
             }
         }

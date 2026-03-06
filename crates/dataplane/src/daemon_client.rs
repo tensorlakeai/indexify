@@ -12,7 +12,7 @@ use proto_api::container_daemon_pb::{
     container_daemon_client::ContainerDaemonClient,
 };
 use tonic::transport::Channel;
-use tracing::{debug, warn};
+use tracing::debug;
 
 /// Client for communicating with the container daemon.
 #[derive(Clone)]
@@ -130,7 +130,7 @@ impl DaemonClient {
             match self.health().await {
                 Ok(true) => return Ok(()),
                 Ok(false) => {
-                    warn!("Daemon health check returned false");
+                    debug!("Daemon health check returned false, retrying...");
                 }
                 Err(e) => {
                     debug!(error = ?e, "Health check error, retrying...");

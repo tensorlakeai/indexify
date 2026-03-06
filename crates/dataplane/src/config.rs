@@ -90,6 +90,15 @@ pub struct WarmPoolConfig {
     pub parent_cgroup: String,
 }
 
+impl WarmPoolConfig {
+    /// Memory overhead in bytes for resource reporting.
+    ///
+    /// Uses `target_count * idle_memory_mib` (steady-state overhead).
+    pub fn overhead_memory_bytes(&self) -> u64 {
+        self.target_count as u64 * self.idle_memory_mib * 1024 * 1024
+    }
+}
+
 fn default_warm_pool_target() -> usize {
     5
 }
@@ -111,6 +120,7 @@ fn default_warm_pool_parent_cgroup() -> String {
 
 #[derive(Clone, Debug, Deserialize, Serialize, Default)]
 #[serde(rename_all = "snake_case", tag = "type")]
+#[allow(clippy::large_enum_variant)]
 pub enum DriverConfig {
     #[default]
     ForkExec,
@@ -563,10 +573,10 @@ impl DataplaneConfig {
     /// `{state_dir}/firecracker/`.
     #[cfg(feature = "firecracker")]
     pub fn firecracker_state_dir(&self, driver: &DriverConfig) -> PathBuf {
-        if let DriverConfig::Firecracker { state_dir, .. } = driver {
-            if let Some(dir) = state_dir {
-                return PathBuf::from(dir);
-            }
+        if let DriverConfig::Firecracker { state_dir, .. } = driver &&
+            let Some(dir) = state_dir
+        {
+            return PathBuf::from(dir);
         }
         PathBuf::from(&self.state_dir).join("firecracker")
     }
@@ -576,10 +586,10 @@ impl DataplaneConfig {
     /// `{state_dir}/firecracker/logs/`.
     #[cfg(feature = "firecracker")]
     pub fn firecracker_log_dir(&self, driver: &DriverConfig) -> PathBuf {
-        if let DriverConfig::Firecracker { log_dir, .. } = driver {
-            if let Some(dir) = log_dir {
-                return PathBuf::from(dir);
-            }
+        if let DriverConfig::Firecracker { log_dir, .. } = driver &&
+            let Some(dir) = log_dir
+        {
+            return PathBuf::from(dir);
         }
         PathBuf::from(&self.state_dir)
             .join("firecracker")
@@ -593,11 +603,10 @@ impl DataplaneConfig {
     pub fn firecracker_snapshot_local_dir(&self, driver: &DriverConfig) -> PathBuf {
         if let DriverConfig::Firecracker {
             snapshot_local_dir, ..
-        } = driver
+        } = driver &&
+            let Some(dir) = snapshot_local_dir
         {
-            if let Some(dir) = snapshot_local_dir {
-                return PathBuf::from(dir);
-            }
+            return PathBuf::from(dir);
         }
         PathBuf::from("/var/lib/indexify/snapshots")
     }

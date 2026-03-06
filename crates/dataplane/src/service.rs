@@ -230,7 +230,7 @@ impl Service {
                 tracing::info!("Snapshotter enabled (Firecracker sandbox driver)");
                 Some(Arc::new(
                     crate::snapshotter::firecracker_snapshotter::FirecrackerSnapshotter::new(
-                        PathBuf::from(state_dir_path),
+                        state_dir_path,
                         snapshot_local_dir,
                         (*blob_store).clone(),
                         metrics.clone(),
@@ -375,7 +375,7 @@ impl Service {
                 ..
             } = self.config.sandbox_driver
             {
-                let overhead_bytes = wp.target_count as u64 * wp.idle_memory_mib * 1024 * 1024;
+                let overhead_bytes = wp.overhead_memory_bytes();
                 if let Some(mem) = res.memory_bytes.as_mut() {
                     *mem = mem.saturating_sub(overhead_bytes);
                 }

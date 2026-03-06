@@ -13,7 +13,7 @@ use nix::sys::signal::{Signal, kill};
 #[cfg(unix)]
 use nix::unistd::Pid;
 use tokio::{
-    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
+    io::{AsyncBufReadExt, AsyncWriteExt, BufReader, BufWriter},
     process::{Child, ChildStdin, Command},
     sync::{Mutex, broadcast, mpsc},
 };
@@ -659,12 +659,15 @@ async fn forward_output_stream<R: tokio::io::AsyncRead + Unpin>(
 ) -> Result<()> {
     use tokio::io::AsyncWriteExt;
 
-    let mut file = tokio::fs::OpenOptions::new()
+    let mut file = match tokio::fs::OpenOptions::new()
         .create(true)
         .append(true)
         .open(&log_path)
         .await
-        .ok(); // Log file is optional
+    {
+        Ok(f) => Some(BufWriter::new(f)),
+        Err(_) => None, // Log file is optional
+    };
 
     let reader = BufReader::new(reader);
     let mut lines = reader.lines();
@@ -684,10 +687,11 @@ async fn forward_output_stream<R: tokio::io::AsyncRead + Unpin>(
             stream: Some(stream_name.to_string()),
         };
 
-        // Write to log file
+        // Write to log file (buffered — single syscall per flush)
         if let Some(ref mut f) = file {
             let _ = f.write_all(line.as_bytes()).await;
             let _ = f.write_all(b"\n").await;
+            let _ = f.flush().await;
         }
 
         // Send to stream-specific channel (ignore errors - no receivers is fine)

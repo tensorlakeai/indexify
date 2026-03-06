@@ -335,10 +335,11 @@ pub fn create_snapshot(
 
 /// Create a thin snapshot from a delta file (snapshot restore path).
 ///
-/// The delta file contains a header followed by block records (offset + length
-/// + data) for blocks that differ from the base image. Only those blocks are
-/// written into the thin snapshot; unchanged blocks stay as COW references to
-/// the base LV. The delta file is deleted after import.
+/// The delta file contains a header followed by block records
+/// (offset + length + data) for blocks that differ from the base image.
+/// Only those blocks are written into the thin snapshot; unchanged blocks
+/// stay as COW references to the base LV. The delta file is deleted after
+/// import.
 pub fn create_snapshot_from_delta(
     base: &BaseImageHandle,
     vm_id: &str,
@@ -778,10 +779,10 @@ impl MetadataSnapGuard {
 
 impl Drop for MetadataSnapGuard {
     fn drop(&mut self) {
-        if let Some(ref config) = self.config {
-            if let Err(e) = release_metadata_snap(config) {
-                tracing::warn!(error = ?e, "Failed to release metadata snap in drop");
-            }
+        if let Some(ref config) = self.config &&
+            let Err(e) = release_metadata_snap(config)
+        {
+            tracing::warn!(error = ?e, "Failed to release metadata snap in drop");
         }
         // _lock is dropped after this, releasing the mutex.
     }
@@ -969,21 +970,21 @@ pub fn cleanup_stale_devices(active_vm_ids: &HashSet<String>, lvm_config: &LvmCo
             let lv_name = line.trim();
 
             // Current format: indexify-vm-{vm_id}
-            if let Some(vm_id) = lv_name.strip_prefix("indexify-vm-") {
-                if !active_vm_ids.contains(vm_id) {
-                    let lv_path = format!("{}/{}", vg, lv_name);
-                    if let Err(e) = run_cmd("lvremove", &["-f", &lv_path]) {
-                        tracing::warn!(
-                            lv_name = %lv_name,
-                            error = ?e,
-                            "Failed to remove stale VM thin LV"
-                        );
-                    } else {
-                        tracing::info!(
-                            lv_name = %lv_name,
-                            "Removed stale VM thin LV"
-                        );
-                    }
+            if let Some(vm_id) = lv_name.strip_prefix("indexify-vm-") &&
+                !active_vm_ids.contains(vm_id)
+            {
+                let lv_path = format!("{}/{}", vg, lv_name);
+                if let Err(e) = run_cmd("lvremove", &["-f", &lv_path]) {
+                    tracing::warn!(
+                        lv_name = %lv_name,
+                        error = ?e,
+                        "Failed to remove stale VM thin LV"
+                    );
+                } else {
+                    tracing::info!(
+                        lv_name = %lv_name,
+                        "Removed stale VM thin LV"
+                    );
                 }
             }
 

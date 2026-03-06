@@ -165,7 +165,7 @@ impl WarmPool {
     ///
     /// Uses `target_count * idle_memory_mib` (steady-state overhead).
     pub fn overhead_memory_bytes(&self) -> u64 {
-        self.config.target_count as u64 * self.config.idle_memory_mib * 1024 * 1024
+        self.config.overhead_memory_bytes()
     }
 
     /// Current number of warm VMs available.
@@ -216,8 +216,8 @@ mod tests {
             handle_id: format!("fc-{}", id),
             vm_id: id.to_string(),
             socket_path: format!("/tmp/fc-{}.sock", id),
-            daemon_addr: format!("192.168.30.2:9500"),
-            http_addr: format!("192.168.30.2:9501"),
+            daemon_addr: "192.168.30.2:9500".to_string(),
+            http_addr: "192.168.30.2:9501".to_string(),
             guest_ip: "192.168.30.2".to_string(),
             lv_name: format!("indexify-vm-{}", id),
             netns_name: format!("indexify-vm-{}", id),
