@@ -59,6 +59,14 @@ impl CgroupHandle {
     pub fn path_string(&self) -> String {
         self.cgroup_path.to_string_lossy().into_owned()
     }
+
+    /// Remove the cgroup directory.
+    ///
+    /// Best-effort: the kernel only allows removing empty cgroups (no child
+    /// cgroups and no processes). Silently ignored if the path doesn't exist.
+    pub fn remove(&self) {
+        let _ = std::fs::remove_dir(&self.cgroup_path);
+    }
 }
 
 /// Ensure the parent cgroup exists and has the `cpu` controller delegated.

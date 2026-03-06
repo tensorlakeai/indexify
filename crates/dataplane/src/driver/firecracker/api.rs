@@ -187,6 +187,7 @@ impl FirecrackerApiClient {
         // Read the response before shutting down the write side.
         // Shutting down first can cause Firecracker to close the connection
         // before sending a response.
+        const MAX_RESPONSE_SIZE: usize = 1024 * 1024; // 1 MiB safety cap
         let mut response = Vec::with_capacity(4096);
         let mut buf = [0u8; 4096];
         loop {
@@ -195,6 +196,13 @@ impl FirecrackerApiClient {
                 break;
             }
             response.extend_from_slice(&buf[..n]);
+
+            if response.len() > MAX_RESPONSE_SIZE {
+                anyhow::bail!(
+                    "Firecracker API response exceeded {} bytes, aborting",
+                    MAX_RESPONSE_SIZE
+                );
+            }
 
             // Search for header/body boundary on raw bytes (avoids per-iteration
             // UTF-8 conversion).

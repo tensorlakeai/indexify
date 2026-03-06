@@ -385,8 +385,11 @@ impl FirecrackerDriver {
                 .join(format!("fc-{}-jailer.log", metadata.vm_id)),
         );
 
-        // Clean up jailer chroot
+        // Clean up jailer chroot and cgroup
         self.cleanup_jailer_chroot(&metadata.vm_id);
+        if let Some(ref cgroup_path) = metadata.cgroup_path {
+            cgroup::CgroupHandle::from_path(PathBuf::from(cgroup_path)).remove();
+        }
 
         // Clean up warm-pool-specific resources (dm device, empty LV).
         let dm_device_name = metadata.dm_device_name.clone();
@@ -879,6 +882,9 @@ impl FirecrackerDriver {
                 let _ = dm_thin::destroy_snapshot_async(lv, self.lvm_config.clone()).await;
             }
             self.cleanup_jailer_chroot(&vm_id_for_cleanup);
+            // Remove the cgroup directory created by the jailer.
+            cgroup::CgroupHandle::from_jailer(&warm_pool_config.parent_cgroup, &vm_id_for_cleanup)
+                .remove();
         }
 
         result
@@ -1113,44 +1119,58 @@ impl FirecrackerDriver {
 
     /// Recover warm VMs from a previous run.
     ///
-    /// For each candidate: health-check the daemon, push healthy VMs into
-    /// the pool, and destroy unhealthy ones. Called once at startup before
-    /// the initial replenishment fill.
+    /// Health-checks all candidates concurrently (5s timeout each), pushes
+    /// healthy VMs into the pool, and destroys unhealthy ones. Called once
+    /// at startup before the initial replenishment fill.
     async fn recover_warm_vms(
         driver: &Arc<Self>,
         pool: &Arc<Mutex<warm_pool::WarmPool>>,
         candidates: Vec<VmMetadata>,
     ) {
-        let mut recovered = 0usize;
         let total = candidates.len();
 
+        // Validate fields and split into valid candidates vs. immediate cleanup.
+        let mut valid = Vec::new();
         for meta in candidates {
-            // Verify all required warm pool fields are present.
             let has_fields = meta.dm_device_name.is_some() &&
                 meta.empty_lv_name.is_some() &&
                 meta.max_memory_mib.is_some() &&
                 meta.max_vcpus.is_some();
 
-            if !has_fields {
+            if has_fields {
+                valid.push(meta);
+            } else {
                 tracing::warn!(
                     vm_id = %meta.vm_id,
                     "Warm VM missing required metadata fields, destroying"
                 );
                 driver.cleanup_dead_vm(&meta);
-                continue;
             }
+        }
 
-            // Quick daemon health probe (5s timeout).
-            let healthy = match crate::daemon_client::DaemonClient::connect_with_retry(
-                &meta.daemon_addr,
-                Duration::from_secs(5),
-            )
-            .await
-            {
-                Ok(mut client) => client.health().await.unwrap_or(false),
-                Err(_) => false,
-            };
+        // Health-check all valid candidates concurrently.
+        let health_futures: Vec<_> = valid
+            .iter()
+            .map(|meta| {
+                let addr = meta.daemon_addr.clone();
+                async move {
+                    match crate::daemon_client::DaemonClient::connect_with_retry(
+                        &addr,
+                        Duration::from_secs(5),
+                    )
+                    .await
+                    {
+                        Ok(mut client) => client.health().await.unwrap_or(false),
+                        Err(_) => false,
+                    }
+                }
+            })
+            .collect();
 
+        let results = futures_util::future::join_all(health_futures).await;
+
+        let mut recovered = 0usize;
+        for (meta, healthy) in valid.into_iter().zip(results) {
             if healthy {
                 let cgroup = match &meta.cgroup_path {
                     Some(p) => cgroup::CgroupHandle::from_path(PathBuf::from(p)),
@@ -1246,22 +1266,37 @@ impl ProcessDriver for FirecrackerDriver {
                         );
                         let mut proc = VmProcess::Recovered { pid: warm_pid };
                         proc.wait_for_exit().await;
-                        // Remove dm device (releases reference to claim snapshot).
-                        dm_swap::remove_dm_device_force(&warm_dm_device_name);
+                        // Remove dm device (releases reference to backing LVs).
+                        dm_swap::remove_dm_device_async(warm_dm_device_name).await;
                         // Remove the claim snapshot LV (may or may not exist).
+                        // This MUST succeed before the cold boot fallback below,
+                        // which will create a new LV with the same name.
                         let claim_lv = format!("indexify-vm-{}", vm_id);
-                        let _ = dm_thin::destroy_snapshot_async(claim_lv, self.lvm_config.clone())
-                            .await;
+                        if let Err(e) =
+                            dm_thin::destroy_snapshot_async(claim_lv, self.lvm_config.clone()).await
+                        {
+                            tracing::warn!(
+                                error = ?e,
+                                vm_id = %vm_id,
+                                "Failed to destroy claim snapshot LV — cold boot may fail"
+                            );
+                        }
                         // Remove the warm VM's original rootfs LV.
-                        let _ =
+                        if let Err(e) =
                             dm_thin::destroy_snapshot_async(warm_lv_name, self.lvm_config.clone())
-                                .await;
+                                .await
+                        {
+                            tracing::warn!(error = ?e, "Failed to destroy warm VM rootfs LV");
+                        }
                         // Remove the empty LV.
-                        let _ = dm_thin::destroy_snapshot_async(
+                        if let Err(e) = dm_thin::destroy_snapshot_async(
                             warm_empty_lv_name,
                             self.lvm_config.clone(),
                         )
-                        .await;
+                        .await
+                        {
+                            tracing::warn!(error = ?e, "Failed to destroy warm VM empty LV");
+                        }
                         // Teardown CNI networking.
                         self.cni.teardown_network(&warm_vm_id).await;
                         // Remove jailer chroot directory.
@@ -1743,6 +1778,9 @@ impl ProcessDriver for FirecrackerDriver {
             }
         };
 
+        // Track whether this was a warm-pool-managed VM (has dm device).
+        let was_warm_pool_vm = dm_device_name.is_some();
+
         // Clean up dm device if this was a warm pool VM
         if let Some(dm_name) = &dm_device_name {
             dm_swap::remove_dm_device_async(dm_name.clone()).await;
@@ -1758,8 +1796,10 @@ impl ProcessDriver for FirecrackerDriver {
         self.cleanup_vm(&handle.id, &vm_id, &lv_name, &socket_path)
             .await;
 
-        // Notify warm pool that a VM was destroyed
-        if let Some(warm_pool) = &self.warm_pool {
+        // Only notify warm pool for VMs that were tracked in total_vms
+        // (warm-pool-booted VMs). Cold-booted VMs were never counted, so
+        // decrementing would corrupt the counter.
+        if was_warm_pool_vm && let Some(warm_pool) = &self.warm_pool {
             let mut pool = warm_pool.lock().await;
             pool.notify_destroyed();
         }
