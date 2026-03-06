@@ -260,7 +260,7 @@ impl ApplicationProcessor {
     /// in a previous server session has no retry path. This method iterates
     /// all `pending_sandboxes` and `unallocated_function_runs` from the
     /// in-memory state and runs the normal allocation logic for each.
-    async fn retry_pending_work(&self) -> Result<()> {
+    pub(crate) async fn retry_pending_work(&self) -> Result<()> {
         let current = self.indexify_state.app_state.load_full();
 
         let pending_sandbox_keys: Vec<_> =
@@ -288,40 +288,36 @@ impl ApplicationProcessor {
         let mut merged_update = SchedulerUpdateRequest::default();
 
         // Retry pending sandboxes
-        if !pending_sandbox_keys.is_empty() {
-            let sandbox_processor = SandboxProcessor::new();
-            for sandbox_key in &pending_sandbox_keys {
-                let alloc = sandbox_processor.allocate_sandbox_by_key(
-                    &indexes,
-                    &mut container_scheduler,
-                    sandbox_key.namespace(),
-                    sandbox_key.sandbox_id(),
-                    &mut feas_cache,
-                )?;
-                let clock = indexes.clock;
-                indexes.apply_scheduler_update(clock, &alloc, "startup_retry_sandbox")?;
-                container_scheduler.apply_container_update(&alloc);
-                merged_update.extend(alloc);
-            }
+        let sandbox_processor = SandboxProcessor::new();
+        for sandbox_key in &pending_sandbox_keys {
+            let alloc = sandbox_processor.allocate_sandbox_by_key(
+                &indexes,
+                &mut container_scheduler,
+                sandbox_key.namespace(),
+                sandbox_key.sandbox_id(),
+                &mut feas_cache,
+            )?;
+            let clock = indexes.clock;
+            indexes.apply_scheduler_update(clock, &alloc, "startup_retry_sandbox")?;
+            container_scheduler.apply_container_update(&alloc);
+            merged_update.extend(alloc);
         }
 
         // Retry pending function runs
-        if !pending_fn_run_keys.is_empty() {
-            let function_runs = indexes.resolve_pending_function_runs(&pending_fn_run_keys);
-            if !function_runs.is_empty() {
-                let task_allocator = FunctionRunProcessor::new(self.queue_size);
-                let alloc = task_allocator.allocate_function_runs(
-                    &indexes,
-                    &mut container_scheduler,
-                    function_runs,
-                    &self.allocate_function_runs_latency,
-                    &mut feas_cache,
-                )?;
-                let clock = indexes.clock;
-                indexes.apply_scheduler_update(clock, &alloc, "startup_retry_fn_runs")?;
-                container_scheduler.apply_container_update(&alloc);
-                merged_update.extend(alloc);
-            }
+        let function_runs = indexes.resolve_pending_function_runs(&pending_fn_run_keys);
+        if !function_runs.is_empty() {
+            let task_allocator = FunctionRunProcessor::new(self.queue_size);
+            let alloc = task_allocator.allocate_function_runs(
+                &indexes,
+                &mut container_scheduler,
+                function_runs,
+                &self.allocate_function_runs_latency,
+                &mut feas_cache,
+            )?;
+            let clock = indexes.clock;
+            indexes.apply_scheduler_update(clock, &alloc, "startup_retry_fn_runs")?;
+            container_scheduler.apply_container_update(&alloc);
+            merged_update.extend(alloc);
         }
 
         info!(
