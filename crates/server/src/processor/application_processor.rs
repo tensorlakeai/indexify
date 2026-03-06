@@ -307,8 +307,7 @@ impl ApplicationProcessor {
 
         // Retry pending function runs
         if !pending_fn_run_keys.is_empty() {
-            let function_runs =
-                indexes.resolve_pending_function_runs(&pending_fn_run_keys);
+            let function_runs = indexes.resolve_pending_function_runs(&pending_fn_run_keys);
             if !function_runs.is_empty() {
                 let task_allocator = FunctionRunProcessor::new(self.queue_size);
                 let alloc = task_allocator.allocate_function_runs(
