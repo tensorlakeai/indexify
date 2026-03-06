@@ -155,11 +155,6 @@ pub fn select_executor(
     limit: usize,
 ) -> PlacementResult {
     let total_executors_in_index = scheduler.executors_by_free_memory.len() as u32;
-    let max_memory = scheduler
-        .executors_by_free_memory
-        .get_max()
-        .map(|(mem, _)| *mem)
-        .unwrap_or(0);
 
     let mut result = PlacementResult {
         executor_id: None,
@@ -172,6 +167,11 @@ pub fn select_executor(
 
     // Check if any executor has enough free memory (O(log N) range start).
     let range_start = || (min_memory_bytes, ExecutorId::default());
+    let max_memory = scheduler
+        .executors_by_free_memory
+        .get_max()
+        .map(|(mem, _)| *mem)
+        .unwrap_or(0);
 
     if max_memory < min_memory_bytes {
         // No executor has enough free memory, but still compute feasibility
