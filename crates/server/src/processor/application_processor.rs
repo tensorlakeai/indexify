@@ -194,13 +194,13 @@ impl ApplicationProcessor {
             error!("error processing startup state changes: {:?}", err);
         }
 
-        // Re-attempt placement for sandboxes that were pending before the
-        // restart. The BlockedWorkTracker is rebuilt empty on startup, so any
-        // sandboxes that were blocked in a previous session are orphaned —
-        // they exist in pending_sandboxes but nothing will retry them unless
-        // we do it here.
-        if let Err(err) = self.retry_pending_sandboxes().await {
-            error!("error retrying pending sandboxes at startup: {:?}", err);
+        // Re-attempt placement for sandboxes and function runs that were
+        // pending before the restart. The BlockedWorkTracker is rebuilt empty
+        // on startup, so any work that was blocked in a previous session is
+        // orphaned — it exists in pending_sandboxes / unallocated_function_runs
+        // but nothing will retry it unless we do it here.
+        if let Err(err) = self.retry_pending_work().await {
+            error!("error retrying pending work at startup: {:?}", err);
         }
 
         loop {
@@ -254,52 +254,89 @@ impl ApplicationProcessor {
         }
     }
 
-    /// Re-attempt placement for all sandboxes that are pending allocation.
+    /// Re-attempt placement for all pending sandboxes and function runs.
     ///
-    /// On startup the `BlockedWorkTracker` is empty, so sandboxes that were
-    /// blocked in a previous server session have no retry path. This method
-    /// iterates all `pending_sandboxes` from the in-memory state and runs the
-    /// normal allocation logic for each.
-    async fn retry_pending_sandboxes(&self) -> Result<()> {
+    /// On startup the `BlockedWorkTracker` is empty, so work that was blocked
+    /// in a previous server session has no retry path. This method iterates
+    /// all `pending_sandboxes` and `unallocated_function_runs` from the
+    /// in-memory state and runs the normal allocation logic for each.
+    async fn retry_pending_work(&self) -> Result<()> {
         let current = self.indexify_state.app_state.load_full();
-        let pending: Vec<_> = current.indexes.pending_sandboxes.iter().cloned().collect();
-        if pending.is_empty() {
+
+        let pending_sandbox_keys: Vec<_> =
+            current.indexes.pending_sandboxes.iter().cloned().collect();
+        let pending_fn_run_keys: Vec<_> = current
+            .indexes
+            .unallocated_function_runs
+            .iter()
+            .cloned()
+            .collect();
+
+        if pending_sandbox_keys.is_empty() && pending_fn_run_keys.is_empty() {
             return Ok(());
         }
 
         info!(
-            num_pending = pending.len(),
-            "retrying pending sandboxes after startup"
+            pending_sandboxes = pending_sandbox_keys.len(),
+            pending_function_runs = pending_fn_run_keys.len(),
+            "retrying pending work after startup"
         );
 
         let mut indexes = current.indexes.clone();
         let mut container_scheduler = current.scheduler.clone();
         let mut feas_cache = FeasibilityCache::new();
-        let sandbox_processor = SandboxProcessor::new();
         let mut merged_update = SchedulerUpdateRequest::default();
 
-        for sandbox_key in &pending {
-            let alloc = sandbox_processor.allocate_sandbox_by_key(
-                &indexes,
-                &mut container_scheduler,
-                sandbox_key.namespace(),
-                sandbox_key.sandbox_id(),
-                &mut feas_cache,
-            )?;
-            let clock = indexes.clock;
-            indexes.apply_scheduler_update(clock, &alloc, "startup_retry_sandbox")?;
-            container_scheduler.apply_container_update(&alloc);
-            merged_update.extend(alloc);
+        // Retry pending sandboxes
+        if !pending_sandbox_keys.is_empty() {
+            let sandbox_processor = SandboxProcessor::new();
+            for sandbox_key in &pending_sandbox_keys {
+                let alloc = sandbox_processor.allocate_sandbox_by_key(
+                    &indexes,
+                    &mut container_scheduler,
+                    sandbox_key.namespace(),
+                    sandbox_key.sandbox_id(),
+                    &mut feas_cache,
+                )?;
+                let clock = indexes.clock;
+                indexes.apply_scheduler_update(clock, &alloc, "startup_retry_sandbox")?;
+                container_scheduler.apply_container_update(&alloc);
+                merged_update.extend(alloc);
+            }
         }
 
-        if merged_update.updated_sandboxes.is_empty() && merged_update.containers.is_empty() {
+        // Retry pending function runs
+        if !pending_fn_run_keys.is_empty() {
+            let function_runs =
+                indexes.resolve_pending_function_runs(&pending_fn_run_keys);
+            if !function_runs.is_empty() {
+                let task_allocator = FunctionRunProcessor::new(self.queue_size);
+                let alloc = task_allocator.allocate_function_runs(
+                    &indexes,
+                    &mut container_scheduler,
+                    function_runs,
+                    &self.allocate_function_runs_latency,
+                    &mut feas_cache,
+                )?;
+                let clock = indexes.clock;
+                indexes.apply_scheduler_update(clock, &alloc, "startup_retry_fn_runs")?;
+                container_scheduler.apply_container_update(&alloc);
+                merged_update.extend(alloc);
+            }
+        }
+
+        if merged_update.updated_sandboxes.is_empty()
+            && merged_update.containers.is_empty()
+            && merged_update.new_allocations.is_empty()
+        {
             return Ok(());
         }
 
         info!(
             sandboxes = merged_update.updated_sandboxes.len(),
             containers = merged_update.containers.len(),
-            "startup retry placed pending sandboxes"
+            allocations = merged_update.new_allocations.len(),
+            "startup retry placed pending work"
         );
 
         self.executor_manager
