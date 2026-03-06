@@ -155,6 +155,18 @@ impl ResourceProfileHistogram {
             );
         }
     }
+
+    /// Return a new histogram with counts from `other` subtracted (saturating).
+    pub fn subtract(&self, other: &Self) -> Self {
+        let mut result = self.clone();
+        for (profile, blocked) in &other.profiles {
+            if let Some(count) = result.profiles.get_mut(profile) {
+                *count = count.saturating_sub(*blocked);
+            }
+        }
+        result.profiles.retain(|_, c| *c > 0);
+        result
+    }
 }
 
 /// Tracks pending resource requirements for capacity reporting
