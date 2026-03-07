@@ -3022,6 +3022,10 @@ pub struct Snapshot {
     /// Size of the snapshot in bytes (set on completion)
     #[serde(default)]
     pub size_bytes: Option<u64>,
+    /// Uncompressed disk/filesystem size in bytes (set on completion).
+    /// This is the minimum disk size required to restore this snapshot.
+    #[serde(default)]
+    pub disk_size_bytes: Option<u64>,
     pub creation_time_ns: u128,
     /// Resources of the original sandbox (inherited by restored sandboxes)
     pub resources: ContainerResources,

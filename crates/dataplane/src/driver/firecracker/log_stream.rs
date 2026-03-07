@@ -10,7 +10,7 @@
 use std::{
     collections::HashMap,
     io::{self, BufRead, Seek, SeekFrom},
-    path::PathBuf,
+    path::{Path, PathBuf},
 };
 
 use tokio_util::sync::CancellationToken;
@@ -136,13 +136,13 @@ async fn run_log_streamer(
 /// All blocking I/O runs inside `spawn_blocking`.
 async fn poll_file(
     state: &mut Option<TailState>,
-    path: &PathBuf,
+    path: &Path,
     open_failures: &mut u32,
 ) -> Vec<String> {
     // Take ownership of state for the blocking closure. We'll put it back after.
     let taken_state = state.take();
 
-    let path_for_blocking = path.clone();
+    let path_for_blocking = path.to_path_buf();
     let failure_count = *open_failures;
 
     let result = tokio::task::spawn_blocking(move || {
@@ -182,29 +182,29 @@ async fn poll_file(
 /// Returns (updated state, new lines, whether a fresh open happened).
 fn poll_file_blocking(
     state: Option<TailState>,
-    path: &PathBuf,
+    path: &Path,
     _failure_count: u32,
 ) -> (Option<TailState>, Vec<String>, bool) {
     match state {
         Some(mut ts) => {
             // Check for truncation: if the file is now smaller than our position,
             // re-open from the beginning.
-            if let Ok(meta) = std::fs::metadata(path) {
-                if meta.len() < ts.position {
-                    tracing::info!(
-                        path = %path.display(),
-                        old_position = ts.position,
-                        new_size = meta.len(),
-                        "Log file was truncated, re-opening from beginning"
-                    );
-                    match open_at_position(path, 0) {
-                        Some(new_ts) => {
-                            let mut ts = new_ts;
-                            let lines = read_new_lines(&mut ts);
-                            return (Some(ts), lines, true);
-                        }
-                        None => return (None, Vec::new(), false),
+            if let Ok(meta) = std::fs::metadata(path) &&
+                meta.len() < ts.position
+            {
+                tracing::info!(
+                    path = %path.display(),
+                    old_position = ts.position,
+                    new_size = meta.len(),
+                    "Log file was truncated, re-opening from beginning"
+                );
+                match open_at_position(path, 0) {
+                    Some(new_ts) => {
+                        let mut ts = new_ts;
+                        let lines = read_new_lines(&mut ts);
+                        return (Some(ts), lines, true);
                     }
+                    None => return (None, Vec::new(), false),
                 }
             }
 
@@ -223,7 +223,7 @@ fn poll_file_blocking(
 
 /// Open a file at a given position. If `offset` is -1, seeks to end.
 /// Returns `None` if the file doesn't exist or can't be opened.
-fn open_at_position(path: &PathBuf, offset: i64) -> Option<TailState> {
+fn open_at_position(path: &Path, offset: i64) -> Option<TailState> {
     let mut file = std::fs::File::open(path).ok()?;
     let position = if offset < 0 {
         file.seek(SeekFrom::End(0)).ok()?

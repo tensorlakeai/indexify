@@ -259,6 +259,15 @@ pub async fn create_sandbox(
 
     let sandbox_id = SandboxId::default();
 
+    // Minimum disk size from the snapshot's actual filesystem size (bytes → MB,
+    // rounded up so we never under-allocate).
+    let snap_min_disk_mb = snapshot
+        .as_ref()
+        .and_then(|s| s.disk_size_bytes)
+        .filter(|&b| b > 0)
+        .map(|b| b.div_ceil(1024 * 1024))
+        .unwrap_or(0);
+
     // Use snapshot resources as defaults if available
     let resources = if let Some(ref snap) = snapshot {
         data_model::ContainerResources {
@@ -273,9 +282,12 @@ pub async fn create_sandbox(
                 snap.resources.memory_mb
             },
             ephemeral_disk_mb: if request.resources.ephemeral_disk_mb > 0 {
-                request.resources.ephemeral_disk_mb
+                // Clamp up to the snapshot's actual disk size so the
+                // restored filesystem fits (mirrors what the dataplane
+                // does for new sandboxes with undersized disk requests).
+                request.resources.ephemeral_disk_mb.max(snap_min_disk_mb)
             } else {
-                snap.resources.ephemeral_disk_mb
+                snap.resources.ephemeral_disk_mb.max(snap_min_disk_mb)
             },
             gpu: request
                 .resources

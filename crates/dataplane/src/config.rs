@@ -57,8 +57,70 @@ pub enum TracingExporter {
     Otlp,
 }
 
+/// Configuration for the warm VM pool.
+///
+/// Pre-boots Firecracker VMs and keeps them idle so containers can be
+/// claimed in ~130ms instead of cold-booting (~1.4s). Disabled by default.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WarmPoolConfig {
+    /// Number of warm VMs to maintain in the pool.
+    #[serde(default = "default_warm_pool_target")]
+    pub target_count: usize,
+    /// Maximum total VMs (warm + active) to prevent starving real workloads.
+    #[serde(default = "default_warm_pool_max_total")]
+    pub max_total_vms: usize,
+    /// Maximum concurrent boot tasks.
+    #[serde(default = "default_warm_pool_max_parallel")]
+    pub max_parallel_boots: usize,
+    /// CPU limit in millicores for idle warm VMs.
+    #[serde(default = "default_warm_pool_idle_cpu")]
+    pub idle_cpu_millicores: u32,
+    /// Memory in MiB reserved per idle warm VM (for resource reporting).
+    #[serde(default = "default_warm_pool_idle_memory")]
+    pub idle_memory_mib: u64,
+    /// Maximum vCPUs per warm VM. If not set, uses the driver's default.
+    #[serde(default)]
+    pub max_vcpus: Option<u32>,
+    /// Maximum memory in MiB per warm VM. If not set, uses the driver's
+    /// default.
+    #[serde(default)]
+    pub max_memory_mib: Option<u64>,
+    /// Parent cgroup name for jailer. Default: "indexify".
+    #[serde(default = "default_warm_pool_parent_cgroup")]
+    pub parent_cgroup: String,
+}
+
+impl WarmPoolConfig {
+    /// Memory overhead in bytes for resource reporting.
+    ///
+    /// Uses `target_count * idle_memory_mib` (steady-state overhead).
+    pub fn overhead_memory_bytes(&self) -> u64 {
+        self.target_count as u64 * self.idle_memory_mib * 1024 * 1024
+    }
+}
+
+fn default_warm_pool_target() -> usize {
+    5
+}
+fn default_warm_pool_max_total() -> usize {
+    20
+}
+fn default_warm_pool_max_parallel() -> usize {
+    3
+}
+fn default_warm_pool_idle_cpu() -> u32 {
+    50
+}
+fn default_warm_pool_idle_memory() -> u64 {
+    32
+}
+fn default_warm_pool_parent_cgroup() -> String {
+    "indexify".to_string()
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, Default)]
 #[serde(rename_all = "snake_case", tag = "type")]
+#[allow(clippy::large_enum_variant)]
 pub enum DriverConfig {
     #[default]
     ForkExec,
@@ -104,6 +166,9 @@ pub enum DriverConfig {
         /// Path to firecracker binary. Default: "firecracker" (PATH lookup).
         #[serde(default)]
         firecracker_binary: Option<String>,
+        /// Path to the jailer binary. Default: "jailer" (PATH lookup).
+        #[serde(default)]
+        jailer_binary: Option<String>,
         /// Path to Linux kernel image (vmlinux).
         kernel_image_path: String,
         /// Per-VM COW LV size in bytes. Default: 1 GiB.
@@ -143,6 +208,9 @@ pub enum DriverConfig {
         lvm_volume_group: String,
         /// LVM thin pool LV name within the volume group.
         lvm_thin_pool: String,
+        /// Warm VM pool configuration. Disabled by default.
+        #[serde(default)]
+        warm_pool: Option<WarmPoolConfig>,
     },
 }
 
@@ -505,10 +573,10 @@ impl DataplaneConfig {
     /// `{state_dir}/firecracker/`.
     #[cfg(feature = "firecracker")]
     pub fn firecracker_state_dir(&self, driver: &DriverConfig) -> PathBuf {
-        if let DriverConfig::Firecracker { state_dir, .. } = driver {
-            if let Some(dir) = state_dir {
-                return PathBuf::from(dir);
-            }
+        if let DriverConfig::Firecracker { state_dir, .. } = driver &&
+            let Some(dir) = state_dir
+        {
+            return PathBuf::from(dir);
         }
         PathBuf::from(&self.state_dir).join("firecracker")
     }
@@ -518,10 +586,10 @@ impl DataplaneConfig {
     /// `{state_dir}/firecracker/logs/`.
     #[cfg(feature = "firecracker")]
     pub fn firecracker_log_dir(&self, driver: &DriverConfig) -> PathBuf {
-        if let DriverConfig::Firecracker { log_dir, .. } = driver {
-            if let Some(dir) = log_dir {
-                return PathBuf::from(dir);
-            }
+        if let DriverConfig::Firecracker { log_dir, .. } = driver &&
+            let Some(dir) = log_dir
+        {
+            return PathBuf::from(dir);
         }
         PathBuf::from(&self.state_dir)
             .join("firecracker")
@@ -535,11 +603,10 @@ impl DataplaneConfig {
     pub fn firecracker_snapshot_local_dir(&self, driver: &DriverConfig) -> PathBuf {
         if let DriverConfig::Firecracker {
             snapshot_local_dir, ..
-        } = driver
+        } = driver &&
+            let Some(dir) = snapshot_local_dir
         {
-            if let Some(dir) = snapshot_local_dir {
-                return PathBuf::from(dir);
-            }
+            return PathBuf::from(dir);
         }
         PathBuf::from("/var/lib/indexify/snapshots")
     }
@@ -877,6 +944,8 @@ sandbox_driver:
                 snapshot_local_dir,
                 lvm_volume_group,
                 lvm_thin_pool,
+                warm_pool,
+                ..
             } => {
                 assert_eq!(kernel_image_path, "/opt/firecracker/vmlinux");
                 assert_eq!(base_rootfs_image, "/opt/firecracker/rootfs.ext4");
@@ -894,6 +963,7 @@ sandbox_driver:
                 assert!(state_dir.is_none());
                 assert!(log_dir.is_none());
                 assert!(snapshot_local_dir.is_none());
+                assert!(warm_pool.is_none());
             }
             _ => panic!("Expected Firecracker driver"),
         }

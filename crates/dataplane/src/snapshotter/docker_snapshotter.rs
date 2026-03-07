@@ -190,6 +190,7 @@ impl Snapshotter for DockerSnapshotter {
         Ok(SnapshotResult {
             snapshot_uri: upload_uri.to_string(),
             size_bytes: result.size_bytes,
+            disk_size_bytes: 0,
         })
     }
 
@@ -427,6 +428,7 @@ impl DockerSnapshotter {
         Ok(SnapshotResult {
             snapshot_uri: upload_uri.to_string(),
             size_bytes: result.size_bytes,
+            disk_size_bytes: 0,
         })
     }
 

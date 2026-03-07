@@ -724,12 +724,12 @@ impl ApplicationProcessor {
                 let cid = &req.allocation_target.container_id;
                 let mut freed_memory_mb: u64 = 0;
                 if let Some(fc) = container_scheduler_guard.function_containers.get(cid) {
-                    let not_terminated = !matches!(
-                        fc.desired_state,
-                        data_model::ContainerState::Terminated { .. }
-                    );
                     let capacity = self.queue_size * fc.function_container.max_concurrency;
-                    if not_terminated && fc.allocations.len() < capacity as usize {
+                    // A completed allocation frees executor resources even if
+                    // the container is concurrently transitioning to Terminated.
+                    // Gate only on actual queue-slot release so blocked work is
+                    // retried promptly instead of waiting for periodic reap.
+                    if fc.allocations.len() < capacity as usize {
                         freed_memory_mb = fc.function_container.resources.memory_mb;
                     }
                 }

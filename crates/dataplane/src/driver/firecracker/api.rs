@@ -109,6 +109,49 @@ impl FirecrackerApiClient {
         self.patch("/vm", &body).await
     }
 
+    /// Configure the balloon device (pre-boot, before InstanceStart).
+    ///
+    /// `amount_mib` is the balloon SIZE — memory TAKEN from the guest.
+    /// So to give the guest 256 MiB out of 512 MiB total, set amount_mib=256.
+    pub async fn configure_balloon(&self, amount_mib: u64, deflate_on_oom: bool) -> Result<()> {
+        let body = serde_json::json!({
+            "amount_mib": amount_mib,
+            "deflate_on_oom": deflate_on_oom,
+        });
+        self.put("/balloon", &body).await
+    }
+
+    /// Update the balloon size at runtime (after InstanceStart).
+    ///
+    /// `amount_mib` is the new balloon SIZE — memory TAKEN from guest.
+    /// Decreasing this value (deflation) gives memory back to the guest.
+    pub async fn update_balloon(&self, amount_mib: u64) -> Result<()> {
+        let body = serde_json::json!({
+            "amount_mib": amount_mib,
+        });
+        self.patch("/balloon", &body).await
+    }
+
+    /// Configure a secondary block device (pre-boot, before InstanceStart).
+    ///
+    /// `cache_type` should be "Unsafe" for warm pool vdb devices.
+    pub async fn configure_secondary_drive(
+        &self,
+        drive_id: &str,
+        path: &str,
+        is_read_only: bool,
+        cache_type: &str,
+    ) -> Result<()> {
+        let body = serde_json::json!({
+            "drive_id": drive_id,
+            "path_on_host": path,
+            "is_root_device": false,
+            "is_read_only": is_read_only,
+            "cache_type": cache_type,
+        });
+        self.put(&format!("/drives/{}", drive_id), &body).await
+    }
+
     /// Send a PATCH request to the Firecracker API.
     async fn patch(&self, path: &str, body: &serde_json::Value) -> Result<()> {
         self.request("PATCH", path, body).await
@@ -144,7 +187,8 @@ impl FirecrackerApiClient {
         // Read the response before shutting down the write side.
         // Shutting down first can cause Firecracker to close the connection
         // before sending a response.
-        let mut response = Vec::new();
+        const MAX_RESPONSE_SIZE: usize = 1024 * 1024; // 1 MiB safety cap
+        let mut response = Vec::with_capacity(4096);
         let mut buf = [0u8; 4096];
         loop {
             let n = stream.read(&mut buf).await?;
@@ -152,29 +196,26 @@ impl FirecrackerApiClient {
                 break;
             }
             response.extend_from_slice(&buf[..n]);
-            // Check if we've received the full response (headers + body).
-            // HTTP responses end with \r\n\r\n for headers-only or after
-            // Content-Length bytes of body.
-            let response_str = String::from_utf8_lossy(&response);
-            if response_str.contains("\r\n\r\n") {
-                // Check if we have the full body
-                if let Some(header_end) = response_str.find("\r\n\r\n") {
-                    let headers = &response_str[..header_end];
-                    let body_start = header_end + 4;
-                    let content_length = headers
-                        .lines()
-                        .find(|l| l.to_lowercase().starts_with("content-length:"))
-                        .and_then(|l| l.split(':').nth(1))
-                        .and_then(|v| v.trim().parse::<usize>().ok())
-                        .unwrap_or(0);
-                    if response.len() >= body_start + content_length {
-                        break;
-                    }
+
+            if response.len() > MAX_RESPONSE_SIZE {
+                anyhow::bail!(
+                    "Firecracker API response exceeded {} bytes, aborting",
+                    MAX_RESPONSE_SIZE
+                );
+            }
+
+            // Search for header/body boundary on raw bytes (avoids per-iteration
+            // UTF-8 conversion).
+            if let Some(header_end) = find_header_end(&response) {
+                let body_start = header_end + 4;
+                let content_length = parse_content_length(&response[..header_end]);
+                if response.len() >= body_start + content_length {
+                    break;
                 }
             }
         }
 
-        let response = String::from_utf8_lossy(&response).to_string();
+        let response = String::from_utf8_lossy(&response).into_owned();
 
         // Parse the HTTP status line
         let status_line = response
@@ -189,7 +230,7 @@ impl FirecrackerApiClient {
             .parse()
             .context("Invalid HTTP status code")?;
 
-        if status_code >= 200 && status_code < 300 {
+        if (200..300).contains(&status_code) {
             Ok(())
         } else {
             // Extract body after the blank line
@@ -203,6 +244,27 @@ impl FirecrackerApiClient {
             );
         }
     }
+}
+
+/// Find the byte offset of `\r\n\r\n` in a byte slice (header/body boundary).
+fn find_header_end(data: &[u8]) -> Option<usize> {
+    data.windows(4).position(|w| w == b"\r\n\r\n")
+}
+
+/// Parse Content-Length from raw header bytes.
+///
+/// Scans lines for a case-insensitive match without allocating.
+fn parse_content_length(headers: &[u8]) -> usize {
+    let header_str = std::str::from_utf8(headers).unwrap_or("");
+    for line in header_str.lines() {
+        if line.len() > 15 &&
+            line[..15].eq_ignore_ascii_case("content-length:") &&
+            let Ok(len) = line[15..].trim().parse::<usize>()
+        {
+            return len;
+        }
+    }
+    0
 }
 
 #[cfg(test)]

@@ -506,6 +506,11 @@ impl IndexifyState {
                     snapshot.status = SnapshotStatus::Completed;
                     snapshot.snapshot_uri = Some(request.snapshot_uri.clone());
                     snapshot.size_bytes = Some(request.size_bytes);
+                    snapshot.disk_size_bytes = if request.disk_size_bytes > 0 {
+                        Some(request.disk_size_bytes)
+                    } else {
+                        None
+                    };
                     state_machine::upsert_snapshot(&txn, &snapshot).await?;
 
                     // Terminate the sandbox. Try in-memory first, fall back to DB

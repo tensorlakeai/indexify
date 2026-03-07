@@ -1161,6 +1161,11 @@ impl InMemoryState {
                         snapshot.status = SnapshotStatus::Completed;
                         snapshot.snapshot_uri = Some(req.snapshot_uri.clone());
                         snapshot.size_bytes = Some(req.size_bytes);
+                        snapshot.disk_size_bytes = if req.disk_size_bytes > 0 {
+                            Some(req.disk_size_bytes)
+                        } else {
+                            None
+                        };
                     }
 
                     let (ns, sb_id) = {

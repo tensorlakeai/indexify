@@ -230,7 +230,7 @@ impl Service {
                 tracing::info!("Snapshotter enabled (Firecracker sandbox driver)");
                 Some(Arc::new(
                     crate::snapshotter::firecracker_snapshotter::FirecrackerSnapshotter::new(
-                        PathBuf::from(state_dir_path),
+                        state_dir_path,
                         snapshot_local_dir,
                         (*blob_store).clone(),
                         metrics.clone(),
@@ -365,11 +365,35 @@ impl Service {
         let heartbeat_healthy = self.monitoring_state.heartbeat_healthy.clone();
         let (connection_state_tx, _) = watch::channel(ConnectionState::Registering);
 
+        // Compute container resources by deducting warm pool overhead.
+        let container_resources = {
+            #[allow(unused_mut)]
+            let mut res = self.host_resources;
+            #[cfg(feature = "firecracker")]
+            if let DriverConfig::Firecracker {
+                warm_pool: Some(ref wp),
+                ..
+            } = self.config.sandbox_driver
+            {
+                let overhead_bytes = wp.overhead_memory_bytes();
+                if let Some(mem) = res.memory_bytes.as_mut() {
+                    *mem = mem.saturating_sub(overhead_bytes);
+                }
+                tracing::info!(
+                    warm_pool_overhead_bytes = overhead_bytes,
+                    container_memory_bytes = ?res.memory_bytes,
+                    "Deducted warm pool memory overhead from container resources"
+                );
+            }
+            res
+        };
+
         let runtime = Arc::new(ServiceRuntime {
             channel: self.channel.clone(),
             identity: ExecutorIdentity {
                 executor_id: executor_id.clone(),
                 host_resources: self.host_resources,
+                container_resources,
                 allowed_functions: self.allowed_functions.clone(),
                 labels: self.config.labels.clone(),
                 proxy_address: self.config.http_proxy.get_advertise_address(),
@@ -526,6 +550,9 @@ async fn run_metrics_update_loop(metrics: Arc<DataplaneMetrics>, cancel_token: C
 struct ExecutorIdentity {
     executor_id: String,
     host_resources: HostResources,
+    /// Resources available for containers (host resources minus warm pool
+    /// overhead).
+    container_resources: HostResources,
     allowed_functions: Vec<proto_api::executor_api_pb::AllowedFunction>,
     labels: std::collections::HashMap<String, String>,
     proxy_address: String,
@@ -712,7 +739,7 @@ impl ServiceRuntime {
             hostname: Some(hostname),
             version: Some(env!("CARGO_PKG_VERSION").to_string()),
             total_resources: Some(self.identity.host_resources),
-            total_container_resources: Some(self.identity.host_resources),
+            total_container_resources: Some(self.identity.container_resources),
             allowed_functions: self.identity.allowed_functions.clone(),
             labels: self.identity.labels.clone(),
             catalog_entry_name: None,
@@ -1501,6 +1528,7 @@ fn create_process_driver(
         #[cfg(feature = "firecracker")]
         DriverConfig::Firecracker {
             firecracker_binary,
+            jailer_binary,
             kernel_image_path,
             default_rootfs_size_bytes,
             base_rootfs_image,
@@ -1512,9 +1540,11 @@ fn create_process_driver(
             default_memory_mib,
             lvm_volume_group,
             lvm_thin_pool,
+            warm_pool,
             ..
-        } => Ok(Arc::new(FirecrackerDriver::new(
+        } => Ok(FirecrackerDriver::new(
             firecracker_binary.clone(),
+            jailer_binary.clone(),
             kernel_image_path.clone(),
             *default_rootfs_size_bytes,
             base_rootfs_image.clone(),
@@ -1528,7 +1558,8 @@ fn create_process_driver(
             config.firecracker_log_dir(driver_config),
             lvm_volume_group.clone(),
             lvm_thin_pool.clone(),
-        )?)),
+            warm_pool.clone(),
+        )?),
     }
 }
 

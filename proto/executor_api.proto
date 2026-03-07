@@ -577,6 +577,9 @@ message SnapshotCompleted {
     string snapshot_uri = 3;
     // Size of the snapshot in bytes.
     uint64 size_bytes = 4;
+    // Uncompressed disk/filesystem size in bytes. This is the minimum
+    // disk size required to restore this snapshot.
+    uint64 disk_size_bytes = 5;
 }
 
 // Dataplane → Server: snapshot failed.

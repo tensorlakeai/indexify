@@ -4,12 +4,15 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use proto_api::container_daemon_pb::{
+    EnvVar,
     HealthRequest,
+    MountConfig,
+    PrepareRequest,
     SendSignalRequest,
     container_daemon_client::ContainerDaemonClient,
 };
 use tonic::transport::Channel;
-use tracing::{debug, warn};
+use tracing::debug;
 
 /// Client for communicating with the container daemon.
 #[derive(Clone)]
@@ -82,6 +85,45 @@ impl DaemonClient {
         Ok(())
     }
 
+    /// Prepare the daemon for a claimed warm VM.
+    ///
+    /// Sets default environment variables, mounts the user image block device,
+    /// configures chroot for future process spawns, and offlines extra CPUs.
+    pub async fn prepare(
+        &mut self,
+        env_vars: Vec<(String, String)>,
+        working_dir: Option<String>,
+        mount: Option<MountConfig>,
+        num_cpus: Option<u32>,
+    ) -> Result<()> {
+        let request = PrepareRequest {
+            env_vars: env_vars
+                .into_iter()
+                .map(|(key, value)| EnvVar { key, value })
+                .collect(),
+            working_dir,
+            mount,
+            num_cpus,
+        };
+
+        let response = self
+            .client
+            .prepare(request)
+            .await
+            .context("Prepare RPC failed")?
+            .into_inner();
+
+        if !response.success {
+            let error = response
+                .error
+                .unwrap_or_else(|| "Unknown error".to_string());
+            anyhow::bail!("Daemon prepare failed: {}", error);
+        }
+
+        debug!("Daemon prepare succeeded");
+        Ok(())
+    }
+
     /// Wait for the daemon to be ready (health check passes).
     pub async fn wait_for_ready(&mut self, timeout: Duration) -> Result<()> {
         let deadline = tokio::time::Instant::now() + timeout;
@@ -90,7 +132,7 @@ impl DaemonClient {
             match self.health().await {
                 Ok(true) => return Ok(()),
                 Ok(false) => {
-                    warn!("Daemon health check returned false");
+                    debug!("Daemon health check returned false, retrying...");
                 }
                 Err(e) => {
                     debug!(error = ?e, "Health check error, retrying...");
