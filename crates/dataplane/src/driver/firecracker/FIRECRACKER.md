@@ -56,6 +56,7 @@ Gated behind the `firecracker` Cargo feature flag.
 - **Restore**: stream from blob store -> zstd decompress -> write delta file -> apply block records into thin snapshot (COW preserved for unchanged blocks)
 - **Streaming pipeline**: bounded memory usage (~100MB chunks), same pattern as `DockerSnapshotter`
 - **thin_delta optimization**: reads only changed blocks (~500MB) instead of the entire device (10GB+). Read I/O scales with amount of change, not image size.
+- **Disk size reporting**: on snapshot completion the dataplane reports `disk_size_bytes` (the LV block device size) alongside the compressed blob size. The server stores this in the `Snapshot` record and uses it to ensure sandboxes restored from the snapshot are provisioned with enough disk (see [Disk size metadata](#disk-size-metadata) below).
 
 ### What is not yet covered
 
@@ -108,6 +109,47 @@ Per-VM:
 
 Snapshot:  thin_delta metadata query -> read changed blocks -> delta records -> zstd -> S3
 Restore:   download from S3 -> zstd decompress -> delta file -> apply block records into thin snapshot
+```
+
+### Disk size metadata
+
+When a user creates a sandbox they specify `ephemeral_disk_mb`. The Firecracker
+driver may provision a larger LV if the base rootfs image is bigger than the
+requested size (via `max(requested, image_size)`). The user's original request
+does not reflect the real disk consumption.
+
+On snapshot completion the dataplane queries the LV block device size and
+reports it to the server as `disk_size_bytes` in the `SnapshotCompleted`
+heartbeat message. The server stores this value in the `Snapshot` record.
+
+**How the server uses `disk_size_bytes`:**
+
+- **API visibility**: the `GET /v1/namespaces/{ns}/snapshots/{id}` response
+  includes `disk_size_bytes` so operators can see the actual disk footprint.
+- **Restore clamping**: when creating a sandbox from a snapshot, the server
+  ensures `ephemeral_disk_mb >= ceil(disk_size_bytes / 1 MiB)`. If the user
+  specifies a smaller value or inherits the original sandbox's resources, the
+  server silently clamps up. This mirrors what the dataplane already does for
+  new sandboxes and ensures scheduling and billing reflect the real disk
+  requirement.
+
+**Docker snapshots** report `disk_size_bytes = 0` because Docker containers do
+not have a fixed disk allocation. The server treats 0 as "not applicable" and
+skips the clamp.
+
+```
+Snapshot creation:
+  Dataplane takes snapshot
+    -> queries LV block device size (e.g. 10 GiB)
+    -> builds delta blob (e.g. 200 MiB compressed)
+    -> reports SnapshotCompleted { size_bytes: 200M, disk_size_bytes: 10G }
+
+Snapshot restore (create_sandbox with snapshot_id):
+  Server resolves resources
+    -> user requests ephemeral_disk_mb: 2048
+    -> snapshot.disk_size_bytes: 10 GiB = 10240 MiB
+    -> server clamps to max(2048, 10240) = 10240 MiB
+    -> sandbox scheduled with 10240 MiB disk
 ```
 
 ### VM start sequence

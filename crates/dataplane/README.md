@@ -149,6 +149,8 @@ sandbox_driver:
 
 # Snapshot storage URI for container filesystem snapshots (optional).
 # Enables snapshot/restore for Docker (docker export) and Firecracker (thin_delta).
+# On completion the dataplane reports both compressed blob size (size_bytes)
+# and uncompressed disk size (disk_size_bytes) to the server.
 # snapshot_storage_uri: "s3://my-bucket/snapshots"
 
 # HTTP proxy for sandbox routing
@@ -640,6 +642,80 @@ sudo lvs -o lv_name,data_percent indexify-vg
 which thin_delta
 # Should print a path like /usr/sbin/thin_delta
 ```
+
+## Snapshots
+
+The dataplane supports snapshotting sandbox container filesystems and restoring
+new sandboxes from those snapshots. Two backends are available:
+
+| Backend | Driver | How it works | `disk_size_bytes` |
+|---------|--------|-------------|-------------------|
+| Docker | `docker export` / `docker import` | Full filesystem tar, zstd compressed, streamed to blob store | Reports 0 (Docker has no fixed disk allocation) |
+| Firecracker | LVM `thin_delta` | Reads only changed blocks from the thin LV, zstd compressed, streamed to blob store | Reports the LV block device size (the minimum disk needed to restore) |
+
+### Snapshot disk size metadata
+
+When a Firecracker snapshot completes, the dataplane queries the LV block device
+size and includes it as `disk_size_bytes` in the `SnapshotCompleted` heartbeat.
+The server stores this alongside the compressed blob size (`size_bytes`).
+
+This matters because the Firecracker driver provisions LVs using
+`max(requested_disk, base_image_size)`. If the base image is 8 GiB and the user
+requests 2 GiB, the LV will be 8 GiB. Without `disk_size_bytes`, the server
+would schedule and bill based on the user's 2 GiB request, not the real 8 GiB.
+
+On restore (creating a sandbox from a snapshot), the server clamps
+`ephemeral_disk_mb` up to `ceil(disk_size_bytes / 1 MiB)` so the restored
+sandbox always has enough disk. This is silent — no error is returned — matching
+the behavior of new sandbox creation where the dataplane also silently expands
+undersized disks.
+
+### API
+
+```bash
+# Create a snapshot of a running sandbox
+curl -X POST http://localhost:8900/v1/namespaces/{ns}/sandboxes/{sandbox_id}/snapshot
+# Returns: {"snapshot_id": "...", "status": "in_progress"}
+
+# Poll until completed
+curl http://localhost:8900/v1/namespaces/{ns}/snapshots/{snapshot_id}
+# Returns: {
+#   "id": "...",
+#   "status": "completed",
+#   "size_bytes": 209715200,       <-- compressed blob size
+#   "disk_size_bytes": 8589934592, <-- actual LV size (Firecracker only, null for Docker)
+#   ...
+# }
+
+# Restore into a new sandbox
+curl -X POST http://localhost:8900/v1/namespaces/{ns}/sandboxes \
+  -H "Content-Type: application/json" \
+  -d '{"snapshot_id": "...", "resources": {"ephemeral_disk_mb": 2048}}'
+# Server clamps disk to max(2048, ceil(8589934592 / 1048576)) = 8192 MiB
+
+# Restore with defaults (inherits original sandbox resources, clamped up)
+curl -X POST http://localhost:8900/v1/namespaces/{ns}/sandboxes \
+  -H "Content-Type: application/json" \
+  -d '{"snapshot_id": "..."}'
+
+# List all snapshots
+curl http://localhost:8900/v1/namespaces/{ns}/snapshots
+
+# Delete a snapshot (also removes the blob from storage)
+curl -X DELETE http://localhost:8900/v1/namespaces/{ns}/snapshots/{snapshot_id}
+```
+
+### Configuration
+
+Enable snapshots by setting `snapshot_storage_path` on the **server**:
+
+```yaml
+# Server config
+snapshot_storage_path: "s3://my-bucket/indexify-snapshots"
+```
+
+The dataplane needs no extra configuration — it receives the upload URI from the
+server when a snapshot is requested.
 
 ## Local Development
 
