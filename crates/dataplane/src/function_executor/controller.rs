@@ -10,8 +10,7 @@ use crate::{
     blob_ops::BlobStore,
     code_cache::CodeCache,
     driver::ProcessDriver,
-    function_container_manager::ImageResolver,
-    secrets::SecretsProvider,
+    resolvers::{ImageResolver, SecretsResolver},
     state_file::StateFile,
 };
 
@@ -21,7 +20,7 @@ pub struct FESpawnConfig {
     pub driver: Arc<dyn ProcessDriver>,
     pub image_resolver: Arc<dyn ImageResolver>,
     pub gpu_allocator: Arc<crate::gpu_allocator::GpuAllocator>,
-    pub secrets_provider: Arc<dyn SecretsProvider>,
+    pub secrets_resolver: Arc<dyn SecretsResolver>,
     /// Channel for command responses (ContainerStarted/ContainerTerminated,
     /// AllocationScheduled acks).
     pub result_tx: mpsc::Sender<CommandResponse>,

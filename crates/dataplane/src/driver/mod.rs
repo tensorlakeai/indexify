@@ -2,6 +2,8 @@ mod docker;
 #[cfg(feature = "firecracker")]
 pub(crate) mod firecracker;
 mod fork_exec;
+#[cfg(feature = "kubernetes")]
+pub mod kubernetes;
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -11,6 +13,8 @@ pub use firecracker::FirecrackerDriver;
 #[cfg(feature = "firecracker")]
 pub use firecracker::dm_thin::LvmConfig;
 pub use fork_exec::ForkExecDriver;
+#[cfg(feature = "kubernetes")]
+pub use kubernetes::KubernetesPodDriver;
 
 /// Container port for the daemon gRPC server (internal API).
 pub const DAEMON_GRPC_PORT: u16 = 9500;

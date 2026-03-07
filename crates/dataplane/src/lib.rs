@@ -19,9 +19,9 @@ pub mod metrics;
 pub mod monitoring;
 pub mod network_rules;
 pub mod otel_tracing;
+pub mod resolvers;
 pub mod resources;
 pub mod retry;
-pub mod secrets;
 pub mod service;
 pub mod snapshotter;
 pub mod state_file;
@@ -31,6 +31,8 @@ pub mod validation;
 
 // Re-export key types for convenience
 pub use daemon_client::DaemonClient;
+#[cfg(feature = "kubernetes")]
+pub use driver::KubernetesPodDriver;
 pub use driver::{
     DockerDriver,
     ForkExecDriver,
@@ -39,13 +41,10 @@ pub use driver::{
     ProcessHandle,
     ProcessType,
 };
-pub use function_container_manager::{
-    DefaultImageResolver,
-    FunctionContainerManager,
-    ImageResolver,
-    SandboxLookupResult,
-};
+pub use function_container_manager::{FunctionContainerManager, SandboxLookupResult};
 pub use http_proxy::run_http_proxy;
 pub use metrics::{ContainerCounts, DataplaneMetrics, ResourceAvailability};
-pub use secrets::{NoopSecretsProvider, SecretsProvider};
+#[cfg(feature = "kubernetes")]
+pub use resolvers::{ConfigMapImageResolver, KubernetesSecretsResolver};
+pub use resolvers::{DefaultImageResolver, ImageResolver, NoopSecretsResolver, SecretsResolver};
 pub use service::Service;

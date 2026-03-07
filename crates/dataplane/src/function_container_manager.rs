@@ -1,5 +1,4 @@
 mod health;
-mod image_resolver;
 mod lifecycle;
 mod types;
 
@@ -9,7 +8,6 @@ use std::{
     time::{Duration, Instant},
 };
 
-pub use image_resolver::{DefaultImageResolver, ImageResolver};
 use proto_api::executor_api_pb::{
     CommandResponse,
     ContainerDescription,
@@ -27,12 +25,15 @@ use self::types::{
     ManagedContainer,
     update_container_counts,
 };
+#[cfg(feature = "kubernetes")]
+pub use crate::resolvers::ConfigMapImageResolver;
+pub use crate::resolvers::{DefaultImageResolver, ImageResolver};
 use crate::{
     daemon_client::DaemonClient,
     driver::{ProcessDriver, ProcessHandle},
     metrics::DataplaneMetrics,
     network_rules,
-    secrets::SecretsProvider,
+    resolvers::SecretsResolver,
     snapshotter::Snapshotter,
     state_file::StateFile,
 };
@@ -43,7 +44,7 @@ const KILL_GRACE_PERIOD: Duration = Duration::from_secs(10);
 pub struct FunctionContainerManager {
     driver: Arc<dyn ProcessDriver>,
     image_resolver: Arc<dyn ImageResolver>,
-    secrets_provider: Arc<dyn SecretsProvider>,
+    secrets_resolver: Arc<dyn SecretsResolver>,
     containers: Arc<RwLock<ContainerStore>>,
     metrics: Arc<DataplaneMetrics>,
     state_file: Arc<StateFile>,
@@ -61,7 +62,7 @@ impl FunctionContainerManager {
     pub fn new(
         driver: Arc<dyn ProcessDriver>,
         image_resolver: Arc<dyn ImageResolver>,
-        secrets_provider: Arc<dyn SecretsProvider>,
+        secrets_resolver: Arc<dyn SecretsResolver>,
         metrics: Arc<DataplaneMetrics>,
         state_file: Arc<StateFile>,
         executor_id: String,
@@ -71,7 +72,7 @@ impl FunctionContainerManager {
         Self {
             driver,
             image_resolver,
-            secrets_provider,
+            secrets_resolver,
             containers: Arc::new(RwLock::new(ContainerStore::new())),
             metrics,
             state_file,
@@ -313,7 +314,7 @@ impl FunctionContainerManager {
         // Spawn container creation with daemon integration
         let driver = self.driver.clone();
         let image_resolver = self.image_resolver.clone();
-        let secrets_provider = self.secrets_provider.clone();
+        let secrets_resolver = self.secrets_resolver.clone();
         let snapshotter = self.snapshotter.clone();
         let containers_ref = self.containers.clone();
         let metrics = self.metrics.clone();
@@ -327,7 +328,7 @@ impl FunctionContainerManager {
                 let result = lifecycle::start_container_with_daemon(
                     &driver,
                     &image_resolver,
-                    &secrets_provider,
+                    &secrets_resolver,
                     &snapshotter,
                     &executor_id,
                     &desc,
@@ -1293,7 +1294,7 @@ mod tests {
     ) {
         let driver = Arc::new(MockProcessDriver::new());
         let resolver = Arc::new(DefaultImageResolver::new(None));
-        let secrets = Arc::new(crate::secrets::NoopSecretsProvider::new());
+        let secrets = Arc::new(crate::resolvers::NoopSecretsResolver::new());
         let metrics = create_test_metrics();
         let state_file = create_test_state_file().await;
         let (container_state_tx, container_state_rx) =

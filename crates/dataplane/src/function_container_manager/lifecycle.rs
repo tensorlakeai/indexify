@@ -15,15 +15,12 @@ use proto_api::executor_api_pb::{
 };
 use tokio::sync::{RwLock, mpsc};
 
-use super::{
-    image_resolver::ImageResolver,
-    types::{ContainerInfo, ContainerStore, container_type_str, update_container_counts},
-};
+use super::types::{ContainerInfo, ContainerStore, container_type_str, update_container_counts};
 use crate::{
     daemon_client::DaemonClient,
     driver::{ProcessConfig, ProcessDriver, ProcessHandle},
     metrics::DataplaneMetrics,
-    secrets::SecretsProvider,
+    resolvers::{ImageResolver, SecretsResolver},
     snapshotter::Snapshotter,
     state_file::{PersistedContainer, StateFile},
 };
@@ -34,7 +31,7 @@ pub(super) const DAEMON_READY_TIMEOUT: Duration = Duration::from_secs(60);
 pub(super) async fn start_container_with_daemon(
     driver: &Arc<dyn ProcessDriver>,
     image_resolver: &Arc<dyn ImageResolver>,
-    secrets_provider: &Arc<dyn SecretsProvider>,
+    secrets_resolver: &Arc<dyn SecretsResolver>,
     snapshotter: &Option<Arc<dyn Snapshotter>>,
     executor_id: &str,
     desc: &ContainerDescription,
@@ -195,7 +192,7 @@ pub(super) async fn start_container_with_daemon(
         secret_count = desc.secret_names.len(),
         "Fetching secrets for container"
     );
-    let secrets = secrets_provider
+    let secrets = secrets_resolver
         .fetch_secrets(executor_id, info.namespace, &desc.secret_names)
         .await?;
     let env: Vec<(String, String)> = secrets.into_iter().collect();
