@@ -822,7 +822,7 @@ async fn start_fe_process(
 
     // Fetch and inject secrets
     let secrets = config
-        .secrets_provider
+        .secrets_resolver
         .fetch_secrets(&config.executor_id, namespace, &description.secret_names)
         .await?;
     for (k, v) in secrets {

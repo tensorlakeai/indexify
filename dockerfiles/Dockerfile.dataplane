@@ -20,7 +20,7 @@ COPY crates crates
 # Add musl target for static linking of the embedded container-daemon, then build.
 # DAEMON_STATIC=1 tells build.rs to use musl so the daemon binary works in any container.
 RUN rustup target add x86_64-unknown-linux-musl aarch64-unknown-linux-musl && \
-    DAEMON_STATIC=1 cargo build --release --bin indexify-dataplane
+    DAEMON_STATIC=1 cargo build --release --bin indexify-dataplane --bin indexify-container-daemon
 
 FROM ubuntu:24.04 AS runner
 
@@ -37,6 +37,7 @@ RUN update-ca-certificates
 WORKDIR /indexify
 
 COPY --from=builder /app/target/release/indexify-dataplane ./
+COPY --from=builder /app/target/release/indexify-container-daemon ./
 
 ENV PATH="/indexify:${PATH}"
 

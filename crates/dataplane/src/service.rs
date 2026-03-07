@@ -30,18 +30,23 @@ use crate::{
     code_cache::CodeCache,
     config::{DataplaneConfig, DriverConfig},
     driver::{DockerDriver, ForkExecDriver, ProcessDriver},
-    function_container_manager::{DefaultImageResolver, FunctionContainerManager, ImageResolver},
+    function_container_manager::FunctionContainerManager,
     function_executor::controller::FESpawnConfig,
     http_proxy::run_http_proxy,
     metrics::DataplaneMetrics,
     monitoring::{MonitoringState, run_monitoring_server},
+    resolvers::{DefaultImageResolver, ImageResolver, NoopSecretsResolver, SecretsResolver},
     resources::{probe_free_resources, probe_host_resources},
-    secrets::{NoopSecretsProvider, SecretsProvider},
     snapshotter::Snapshotter,
     state_file::StateFile,
     state_reconciler::StateReconciler,
     state_reporter::StateReporter,
     validation,
+};
+#[cfg(feature = "kubernetes")]
+use crate::{
+    driver::KubernetesPodDriver,
+    resolvers::{ConfigMapImageResolver, KubernetesSecretsResolver},
 };
 
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
@@ -87,14 +92,53 @@ pub struct Service {
 }
 
 impl Service {
-    /// Create a new dataplane service with default (no-op) providers.
+    /// Create a new dataplane service.
+    ///
+    /// Selects providers based on configuration:
+    /// - If `kubernetes_image_configmap` is set, uses
+    ///   [`ConfigMapImageResolver`]; otherwise uses [`DefaultImageResolver`].
+    /// - If `kubernetes_secrets` is set, uses [`KubernetesSecretsResolver`];
+    ///   otherwise uses [`NoopSecretsResolver`].
     pub async fn new(config: DataplaneConfig) -> Result<Self> {
         let metrics = Arc::new(DataplaneMetrics::new());
+
+        #[cfg(feature = "kubernetes")]
+        let image_resolver: Arc<dyn ImageResolver> =
+            if let Some(k8s_img) = &config.kubernetes_image_configmap {
+                Arc::new(
+                    ConfigMapImageResolver::new(
+                        k8s_img.namespace.clone(),
+                        k8s_img.configmap_name.clone(),
+                        k8s_img.fallback_image.clone(),
+                    )
+                    .await
+                    .context("Failed to initialize ConfigMapImageResolver")?,
+                )
+            } else {
+                Arc::new(DefaultImageResolver::new(
+                    config.default_function_image.clone(),
+                ))
+            };
+        #[cfg(not(feature = "kubernetes"))]
         let image_resolver: Arc<dyn ImageResolver> = Arc::new(DefaultImageResolver::new(
             config.default_function_image.clone(),
         ));
-        let secrets_provider: Arc<dyn SecretsProvider> = Arc::new(NoopSecretsProvider::new());
-        Self::with_providers(config, image_resolver, secrets_provider, metrics).await
+
+        #[cfg(feature = "kubernetes")]
+        let secrets_resolver: Arc<dyn SecretsResolver> =
+            if let Some(k8s_sec) = &config.kubernetes_secrets {
+                Arc::new(
+                    KubernetesSecretsResolver::new(k8s_sec.namespace.clone())
+                        .await
+                        .context("Failed to initialize KubernetesSecretsResolver")?,
+                )
+            } else {
+                Arc::new(NoopSecretsResolver::new())
+            };
+        #[cfg(not(feature = "kubernetes"))]
+        let secrets_resolver: Arc<dyn SecretsResolver> = Arc::new(NoopSecretsResolver::new());
+
+        Self::with_providers(config, image_resolver, secrets_resolver, metrics).await
     }
 
     /// Create a new dataplane service with custom image resolver and secrets
@@ -107,7 +151,7 @@ impl Service {
     pub async fn with_providers(
         config: DataplaneConfig,
         image_resolver: Arc<dyn ImageResolver>,
-        secrets_provider: Arc<dyn SecretsProvider>,
+        secrets_resolver: Arc<dyn SecretsResolver>,
         metrics: Arc<DataplaneMetrics>,
     ) -> Result<Self> {
         let channel = create_channel(&config).await?;
@@ -146,12 +190,14 @@ impl Service {
             &config.function_driver,
             #[cfg(feature = "firecracker")]
             &config,
-        )?;
+        )
+        .await?;
         let sandbox_driver = create_process_driver(
             &config.sandbox_driver,
             #[cfg(feature = "firecracker")]
             &config,
-        )?;
+        )
+        .await?;
 
         tracing::info!(
             function_driver = ?config.function_driver,
@@ -244,7 +290,7 @@ impl Service {
         let container_manager = Arc::new(FunctionContainerManager::new(
             sandbox_driver.clone(),
             image_resolver.clone(),
-            secrets_provider.clone(),
+            secrets_resolver.clone(),
             metrics.clone(),
             state_file.clone(),
             config.executor_id.clone(),
@@ -264,7 +310,7 @@ impl Service {
             driver: function_driver.clone(),
             image_resolver,
             gpu_allocator,
-            secrets_provider,
+            secrets_resolver,
             result_tx,
             container_state_tx,
             outcome_tx,
@@ -1473,7 +1519,7 @@ async fn wait_for_shutdown_signal() -> &'static str {
 }
 
 /// Create a process driver from a DriverConfig.
-fn create_process_driver(
+async fn create_process_driver(
     driver_config: &DriverConfig,
     #[cfg(feature = "firecracker")] config: &DataplaneConfig,
 ) -> Result<Arc<dyn ProcessDriver>> {
@@ -1498,6 +1544,29 @@ fn create_process_driver(
                 binds.clone(),
             )?)),
         },
+        #[cfg(feature = "kubernetes")]
+        DriverConfig::Kubernetes {
+            namespace,
+            dataplane_image,
+            pod_service_account,
+            pod_node_selector,
+            pod_image_pull_secrets,
+        } => {
+            let node_selector = pod_node_selector
+                .as_ref()
+                .map(|m| m.iter().map(|(k, v)| (k.clone(), v.clone())).collect());
+            Ok(Arc::new(
+                KubernetesPodDriver::new(
+                    namespace.clone(),
+                    dataplane_image.clone(),
+                    pod_service_account.clone(),
+                    node_selector,
+                    pod_image_pull_secrets.clone(),
+                )
+                .await
+                .context("Failed to initialize KubernetesPodDriver")?,
+            ))
+        }
         #[cfg(feature = "firecracker")]
         DriverConfig::Firecracker {
             firecracker_binary,

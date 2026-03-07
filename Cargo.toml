@@ -96,6 +96,8 @@ pingora-http = { git = "https://github.com/cloudflare/pingora", rev = "ad449bf37
 reqwest = { version = "0.13.2", default-features = false, features = ["json"] }
 zstd = "0.13"
 devicemapper = "0.34.6"
+kube = { version = "0.97", default-features = false, features = ["client", "rustls-tls"] }
+k8s-openapi = { version = "0.23", features = ["v1_30"] }
 aws-sdk-s3 = "1.124.0"
 aws-config = { version = "1.8.13", features = ["behavior-version-latest"] }
 pty-process = { version = "0.5.3", features = ["async"] }

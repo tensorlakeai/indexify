@@ -6,6 +6,33 @@ use serde_inline_default::serde_inline_default;
 use uuid::Uuid;
 
 const LOCAL_ENV: &str = "local";
+
+#[cfg(feature = "kubernetes")]
+fn default_function_images_configmap_name() -> String {
+    "indexify-function-images".to_string()
+}
+
+/// Kubernetes ConfigMap-backed image resolver configuration.
+#[cfg(feature = "kubernetes")]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct KubernetesImageConfig {
+    /// Namespace containing the ConfigMap.
+    pub namespace: String,
+    /// Name of the ConfigMap (keys = function names, values = OCI images).
+    #[serde(default = "default_function_images_configmap_name")]
+    pub configmap_name: String,
+    /// Fallback image when no mapping exists for a function.
+    #[serde(default)]
+    pub fallback_image: Option<String>,
+}
+
+/// Kubernetes Secret-backed secrets provider configuration.
+#[cfg(feature = "kubernetes")]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct KubernetesSecretsConfig {
+    /// Namespace to read Secrets from.
+    pub namespace: String,
+}
 const DEFAULT_METRICS_INTERVAL_SECS: u64 = 5;
 
 /// TLS configuration for authenticating with the gRPC server.
@@ -98,6 +125,24 @@ pub enum DriverConfig {
         /// Default: `/tmp/indexify-snapshots`.
         #[serde(default)]
         snapshot_local_dir: Option<String>,
+    },
+    #[cfg(feature = "kubernetes")]
+    Kubernetes {
+        /// Kubernetes namespace where function/sandbox pods are created.
+        namespace: String,
+        /// The dataplane's own container image. Used as the initContainer
+        /// source for injecting the daemon binary into sandbox pods.
+        dataplane_image: String,
+        /// Optional ServiceAccount name to assign to created pods.
+        #[serde(default)]
+        pod_service_account: Option<String>,
+        /// Optional node selector labels applied to created pods.
+        #[serde(default)]
+        pod_node_selector: Option<std::collections::HashMap<String, String>>,
+        /// Optional list of imagePullSecret names to attach to created pods,
+        /// enabling image pulls from private registries.
+        #[serde(default)]
+        pod_image_pull_secrets: Vec<String>,
     },
     #[cfg(feature = "firecracker")]
     Firecracker {
@@ -401,6 +446,16 @@ pub struct DataplaneConfig {
     /// image resolution service is configured.
     #[serde(default)]
     pub default_function_image: Option<String>,
+    /// Kubernetes ConfigMap-backed image resolver.
+    /// When set, function container images are resolved from a ConfigMap.
+    #[cfg(feature = "kubernetes")]
+    #[serde(default)]
+    pub kubernetes_image_configmap: Option<KubernetesImageConfig>,
+    /// Kubernetes Secret-backed secrets provider.
+    /// When set, function secrets are read from Kubernetes Secrets.
+    #[cfg(feature = "kubernetes")]
+    #[serde(default)]
+    pub kubernetes_secrets: Option<KubernetesSecretsConfig>,
 }
 
 /// Resource overrides to replace probed host resources.
@@ -465,6 +520,10 @@ impl Default for DataplaneConfig {
             monitoring: MonitoringConfig::default(),
             resource_overrides: None,
             default_function_image: None,
+            #[cfg(feature = "kubernetes")]
+            kubernetes_image_configmap: None,
+            #[cfg(feature = "kubernetes")]
+            kubernetes_secrets: None,
         }
     }
 }
@@ -551,7 +610,9 @@ impl DataplaneConfig {
     /// Parse function_allowlist strings into AllowedFunction protos.
     /// Format: "namespace:application:function" or
     /// "namespace:application:function:version".
+    /// Use "*" in any field to match any value (wildcard).
     pub fn parse_allowed_functions(&self) -> Vec<proto_api::executor_api_pb::AllowedFunction> {
+        let wildcard = |s: &str| if s == "*" { None } else { Some(s.to_string()) };
         self.function_allowlist
             .iter()
             .filter_map(|uri| {
@@ -564,10 +625,10 @@ impl DataplaneConfig {
                     return None;
                 }
                 Some(proto_api::executor_api_pb::AllowedFunction {
-                    namespace: Some(tokens[0].to_string()),
-                    application_name: Some(tokens[1].to_string()),
-                    function_name: Some(tokens[2].to_string()),
-                    application_version: tokens.get(3).map(|v| v.to_string()),
+                    namespace: wildcard(tokens[0]),
+                    application_name: wildcard(tokens[1]),
+                    function_name: wildcard(tokens[2]),
+                    application_version: tokens.get(3).and_then(|v| wildcard(v)),
                 })
             })
             .collect()
