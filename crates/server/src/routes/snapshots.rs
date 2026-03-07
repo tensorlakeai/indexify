@@ -41,6 +41,8 @@ pub struct SnapshotInfo {
     pub snapshot_uri: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub size_bytes: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub disk_size_bytes: Option<u64>,
     pub created_at: u64,
 }
 
@@ -60,6 +62,7 @@ impl SnapshotInfo {
             error,
             snapshot_uri: snapshot.snapshot_uri.clone(),
             size_bytes: snapshot.size_bytes,
+            disk_size_bytes: snapshot.disk_size_bytes,
             created_at: (snapshot.creation_time_ns / 1_000_000) as u64,
         }
     }
@@ -145,6 +148,7 @@ pub async fn create_snapshot(
         status: SnapshotStatus::InProgress,
         snapshot_uri: None,
         size_bytes: None,
+        disk_size_bytes: None,
         creation_time_ns: get_epoch_time_in_ns(),
         resources: sandbox.resources.clone(),
         entrypoint: sandbox.entrypoint.clone(),

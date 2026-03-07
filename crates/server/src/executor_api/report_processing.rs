@@ -485,6 +485,7 @@ async fn handle_snapshot_completed(
             snapshot_id: data_model::SnapshotId::new(completed.snapshot_id.clone()),
             snapshot_uri: completed.snapshot_uri.clone(),
             size_bytes: completed.size_bytes,
+            disk_size_bytes: completed.disk_size_bytes,
         }),
     };
     indexify_state.write(request).await

@@ -212,9 +212,9 @@ impl ContainerDaemon for ContainerDaemonService {
 
         // Offline extra CPUs so guest processes see the correct count via
         // nproc / /proc/cpuinfo. CPU0 cannot be offlined on Linux.
-        if let Some(num_cpus) = req.num_cpus
-            && num_cpus > 0
-            && let Err(e) = offline_extra_cpus(num_cpus).await
+        if let Some(num_cpus) = req.num_cpus &&
+            num_cpus > 0 &&
+            let Err(e) = offline_extra_cpus(num_cpus).await
         {
             error!(error = %e, num_cpus, "Failed to offline extra CPUs");
             return Ok(Response::new(PrepareResponse {
@@ -242,8 +242,8 @@ async fn offline_extra_cpus(keep_online: u32) -> anyhow::Result<()> {
     while let Some(entry) = entries.next_entry().await? {
         let name = entry.file_name();
         let name = name.to_string_lossy();
-        if let Some(id_str) = name.strip_prefix("cpu")
-            && let Ok(id) = id_str.parse::<usize>()
+        if let Some(id_str) = name.strip_prefix("cpu") &&
+            let Ok(id) = id_str.parse::<usize>()
         {
             cpu_ids.push(id);
         }

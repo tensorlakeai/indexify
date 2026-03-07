@@ -187,7 +187,6 @@ impl WarmPool {
     pub fn total_vms(&self) -> usize {
         self.total_vms
     }
-
 }
 
 #[cfg(test)]

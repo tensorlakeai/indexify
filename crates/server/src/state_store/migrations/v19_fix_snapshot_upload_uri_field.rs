@@ -77,6 +77,7 @@ impl Migration for V19FixSnapshotUploadUriField {
                         status: legacy.status,
                         snapshot_uri: legacy.snapshot_uri,
                         size_bytes: legacy.size_bytes,
+                        disk_size_bytes: None,
                         creation_time_ns: legacy.creation_time_ns,
                         resources: legacy.resources,
                         entrypoint: legacy.entrypoint,
@@ -164,6 +165,7 @@ mod tests {
             status: SnapshotStatus::Completed,
             snapshot_uri: Some("s3://bucket/path".to_string()),
             size_bytes: Some(42),
+            disk_size_bytes: None,
             creation_time_ns: 456,
             resources: crate::data_model::ContainerResources {
                 cpu_ms_per_sec: 1000,

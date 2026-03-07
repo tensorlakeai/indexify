@@ -461,6 +461,7 @@ pub struct CompleteSnapshotRequest {
     pub snapshot_id: SnapshotId,
     pub snapshot_uri: String,
     pub size_bytes: u64,
+    pub disk_size_bytes: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

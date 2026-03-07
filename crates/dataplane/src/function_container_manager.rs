@@ -731,6 +731,7 @@ impl FunctionContainerManager {
                     snapshot_id = %snapshot_id,
                     snapshot_uri = %result.snapshot_uri,
                     size_bytes = result.size_bytes,
+                    disk_size_bytes = result.disk_size_bytes,
                     "Snapshot created successfully"
                 );
                 self.send_snapshot_response(Response::SnapshotCompleted(SnapshotCompleted {
@@ -738,6 +739,7 @@ impl FunctionContainerManager {
                     snapshot_id: snapshot_id.to_string(),
                     snapshot_uri: result.snapshot_uri,
                     size_bytes: result.size_bytes,
+                    disk_size_bytes: result.disk_size_bytes,
                 }));
             }
             Err(e) => {

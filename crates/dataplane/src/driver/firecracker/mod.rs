@@ -456,8 +456,8 @@ impl FirecrackerDriver {
         // container's handle_id below.
         {
             let mut vms = self.vms.lock().await;
-            if let Some(old) = vms.remove(&warm_vm.handle_id)
-                && let Some(cancel) = &old.log_cancel
+            if let Some(old) = vms.remove(&warm_vm.handle_id) &&
+                let Some(cancel) = &old.log_cancel
             {
                 cancel.cancel();
             }
@@ -652,11 +652,10 @@ impl FirecrackerDriver {
             let cni_result = self.cni.setup_network(&vm_id).await?;
             cni_setup = true;
 
-            // 4. Create empty LV + dm device for vdb.  Size matches the default
-            //    rootfs size so the guest virtio-blk sees the right capacity
-            //    from boot and claim-time snapshots (which use the same default)
-            //    fit without a dm table resize.  Thin-provisioned → near-zero
-            //    actual disk use.
+            // 4. Create empty LV + dm device for vdb.  Size matches the default rootfs size
+            //    so the guest virtio-blk sees the right capacity from boot and claim-time
+            //    snapshots (which use the same default) fit without a dm table resize.
+            //    Thin-provisioned → near-zero actual disk use.
             let empty_lv = dm_thin::create_empty_lv_async(
                 vm_id.clone(),
                 self.lvm_config.clone(),
@@ -1301,8 +1300,8 @@ impl ProcessDriver for FirecrackerDriver {
                         // of claim_warm_vm.
                         {
                             let mut vms = self.vms.lock().await;
-                            if let Some(vm) = vms.remove(&handle_id)
-                                && let Some(cancel) = &vm.log_cancel
+                            if let Some(vm) = vms.remove(&handle_id) &&
+                                let Some(cancel) = &vm.log_cancel
                             {
                                 cancel.cancel();
                             }

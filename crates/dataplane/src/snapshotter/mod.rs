@@ -11,6 +11,9 @@ pub struct SnapshotResult {
     pub snapshot_uri: String,
     /// Size of the snapshot in bytes.
     pub size_bytes: u64,
+    /// Uncompressed disk/filesystem size in bytes. This is the minimum disk
+    /// size required to restore this snapshot. 0 when not applicable (Docker).
+    pub disk_size_bytes: u64,
 }
 
 /// Result of a successful snapshot restore. Contains whatever the

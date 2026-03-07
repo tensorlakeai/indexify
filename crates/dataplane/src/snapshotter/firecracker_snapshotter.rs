@@ -156,9 +156,19 @@ impl Snapshotter for FirecrackerSnapshotter {
             );
         }
 
+        // Query the block device size of the LV before building the delta
+        // stream. This is the uncompressed disk size — the minimum disk needed
+        // to restore this snapshot.
+        let lv_file = std::fs::File::open(&lv_path)
+            .with_context(|| format!("Failed to open LV device {}", lv_path.display()))?;
+        let disk_size_bytes =
+            block_device_size(&lv_file).context("Failed to get LV block device size")?;
+        drop(lv_file);
+
         info!(
             container_id = %container_id,
             lv_device = %lv_path.display(),
+            disk_size_bytes = disk_size_bytes,
             "Building delta snapshot via thin_delta metadata query"
         );
 
@@ -187,6 +197,7 @@ impl Snapshotter for FirecrackerSnapshotter {
         Ok(SnapshotResult {
             snapshot_uri: upload_uri.to_string(),
             size_bytes: result.size_bytes,
+            disk_size_bytes,
         })
     }
 
