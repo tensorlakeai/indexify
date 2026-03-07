@@ -146,6 +146,12 @@ sandbox_driver:
   # guest_gateway: "192.168.30.1"
   # lvm_volume_group: indexify-vg    # required: LVM volume group for thin-provisioned volumes
   # lvm_thin_pool: thinpool          # required: LVM thin pool name
+  # warm_pool:                       # optional: pre-boot VMs for fast sandbox creation
+  #   target_count: 5                #   idle VMs to maintain
+  #   max_total_vms: 20              #   cap on total VMs (warm + active)
+  #   max_parallel_boots: 3          #   concurrent boot limit
+  #   idle_cpu_millicores: 50        #   CPU quota for idle VMs
+  #   idle_memory_mib: 32            #   memory reserved per idle VM
 
 # Snapshot storage URI for container filesystem snapshots (optional).
 # Enables snapshot/restore for Docker (docker export) and Firecracker (thin_delta).
@@ -612,6 +618,10 @@ sandbox_driver:
   guest_gateway: "192.168.30.1"
   lvm_volume_group: indexify-vg
   lvm_thin_pool: thinpool
+  warm_pool:                              # optional: pre-boot VMs for fast sandbox creation
+    target_count: 5                       # idle VMs to keep ready
+    max_total_vms: 20                     # cap on warm + active VMs
+    max_parallel_boots: 3                 # concurrent boot limit
 http_proxy:
   port: 8095
   advertise_address: "<private-ip>:8095"
@@ -716,6 +726,68 @@ snapshot_storage_path: "s3://my-bucket/indexify-snapshots"
 
 The dataplane needs no extra configuration — it receives the upload URI from the
 server when a snapshot is requested.
+
+## Warm Pools (Firecracker)
+
+Warm pools pre-boot Firecracker VMs so sandbox creation takes ~130ms instead of
+~1.4s (cold boot). The dataplane maintains a FIFO queue of idle VMs. When a
+sandbox is created, it claims an idle VM, swaps in the user's image via
+device-mapper, and calls the in-guest daemon's `Prepare` RPC to configure the
+environment.
+
+### Enabling warm pools
+
+Add the `warm_pool` section under the Firecracker sandbox driver:
+
+```yaml
+sandbox_driver:
+  type: firecracker
+  kernel_image_path: /opt/firecracker/vmlinux
+  base_rootfs_image: /opt/firecracker/rootfs.ext4
+  cni_network_name: indexify-fc
+  guest_gateway: "192.168.30.1"
+  lvm_volume_group: indexify-vg
+  lvm_thin_pool: thinpool
+  warm_pool:
+    target_count: 5           # idle VMs to keep ready
+    max_total_vms: 20         # cap on warm + active VMs
+    max_parallel_boots: 3     # concurrent boot limit
+    idle_cpu_millicores: 50   # CPU quota while idle (keeps overhead low)
+    idle_memory_mib: 32       # memory reserved per idle VM
+```
+
+Omit `warm_pool` entirely to disable (all sandboxes cold-boot).
+
+### How it works
+
+1. On startup, the dataplane boots `target_count` VMs with the base rootfs
+   image (no user image), running at a low CPU cgroup quota.
+2. When a sandbox is requested, the server assigns an idle container on this
+   dataplane. The dataplane claims a warm VM from the FIFO queue:
+   - Swaps the vdb device-mapper backing to a thin snapshot of the user image
+   - Adjusts balloon memory and vCPU count to the sandbox's allocation
+   - Calls the daemon's `Prepare` RPC (env vars, working dir, mount config,
+     CPU offlining)
+3. The warm pool is replenished in the background (event-driven on claim,
+   periodic every 30s as a safety net). Replenishment respects
+   `max_parallel_boots` and `max_total_vms`, and backs off after 5 consecutive
+   boot failures.
+
+### Resource overhead
+
+The dataplane subtracts `target_count * idle_memory_mib` from the memory it
+reports to the server. This prevents the scheduler from over-committing the
+host. For example, with `target_count: 5` and `idle_memory_mib: 32`, 160 MiB
+is reserved for the warm pool.
+
+### Recovery
+
+Warm VMs survive dataplane restarts. On startup, the dataplane scans persisted
+VM metadata, health-checks recovered VMs, and pushes healthy ones back into
+the pool. Failed VMs are cleaned up and replenished.
+
+See [`FIRECRACKER.md`](src/driver/firecracker/FIRECRACKER.md#warm-pools) for
+the full reference including sizing guidelines and monitoring.
 
 ## Local Development
 

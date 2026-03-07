@@ -262,6 +262,12 @@ sandbox_driver:
   guest_gateway: "192.168.30.1"
   lvm_volume_group: indexify-vg
   lvm_thin_pool: thinpool
+  warm_pool:                        # optional
+    target_count: 5
+    max_total_vms: 20
+    max_parallel_boots: 3
+    idle_cpu_millicores: 50
+    idle_memory_mib: 32
 ```
 
 All fields:
@@ -282,6 +288,19 @@ All fields:
 | `default_memory_mib` | no | `512` | Memory per VM in MiB |
 | `state_dir` | no | `/var/lib/indexify/firecracker` | VM metadata and sockets directory |
 | `log_dir` | no | `/var/log/indexify/firecracker` | VM log directory |
+
+#### `warm_pool` fields
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `target_count` | `5` | Number of idle pre-booted VMs to maintain |
+| `max_total_vms` | `20` | Maximum VMs (warm + claimed) to prevent resource starvation |
+| `max_parallel_boots` | `3` | Maximum concurrent VM boot tasks |
+| `idle_cpu_millicores` | `50` | CPU cgroup quota for idle warm VMs |
+| `idle_memory_mib` | `32` | Memory reserved per idle VM for resource reporting |
+| `max_vcpus` | driver's `default_vcpu_count` | Maximum vCPUs per warm VM |
+| `max_memory_mib` | driver's `default_memory_mib` | Maximum memory per warm VM in MiB |
+| `parent_cgroup` | `"indexify"` | Parent cgroup name for jailer isolation |
 
 ## Building
 
@@ -366,6 +385,124 @@ Poll-based log tailer that streams Firecracker VMM logs and guest serial console
 ### `vm_state.rs` -- VM state and metadata
 
 `VmProcess` enum distinguishes owned processes from recovered ones. `VmMetadata` tracks `lv_name` per VM. `BaseImageMetadata` tracks the base image path and LV name.
+
+### `warm_pool.rs` -- Warm pool manager
+
+Manages a FIFO queue of pre-booted VMs that can be claimed in ~130ms instead
+of cold-booting (~1.4s). See [Warm pools](#warm-pools) below.
+
+## Warm pools
+
+Warm pools pre-boot Firecracker VMs so that sandbox creation is near-instant.
+Without warm pools, every sandbox request cold-boots a VM (~1.4s). With warm
+pools, the dataplane claims an already-running VM and reconfigures it for the
+user's workload (~130ms).
+
+### How it works
+
+```
+Dataplane startup
+  -> boot target_count VMs with base rootfs (no user image)
+  -> set idle CPU cgroup quota (e.g. 50 millicores)
+  -> VMs sit idle in a FIFO queue, waiting to be claimed
+
+Sandbox creation (claim)
+  1. Pop a warm VM from the queue
+  2. Create thin snapshot of user image, swap vdb backing via device-mapper
+  3. Adjust balloon memory to target
+  4. Call Prepare RPC on in-guest daemon:
+     - set env vars, working dir, mount user image
+     - offline extra vCPUs (so runtimes detect correct CPU count)
+  5. Lift CPU cgroup quota to allocated amount
+  6. Re-register VM with sandbox_id — container is now live
+
+Background replenishment
+  -> event-driven: triggers immediately when a VM is claimed
+  -> periodic: polls every 30s as a safety net
+  -> respects max_parallel_boots and max_total_vms limits
+  -> backs off after 5 consecutive boot failures
+```
+
+### Configuration
+
+Add `warm_pool` under the Firecracker driver config:
+
+```yaml
+sandbox_driver:
+  type: firecracker
+  kernel_image_path: /opt/firecracker/vmlinux
+  base_rootfs_image: /opt/firecracker/rootfs.ext4
+  cni_network_name: indexify-fc
+  guest_gateway: "192.168.30.1"
+  lvm_volume_group: indexify-vg
+  lvm_thin_pool: thinpool
+  warm_pool:
+    target_count: 5           # keep 5 idle VMs ready
+    max_total_vms: 20         # never exceed 20 VMs (warm + active)
+    max_parallel_boots: 3     # boot at most 3 VMs concurrently
+    idle_cpu_millicores: 50   # CPU limit while idle
+    idle_memory_mib: 32       # memory reserved per idle VM
+```
+
+Omit the `warm_pool` key entirely to disable warm pools (all sandboxes
+cold-boot).
+
+### Sizing guidelines
+
+**`target_count`**: Set to your expected burst concurrency. If you typically
+create 3 sandboxes at once, `target_count: 5` gives headroom. Each idle VM
+costs `idle_memory_mib` of memory and negligible CPU.
+
+**`max_total_vms`**: Caps total VMs on this host. Set based on available
+memory: `(host_memory - OS overhead) / per_VM_memory`. Leave room for the
+dataplane itself (~256 MB).
+
+**`idle_memory_mib`**: Memory reserved per idle VM for resource accounting.
+The dataplane subtracts `target_count * idle_memory_mib` from available
+memory reported to the server. Keep this low (32-64 MiB) — idle VMs run a
+minimal daemon process.
+
+**`max_parallel_boots`**: Limits concurrent I/O during replenishment. On
+NVMe instance storage, 3-5 is fine. On EBS, consider 1-2 to avoid
+throughput contention.
+
+### Resource accounting
+
+The dataplane deducts warm pool memory overhead from the resources it
+reports to the server:
+
+```
+reported_memory = host_memory - (target_count * idle_memory_mib)
+```
+
+This ensures the server's scheduler does not over-commit the host. When a
+warm VM is claimed and promoted to a full sandbox, the scheduler accounts
+for the sandbox's actual resource allocation.
+
+### Recovery
+
+On dataplane restart, warm VMs are recovered from persisted metadata:
+
+1. Scan state directory for VM metadata files marked `is_warm: true`
+2. Health-check each candidate concurrently (5s timeout)
+3. Push healthy VMs back into the warm pool
+4. Destroy unhealthy ones (tear down thin LV, CNI, metadata)
+5. Replenish to `target_count` as normal
+
+Warm VMs survive dataplane restarts because their thin LVs and Firecracker
+processes persist independently.
+
+### Monitoring
+
+Key log events to watch:
+
+| Event | Level | Meaning |
+|-------|-------|---------|
+| `Warm pool replenishment: booting N VMs` | INFO | Replenishment triggered |
+| `Warm VM booted successfully` | INFO | VM added to pool |
+| `Warm VM claimed` | INFO | VM assigned to a sandbox |
+| `Warm VM boot failed` | ERROR | Boot failure (check LVM/CNI) |
+| `Warm pool backoff: N consecutive failures` | WARN | 5+ failures, replenishment paused |
 
 ## Phase 2b outline (not started)
 
